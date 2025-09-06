@@ -2,13 +2,13 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const SUBSCRIPTION_PLANS = {
   basic: {
-    id: 'price_basic_monthly',
+    id: process.env.STRIPE_PRICE_BASIC || 'price_basic_monthly',
     name: 'Basic Plan',
     price: 2500, // $25.00 in cents
     features: ['Lead Management', 'Basic Analytics', 'Email Support']
   },
   premium: {
-    id: 'price_premium_monthly', 
+    id: process.env.STRIPE_PRICE_PREMIUM || 'price_premium_monthly', 
     name: 'Premium Plan',
     price: 5000, // $50.00 in cents
     features: ['Lead Management', 'Advanced Analytics', 'AI Lead Scoring', 'Priority Support', 'Data Export']
