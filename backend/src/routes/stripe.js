@@ -14,6 +14,66 @@ router.get('/plans', async (req, res) => {
   }
 });
 
+// Create Stripe customer
+router.post('/customer', async (req, res) => {
+  try {
+    const { email, name } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'email is required' });
+    }
+
+    // Try to find existing customer by email first
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    if (existing && existing.data && existing.data.length > 0) {
+      return res.json({ success: true, customerId: existing.data[0].id });
+    }
+
+    const customer = await stripeService.createCustomer(email, name || email);
+    res.json({ success: true, customerId: customer.id });
+  } catch (error) {
+    console.error('Error creating Stripe customer:', error);
+    res.status(500).json({ success: false, error: 'Failed to create customer' });
+  }
+});
+
+// Create checkout session using plan key (basic|premium) and email/name
+router.post('/subscribe', async (req, res) => {
+  try {
+    const { email, name, plan, successUrl, cancelUrl } = req.body;
+    if (!email || !plan) {
+      return res.status(400).json({ success: false, error: 'email and plan are required' });
+    }
+
+    const plans = stripeService.getSubscriptionPlans();
+    const selected = plans[plan];
+    if (!selected) {
+      return res.status(400).json({ success: false, error: 'Invalid plan' });
+    }
+
+    // Find or create customer
+    let customerId;
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    if (existing && existing.data && existing.data.length > 0) {
+      customerId = existing.data[0].id;
+    } else {
+      const customer = await stripeService.createCustomer(email, name || email);
+      customerId = customer.id;
+    }
+
+    const session = await stripeService.createCheckoutSession(
+      customerId,
+      selected.id,
+      successUrl || 'https://example.com/success',
+      cancelUrl || 'https://example.com/cancel'
+    );
+
+    res.json({ success: true, url: session.url, sessionId: session.id, customerId });
+  } catch (error) {
+    console.error('Error creating subscription session:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to create subscription session' });
+  }
+});
+
 // Create checkout session
 router.post('/create-checkout-session', async (req, res) => {
   try {
