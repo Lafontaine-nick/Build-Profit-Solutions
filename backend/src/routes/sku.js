@@ -296,8 +296,9 @@ async function searchWithSerpAPI(query, store, zip) {
         // Home Depot: Use very specific search with model info
         productUrl = `https://www.homedepot.com/s/${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}`;
       } else {
-        // Lowes: Use product search (no quotes, they break the links)
-        productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}`;
+        // Lowes: Use product search with simpler format
+        const simpleTitle = cleanTitle.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+        productUrl = `https://www.lowes.com/search?searchTerm=${encodeURIComponent(simpleTitle).replace(/%20/g, '+')}`;
       }
     }
     
