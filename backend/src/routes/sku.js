@@ -257,23 +257,27 @@ async function searchWithSerpAPI(query, store, zip) {
   
   return filteredResults.map((item, idx) => {
     // Create a direct store search URL with the product title
-    // This is most reliable - takes users to store's search results for the exact product
+    // Use exact phrase match to make the product appear first
     const cleanTitle = (item.title || query)
       .replace(/[^\w\s.-]/g, '') // Remove special chars except spaces, dots, hyphens
+      .replace(/\s+/g, ' ') // Normalize spaces
       .trim();
     
-    // Create store-specific search URL
+    // Create store-specific search URL with exact phrase match
     let productUrl;
     if (store === 'hd') {
-      // Home Depot search format: /s/Product+Name
-      productUrl = `https://www.homedepot.com/s/${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}`;
+      // Home Depot: Use exact phrase with quotes to make it appear first
+      // Format: /s/"Product+Name" for exact match
+      const searchTerm = `"${cleanTitle}"`;
+      productUrl = `https://www.homedepot.com/s/${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
     } else {
-      // Lowes search format: /search?text=Product+Name
-      productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}`;
+      // Lowes: Use exact phrase with quotes
+      const searchTerm = `"${cleanTitle}"`;
+      productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
     }
     
     if (idx === 0) {
-      console.log('🔗 Creating store search URL from title:', cleanTitle);
+      console.log('🔗 Creating exact match search URL from title:', cleanTitle);
       console.log('🔗 Final URL:', productUrl);
     }
     
