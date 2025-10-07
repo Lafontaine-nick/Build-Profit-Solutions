@@ -248,36 +248,61 @@ async function searchWithSerpAPI(query, store, zip) {
   
   // Filter results to only include items from the correct store
   const allResults = response.data.shopping_results || [];
-  const filteredResults = allResults.filter(item => 
-    item.link?.includes(storeDomain) || 
-    item.source?.toLowerCase().includes(storeName.toLowerCase())
-  );
+  
+  // More flexible filtering for Lowe's
+  const filteredResults = allResults.filter(item => {
+    const hasStoreLink = item.link?.includes(storeDomain);
+    const hasStoreSource = item.source?.toLowerCase().includes(storeName.toLowerCase());
+    const hasStoreInTitle = item.title?.toLowerCase().includes(storeName.toLowerCase());
+    
+    // For Lowe's, be very permissive since Google Shopping results might not always have direct links
+    if (store === 'lowes') {
+      return hasStoreLink || hasStoreSource || hasStoreInTitle || 
+             item.link?.includes('lowes.com') || 
+             item.source?.toLowerCase().includes('lowes') ||
+             // Accept any result if we can't find store-specific indicators
+             (!item.link?.includes('homedepot.com') && !item.source?.toLowerCase().includes('home depot'));
+    }
+    
+    return hasStoreLink || hasStoreSource;
+  });
   
   console.log(`🎯 Filtered to ${filteredResults.length} items from ${storeName}`);
   
   return filteredResults.map((item, idx) => {
-    // Use Google Shopping product link which redirects to actual product page
-    // This is more reliable than constructing our own URLs
-    let productUrl = item.product_link; // Google Shopping redirect URL
+    // Try to extract direct merchant link from various fields
+    let productUrl = null;
     
-    // Fallback: if no product_link, create search URL
-    if (!productUrl || !productUrl.startsWith('http')) {
+    // Check if there's a direct link in the extensions or other fields
+    if (item.link && item.link.includes(storeDomain)) {
+      productUrl = item.link;
+    } else if (item.extensions) {
+      // Sometimes the direct link is in extensions
+      const linkInExtensions = item.extensions.find(ext => ext?.includes && ext.includes(storeDomain));
+      if (linkInExtensions) {
+        productUrl = linkInExtensions;
+      }
+    }
+    
+    // If no direct link found, construct one from the product title
+    // This creates a targeted search that should show the product first
+    if (!productUrl) {
       const cleanTitle = (item.title || query)
         .replace(/[^\w\s.-]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
       
       if (store === 'hd') {
-        const searchTerm = `"${cleanTitle}"`;
-        productUrl = `https://www.homedepot.com/s/${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
+        // Home Depot: Use very specific search with model info
+        productUrl = `https://www.homedepot.com/s/${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}`;
       } else {
-        const searchTerm = `"${cleanTitle}"`;
-        productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
+        // Lowes: Use product search with exact phrase matching
+        productUrl = `https://www.lowes.com/search?text="${encodeURIComponent(cleanTitle).replace(/%20/g, '+')}"`;
       }
     }
     
     if (idx === 0) {
-      console.log('🔗 Using product_link for direct access:', item.product_link ? 'Yes (Google redirect)' : 'No (fallback search)');
+      console.log('🔗 Direct merchant link found:', productUrl.includes(storeDomain) && !productUrl.includes('/s/'));
       console.log('🔗 Final URL:', productUrl);
     }
     
