@@ -256,28 +256,28 @@ async function searchWithSerpAPI(query, store, zip) {
   console.log(`🎯 Filtered to ${filteredResults.length} items from ${storeName}`);
   
   return filteredResults.map((item, idx) => {
-    // Create a direct store search URL with the product title
-    // Use exact phrase match to make the product appear first
-    const cleanTitle = (item.title || query)
-      .replace(/[^\w\s.-]/g, '') // Remove special chars except spaces, dots, hyphens
-      .replace(/\s+/g, ' ') // Normalize spaces
-      .trim();
+    // Use Google Shopping product link which redirects to actual product page
+    // This is more reliable than constructing our own URLs
+    let productUrl = item.product_link; // Google Shopping redirect URL
     
-    // Create store-specific search URL with exact phrase match
-    let productUrl;
-    if (store === 'hd') {
-      // Home Depot: Use exact phrase with quotes to make it appear first
-      // Format: /s/"Product+Name" for exact match
-      const searchTerm = `"${cleanTitle}"`;
-      productUrl = `https://www.homedepot.com/s/${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
-    } else {
-      // Lowes: Use exact phrase with quotes
-      const searchTerm = `"${cleanTitle}"`;
-      productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
+    // Fallback: if no product_link, create search URL
+    if (!productUrl || !productUrl.startsWith('http')) {
+      const cleanTitle = (item.title || query)
+        .replace(/[^\w\s.-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (store === 'hd') {
+        const searchTerm = `"${cleanTitle}"`;
+        productUrl = `https://www.homedepot.com/s/${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
+      } else {
+        const searchTerm = `"${cleanTitle}"`;
+        productUrl = `https://www.lowes.com/search?text=${encodeURIComponent(searchTerm).replace(/%20/g, '+')}`;
+      }
     }
     
     if (idx === 0) {
-      console.log('🔗 Creating exact match search URL from title:', cleanTitle);
+      console.log('🔗 Using product_link for direct access:', item.product_link ? 'Yes (Google redirect)' : 'No (fallback search)');
       console.log('🔗 Final URL:', productUrl);
     }
     
