@@ -1,5 +1,8 @@
 const { v4: uuidv4 } = require('uuid');
 
+// In-memory storage for leads (in production, use a database)
+let leads = [];
+
 // Enhanced Lead structure with best-in-industry features
 const createLead = (leadData) => {
   const now = new Date().toISOString();

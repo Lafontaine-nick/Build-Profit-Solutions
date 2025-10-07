@@ -99,28 +99,27 @@ const handleWebhook = async (event) => {
 
 const handleSubscriptionCreated = async (subscription) => {
   console.log('Subscription created:', subscription.id);
-  // Update user access in database
-  // This would integrate with your user management system
+  // Add your business logic here
 };
 
 const handleSubscriptionUpdated = async (subscription) => {
   console.log('Subscription updated:', subscription.id);
-  // Update user access based on new plan
+  // Add your business logic here
 };
 
 const handleSubscriptionDeleted = async (subscription) => {
   console.log('Subscription deleted:', subscription.id);
-  // Revoke user access
+  // Add your business logic here
 };
 
 const handlePaymentSucceeded = async (invoice) => {
   console.log('Payment succeeded for invoice:', invoice.id);
-  // Activate user access
+  // Add your business logic here
 };
 
 const handlePaymentFailed = async (invoice) => {
   console.log('Payment failed for invoice:', invoice.id);
-  // Handle failed payment (suspend access, send notification, etc.)
+  // Add your business logic here
 };
 
 const getSubscriptionPlans = () => {
@@ -133,4 +132,4 @@ module.exports = {
   createCheckoutSession,
   handleWebhook,
   getSubscriptionPlans
-}; 
+};

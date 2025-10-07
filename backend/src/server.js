@@ -13,6 +13,13 @@ const leadRoutes = require('./routes/leads');
 const contractorRoutes = require('./routes/contractors');
 const stripeRoutes = require('./routes/stripe');
 const authRoutes = require('./routes/auth');
+const projectRoutes = require('./routes/projects');
+const ocrRoutes = require('./routes/ocr');
+const aiBudgetForecastRoutes = require('./routes/aiBudgetForecast');
+const aiExpenseValidationRoutes = require('./routes/aiExpenseValidation');
+const aiPredictiveAnalyticsRoutes = require('./routes/aiPredictiveAnalytics');
+const materialsRoutes = require('./routes/materials');
+const skuRoutes = require('./routes/sku');
 const leadScoringService = require('./services/leadScoring');
 const { initializeDatabase } = require('./services/database');
 
@@ -27,7 +34,9 @@ if (process.env.DATABASE_URL) {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL 
+    : ['http://localhost:8081', 'http://localhost:8082', 'http://192.168.0.201:8081', 'http://192.168.0.201:8082'],
   credentials: true
 }));
 
@@ -70,7 +79,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/contractors', contractorRoutes);
 app.use('/api/stripe', stripeRoutes);
-
+app.use('/api/projects', projectRoutes);
+app.use('/api/ocr', ocrRoutes);
+app.use('/api/materials', materialsRoutes);
+app.use('/api/sku', skuRoutes);
+app.use('/api/ai', aiBudgetForecastRoutes);
+app.use('/api/ai', aiExpenseValidationRoutes);
+app.use('/api/ai', aiPredictiveAnalyticsRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
