@@ -20,6 +20,8 @@ const aiExpenseValidationRoutes = require('./routes/aiExpenseValidation');
 const aiPredictiveAnalyticsRoutes = require('./routes/aiPredictiveAnalytics');
 const materialsRoutes = require('./routes/materials');
 const skuRoutes = require('./routes/sku');
+const yelpRoutes = require('./routes/yelp');
+const blsRoutes = require('./routes/bls');
 const leadScoringService = require('./services/leadScoring');
 const { initializeDatabase } = require('./services/database');
 
@@ -83,6 +85,8 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/materials', materialsRoutes);
 app.use('/api/sku', skuRoutes);
+app.use('/api/yelp', yelpRoutes);
+app.use('/api/bls', blsRoutes);
 app.use('/api/ai', aiBudgetForecastRoutes);
 app.use('/api/ai', aiExpenseValidationRoutes);
 app.use('/api/ai', aiPredictiveAnalyticsRoutes);
@@ -124,6 +128,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 API Base: http://localhost:${PORT}/api`);
+  console.log(`📱 Mobile access: http://192.168.0.201:${PORT}/api`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
