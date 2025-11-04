@@ -1,0 +1,244 @@
+[
+  {
+    "id": "demo-1",
+    "title": "Framing for Mountain View Condos",
+    "trade": "Framing",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "Sarah Johnson",
+      "email": "sarah@eliteconstruction.com",
+      "phone": "555-123-4567",
+      "company": "Elite Construction"
+    },
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT",
+      "zip": "84101",
+      "lat": 40.7608,
+      "lng": -111.891
+    },
+    "project": {
+      "type": "new_build",
+      "budgetMin": 85000,
+      "budgetMax": 125000,
+      "timeline": "Soon"
+    },
+    "stage": "new",
+    "aiScore": 92,
+    "verified": true,
+    "createdBy": "gc-sarah-001",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-29T04:11:24.062Z",
+    "description": "Professional framing services for 12-unit condo development"
+  },
+  {
+    "id": "demo-2",
+    "title": "HVAC RFQ from Metro Builders",
+    "trade": "HVAC",
+    "source": "BID_INVITATION",
+    "contact": {
+      "name": "Mike Rodriguez",
+      "email": "mike@metrobuilders.com",
+      "phone": "555-987-6543",
+      "company": "Metro Builders"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "new_build",
+      "budgetMin": 120000,
+      "budgetMax": 180000,
+      "timeline": "Urgent"
+    },
+    "stage": "new",
+    "aiScore": 88,
+    "verified": true,
+    "createdBy": "gc-mike-002",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-30T04:11:24.062Z",
+    "description": "Direct invitation for HVAC work on commercial office building",
+    "deadline": "2025-11-05T04:11:24.062Z"
+  },
+  {
+    "id": "demo-3",
+    "title": "Electrical lead shared by Elite Framing Co",
+    "trade": "Electrical",
+    "source": "SHARED",
+    "contact": {
+      "name": "Shared Lead Contact",
+      "email": "shared@lead.com",
+      "phone": "555-000-0000",
+      "company": "Shared Lead"
+    },
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT",
+      "zip": "84101",
+      "lat": 40.7608,
+      "lng": -111.891
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 35000,
+      "budgetMax": 55000,
+      "timeline": "Normal"
+    },
+    "stage": "new",
+    "aiScore": 76,
+    "verified": true,
+    "createdBy": "contractor-001",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-30T22:11:24.062Z",
+    "description": "Shared electrical opportunity from trusted contractor",
+    "sharedBy": "contractor-001",
+    "sharingMessage": "This client is looking for quality electrical work"
+  },
+  {
+    "id": "LEAD-1761884376752-31e0da17",
+    "createdAt": "2025-10-31T04:19:36.752Z",
+    "stage": "qualified",
+    "aiScore": 85,
+    "verified": true,
+    "title": "American building  - Professional Services",
+    "trade": "Plumbing",
+    "projectId": "CAMPAIGN-campaign-1761883298749",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from American building . Services: Plumbing. . Available: 1-2 weeks",
+    "createdBy": "contractor-demo",
+    "updatedAt": "2025-11-01T10:26:38.241Z"
+  },
+  {
+    "id": "LEAD-1761884376752-31e0da17-contractor-002",
+    "createdAt": "2025-10-31T04:19:36.752Z",
+    "stage": "qualified",
+    "aiScore": 85,
+    "verified": true,
+    "title": "American building  - Professional Services",
+    "trade": "Plumbing",
+    "projectId": "CAMPAIGN-campaign-1761883298749",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from American building . Services: Plumbing. . Available: 1-2 weeks",
+    "createdBy": "contractor-demo",
+    "assignedTo": "contractor-002",
+    "matchedDistance": "0.0",
+    "matchedRating": 4.5,
+    "updatedAt": "2025-11-01T10:26:38.241Z"
+  },
+  {
+    "id": "LEAD-1761884494076-2814af5e",
+    "createdAt": "2025-10-31T04:21:34.077Z",
+    "stage": "qualified",
+    "aiScore": 85,
+    "verified": true,
+    "title": "Bps - Professional Services",
+    "trade": "Roofing",
+    "projectId": "CAMPAIGN-campaign-1761884493832",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from Bps. Services: Roofing. . Available: 1-2 weeks",
+    "createdBy": "contractor-demo",
+    "updatedAt": "2025-11-04T06:42:40.183Z"
+  },
+  {
+    "id": "LEAD-1761967913737-6724c564",
+    "createdAt": "2025-11-01T03:31:53.737Z",
+    "stage": "won",
+    "aiScore": 90,
+    "verified": true,
+    "title": "Kitchen ",
+    "trade": "plumbing",
+    "projectId": "PRJ-1761967913967",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 25000,
+      "timeline": "Soon"
+    },
+    "description": "Looking for qualified Plumbing subcontractors",
+    "createdBy": "contractor-demo",
+    "updatedAt": "2025-11-04T07:22:51.886Z"
+  },
+  {
+    "id": "LEAD-1761971575379-b7dbc808",
+    "createdAt": "2025-11-01T04:32:55.380Z",
+    "stage": "won",
+    "aiScore": 85,
+    "verified": true,
+    "title": "Build Profit Solutions  - Professional Services",
+    "trade": "Kitchen Remodel",
+    "projectId": "CAMPAIGN-campaign-1761971575027",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from Build Profit Solutions . Services: Kitchen Remodel, General Contracting, Bathroom Remodel. Residential, Commercial. Available: 1-2 weeks",
+    "createdBy": "contractor-demo",
+    "updatedAt": "2025-11-04T07:20:27.669Z"
+  }
+]

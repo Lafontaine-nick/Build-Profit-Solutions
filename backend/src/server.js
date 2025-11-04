@@ -22,6 +22,7 @@ const materialsRoutes = require('./routes/materials');
 const skuRoutes = require('./routes/sku');
 const yelpRoutes = require('./routes/yelp');
 const blsRoutes = require('./routes/bls');
+const costBenchmarksRoutes = require('./routes/cost-benchmarks');
 const leadScoringService = require('./services/leadScoring');
 const { initializeDatabase } = require('./services/database');
 
@@ -38,7 +39,7 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL 
-    : ['http://localhost:8081', 'http://localhost:8082', 'http://192.168.0.201:8081', 'http://192.168.0.201:8082'],
+    : true, // Allow all origins in development (needed for Expo Go and React Native)
   credentials: true
 }));
 
@@ -87,6 +88,7 @@ app.use('/api/materials', materialsRoutes);
 app.use('/api/sku', skuRoutes);
 app.use('/api/yelp', yelpRoutes);
 app.use('/api/bls', blsRoutes);
+app.use('/api/cost-benchmarks', costBenchmarksRoutes);
 app.use('/api/ai', aiBudgetForecastRoutes);
 app.use('/api/ai', aiExpenseValidationRoutes);
 app.use('/api/ai', aiPredictiveAnalyticsRoutes);

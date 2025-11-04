@@ -1,0 +1,110 @@
+[
+  {
+    "id": "LEAD-1761884376752-31e0da17",
+    "createdAt": "2025-10-31T04:19:36.752Z",
+    "stage": "new",
+    "aiScore": 85,
+    "verified": true,
+    "title": "American building  - Professional Services",
+    "trade": "Plumbing",
+    "projectId": "CAMPAIGN-campaign-1761883298749",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from American building . Services: Plumbing. . Available: 1-2 weeks",
+    "createdBy": "contractor-demo"
+  },
+  {
+    "id": "LEAD-1761884494076-2814af5e",
+    "createdAt": "2025-10-31T04:21:34.077Z",
+    "stage": "new",
+    "aiScore": 85,
+    "verified": true,
+    "title": "Bps - Professional Services",
+    "trade": "Roofing",
+    "projectId": "CAMPAIGN-campaign-1761884493832",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from Bps. Services: Roofing. . Available: 1-2 weeks",
+    "createdBy": "contractor-demo"
+  },
+  {
+    "id": "LEAD-1761967913737-6724c564",
+    "createdAt": "2025-11-01T03:31:53.737Z",
+    "stage": "new",
+    "aiScore": 90,
+    "verified": true,
+    "title": "Kitchen ",
+    "trade": "plumbing",
+    "projectId": "PRJ-1761967913967",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 25000,
+      "timeline": "Soon"
+    },
+    "description": "Looking for qualified Plumbing subcontractors",
+    "createdBy": "contractor-demo"
+  },
+  {
+    "id": "LEAD-1761971575379-b7dbc808",
+    "createdAt": "2025-11-01T04:32:55.380Z",
+    "stage": "new",
+    "aiScore": 85,
+    "verified": true,
+    "title": "Build Profit Solutions  - Professional Services",
+    "trade": "Kitchen Remodel",
+    "projectId": "CAMPAIGN-campaign-1761971575027",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 10000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from Build Profit Solutions . Services: Kitchen Remodel, General Contracting, Bathroom Remodel. Residential, Commercial. Available: 1-2 weeks",
+    "createdBy": "contractor-demo"
+  }
+]

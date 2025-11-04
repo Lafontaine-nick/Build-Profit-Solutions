@@ -237,7 +237,7 @@ async function searchWithSerpAPI(query, store, zip) {
     engine: 'google_shopping',
     api_key: process.env.SERPAPI_KEY,
     location: `${zip}, United States`,
-    num: 24
+    num: 40  // Request more results to ensure comprehensive product list
   };
   
   console.log(`📡 SerpAPI Query: "${searchQuery}" in ${zip}`);
@@ -249,22 +249,35 @@ async function searchWithSerpAPI(query, store, zip) {
   // Filter results to only include items from the correct store
   const allResults = response.data.shopping_results || [];
   
-  // More flexible filtering for Lowe's
+  // More flexible filtering - prioritize store results but don't filter too aggressively
   const filteredResults = allResults.filter(item => {
     const hasStoreLink = item.link?.includes(storeDomain);
     const hasStoreSource = item.source?.toLowerCase().includes(storeName.toLowerCase());
     const hasStoreInTitle = item.title?.toLowerCase().includes(storeName.toLowerCase());
     
-    // For Lowe's, be very permissive since Google Shopping results might not always have direct links
-    if (store === 'lowes') {
-      return hasStoreLink || hasStoreSource || hasStoreInTitle || 
-             item.link?.includes('lowes.com') || 
-             item.source?.toLowerCase().includes('lowes') ||
-             // Accept any result if we can't find store-specific indicators
-             (!item.link?.includes('homedepot.com') && !item.source?.toLowerCase().includes('home depot'));
+    // Check if item is from a competing store (we want to exclude those)
+    const competingStores = store === 'hd' 
+      ? ['lowes.com', 'lowe\'s'] 
+      : ['homedepot.com', 'home depot'];
+    
+    const isFromCompetitor = competingStores.some(competitor => 
+      item.link?.toLowerCase().includes(competitor) || 
+      item.source?.toLowerCase().includes(competitor)
+    );
+    
+    // If it's definitely from a competitor, exclude it
+    if (isFromCompetitor) {
+      return false;
     }
     
-    return hasStoreLink || hasStoreSource;
+    // If it has store-specific markers, definitely include it
+    if (hasStoreLink || hasStoreSource) {
+      return true;
+    }
+    
+    // For items without clear store markers, include them if they're relevant
+    // (this catches products that Google Shopping lists without specific store attribution)
+    return true;
   });
   
   console.log(`🎯 Filtered to ${filteredResults.length} items from ${storeName}`);
