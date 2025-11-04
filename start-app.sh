@@ -47,7 +47,7 @@ fi
 echo ""
 echo "📱 Starting Mobile App..."
 cd /Users/nick_lafontaine/build-profit-solutions/mobile
-npx expo start --lan &
+npx expo start -c --tunnel &
 MOBILE_PID=$!
 
 # Wait for mobile app to start
