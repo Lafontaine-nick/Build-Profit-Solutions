@@ -71,11 +71,92 @@ function saveUnifiedLeads(leads) {
   }
 }
 
+/**
+ * Load projects from disk
+ */
+const PROJECTS_FILE = path.join(STORAGE_DIR, 'projects.json');
+
+if (!fs.existsSync(PROJECTS_FILE)) {
+  fs.writeFileSync(PROJECTS_FILE, JSON.stringify([], null, 2));
+}
+
+function loadProjects() {
+  try {
+    const data = fs.readFileSync(PROJECTS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('❌ Error loading projects:', error);
+    return [];
+  }
+}
+
+/**
+ * Save projects to disk
+ */
+function saveProjects(projects) {
+  try {
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
+    return true;
+  } catch (error) {
+    console.error('❌ Error saving projects:', error);
+    return false;
+  }
+}
+
+/**
+ * Load users from disk
+ */
+const USERS_FILE = path.join(STORAGE_DIR, 'users.json');
+
+if (!fs.existsSync(USERS_FILE)) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify({}, null, 2));
+}
+
+function loadUsers() {
+  try {
+    const data = fs.readFileSync(USERS_FILE, 'utf8');
+    const usersObj = JSON.parse(data);
+    // Convert object to Map
+    const usersMap = new Map();
+    for (const [email, user] of Object.entries(usersObj)) {
+      usersMap.set(email, user);
+    }
+    return usersMap;
+  } catch (error) {
+    console.error('❌ Error loading users:', error);
+    return new Map();
+  }
+}
+
+/**
+ * Save users to disk
+ */
+function saveUsers(usersMap) {
+  try {
+    // Convert Map to object for JSON serialization
+    const usersObj = {};
+    for (const [email, user] of usersMap.entries()) {
+      usersObj[email] = user;
+    }
+    fs.writeFileSync(USERS_FILE, JSON.stringify(usersObj, null, 2));
+    return true;
+  } catch (error) {
+    console.error('❌ Error saving users:', error);
+    return false;
+  }
+}
+
 module.exports = {
   loadProjectLeads,
   saveProjectLeads,
   loadUnifiedLeads,
   saveUnifiedLeads,
+  loadProjects,
+  saveProjects,
+  loadUsers,
+  saveUsers,
   PROJECT_LEADS_FILE,
-  UNIFIED_LEADS_FILE
+  UNIFIED_LEADS_FILE,
+  PROJECTS_FILE,
+  USERS_FILE
 };

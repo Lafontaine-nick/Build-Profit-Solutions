@@ -1,0 +1,126 @@
+[
+  {
+    "id": "INV-202501-001",
+    "number": "INV-202501-001",
+    "clientId": "subscription-1",
+    "clientName": "Build Profit Solutions",
+    "projectId": "subscription",
+    "projectName": "Basic Plan Subscription",
+    "issueDate": "2025-10-23T00:51:52.839Z",
+    "dueDate": "2025-11-22T00:51:52.839Z",
+    "status": "paid",
+    "subtotal": 25,
+    "taxRate": 0,
+    "taxAmount": 0,
+    "total": 25,
+    "paidAmount": 25,
+    "balance": 0,
+    "items": [
+      {
+        "id": "1",
+        "description": "Basic Plan - Monthly Subscription",
+        "quantity": 1,
+        "unit": "month",
+        "rate": 25,
+        "amount": 25
+      }
+    ],
+    "notes": "Thank you for your subscription!",
+    "terms": "Monthly subscription - Auto-renewal",
+    "createdAt": "2025-10-23T00:51:52.839Z",
+    "updatedAt": "2025-10-23T00:51:52.839Z"
+  },
+  {
+    "id": "INV-202502-002",
+    "number": "INV-202502-002",
+    "clientId": "subscription-2",
+    "clientName": "Build Profit Solutions",
+    "projectId": "subscription",
+    "projectName": "Professional Plan Subscription",
+    "issueDate": "2025-11-12T00:51:52.839Z",
+    "dueDate": "2025-12-12T00:51:52.839Z",
+    "status": "sent",
+    "subtotal": 49,
+    "taxRate": 0,
+    "taxAmount": 0,
+    "total": 49,
+    "paidAmount": 0,
+    "balance": 49,
+    "items": [
+      {
+        "id": "1",
+        "description": "Professional Plan - Monthly Subscription",
+        "quantity": 1,
+        "unit": "month",
+        "rate": 49,
+        "amount": 49
+      }
+    ],
+    "notes": "Payment due for your Professional Plan subscription.",
+    "terms": "Monthly subscription - Auto-renewal",
+    "createdAt": "2025-11-12T00:51:52.839Z",
+    "updatedAt": "2025-11-12T00:51:52.839Z"
+  },
+  {
+    "id": "INV-202502-003",
+    "number": "INV-202502-003",
+    "clientId": "subscription-3",
+    "clientName": "Build Profit Solutions",
+    "projectId": "subscription",
+    "projectName": "Business Plan Subscription",
+    "issueDate": "2025-10-18T00:51:52.839Z",
+    "dueDate": "2025-11-17T00:51:52.839Z",
+    "status": "overdue",
+    "subtotal": 79,
+    "taxRate": 0,
+    "taxAmount": 0,
+    "total": 79,
+    "paidAmount": 0,
+    "balance": 79,
+    "items": [
+      {
+        "id": "1",
+        "description": "Business Plan - Monthly Subscription",
+        "quantity": 1,
+        "unit": "month",
+        "rate": 79,
+        "amount": 79
+      }
+    ],
+    "notes": "Your Business Plan subscription payment is overdue. Please remit payment as soon as possible.",
+    "terms": "Monthly subscription - Auto-renewal",
+    "createdAt": "2025-10-18T00:51:52.839Z",
+    "updatedAt": "2025-11-17T00:51:52.839Z"
+  },
+  {
+    "id": "INV-202503-004",
+    "number": "INV-202503-004",
+    "clientId": "subscription-4",
+    "clientName": "Build Profit Solutions",
+    "projectId": "subscription",
+    "projectName": "Basic Plan Subscription",
+    "issueDate": "2025-11-19T00:51:52.839Z",
+    "dueDate": "2025-12-19T00:51:52.839Z",
+    "status": "sent",
+    "subtotal": 25,
+    "taxRate": 0,
+    "taxAmount": 0,
+    "total": 25,
+    "paidAmount": 0,
+    "balance": 25,
+    "items": [
+      {
+        "id": "1",
+        "description": "Basic Plan - Monthly Subscription",
+        "quantity": 1,
+        "unit": "month",
+        "rate": 25,
+        "amount": 25
+      }
+    ],
+    "notes": "Thank you for choosing our Basic Plan!",
+    "terms": "Monthly subscription - Auto-renewal",
+    "createdAt": "2025-11-19T00:51:52.839Z",
+    "updatedAt": "2025-11-19T00:51:52.839Z"
+  }
+]

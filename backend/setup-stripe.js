@@ -40,9 +40,30 @@ async function setupStripeProducts() {
     console.log(`   Product ID: ${premiumProduct.id}`);
     console.log(`   Price ID: ${premiumPrice.id}`);
 
+    // Create Business Plan Product
+    const businessProduct = await stripe.products.create({
+      name: 'Business Plan',
+      description: 'For GC teams that need forecasting, AI bids, and integrations',
+    });
+
+    const businessPrice = await stripe.prices.create({
+      product: businessProduct.id,
+      unit_amount: 7900, // $79.00
+      currency: 'usd',
+      recurring: { interval: 'month' },
+    });
+
+    console.log('✅ Business Plan created:');
+    console.log(`   Product ID: ${businessProduct.id}`);
+    console.log(`   Price ID: ${businessPrice.id}`);
+
     console.log('\n📝 Add these to your .env file:');
     console.log(`STRIPE_PRICE_BASIC=${basicPrice.id}`);
     console.log(`STRIPE_PRICE_PREMIUM=${premiumPrice.id}`);
+    console.log(`STRIPE_PRICE_BUSINESS=${businessPrice.id}`);
+    
+    console.log('\n📝 Update mobile/services/stripeService.ts with:');
+    console.log(`   Business Plan stripePriceId: ${businessPrice.id}`);
 
   } catch (error) {
     console.error('Error setting up Stripe products:', error);

@@ -1,107 +1,8 @@
 [
   {
-    "id": "demo-1",
-    "title": "Framing for Mountain View Condos",
-    "trade": "Framing",
-    "source": "PROJECT_BASED",
-    "contact": {
-      "name": "Sarah Johnson",
-      "email": "sarah@eliteconstruction.com",
-      "phone": "555-123-4567",
-      "company": "Elite Construction"
-    },
-    "location": {
-      "city": "Salt Lake City",
-      "state": "UT",
-      "zip": "84101",
-      "lat": 40.7608,
-      "lng": -111.891
-    },
-    "project": {
-      "type": "new_build",
-      "budgetMin": 85000,
-      "budgetMax": 125000,
-      "timeline": "Soon"
-    },
-    "stage": "new",
-    "aiScore": 92,
-    "verified": true,
-    "createdBy": "gc-sarah-001",
-    "assignedTo": "contractor-demo",
-    "createdAt": "2025-10-29T04:11:24.062Z",
-    "description": "Professional framing services for 12-unit condo development"
-  },
-  {
-    "id": "demo-2",
-    "title": "HVAC RFQ from Metro Builders",
-    "trade": "HVAC",
-    "source": "BID_INVITATION",
-    "contact": {
-      "name": "Mike Rodriguez",
-      "email": "mike@metrobuilders.com",
-      "phone": "555-987-6543",
-      "company": "Metro Builders"
-    },
-    "location": {
-      "city": "Las Vegas",
-      "state": "NV",
-      "zip": "89123",
-      "lat": 36.1699,
-      "lng": -115.1398
-    },
-    "project": {
-      "type": "new_build",
-      "budgetMin": 120000,
-      "budgetMax": 180000,
-      "timeline": "Urgent"
-    },
-    "stage": "new",
-    "aiScore": 88,
-    "verified": true,
-    "createdBy": "gc-mike-002",
-    "assignedTo": "contractor-demo",
-    "createdAt": "2025-10-30T04:11:24.062Z",
-    "description": "Direct invitation for HVAC work on commercial office building",
-    "deadline": "2025-11-05T04:11:24.062Z"
-  },
-  {
-    "id": "demo-3",
-    "title": "Electrical lead shared by Elite Framing Co",
-    "trade": "Electrical",
-    "source": "SHARED",
-    "contact": {
-      "name": "Shared Lead Contact",
-      "email": "shared@lead.com",
-      "phone": "555-000-0000",
-      "company": "Shared Lead"
-    },
-    "location": {
-      "city": "Salt Lake City",
-      "state": "UT",
-      "zip": "84101",
-      "lat": 40.7608,
-      "lng": -111.891
-    },
-    "project": {
-      "type": "other",
-      "budgetMin": 35000,
-      "budgetMax": 55000,
-      "timeline": "Normal"
-    },
-    "stage": "new",
-    "aiScore": 76,
-    "verified": true,
-    "createdBy": "contractor-001",
-    "assignedTo": "contractor-demo",
-    "createdAt": "2025-10-30T22:11:24.062Z",
-    "description": "Shared electrical opportunity from trusted contractor",
-    "sharedBy": "contractor-001",
-    "sharingMessage": "This client is looking for quality electrical work"
-  },
-  {
     "id": "LEAD-1761884376752-31e0da17",
     "createdAt": "2025-10-31T04:19:36.752Z",
-    "stage": "qualified",
+    "stage": "won",
     "aiScore": 85,
     "verified": true,
     "title": "American building  - Professional Services",
@@ -124,12 +25,12 @@
     },
     "description": "Professional services from American building . Services: Plumbing. . Available: 1-2 weeks",
     "createdBy": "contractor-demo",
-    "updatedAt": "2025-11-01T10:26:38.241Z"
+    "updatedAt": "2025-11-05T03:24:59.762Z"
   },
   {
     "id": "LEAD-1761884376752-31e0da17-contractor-002",
     "createdAt": "2025-10-31T04:19:36.752Z",
-    "stage": "qualified",
+    "stage": "won",
     "aiScore": 85,
     "verified": true,
     "title": "American building  - Professional Services",
@@ -155,12 +56,12 @@
     "assignedTo": "contractor-002",
     "matchedDistance": "0.0",
     "matchedRating": 4.5,
-    "updatedAt": "2025-11-01T10:26:38.241Z"
+    "updatedAt": "2025-11-05T03:24:59.762Z"
   },
   {
     "id": "LEAD-1761884494076-2814af5e",
     "createdAt": "2025-10-31T04:21:34.077Z",
-    "stage": "qualified",
+    "stage": "won",
     "aiScore": 85,
     "verified": true,
     "title": "Bps - Professional Services",
@@ -183,35 +84,7 @@
     },
     "description": "Professional services from Bps. Services: Roofing. . Available: 1-2 weeks",
     "createdBy": "contractor-demo",
-    "updatedAt": "2025-11-04T06:42:40.183Z"
-  },
-  {
-    "id": "LEAD-1761967913737-6724c564",
-    "createdAt": "2025-11-01T03:31:53.737Z",
-    "stage": "won",
-    "aiScore": 90,
-    "verified": true,
-    "title": "Kitchen ",
-    "trade": "plumbing",
-    "projectId": "PRJ-1761967913967",
-    "source": "PROJECT_BASED",
-    "contact": {
-      "name": "contractor-demo",
-      "company": "Project Request"
-    },
-    "location": {
-      "city": "Las Vegas",
-      "state": "NV"
-    },
-    "project": {
-      "type": "other",
-      "budgetMin": 5000,
-      "budgetMax": 25000,
-      "timeline": "Soon"
-    },
-    "description": "Looking for qualified Plumbing subcontractors",
-    "createdBy": "contractor-demo",
-    "updatedAt": "2025-11-04T07:22:51.886Z"
+    "updatedAt": "2025-11-05T03:24:22.414Z"
   },
   {
     "id": "LEAD-1761971575379-b7dbc808",
@@ -239,6 +112,489 @@
     },
     "description": "Professional services from Build Profit Solutions . Services: Kitchen Remodel, General Contracting, Bathroom Remodel. Residential, Commercial. Available: 1-2 weeks",
     "createdBy": "contractor-demo",
-    "updatedAt": "2025-11-04T07:20:27.669Z"
+    "updatedAt": "2025-11-06T04:54:35.524Z"
+  },
+  {
+    "id": "MOCK-1762310859844-eyk1f5a2u",
+    "title": "Residential Roofing Replacement",
+    "trade": "Roofing",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "Mike Davis",
+      "email": "contact262@example.com",
+      "phone": "555-837-8238",
+      "company": "Salt Lake City Roofing Co"
+    },
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT",
+      "zip": "84101",
+      "lat": 40.7608,
+      "lng": -111.891
+    },
+    "project": {
+      "type": "remodel",
+      "budgetMin": 75000,
+      "budgetMax": 150000,
+      "timeline": "Soon"
+    },
+    "stage": "new",
+    "aiScore": 87,
+    "verified": true,
+    "createdBy": "gc-bwxeylzr",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-11-04T02:47:39.842Z",
+    "description": "Roofing services for Salt Lake City area",
+    "updatedAt": "2025-11-04T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859846-ukybsuph9",
+    "title": "Commercial HVAC Installation",
+    "trade": "HVAC",
+    "source": "SHARED",
+    "contact": {
+      "name": "David Williams",
+      "email": "contact743@example.com",
+      "phone": "555-139-2404",
+      "company": "Las Vegas HVAC Co"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 75000,
+      "budgetMax": 150000,
+      "timeline": "Soon"
+    },
+    "stage": "new",
+    "aiScore": 93,
+    "verified": true,
+    "createdBy": "gc-xlka9s83",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-11-03T02:47:39.842Z",
+    "description": "HVAC services for Las Vegas area",
+    "updatedAt": "2025-11-03T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859846-g3m2yf1fg",
+    "title": "Kitchen Plumbing Upgrade",
+    "trade": "Plumbing",
+    "source": "BID_INVITATION",
+    "contact": {
+      "name": "Emily Smith",
+      "email": "contact66@example.com",
+      "phone": "555-794-4547",
+      "company": "Salt Lake City Plumbing Co"
+    },
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT",
+      "zip": "84101",
+      "lat": 40.7608,
+      "lng": -111.891
+    },
+    "project": {
+      "type": "repair",
+      "budgetMin": 35000,
+      "budgetMax": 75000,
+      "timeline": "Soon"
+    },
+    "stage": "new",
+    "aiScore": 82,
+    "verified": true,
+    "createdBy": "gc-gyzhfzj8",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-11-02T02:47:39.842Z",
+    "description": "Plumbing services for Salt Lake City area",
+    "updatedAt": "2025-11-02T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-giohg8m6e",
+    "title": "Office Building Electrical",
+    "trade": "Electrical",
+    "source": "BID_INVITATION",
+    "contact": {
+      "name": "Emily Williams",
+      "email": "contact285@example.com",
+      "phone": "555-122-8619",
+      "company": "Henderson Electrical Co"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV",
+      "zip": "89002",
+      "lat": 36.0395,
+      "lng": -114.9817
+    },
+    "project": {
+      "type": "repair",
+      "budgetMin": 35000,
+      "budgetMax": 75000,
+      "timeline": "Normal"
+    },
+    "stage": "qualified",
+    "aiScore": 87,
+    "verified": true,
+    "createdBy": "gc-1sx1yqxw",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-31T02:47:39.842Z",
+    "description": "Electrical services for Henderson area",
+    "updatedAt": "2025-10-31T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-11-02T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-5988136v6",
+    "title": "Custom Home Framing",
+    "trade": "Framing",
+    "source": "SHARED",
+    "contact": {
+      "name": "Mike Brown",
+      "email": "contact42@example.com",
+      "phone": "555-710-5875",
+      "company": "Las Vegas Framing Co"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 5000,
+      "budgetMax": 15000,
+      "timeline": "Urgent"
+    },
+    "stage": "qualified",
+    "aiScore": 89,
+    "verified": true,
+    "createdBy": "gc-ih763xei",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-29T02:47:39.842Z",
+    "description": "Framing services for Las Vegas area",
+    "updatedAt": "2025-10-29T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-31T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-yormi7agk",
+    "title": "Bathroom Remodel - Plumbing",
+    "trade": "Plumbing",
+    "source": "BID_INVITATION",
+    "contact": {
+      "name": "Sarah Brown",
+      "email": "contact939@example.com",
+      "phone": "555-895-5411",
+      "company": "St. George Plumbing Co"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT",
+      "zip": "84770",
+      "lat": 37.0965,
+      "lng": -113.5684
+    },
+    "project": {
+      "type": "remodel",
+      "budgetMin": 150000,
+      "budgetMax": 300000,
+      "timeline": "Urgent"
+    },
+    "stage": "qualified",
+    "aiScore": 80,
+    "verified": true,
+    "createdBy": "gc-3pac8ce3",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-26T02:47:39.842Z",
+    "description": "Plumbing services for St. George area",
+    "updatedAt": "2025-10-26T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-28T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-eqtrolhdm",
+    "title": "Warehouse Drywall Installation",
+    "trade": "Drywall",
+    "source": "SHARED",
+    "contact": {
+      "name": "David Smith",
+      "email": "contact816@example.com",
+      "phone": "555-989-8735",
+      "company": "Las Vegas Drywall Co"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "new_build",
+      "budgetMin": 5000,
+      "budgetMax": 15000,
+      "timeline": "Soon"
+    },
+    "stage": "qualified",
+    "aiScore": 88,
+    "verified": true,
+    "createdBy": "gc-zmq3t362",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-24T02:47:39.842Z",
+    "description": "Drywall services for Las Vegas area",
+    "updatedAt": "2025-10-24T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-26T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-qfvvgne9u",
+    "title": "Multi-Unit HVAC System",
+    "trade": "HVAC",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "David Johnson",
+      "email": "contact221@example.com",
+      "phone": "555-127-3068",
+      "company": "Las Vegas HVAC Co"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 35000,
+      "budgetMax": 75000,
+      "timeline": "Normal"
+    },
+    "stage": "proposal",
+    "aiScore": 89,
+    "verified": true,
+    "createdBy": "gc-vqmbm1lp",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-21T02:47:39.842Z",
+    "description": "HVAC services for Las Vegas area",
+    "updatedAt": "2025-10-21T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-23T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-26T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859847-6u9k0oxem",
+    "title": "New Construction Roofing",
+    "trade": "Roofing",
+    "source": "SHARED",
+    "contact": {
+      "name": "Lisa Smith",
+      "email": "contact645@example.com",
+      "phone": "555-469-7499",
+      "company": "Henderson Roofing Co"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV",
+      "zip": "89002",
+      "lat": 36.0395,
+      "lng": -114.9817
+    },
+    "project": {
+      "type": "repair",
+      "budgetMin": 15000,
+      "budgetMax": 35000,
+      "timeline": "Urgent"
+    },
+    "stage": "proposal",
+    "aiScore": 93,
+    "verified": true,
+    "createdBy": "gc-8k4sm9pt",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-18T02:47:39.842Z",
+    "description": "Roofing services for Henderson area",
+    "updatedAt": "2025-10-18T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-20T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-23T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859848-w3k7f4lot",
+    "title": "Office Renovation - Electrical",
+    "trade": "Electrical",
+    "source": "SHARED",
+    "contact": {
+      "name": "Emily Williams",
+      "email": "contact465@example.com",
+      "phone": "555-862-9451",
+      "company": "Salt Lake City Electrical Co"
+    },
+    "location": {
+      "city": "Salt Lake City",
+      "state": "UT",
+      "zip": "84101",
+      "lat": 40.7608,
+      "lng": -111.891
+    },
+    "project": {
+      "type": "remodel",
+      "budgetMin": 75000,
+      "budgetMax": 150000,
+      "timeline": "Soon"
+    },
+    "stage": "proposal",
+    "aiScore": 86,
+    "verified": true,
+    "createdBy": "gc-zc8b3uvb",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-16T02:47:39.842Z",
+    "description": "Electrical services for Salt Lake City area",
+    "updatedAt": "2025-10-16T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-18T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-21T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859848-49ybjkzm9",
+    "title": "Residential Painting Project",
+    "trade": "Painting",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "Mike Brown",
+      "email": "contact686@example.com",
+      "phone": "555-133-7283",
+      "company": "St. George Painting Co"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT",
+      "zip": "84770",
+      "lat": 37.0965,
+      "lng": -113.5684
+    },
+    "project": {
+      "type": "new_build",
+      "budgetMin": 75000,
+      "budgetMax": 150000,
+      "timeline": "Soon"
+    },
+    "stage": "proposal",
+    "aiScore": 86,
+    "verified": true,
+    "createdBy": "gc-puk728rp",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-14T02:47:39.842Z",
+    "description": "Painting services for St. George area",
+    "updatedAt": "2025-10-14T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-16T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-19T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310859848-45pgyp6d9",
+    "title": "Residential Flooring Installation",
+    "trade": "Flooring",
+    "source": "SHARED",
+    "contact": {
+      "name": "John Williams",
+      "email": "contact759@example.com",
+      "phone": "555-353-9175",
+      "company": "Las Vegas Flooring Co"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89123",
+      "lat": 36.1699,
+      "lng": -115.1398
+    },
+    "project": {
+      "type": "new_build",
+      "budgetMin": 35000,
+      "budgetMax": 75000,
+      "timeline": "Soon"
+    },
+    "stage": "won",
+    "aiScore": 91,
+    "verified": true,
+    "createdBy": "gc-ixuiz0ch",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-11T02:47:39.842Z",
+    "description": "Flooring services for Las Vegas area",
+    "updatedAt": "2025-10-11T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-13T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-16T02:47:39.842Z",
+    "bidWonAt": "2025-10-18T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310860311-qx2yvpswz",
+    "title": "Commercial Plumbing Repair",
+    "trade": "Plumbing",
+    "source": "BID_INVITATION",
+    "contact": {
+      "name": "David Davis",
+      "email": "contact426@example.com",
+      "phone": "555-822-5944",
+      "company": "St. George Plumbing Co"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT",
+      "zip": "84770",
+      "lat": 37.0965,
+      "lng": -113.5684
+    },
+    "project": {
+      "type": "repair",
+      "budgetMin": 15000,
+      "budgetMax": 35000,
+      "timeline": "Soon"
+    },
+    "stage": "won",
+    "aiScore": 96,
+    "verified": true,
+    "createdBy": "gc-jp0pqr56",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-06T02:47:39.842Z",
+    "description": "Plumbing services for St. George area",
+    "updatedAt": "2025-10-06T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-08T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-11T02:47:39.842Z",
+    "bidWonAt": "2025-10-13T02:47:39.842Z"
+  },
+  {
+    "id": "MOCK-1762310860311-8124nrh9c",
+    "title": "New Home Construction - Framing",
+    "trade": "Framing",
+    "source": "MARKETPLACE",
+    "contact": {
+      "name": "Sarah Brown",
+      "email": "contact387@example.com",
+      "phone": "555-556-6719",
+      "company": "Henderson Framing Co"
+    },
+    "location": {
+      "city": "Henderson",
+      "state": "NV",
+      "zip": "89002",
+      "lat": 36.0395,
+      "lng": -114.9817
+    },
+    "project": {
+      "type": "repair",
+      "budgetMin": 15000,
+      "budgetMax": 35000,
+      "timeline": "Urgent"
+    },
+    "stage": "won",
+    "aiScore": 90,
+    "verified": true,
+    "createdBy": "gc-vbqf854u",
+    "assignedTo": "contractor-demo",
+    "createdAt": "2025-10-01T02:47:39.842Z",
+    "description": "Framing services for Henderson area",
+    "updatedAt": "2025-10-01T02:47:39.842Z",
+    "reachedQualifiedAt": "2025-10-03T02:47:39.842Z",
+    "bidSubmittedAt": "2025-10-06T02:47:39.842Z",
+    "bidWonAt": "2025-10-08T02:47:39.842Z"
   }
 ]

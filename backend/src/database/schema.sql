@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- User settings table
+CREATE TABLE IF NOT EXISTS user_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    ai_project_manager_mode BOOLEAN DEFAULT false,
+    ai_manager_aggressiveness VARCHAR(20) DEFAULT 'medium',
+    ai_notify_about VARCHAR(50) DEFAULT 'all',
+    ai_preferred_channel VARCHAR(50) DEFAULT 'in_app',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id)
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users(stripe_customer_id);
@@ -86,4 +99,7 @@ CREATE TRIGGER update_leads_updated_at BEFORE UPDATE ON leads
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_settings_updated_at BEFORE UPDATE ON user_settings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(); 

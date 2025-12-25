@@ -1,146 +1,41 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
+const { loadProjects, saveProjects } = require('../services/leadStorage');
 
-// Mock database for demonstration - replace with real database
-let projects = [
-  {
-    id: '1',
-    name: 'Main St Remodel',
-    status: 'in-progress',
-    client: 'Johnson Family',
-    location: 'San Diego, CA',
-    startDate: '2024-01-01',
-    endDate: '2024-04-30',
-    totalBudget: 150000,
-    totalSpent: 87500,
-    remaining: 62500,
-    progress: 58,
-    phases: [
-      {
-        id: '1-1',
-        name: 'Planning & Design',
-        status: 'completed',
-        startDate: '2024-01-01',
-        endDate: '2024-01-15',
-        budget: 10000,
-        spent: 9500,
-        progress: 100,
-        tasks: [
-          {
-            id: '1-1-1',
-            name: 'Obtain Building Permits',
-            status: 'completed',
-            assignedTo: 'Project Manager',
-            dueDate: '2024-01-05',
-            estimatedHours: 16,
-            actualHours: 18,
-            progress: 100,
-          },
-        ],
-        milestones: [
-          {
-            id: '1-1-1',
-            name: 'Permits Approved',
-            status: 'completed',
-            targetDate: '2024-01-05',
-          },
-        ],
-      },
-      {
-        id: '1-2',
-        name: 'Foundation & Site Prep',
-        status: 'in-progress',
-        startDate: '2024-01-16',
-        endDate: '2024-02-15',
-        budget: 25000,
-        spent: 21000,
-        progress: 85,
-        tasks: [
-          {
-            id: '1-2-1',
-            name: 'Excavation',
-            status: 'completed',
-            assignedTo: 'Excavation Crew',
-            dueDate: '2024-01-25',
-            estimatedHours: 40,
-            actualHours: 38,
-            progress: 100,
-          },
-          {
-            id: '1-2-2',
-            name: 'Foundation Pour',
-            status: 'in-progress',
-            assignedTo: 'Concrete Crew',
-            dueDate: '2024-02-05',
-            estimatedHours: 32,
-            actualHours: 20,
-            progress: 65,
-          },
-        ],
-        milestones: [
-          {
-            id: '1-2-1',
-            name: 'Foundation Complete',
-            status: 'pending',
-            targetDate: '2024-02-05',
-          },
-        ],
-      },
-    ],
-    budgetItems: [
-      {
-        id: '1-1',
-        category: 'materials',
-        name: 'Lumber',
-        budgeted: 15000,
-        actual: 12000,
-        unit: 'board feet',
-        quantity: 2000,
-        unitPrice: 6,
-        date: '2024-01-15',
-        vendor: 'Home Depot',
-      },
-      {
-        id: '1-2',
-        category: 'labor',
-        name: 'Carpenter',
-        budgeted: 25000,
-        actual: 18000,
-        unit: 'hours',
-        quantity: 200,
-        unitPrice: 90,
-        date: '2024-01-10',
-      },
-    ],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-25T10:30:00Z',
-  },
-  {
-    id: '2',
-    name: 'Elm Ave New Build',
-    status: 'planning',
-    client: 'Austin Developers LLC',
-    location: 'Austin, TX',
-    startDate: '2024-02-01',
-    endDate: '2024-08-01',
-    totalBudget: 450000,
-    totalSpent: 0,
-    remaining: 450000,
-    progress: 0,
-    phases: [],
-    budgetItems: [],
-    createdAt: '2024-01-15T00:00:00Z',
-    updatedAt: '2024-01-15T00:00:00Z',
-  },
-];
+// Middleware to verify JWT token (import from auth routes)
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
 
-// Get all projects
-router.get('/', async (req, res) => {
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
   try {
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+};
+
+// Load projects from disk on startup
+let projects = loadProjects();
+
+// Get all projects (filtered by user)
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
     const { status, client, location } = req.query;
     
-    let filteredProjects = projects;
+    // Reload projects from disk to get latest data
+    projects = loadProjects();
+    
+    // Filter by userId first
+    let filteredProjects = projects.filter(p => p.userId === userId);
     
     if (status) {
       filteredProjects = filteredProjects.filter(p => p.status === status);
@@ -172,11 +67,16 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get project by ID
-router.get('/:id', async (req, res) => {
+// Get project by ID (must belong to user)
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
     const { id } = req.params;
-    const project = projects.find(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const project = projects.find(p => p.id === id && p.userId === userId);
     
     if (!project) {
       return res.status(404).json({
@@ -198,8 +98,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create new project
-router.post('/', [
+// Create new project (associated with user)
+router.post('/', authenticateToken, [
   body('name').trim().isLength({ min: 1 }).withMessage('Project name is required'),
   body('client').trim().isLength({ min: 1 }).withMessage('Client name is required'),
   body('location').trim().isLength({ min: 1 }).withMessage('Location is required'),
@@ -217,6 +117,7 @@ router.post('/', [
       });
     }
     
+    const userId = req.user.userId;
     const {
       name,
       client,
@@ -227,8 +128,12 @@ router.post('/', [
       description,
     } = req.body;
     
+    // Reload projects from disk
+    projects = loadProjects();
+    
     const newProject = {
       id: Date.now().toString(),
+      userId, // Associate with user
       name,
       client,
       location,
@@ -247,6 +152,7 @@ router.post('/', [
     };
     
     projects.push(newProject);
+    saveProjects(projects); // Persist to disk
     
     res.status(201).json({
       success: true,
@@ -262,8 +168,8 @@ router.post('/', [
   }
 });
 
-// Update project
-router.put('/:id', [
+// Update project (must belong to user)
+router.put('/:id', authenticateToken, [
   body('name').optional().trim().isLength({ min: 1 }),
   body('client').optional().trim().isLength({ min: 1 }),
   body('location').optional().trim().isLength({ min: 1 }),
@@ -282,8 +188,13 @@ router.put('/:id', [
       });
     }
     
+    const userId = req.user.userId;
     const { id } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -305,6 +216,8 @@ router.put('/:id', [
       ...updates,
     };
     
+    saveProjects(projects); // Persist to disk
+    
     res.json({
       success: true,
       data: projects[projectIndex],
@@ -319,11 +232,16 @@ router.put('/:id', [
   }
 });
 
-// Delete project
-router.delete('/:id', async (req, res) => {
+// Delete project (must belong to user)
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
     const { id } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -333,6 +251,7 @@ router.delete('/:id', async (req, res) => {
     }
     
     projects.splice(projectIndex, 1);
+    saveProjects(projects); // Persist to disk
     
     res.json({
       success: true,
@@ -347,8 +266,94 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Add budget item to project
-router.post('/:id/budget', [
+// Add expense to project (for AI assistant and manual entry)
+router.post('/:id/expenses', authenticateToken, [
+  body('amount').isNumeric().withMessage('Amount is required'),
+  body('category').optional().isString(),
+  body('vendor').optional().isString(),
+  body('notes').optional().isString(),
+  body('date').optional().isString(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array(),
+      });
+    }
+    
+    const userId = req.user.userId;
+    const { id } = req.params;
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
+    
+    if (projectIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found',
+      });
+    }
+    
+    const {
+      amount,
+      category = 'Materials/Equipment',
+      vendor = '',
+      notes = '',
+      date = new Date().toISOString().split('T')[0],
+    } = req.body;
+    
+    const expense = {
+      id: `expense-${Date.now()}`,
+      category,
+      vendor,
+      amount: parseFloat(amount),
+      date,
+      notes,
+      createdAt: new Date().toISOString(),
+    };
+    
+    // Initialize expenses array if it doesn't exist
+    if (!projects[projectIndex].expenses) {
+      projects[projectIndex].expenses = [];
+    }
+    
+    projects[projectIndex].expenses.push(expense);
+    
+    // Update total spent if it exists
+    if (projects[projectIndex].totalSpent !== undefined) {
+      projects[projectIndex].totalSpent += expense.amount;
+    }
+    
+    // Update remaining budget if it exists
+    if (projects[projectIndex].totalBudget !== undefined && projects[projectIndex].totalSpent !== undefined) {
+      projects[projectIndex].remaining = projects[projectIndex].totalBudget - projects[projectIndex].totalSpent;
+    }
+    
+    projects[projectIndex].updatedAt = new Date().toISOString();
+    
+    saveProjects(projects); // Persist to disk
+    
+    res.status(201).json({
+      success: true,
+      data: expense,
+      message: 'Expense recorded successfully',
+    });
+  } catch (error) {
+    console.error('Error recording expense:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to record expense',
+    });
+  }
+});
+
+// Add budget item to project (must belong to user)
+router.post('/:id/budget', authenticateToken, [
   body('category').isIn(['materials', 'labor', 'equipment', 'subcontractors', 'permits', 'other']),
   body('name').trim().isLength({ min: 1 }).withMessage('Item name is required'),
   body('actual').isNumeric().withMessage('Actual amount must be a number'),
@@ -366,8 +371,13 @@ router.post('/:id/budget', [
       });
     }
     
+    const userId = req.user.userId;
     const { id } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -407,6 +417,8 @@ router.post('/:id/budget', [
     projects[projectIndex].remaining = projects[projectIndex].totalBudget - projects[projectIndex].totalSpent;
     projects[projectIndex].updatedAt = new Date().toISOString();
     
+    saveProjects(projects); // Persist to disk
+    
     res.status(201).json({
       success: true,
       data: budgetItem,
@@ -421,8 +433,8 @@ router.post('/:id/budget', [
   }
 });
 
-// Add phase to project
-router.post('/:id/phases', [
+// Add phase to project (must belong to user)
+router.post('/:id/phases', authenticateToken, [
   body('name').trim().isLength({ min: 1 }).withMessage('Phase name is required'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
   body('endDate').isISO8601().withMessage('Valid end date is required'),
@@ -438,8 +450,13 @@ router.post('/:id/phases', [
       });
     }
     
+    const userId = req.user.userId;
     const { id } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -480,6 +497,8 @@ router.post('/:id/phases', [
     projects[projectIndex].phases.push(phase);
     projects[projectIndex].updatedAt = new Date().toISOString();
     
+    saveProjects(projects); // Persist to disk
+    
     res.status(201).json({
       success: true,
       data: phase,
@@ -494,8 +513,8 @@ router.post('/:id/phases', [
   }
 });
 
-// Add task to phase
-router.post('/:id/phases/:phaseId/tasks', [
+// Add task to phase (must belong to user)
+router.post('/:id/phases/:phaseId/tasks', authenticateToken, [
   body('name').trim().isLength({ min: 1 }).withMessage('Task name is required'),
   body('assignedTo').trim().isLength({ min: 1 }).withMessage('Assigned to is required'),
   body('dueDate').isISO8601().withMessage('Valid due date is required'),
@@ -511,8 +530,13 @@ router.post('/:id/phases/:phaseId/tasks', [
       });
     }
     
+    const userId = req.user.userId;
     const { id, phaseId } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -557,6 +581,8 @@ router.post('/:id/phases/:phaseId/tasks', [
     projects[projectIndex].phases[phaseIndex].tasks.push(task);
     projects[projectIndex].updatedAt = new Date().toISOString();
     
+    saveProjects(projects); // Persist to disk
+    
     res.status(201).json({
       success: true,
       data: task,
@@ -571,8 +597,8 @@ router.post('/:id/phases/:phaseId/tasks', [
   }
 });
 
-// Update task progress
-router.put('/:id/phases/:phaseId/tasks/:taskId', [
+// Update task progress (must belong to user)
+router.put('/:id/phases/:phaseId/tasks/:taskId', authenticateToken, [
   body('progress').isInt({ min: 0, max: 100 }).withMessage('Progress must be between 0 and 100'),
   body('status').optional().isIn(['pending', 'in-progress', 'completed', 'blocked']),
   body('actualHours').optional().isNumeric(),
@@ -587,8 +613,13 @@ router.put('/:id/phases/:phaseId/tasks/:taskId', [
       });
     }
     
+    const userId = req.user.userId;
     const { id, phaseId, taskId } = req.params;
-    const projectIndex = projects.findIndex(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
     
     if (projectIndex === -1) {
       return res.status(404).json({
@@ -639,6 +670,8 @@ router.put('/:id/phases/:phaseId/tasks/:taskId', [
     
     projects[projectIndex].updatedAt = new Date().toISOString();
     
+    saveProjects(projects); // Persist to disk
+    
     res.json({
       success: true,
       data: projects[projectIndex].phases[phaseIndex].tasks[taskIndex],
@@ -653,11 +686,16 @@ router.put('/:id/phases/:phaseId/tasks/:taskId', [
   }
 });
 
-// Get project analytics
-router.get('/:id/analytics', async (req, res) => {
+// Get project analytics (must belong to user)
+router.get('/:id/analytics', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
     const { id } = req.params;
-    const project = projects.find(p => p.id === id);
+    
+    // Reload projects from disk
+    projects = loadProjects();
+    
+    const project = projects.find(p => p.id === id && p.userId === userId);
     
     if (!project) {
       return res.status(404).json({

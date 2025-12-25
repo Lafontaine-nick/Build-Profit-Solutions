@@ -272,6 +272,7 @@ class UnifiedLeadService {
   getLeadsForContractor(contractorId, filters = {}) {
     let leads = this.allLeads.filter(lead => 
       lead.assignedTo === contractorId || 
+      lead.createdBy === contractorId || // Include leads created by this contractor (campaign leads)
       (filters.includeUnassigned && !lead.assignedTo)
     );
 

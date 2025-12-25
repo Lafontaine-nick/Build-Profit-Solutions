@@ -17,6 +17,14 @@ router.get('/plans', async (req, res) => {
 // Create Stripe customer
 router.post('/customer', async (req, res) => {
   try {
+    // Check if Stripe is configured
+    if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('your_stripe_secret_key')) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Stripe API key not configured. Please set STRIPE_SECRET_KEY in your .env file. Get your keys from https://dashboard.stripe.com/test/apikeys' 
+      });
+    }
+
     const { email, name } = req.body;
     if (!email) {
       return res.status(400).json({ success: false, error: 'email is required' });
@@ -32,6 +40,15 @@ router.post('/customer', async (req, res) => {
     res.json({ success: true, customerId: customer.id });
   } catch (error) {
     console.error('Error creating Stripe customer:', error);
+    
+    // Provide helpful error messages
+    if (error.type === 'StripeAuthenticationError') {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Stripe API key is invalid. Please check your STRIPE_SECRET_KEY in .env file. Get your keys from https://dashboard.stripe.com/test/apikeys' 
+      });
+    }
+    
     res.status(500).json({ success: false, error: 'Failed to create customer' });
   }
 });
@@ -141,7 +158,105 @@ router.get('/customer/:customerId/subscriptions', async (req, res) => {
   }
 });
 
-// Cancel subscription
+// Get subscriptions for current user (by email from auth token)
+router.get('/subscriptions', async (req, res) => {
+  try {
+    // Get user email from auth token or request
+    const authHeader = req.headers.authorization;
+    let email = null;
+    
+    // Try to extract email from token or use query param
+    if (req.query.email) {
+      email = req.query.email;
+      console.log('📧 Using email from query param:', email);
+    } else if (req.user && req.user.email) {
+      email = req.user.email;
+      console.log('📧 Using email from req.user:', email);
+    }
+    
+    if (!email) {
+      console.log('⚠️ No email provided, returning empty subscriptions');
+      // If no email, return empty array (user might not have subscriptions yet)
+      return res.json({ success: true, subscriptions: [] });
+    }
+    
+    // Find customer by email
+    console.log('🔍 Searching for Stripe customer with email:', email);
+    const customers = await stripe.customers.list({ email, limit: 1 });
+    
+    if (customers.data.length === 0) {
+      console.log('⚠️ No Stripe customer found for email:', email);
+      return res.json({ success: true, subscriptions: [] });
+    }
+    
+    const customerId = customers.data[0].id;
+    console.log('✅ Found customer:', customerId);
+    
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      expand: ['data.default_payment_method', 'data.items.data.price'],
+    });
+    
+    console.log('📋 Found', subscriptions.data.length, 'subscriptions for customer');
+    
+    // Format subscriptions for mobile app
+    const formattedSubscriptions = subscriptions.data.map(sub => {
+      // Explicitly check for cancel_at_period_end - Stripe may return undefined if false
+      const cancelAtPeriodEnd = sub.cancel_at_period_end === true || sub.cancel_at_period_end === 'true';
+      const formatted = {
+        id: sub.id,
+        status: sub.status,
+        cancel_at_period_end: cancelAtPeriodEnd, // Explicitly set to boolean
+        current_period_start: sub.current_period_start,
+        current_period_end: sub.current_period_end,
+        plan: {
+          id: sub.items.data[0]?.price?.id || null, // Include price ID for plan mapping
+          nickname: sub.items.data[0]?.price?.nickname || sub.items.data[0]?.price?.product?.name || 'Unknown Plan',
+          amount: sub.items.data[0]?.price?.unit_amount || 0,
+        },
+      };
+      console.log('📋 Formatted subscription:', {
+        id: formatted.id,
+        status: formatted.status,
+        cancel_at_period_end: formatted.cancel_at_period_end,
+        raw_cancel_at_period_end: sub.cancel_at_period_end,
+      });
+      return formatted;
+    });
+    
+    console.log('📋 Returning', formattedSubscriptions.length, 'formatted subscriptions');
+    res.json({ success: true, subscriptions: formattedSubscriptions });
+  } catch (error) {
+    console.error('Error fetching subscriptions:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch subscriptions' });
+  }
+});
+
+// Cancel subscription (matches mobile app endpoint)
+router.post('/cancel-subscription', async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    if (!subscriptionId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'subscriptionId is required' 
+      });
+    }
+    
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true,
+    });
+    
+    res.json({ success: true, subscription });
+  } catch (error) {
+    console.error('Error canceling subscription:', error);
+    res.status(500).json({ success: false, error: 'Failed to cancel subscription' });
+  }
+});
+
+// Cancel subscription (alternative endpoint)
 router.post('/subscriptions/:subscriptionId/cancel', async (req, res) => {
   try {
     const { subscriptionId } = req.params;

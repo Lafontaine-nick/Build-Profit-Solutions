@@ -1,0 +1,23 @@
+[
+  {
+    "id": "drywall-materials",
+    "name": "Drywall Materials",
+    "vendor": "Home Depot",
+    "unit": "sq ft",
+    "currentUnitPrice": 25,
+    "avgUnitPrice30d": 23.4,
+    "currency": "USD"
+  },
+  {
+    "id": "framing-materials",
+    "name": "Framing Materials",
+    "vendor": "Home Depot",
+    "unit": "sq ft",
+    "currentUnitPrice": 7.2,
+    "avgUnitPrice30d": 6.9,
+    "currency": "USD"
+  }
+]
+
+
+
