@@ -35,6 +35,7 @@ const invoicesRoutes = require('./routes/invoices');
 const paymentMethodsRoutes = require('./routes/paymentMethods');
 const supportTicketsRoutes = require('./routes/support-tickets');
 const aiDashboardRoutes = require('./routes/aiDashboard');
+const aiAssistantRoutes = require('./routes/aiAssistant');
 const dashboardRoutes = require('./routes/dashboard');
 const userSettingsRoutes = require('./routes/userSettings');
 const { initializeDatabase } = require('./services/database');
@@ -165,6 +166,7 @@ app.use('/api/ai', aiBudgetForecastRoutes);
 app.use('/api/ai', aiExpenseValidationRoutes);
 app.use('/api/ai', aiPredictiveAnalyticsRoutes);
 app.use('/api/ai', aiDashboardRoutes);
+app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
 // Error handling middleware

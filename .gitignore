@@ -99,4 +99,4 @@ dist/
 web-build/
 
 # Local development
-*.log 
+*.log backend/.env.bak
