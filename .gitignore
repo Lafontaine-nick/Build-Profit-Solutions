@@ -100,3 +100,4 @@ web-build/
 
 # Local development
 *.log backend/.env.bak
+backend/.env.bak*
