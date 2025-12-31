@@ -22,10 +22,13 @@ echo "🔍 Checking ports..."
 check_port 3001
 check_port 8081
 
+# Get the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Start backend server
 echo ""
 echo "🚀 Starting Backend Server..."
-cd /Users/nick_lafontaine/build-profit-solutions/backend
+cd "$SCRIPT_DIR/backend" || exit 1
 npm start &
 BACKEND_PID=$!
 
@@ -46,7 +49,7 @@ fi
 # Start mobile app
 echo ""
 echo "📱 Starting Mobile App..."
-cd /Users/nick_lafontaine/build-profit-solutions/mobile
+cd "$SCRIPT_DIR/mobile" || exit 1
 npx expo start -c --tunnel &
 MOBILE_PID=$!
 
