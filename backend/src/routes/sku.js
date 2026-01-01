@@ -3648,6 +3648,45 @@ function generateEnhancedMockResults(query, store, zip) {
         url = `https://www.lowes.com/search?searchTerm=${encodeURIComponent(item.title.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' '))}`;
       }
       
+      // Try to construct image URL from SKU or product URL
+      let imageUrl = null;
+      
+      // First, try to extract product ID from SKU (format: HD-161640 or LW-123456)
+      const skuMatch = item.sku?.match(/(\d+)/);
+      if (skuMatch && skuMatch[1]) {
+        const productId = skuMatch[1];
+        if (store === 'hd' && productId.length >= 6) {
+          // Home Depot product images pattern
+          // Format: https://images.homedepot-static.com/productImages/{first2}/{next2}/{fullId}/sd/{fullId}.jpg
+          const first2 = productId.substring(0, 2);
+          const next2 = productId.substring(2, 4);
+          imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
+        } else if (store === 'lowes' && productId.length >= 4) {
+          // Lowes product images pattern
+          imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
+        }
+      }
+      
+      // If still no image, try from URL
+      if (!imageUrl && url) {
+        if (store === 'hd' && url.includes('homedepot.com')) {
+          const productId = url.match(/\/p\/([^\/\?]+)/)?.[1] || 
+                           url.match(/productId=(\d+)/)?.[1] ||
+                           url.match(/sku=(\d+)/)?.[1];
+          if (productId && productId.length >= 6) {
+            const first2 = productId.substring(0, 2);
+            const next2 = productId.substring(2, 4);
+            imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
+          }
+        } else if (store === 'lowes' && url.includes('lowes.com')) {
+          const productId = url.match(/\/p\/([^\/\?]+)/)?.[1] || 
+                           url.match(/productId=(\d+)/)?.[1];
+          if (productId) {
+            imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
+          }
+        }
+      }
+      
       results.push({
         sku: `${storePrefix}-${item.sku}`,
         title: item.title,
@@ -3656,7 +3695,7 @@ function generateEnhancedMockResults(query, store, zip) {
         url: url,
         store,
         zip,
-        image: null // TODO: Add real product images
+        image: imageUrl
       });
     }
   });
