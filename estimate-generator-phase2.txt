@@ -1,0 +1,2000 @@
+            
+            // Clear materials and rentals from AsyncStorage FIRST (before setting state)
+            await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
+            await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
+            // Clear materials and rentals from state
+            setMaterialsCart([]);
+            setRentalCart([]);
+            // Ensure line items are empty
+            parsed.materialLineItems = [];
+            parsed.laborLineItems = [];
+            parsed.labor = 0;
+            parsed._leadInitialized = true;
+            // IMPORTANT: Preserve customer info fields when clearing materials
+            // These should already be set from LeadDetailModal, but ensure they're not lost
+            // Save the updated bid back to storage with cleared line items but preserved customer info
+            await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
+          }
+          
+          // If it's a blank/untitled bid, try to find the Haim bid in other storage keys
+          if (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '') {
+            console.log('🔍 Current bid is blank, searching for Haim bid...');
+            
+            // Try different possible storage keys
+            const possibleKeys = [
+              'bps.currentBid',
+              'bps.currentBid.v1', 
+              'bps.haimBid',
+              'bps.backupBid'
+            ];
+            
+            for (const key of possibleKeys) {
+              try {
+                const backup = await AsyncStorage.getItem(key);
+                if (backup) {
+                  const backupParsed = JSON.parse(backup);
+                  if (backupParsed.title && backupParsed.title.toLowerCase().includes('haim')) {
+                    console.log(`🎉 Found Haim bid in ${key}: ${backupParsed.title}`);
+                    setBid(backupParsed);
+                    return;
+                  }
+                }
+              } catch (e) {
+                // Continue searching
+              }
+            }
+            
+            console.log('⚠️ No Haim bid found in backup storage');
+          }
+          
+          const scopeFromBid = normalizeScope(parsed.projectType || parsed.category || parsed.template || 'kitchen');
+          parsed.projectType = scopeFromBid;
+          setActiveScope(scopeFromBid);
+          
+          // Log customer info before setting bid to verify it's present
+          if (parsed.customerName || parsed.customerEmail || parsed.customerPhone) {
+            console.log(`✅ Customer info found in bid data:`, {
+              name: parsed.customerName || '(empty)',
+              email: parsed.customerEmail || '(empty)',
+              phone: parsed.customerPhone || '(empty)',
+              city: parsed.customerCity || '(empty)',
+              state: parsed.customerState || '(empty)',
+              zip: parsed.customerZip || '(empty)'
+            });
+          } else {
+            console.log(`⚠️ No customer info found in bid data`);
+          }
+          
+          setBid(parsed);
+        }
+      } catch (error) {
+        console.error('Failed to load bid:', error);
+      } finally {
+        setIsLoaded(true);
+      }
+    };
+    
+    const loadProfile = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('bps.contractorProfile');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          console.log(`👤 Loaded contractor profile: ${parsed.name} - ${parsed.company}`);
+          setContractorProfile(parsed);
+        }
+      } catch (error) {
+        console.error('Failed to load profile:', error);
+      }
+    };
+    
+    const loadMaterials = async () => {
+      try {
+        // Check if the current bid is from a lead first
+        const savedBid = await AsyncStorage.getItem(BID_STORAGE_KEY);
+        if (savedBid) {
+          const bidParsed = JSON.parse(savedBid);
+          if (bidParsed.leadId && bidParsed.leadSource === 'qualified_lead') {
+            // Don't load materials for lead proposals - they should be empty
+            console.log(`📦 Skipping materials load for lead proposal - clearing cart`);
+            // Ensure AsyncStorage is also cleared
+            await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
+            setMaterialsCart([]);
+            return;
+          }
+        }
+        
+        // CRITICAL: Try to load from materialsCart first, then restore from bid.materialLineItems if empty
+        const saved = await AsyncStorage.getItem('bps.materialsCart');
+        let materials = [];
+        
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            materials = parsed;
+            console.log(`📦 Loaded ${materials.length} materials from materialsCart`);
+          }
+        }
+        
+        // If materialsCart is empty but bid has materialLineItems, restore from bid
+        if (materials.length === 0 && savedBid) {
+          try {
+            const bidParsed = JSON.parse(savedBid);
+            if (bidParsed.materialLineItems && Array.isArray(bidParsed.materialLineItems) && bidParsed.materialLineItems.length > 0) {
+              // Restore materials from bid.materialLineItems
+              materials = bidParsed.materialLineItems.map(item => ({
+                id: item.id || String(Date.now()),
+                name: item.name || item.description || 'Material',
+                description: item.description || item.name || 'Material',
+                qty: item.quantity || item.qty || 1,
+                quantity: item.quantity || item.qty || 1,
+                unit: item.unit || 'ea',
+                unitPrice: item.unitPrice || item.cost || (item.total / (item.quantity || 1)),
+                cost: item.cost || item.unitPrice || (item.total / (item.quantity || 1)),
+                total: Number(item.total) || 0,
+                section: item.section || 'General Materials',
+                scope: item.scope || activeScope,
+                sku: item.sku || '',
+                vendorId: item.vendorId || item.vendor || '',
+                isManual: item.source === 'manual' || item.isManual || false,
+              }));
+              
+              // Save restored materials to materialsCart
+              await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(materials));
+              console.log(`📦 Restored ${materials.length} materials from bid.materialLineItems`);
+            }
+          } catch (error) {
+            console.error('Failed to restore materials from bid:', error);
+          }
+        }
+        
+        if (materials.length > 0) {
+          setMaterialsCart(materials);
+          console.log(`📦 Set ${materials.length} materials in cart`);
+        } else {
+          console.log(`📦 No materials to load`);
+        }
+        
+        // Clear initial load flag after everything is loaded
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+          console.log('✅ Initial load complete after materials/rentals loaded');
+        }, 500);
+      } catch (error) {
+        console.error('Failed to load materials:', error);
+        // Clear initial load flag even on error
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+        }, 500);
+      }
+    };
+    
+    const loadRentals = async () => {
+      try {
+        // Check if the current bid is from a lead first
+        const savedBid = await AsyncStorage.getItem(BID_STORAGE_KEY);
+        if (savedBid) {
+          const bidParsed = JSON.parse(savedBid);
+          if (bidParsed.leadId && bidParsed.leadSource === 'qualified_lead') {
+            // Don't load rentals for lead proposals - they should be empty
+            console.log(`🚜 Skipping rentals load for lead proposal - clearing cart`);
+            // Ensure AsyncStorage is also cleared
+            await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
+            setRentalCart([]);
+            return;
+          }
+        }
+        
+        const saved = await AsyncStorage.getItem('bps.rentalCart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setRentalCart(parsed);
+          console.log(`🚜 Loaded ${parsed.length} rentals`);
+        }
+      } catch (error) {
+        console.error('Failed to load rentals:', error);
+      }
+    };
+    
+    // Load bid first, then load materials/rentals based on bid source
+    loadBid().then(() => {
+      console.log('📱 Estimate generator mounted, bid loaded');
+      loadProfile();
+      loadMaterials();
+      loadRentals();
+      
+      // Clear initial load flag after everything is loaded
+      setTimeout(() => {
+        isInitialLoadRef.current = false;
+        console.log('✅ Initial load complete - all data loaded');
+      }, 1500);
+    });
+  }, []);
+
+  // Reload bid when screen comes into focus (in case it was just saved from lead detail modal)
+  // This ensures customer info from "Send Proposal" is always loaded
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('📱 Estimate generator focused - checking for updated bid data');
+      const reloadBid = async () => {
+        try {
+          const saved = await AsyncStorage.getItem(BID_STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            // Check if this is a new bid from a lead (has leadId and leadSource)
+            const isFromLead = parsed.leadId && parsed.leadSource === 'qualified_lead';
+            
+            if (isFromLead) {
+              // Always reload bid data from lead to ensure customer info is populated
+              console.log(`✅ Reloading bid from lead ${parsed.leadId} with customer info:`, {
+                name: parsed.customerName || '(empty)',
+                email: parsed.customerEmail || '(empty)',
+                phone: parsed.customerPhone || '(empty)',
+                city: parsed.customerCity || '(empty)',
+                state: parsed.customerState || '(empty)',
+                zip: parsed.customerZip || '(empty)'
+              });
+              setBid(parsed);
+            } else if (parsed.customerName && (!bid.customerName || parsed.customerName !== bid.customerName)) {
+              // Also reload if customer info exists and is different
+              console.log(`✅ Customer info updated, reloading bid:`, {
+                name: parsed.customerName,
+                email: parsed.customerEmail,
+                phone: parsed.customerPhone
+              });
+              setBid(parsed);
+            }
+            
+            // CRITICAL: Check if this bid matches a saved project/estimate and sync if updated
+            if (!isFromLead && parsed.id) {
+              const matchingProject = activeProjects.find(p => p.id === parsed.id) || estimates.find(p => p.id === parsed.id);
+              if (matchingProject && matchingProject.estimateData) {
+                const projectEstimate = matchingProject.estimateData;
+                const currentLaborTotal = (parsed.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+                const projectLaborTotal = (projectEstimate.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+                
+                // Skip sync if AI just updated labor (within last 2 seconds) to prevent sync loops
+                const timeSinceAILaborUpdate = Date.now() - lastAIMaterialUpdateRef.current;
+                const shouldSkipLaborSync = timeSinceAILaborUpdate < 2000; // Skip sync for 2 seconds after AI action
+                
+                // If labor totals don't match, update the bid from the project
+                if (!shouldSkipLaborSync && Math.abs(currentLaborTotal - projectLaborTotal) > 0.01) {
+                  console.log('🔄 Syncing bid with updated project estimate on focus:', {
+                    currentLabor: currentLaborTotal,
+                    projectLabor: projectLaborTotal,
+                    projectId: matchingProject.id,
+                  });
+                  
+                  // Update bid with latest estimate data
+                  const updatedBid = {
+                    ...parsed,
+                    laborLineItems: projectEstimate.laborLineItems || parsed.laborLineItems,
+                  };
+                  setBid(updatedBid);
+                  await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid));
+                }
+              }
+            }
+            
+            // CRITICAL: Restore materials from bid.materialLineItems if materialsCart is empty
+            // This prevents materials from being lost when the app reopens
+            if (!isFromLead && parsed.materialLineItems && Array.isArray(parsed.materialLineItems) && parsed.materialLineItems.length > 0) {
+              const savedMaterials = await AsyncStorage.getItem('bps.materialsCart');
+              const currentMaterials = savedMaterials ? JSON.parse(savedMaterials) : [];
+              
+              // Also check if project has updated materials
+              const matchingProject = activeProjects.find(p => p.id === parsed.id) || estimates.find(p => p.id === parsed.id);
+              if (matchingProject && matchingProject.estimateData && matchingProject.estimateData.materialLineItems) {
+                const projectMaterials = matchingProject.estimateData.materialLineItems;
+                const currentMaterialsTotal = currentMaterials.reduce((sum, item) => sum + (item.total || 0), 0);
+                const projectMaterialsTotal = projectMaterials.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+                
+                // Skip sync if AI just updated materials (within last 2 seconds) to prevent sync loops
+                const timeSinceAIAction = Date.now() - lastAIMaterialUpdateRef.current;
+                const shouldSkipSync = timeSinceAIAction < 2000; // Skip sync for 2 seconds after AI action
+                
+                // If materials differ, update from project
+                if (!shouldSkipSync && Math.abs(currentMaterialsTotal - projectMaterialsTotal) > 0.01) {
+                  console.log('🔄 Syncing materials from updated project estimate:', {
+                    currentMaterials: currentMaterialsTotal,
+                    projectMaterials: projectMaterialsTotal,
+                  });
+                  const updatedMaterials = projectMaterials.map(item => ({
+                    id: item.id || String(Date.now()),
+                    name: item.name || item.description || 'Material',
+                    description: item.description || item.name || 'Material',
+                    qty: item.quantity || item.qty || 1,
+                    quantity: item.quantity || item.qty || 1,
+                    unit: item.unit || 'ea',
+                    unitPrice: item.unitCost || item.cost || (item.total / (item.quantity || 1)),
+                    cost: item.cost || item.unitCost || (item.total / (item.quantity || 1)),
+                    total: Number(item.total) || 0,
+                    section: item.section || 'General Materials',
+                    scope: item.scope || activeScope,
+                    sku: item.sku || '',
+                    vendorId: item.vendorId || item.vendor || '',
+                    isManual: item.source === 'manual' || item.isManual || false,
+                  }));
+                  await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(updatedMaterials));
+                  setMaterialsCart(updatedMaterials);
+                } else if ((!currentMaterials || currentMaterials.length === 0) && parsed.materialLineItems.length > 0) {
+                  // Only restore if materialsCart is empty but bid has materialLineItems
+                  const restoredMaterials = parsed.materialLineItems.map(item => ({
+                    id: item.id || String(Date.now()),
+                    name: item.name || item.description || 'Material',
+                    description: item.description || item.name || 'Material',
+                    qty: item.quantity || item.qty || 1,
+                    quantity: item.quantity || item.qty || 1,
+                    unit: item.unit || 'ea',
+                    unitPrice: item.unitPrice || item.cost || (item.total / (item.quantity || 1)),
+                    cost: item.cost || item.unitPrice || (item.total / (item.quantity || 1)),
+                    total: Number(item.total) || 0,
+                    section: item.section || 'General Materials',
+                    scope: item.scope || activeScope,
+                    sku: item.sku || '',
+                    vendorId: item.vendorId || item.vendor || '',
+                    isManual: item.source === 'manual' || item.isManual || false,
+                  }));
+                  
+                  await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(restoredMaterials));
+                  setMaterialsCart(restoredMaterials);
+                  console.log(`📦 Restored ${restoredMaterials.length} materials from bid.materialLineItems on focus`);
+                }
+              } else if ((!currentMaterials || currentMaterials.length === 0) && parsed.materialLineItems.length > 0) {
+                // Fallback: restore from bid if no project match
+                const restoredMaterials = parsed.materialLineItems.map(item => ({
+                  id: item.id || String(Date.now()),
+                  name: item.name || item.description || 'Material',
+                  description: item.description || item.name || 'Material',
+                  qty: item.quantity || item.qty || 1,
+                  quantity: item.quantity || item.qty || 1,
+                  unit: item.unit || 'ea',
+                  unitPrice: item.unitPrice || item.cost || (item.total / (item.quantity || 1)),
+                  cost: item.cost || item.unitPrice || (item.total / (item.quantity || 1)),
+                  total: Number(item.total) || 0,
+                  section: item.section || 'General Materials',
+                  scope: item.scope || activeScope,
+                  sku: item.sku || '',
+                  vendorId: item.vendorId || item.vendor || '',
+                  isManual: item.source === 'manual' || item.isManual || false,
+                }));
+                
+                await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(restoredMaterials));
+                setMaterialsCart(restoredMaterials);
+                console.log(`📦 Restored ${restoredMaterials.length} materials from bid.materialLineItems on focus`);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error reloading bid on focus:', error);
+        }
+      };
+      reloadBid();
+    }, [bid.customerName, activeScope, activeProjects, estimates])
+  );
+
+  // Save bid whenever it changes (with debounce to prevent excessive re-renders)
+  const lastSavedBidRef = useRef(null);
+  const pendingSaveRef = useRef(null);
+  const isInitialLoadRef = useRef(true);
+  const initialLoadTimeoutRef = useRef(null);
+  const lastAIMaterialUpdateRef = useRef(0); // Track when AI last updated materials
+
+  const normalizeStatus = React.useCallback((status) => {
+    return (status || '')
+      .toString()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .trim();
+  }, []);
+  
+  useEffect(() => {
+    console.log('🔄 Bid useEffect triggered - isLoaded:', isLoaded);
+    if (!isLoaded) return;
+    
+    // Safety check - don't save if bid is empty or invalid
+    if (!bid || !bid.id) {
+      console.log('⚠️ Skipping bid save - bid is empty or invalid');
+      return;
+    }
+    
+    // Prevent saving during initial load to avoid glitching
+    if (isInitialLoadRef.current) {
+      // Clear the initial load flag after a short delay
+      if (initialLoadTimeoutRef.current) {
+        clearTimeout(initialLoadTimeoutRef.current);
+      }
+      initialLoadTimeoutRef.current = setTimeout(() => {
+        isInitialLoadRef.current = false;
+        console.log('✅ Initial load complete, normal saves enabled');
+      }, 1000); // Wait 1 second after mount before allowing saves
+      return;
+    }
+    
+    // Prevent saving the same bid multiple times
+    const bidKey = `${bid.id}-${bid.title}-${JSON.stringify(bid.laborLineItems)}-${JSON.stringify(materialsCart)}`;
+    if (lastSavedBidRef.current === bidKey) {
+      console.log('⚠️ Same bid already saved, skipping...');
+      return;
+    }
+    
+    lastSavedBidRef.current = bidKey;
+    
+    // Debounce the save to prevent excessive updates
+    const calculatedTotal = calc?.total || 0;
+    const subtotal = calc?.subtotal || 0;
+    // CRITICAL: Sync materialsCart to bid.materialLineItems before creating snapshot
+    // This ensures materials are preserved when the bid is saved
+    const syncedMaterialLineItems = materialsCart.map(item => ({
+      id: item.id || String(Date.now()),
+      name: item.name || item.description || 'Material',
+      description: item.description || item.name || 'Material',
+      quantity: item.qty || item.quantity || 1,
+      unit: item.unit || 'ea',
+      total: Number(item.total) || 0,
+      cost: Number(item.cost) || Number(item.total) || 0,
+      section: item.section || 'General Materials',
+      scope: item.scope || activeScope,
+      sku: item.sku || '',
+      vendorId: item.vendorId || '',
+      isManual: item.isManual || false,
+    }));
+    
+    const normalizedPaymentMilestones = Array.isArray(bid.paymentMilestones)
+      ? bid.paymentMilestones.map((milestone, index) => ({
+          ...milestone,
+          id: milestone.id || `payment-${index}`,
+        }))
+      : [];
+    const normalizedWeeklyPayments = Array.isArray(bid.weeklyPayments)
+      ? bid.weeklyPayments.map((payment, index) => ({
+          ...payment,
+          id: payment.id || `week-${index}`,
+        }))
+      : [];
+
+    const bidSnapshot = {
+      ...bid,
+      leadId: bid.leadId,
+      leadSource: bid.leadSource,
+      grandTotal: calculatedTotal,
+      subtotal,
+      total: calculatedTotal,
+      margin: calc?.marginPercent || 0,
+      marginPercent: calc?.marginPercent || 0,
+      marginRatio: calc?.marginRatio || 0,
+      calculatedTotal: calculatedTotal,
+      // CRITICAL: Include synced materialLineItems so materials are preserved
+      materialLineItems: syncedMaterialLineItems,
+      paymentMilestones: normalizedPaymentMilestones,
+      weeklyPayments: normalizedWeeklyPayments,
+    };
+
+    const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
+    const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+    const overhead =
+      (bid.insuranceOverhead || 0) +
+      (bid.equipment || 0) +
+      (bid.facilities || 0) +
+      (bid.otherOverhead || 0);
+    const permitCosts = bid.permitCost || 0;
+    const markup = Number(bid.markupPct) || 0;
+    const profit = (subtotal * markup) / 100;
+    const total = Math.round(subtotal + profit);
+
+    pendingSaveRef.current = {
+      bidSnapshot,
+      estimateContext: {
+        materials,
+        labor,
+        overhead,
+        permitCosts,
+        subtotal,
+        markup,
+        profit,
+        total,
+      },
+    };
+
+    const persistSnapshot = async (snapshot) => {
+      if (!snapshot) return;
+      const { bidSnapshot: snapshotBid, estimateContext } = snapshot;
+      try {
+        console.log('💾 Persisting bid snapshot to AsyncStorage...');
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
+        console.log(
+          `💾 Saved bid: ${snapshotBid.title} with grandTotal: $${(snapshotBid.total || 0).toLocaleString()}, leadId: ${
+            snapshotBid.leadId || 'none'
+          }, leadSource: ${snapshotBid.leadSource || 'none'}`
+        );
+
+        const matchingEstimate = estimates.find(p => p.id === snapshotBid.id);
+        const existingWonProject = activeProjects.find(
+          p => p.id === snapshotBid.id && normalizeStatus(p.status) === 'won'
+        );
+        const existingInProgress = activeProjects.find(
+          p => p.id === snapshotBid.id && normalizeStatus(p.status) !== 'won'
+        );
+
+        const existingProject = existingWonProject || matchingEstimate || existingInProgress;
+          const location = `${snapshotBid.customerCity || 'Unknown'}, ${snapshotBid.customerState || 'Unknown'}`;
+
+          console.log(
+            `💰 Auto-sync calculation: materials=${estimateContext.materials}, labor=${estimateContext.labor}, overhead=${estimateContext.overhead}, permit=${estimateContext.permitCosts}, subtotal=${estimateContext.subtotal}, markup=${estimateContext.markup}%, total=${estimateContext.total}`
+          );
+
+        // Calculate labor and materials budgets from estimateContext (which uses CURRENT materialsCart and laborLineItems)
+        // CRITICAL: estimateContext.materials and estimateContext.labor are calculated from current state in the useEffect
+        // These are the source of truth, not snapshotBid.materialLineItems which might be stale
+        const materialsBudget = estimateContext.materials || 0;
+        const laborBudget = estimateContext.labor || 0;
+        
+        console.log(`💰 Updating buckets: Materials=$${materialsBudget}, Labor=$${laborBudget}`);
+        console.log(`💰 From estimateContext: materials=${estimateContext.materials}, labor=${estimateContext.labor}`);
+        console.log(`💰 MaterialsCart count: ${materialsCart.length}, LaborLineItems count: ${bid.laborLineItems?.length || 0}`);
+        
+        // CRITICAL: Also update snapshotBid.materialLineItems to match materialsCart so it's saved correctly
+        // This ensures materials don't get deleted when the bid is reloaded
+        if (materialsCart.length > 0) {
+          snapshotBid.materialLineItems = materialsCart.map(item => ({
+            id: item.id || String(Date.now()),
+            name: item.name || item.description || 'Material',
+            description: item.description || item.name || 'Material',
+            quantity: item.qty || item.quantity || 1,
+            unit: item.unit || 'ea',
+            total: Number(item.total) || 0,
+            cost: Number(item.cost) || Number(item.total) || 0,
+            section: item.section || 'General Materials',
+          }));
+          console.log(`💾 Synced ${materialsCart.length} materials to materialLineItems`);
+        } else {
+          snapshotBid.materialLineItems = [];
+        }
+        
+        // Ensure laborLineItems is also synced
+        if (bid.laborLineItems && bid.laborLineItems.length > 0) {
+          snapshotBid.laborLineItems = bid.laborLineItems;
+        }
+        
+        // Re-save the bid snapshot with updated materialLineItems
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
+
+          const estimateData = {
+            id: snapshotBid.id,
+            title: snapshotBid.title || 'Untitled Bid',
+          status: existingProject?.status || snapshotBid.status || 'estimate',
+            estimatedCost: estimateContext.subtotal,
+            bidPrice: estimateContext.total,
+          actualCost: existingProject?.actualCost || 0,
+            margin:
+              estimateContext.subtotal > 0
+                ? Math.round((estimateContext.profit / estimateContext.subtotal) * 100)
+                : 0,
+            markup: estimateContext.markup,
+            location,
+            city: snapshotBid.customerCity,
+            state: snapshotBid.customerState,
+            zip: snapshotBid.customerZip,
+            startDate:
+              snapshotBid.startDate ||
+              snapshotBid.projectStartDate ||
+            existingProject?.startDate ||
+              new Date().toISOString().split('T')[0],
+            endDate:
+              snapshotBid.endDate ||
+              snapshotBid.projectEndDate ||
+            existingProject?.endDate ||
+              new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          progress: existingProject?.progress || 0,
+            client: snapshotBid.customerName || snapshotBid.clientName || 'Unknown Client',
+            clientEmail: snapshotBid.customerEmail || snapshotBid.clientEmail,
+            clientPhone: snapshotBid.customerPhone,
+          createdAt: existingProject?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          projectType: snapshotBid.projectType || existingProject?.projectType,
+            projectCategory:
+              snapshotBid.projectCategory ||
+              snapshotBid.category ||
+            existingProject?.projectCategory ||
+            existingProject?.category,
+          category: snapshotBid.category || existingProject?.category,
+          paymentSchedule: snapshotBid.paymentSchedule || bid.paymentSchedule || 'milestone-based',
+          milestones: normalizedPaymentMilestones,
+          weeklyPayments: normalizedWeeklyPayments,
+            estimateData: snapshotBid,
+          };
+
+          addEstimate(estimateData);
+        
+        // Update projectData buckets with the correct labor and materials budgets
+        // This ensures the Budget tab shows the correct BID amounts
+        try {
+          const projectDataKey = `bps.project.${snapshotBid.id}`;
+          const existingProjectData = await AsyncStorage.getItem(projectDataKey);
+          let projectData = existingProjectData ? JSON.parse(existingProjectData) : null;
+          
+          // Get current spent amounts from existing buckets
+          const laborSpent = projectData?.buckets?.find(b => b.name === 'Labor')?.spent || 0;
+          const materialsSpent = projectData?.buckets?.find(b => 
+            b.name === 'Materials/Equipment' || b.name === 'Materials'
+          )?.spent || 0;
+          
+          // Update or create projectData with correct buckets
+          const updatedProjectData = {
+            ...projectData,
+            id: snapshotBid.id,
+            title: snapshotBid.title || 'Untitled Bid',
+            budgeted: estimateContext.total,
+            spent: projectData?.spent || 0,
+            buckets: [
+              {
+                id: '1',
+                name: 'Labor',
+                spent: laborSpent,
+                budget: laborBudget,
+                bidBudget: laborBudget,
+              },
+              {
+                id: '2',
+                name: 'Materials/Equipment',
+                spent: materialsSpent,
+                budget: materialsBudget,
+                bidBudget: materialsBudget,
+              },
+              ...(projectData?.buckets?.filter(b => 
+                b.name !== 'Labor' && 
+                b.name !== 'Materials/Equipment' && 
+                b.name !== 'Materials'
+              ) || []),
+            ],
+            expenses: projectData?.expenses || [],
+            changeOrders: projectData?.changeOrders || [],
+            purchaseOrders: projectData?.purchaseOrders || [],
+            committedPOs: projectData?.committedPOs || 0,
+            currency: 'USD',
+            lastUpdated: new Date().toISOString(),
+          };
+          
+          await AsyncStorage.setItem(projectDataKey, JSON.stringify(updatedProjectData));
+          console.log(`💾 Updated projectData buckets: Labor=$${laborBudget}, Materials=$${materialsBudget}`);
+          console.log(`💾 Saved projectData to AsyncStorage for project ${snapshotBid.title} (${snapshotBid.id})`);
+          
+        // CRITICAL: Merge estimate payment milestones with existing timeline milestones
+        // Timeline edits (status, progress) should be preserved, but amounts/dates from estimate should update
+        let mergedMilestones = normalizedPaymentMilestones;
+        try {
+          // Check existing project from activeProjects or estimates
+          const existingProject = existingWonProject || matchingEstimate || existingInProgress;
+          if (existingProject?.milestones && existingProject.milestones.length > 0) {
+            // Merge: use estimate amounts/dates, but preserve timeline status/progress
+            const timelineMilestonesMap = new Map(
+              existingProject.milestones.map((m) => [m.id || m.name || m.title, m])
+            );
+            
+            mergedMilestones = normalizedPaymentMilestones.map((estimateMilestone) => {
+              const milestoneKey = estimateMilestone.id || estimateMilestone.name || estimateMilestone.title;
+              const timelineMilestone = timelineMilestonesMap.get(milestoneKey);
+              if (timelineMilestone) {
+                // Preserve timeline edits (status, progress, assignee) but update amounts/dates from estimate
+                return {
+                  ...estimateMilestone,
+                  status: timelineMilestone.status || estimateMilestone.status,
+                  progressPct: timelineMilestone.progressPct ?? estimateMilestone.progressPct ?? 0,
+                  assignee: timelineMilestone.assignee || estimateMilestone.assignee,
+                  // Keep timeline's costDelta and costCategory if they exist
+                  costDelta: timelineMilestone.costDelta,
+                  costCategory: timelineMilestone.costCategory,
+                };
+              }
+              return estimateMilestone;
+            });
+            
+            console.log(`🔄 Merged ${mergedMilestones.length} milestones: preserved timeline edits, updated amounts from estimate`);
+          }
+        } catch (error) {
+          console.error('Error merging milestones:', error);
+          // Fall back to estimate milestones if merge fails
+        }
+        
+        // Also update the project in ProjectListContext to sync the buckets and milestone data
+        // This will trigger auto-save to AsyncStorage via ProjectListContext useEffect
+        updateProject(snapshotBid.id, {
+          projectData: updatedProjectData,
+          milestones: mergedMilestones,
+          weeklyPayments: normalizedWeeklyPayments,
+          paymentSchedule: snapshotBid.paymentSchedule || bid.paymentSchedule,
+          estimateData: snapshotBid,
+        });
+          console.log(`✅ Synced projectData buckets to ProjectListContext for ${snapshotBid.title}`);
+        } catch (error) {
+          console.error('Error updating projectData buckets:', error);
+        }
+        if (existingProject) {
+          console.log(
+            `✅ Auto-synced estimate/project (${existingProject.status}) for ${snapshotBid.title} ($${estimateContext.total.toLocaleString()})`
+          );
+        } else {
+          console.log(
+            `✅ Auto-created estimate entry for ${snapshotBid.title} ($${estimateContext.total.toLocaleString()})`
+          );
+        }
+      } catch (error) {
+        console.error('❌ Failed to persist bid snapshot:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(async () => {
+      await persistSnapshot(pendingSaveRef.current);
+      pendingSaveRef.current = null;
+      console.log('✅ Bid useEffect completed successfully');
+    }, 2000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (pendingSaveRef.current) {
+        persistSnapshot(pendingSaveRef.current);
+        pendingSaveRef.current = null;
+      }
+    };
+  }, [bid, isLoaded, materialsCart, activeProjects, estimates, addEstimate]);
+
+  // Save materials cart whenever it changes
+  useEffect(() => {
+    // Skip saving during initial load to prevent glitching
+    if (isInitialLoadRef.current) return;
+    
+    const saveMaterials = async () => {
+      try {
+        await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(materialsCart));
+        console.log(`💾 Saved ${materialsCart.length} materials`);
+      } catch (error) {
+        console.error('Failed to save materials:', error);
+      }
+    };
+    saveMaterials();
+  }, [materialsCart]);
+
+  // Keep bid.materialLineItems synced with the materials cart so backend/project data stays accurate
+  useEffect(() => {
+    // Skip updating during initial load to prevent glitching
+    if (isInitialLoadRef.current) return;
+    
+    setBid((prev) => {
+      const nextLineItems = (materialsCart || []).map((item) => ({
+        id: item.id || `material-${Date.now()}`,
+        name: item.name || 'Material',
+        description: item.description || item.name || 'Material',
+        quantity: Number(item.quantity) || 0,
+        unit: item.unit || item.section || 'unit',
+        unitPrice: Number(item.unitPrice) || 0,
+        total:
+          Number(item.total) ||
+          (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+        vendor: item.vendorId || '',
+        section: item.section || '',
+        scope: item.scope || activeScope,
+        sku: item.sku || '',
+        source: item.isManual ? 'manual' : 'catalog',
+      }));
+
+      const currentSerialized = JSON.stringify(prev.materialLineItems || []);
+      const nextSerialized = JSON.stringify(nextLineItems);
+      if (currentSerialized === nextSerialized) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        materialLineItems: nextLineItems,
+      };
+    });
+  }, [materialsCart, activeScope]);
+
+  // Save rental cart whenever it changes
+  useEffect(() => {
+    const saveRentals = async () => {
+      try {
+        await AsyncStorage.setItem('bps.rentalCart', JSON.stringify(rentalCart));
+        console.log(`💾 Saved ${rentalCart.length} rentals`);
+      } catch (error) {
+        console.error('Failed to save rentals:', error);
+      }
+    };
+    saveRentals();
+  }, [rentalCart]);
+
+  // Calculations - MUST be before auto-adjustment useEffect
+  const calc = useMemo(() => {
+    // Calculate materials from materials cart
+    const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
+    
+    
+    // Calculate labor from line items
+    const laborFromItems = bid.laborLineItems?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+    const labor = laborFromItems;
+    
+    // Calculate rental equipment costs (note: rentals don't have fixed pricing, just duration tracking)
+    const rentals = rentalCart.length; // Count of rental items for tracking
+    
+    const overhead = bid.insuranceOverhead + bid.equipment + bid.facilities + bid.otherOverhead;
+    const permitCosts = bid.permitCost || 0;
+    const subtotal = materials + labor + overhead + permitCosts;
+    const contingency = Math.round((subtotal * bid.contingencyPct) / 100);
+    const profit = (subtotal * bid.markupPct) / 100;
+    const total = Math.round(subtotal + profit);
+    const marginRatio = total > 0 ? profit / total : 0;
+    const marginPercent = marginRatio * 100;
+    
+    const denom = bid.unitMode === 'sqft' ? Math.max(1, bid.sqft) : bid.unitMode === 'lf' ? 480 : 30;
+    const unitPrice = total / denom;
+    
+    return { materials, labor, rentals, overhead, permitCosts, contingency, profit, total, subtotal, unitPrice, marginRatio, marginPercent };
+  }, [bid, rentalCart, materialsCart]);
+
+  // Auto-adjust payment amounts when total bid price changes
+  useEffect(() => {
+    console.log(`🚀 AUTO-ADJUSTMENT useEffect triggered: isLoaded=${isLoaded}, calc=${!!calc}, currentTotal=${calc?.total || 0}`);
+    
+    if (!isLoaded || !calc) return;
+    
+    // Skip auto-adjustment during initial load to prevent glitching
+    if (isInitialLoadRef.current) {
+      // Just initialize previousTotal without triggering updates
+      if (!bid.previousTotal && calc.total) {
+        console.log(`🔧 Initializing previousTotal to ${calc.total} (silent during initial load)`);
+        // Use a ref to update without triggering re-renders
+        const silentBid = { ...bid, previousTotal: calc.total };
+        // Store it but don't trigger state update
+        AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(silentBid)).catch(() => {});
+      }
+      return;
+    }
+
+    const currentTotal = calc.total || 0;
+    
+    // Initialize previousTotal only if it doesn't exist
+    if (!bid.previousTotal) {
+      console.log(`🔧 Initializing previousTotal to ${currentTotal}`);
+      updateBid('previousTotal', currentTotal);
+      return; // Skip adjustment on first load
+    }
+    
+    const previousTotal = bid.previousTotal;
+    
+    // Debug logging
+    console.log(`🔍 Auto-adjustment check: currentTotal=${currentTotal}, previousTotal=${previousTotal}, paymentSchedule=${bid.paymentSchedule}, milestones=${bid.paymentMilestones?.length || 0}, weekly=${bid.weeklyPayments?.length || 0}`);
+    
+    // Only adjust if total changed significantly (more than $1 difference)
+    if (Math.abs(currentTotal - previousTotal) > 1) {
+      console.log(`💰 Total bid changed from $${previousTotal} to $${currentTotal}, adjusting payment amounts...`);
+      
+      // Calculate adjustment ratio
+      const adjustmentRatio = currentTotal / Math.max(previousTotal, 1);
+      
+      // Handle milestone-based payments
+      if (bid.paymentSchedule === 'milestone-based' && bid.paymentMilestones?.length > 0) {
+        const updatedMilestones = bid.paymentMilestones.map(milestone => {
+          const percentage = milestone.percentage || 0;
+          const newAmount = Math.round((percentage / 100) * currentTotal);
+          
+          console.log(`📊 Adjusting milestone ${milestone.name}: ${percentage}% of $${currentTotal} = $${newAmount}`);
+          
+          return {
+            ...milestone,
+            paymentAmount: newAmount,
+            amount: newAmount
+          };
+        });
+        
+        updateBid('paymentMilestones', updatedMilestones);
+        console.log(`✅ Payment amounts adjusted for ${updatedMilestones.length} milestones`);
+      }
+      
+      // Handle weekly payments
+      if (bid.paymentSchedule === 'weekly' && bid.weeklyPayments?.length > 0) {
+        const updatedWeeklyPayments = bid.weeklyPayments.map(payment => {
+          const newAmount = Math.round((payment.amount || 0) * adjustmentRatio);
+          
+          console.log(`📊 Adjusting weekly payment: $${payment.amount || 0} × ${adjustmentRatio.toFixed(2)} = $${newAmount}`);
+          
+          return {
+            ...payment,
+            amount: newAmount,
+            amountText: newAmount.toString()
+          };
+        });
+        
+        updateBid('weeklyPayments', updatedWeeklyPayments);
+        console.log(`✅ Weekly payment amounts adjusted for ${updatedWeeklyPayments.length} payments`);
+      }
+      
+      // Store current total for next comparison
+      updateBid('previousTotal', currentTotal);
+      
+      // Show a brief notification that payments were adjusted
+      console.log(`🎯 Auto-adjusted payment amounts based on new total: $${currentTotal}`);
+    } else {
+      // Debug: Show why auto-adjustment didn't trigger
+      if (Math.abs(currentTotal - previousTotal) <= 1) {
+        console.log(`🔍 Auto-adjustment skipped: change too small (${Math.abs(currentTotal - previousTotal)})`);
+      } else if (bid.paymentSchedule !== 'milestone-based' && bid.paymentSchedule !== 'weekly') {
+        console.log(`🔍 Auto-adjustment skipped: no payment schedule set (${bid.paymentSchedule})`);
+      } else if (bid.paymentSchedule === 'milestone-based' && (!bid.paymentMilestones || bid.paymentMilestones.length === 0)) {
+        console.log(`🔍 Auto-adjustment skipped: no payment milestones set up`);
+      } else if (bid.paymentSchedule === 'weekly' && (!bid.weeklyPayments || bid.weeklyPayments.length === 0)) {
+        console.log(`🔍 Auto-adjustment skipped: no weekly payments set up`);
+      }
+    }
+  }, [calc?.total, isLoaded]);
+
+  // Shared health score calculation
+  const healthScore = useMemo(() => {
+    let points = 0;
+    
+    // Project Information (20 points)
+    if (bid.title) points += 5;
+    if (bid.customerCity || bid.location) points += 5;
+    if (bid.projectDescription) points += 5;
+    if (bid.projectStartDate) points += 5;
+    
+    // Materials & Labor (20 points)
+    if ((materialsCart?.length || 0) > 0) points += 10;
+    if ((bid.laborLineItems?.length || 0) > 0) points += 10;
+    
+    // Overhead & Markup (15 points)
+    if (bid.overheadPct && bid.overheadPct > 0) points += 8;
+    if (bid.markupPct && bid.markupPct > 0) points += 7;
+    
+    // Payment Schedule (25 points)
+    if (bid.paymentSchedule === 'milestone-based') {
+      const totalPct = bid.paymentMilestones?.reduce((sum, m) => sum + (m.percentage || 0), 0) || 0;
+      if (Math.abs(totalPct - 100) < 0.1) {
+        points += 25;
+      } else if (totalPct > 0) {
+        points += 15;
+      }
+    } else if (bid.paymentSchedule === 'weekly') {
+      const totalScheduled = bid.weeklyPayments?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0;
+      if (calc.total > 0 && Math.abs(calc.total - totalScheduled) < 1) {
+        points += 25;
+      } else if (totalScheduled > 0) {
+        points += 15;
+      }
+    }
+    
+    // Legal & Compliance (10 points)
+    if (bid.licenseNumber) points += 5;
+    if (bid.insuranceCoverage) points += 5;
+    
+    // Work Schedule (10 points)
+    if (bid.workSchedule) points += 5;
+    if (bid.projectDuration && bid.projectDuration > 0) points += 5;
+    
+    return Math.min(100, points);
+  }, [bid, materialsCart, calc]);
+
+  const healthColor = healthScore >= 80 ? '#38d39f' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
+
+  const updateBid = (key, value) => setBid(prev => ({ ...prev, [key]: value }));
+
+  // Payment Milestone Management
+  const handleAddMilestone = () => {
+    setMilestoneModal({ visible: true, item: null });
+  };
+
+  const handleEditMilestone = (milestone) => {
+    setMilestoneModal({ visible: true, item: milestone });
+  };
+
+  const handleSaveMilestone = (milestoneData) => {
+    const currentMilestones = bid.paymentMilestones || [];
+    let updatedMilestones;
+    
+    if (milestoneData.id) {
+      // Edit existing milestone
+      updatedMilestones = currentMilestones.map(m => 
+        m.id === milestoneData.id ? milestoneData : m
+      );
+    } else {
+      // Add new milestone
+      const newMilestone = {
+        ...milestoneData,
+        id: milestoneData.id || `milestone-${Date.now()}`,
+      };
+      updatedMilestones = [...currentMilestones, newMilestone];
+    }
+    
+    updateBid('paymentMilestones', updatedMilestones);
+    setMilestoneModal({ visible: false, item: null });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleDeleteMilestone = (milestoneId) => {
+    Alert.alert(
+      'Delete Milestone',
+      'Are you sure you want to delete this payment milestone?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const updatedMilestones = (bid.paymentMilestones || []).filter(m => m.id !== milestoneId);
+            updateBid('paymentMilestones', updatedMilestones);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          },
+        },
+      ]
+    );
+  };
+
+  // Weekly Payment Management
+  const handleAddWeeklyPayment = () => {
+    setWeeklyPaymentModal({ visible: true, item: null });
+  };
+
+  const handleEditWeeklyPayment = (payment) => {
+    setWeeklyPaymentModal({ visible: true, item: payment });
+  };
+
+  const handleSaveWeeklyPayment = (paymentData) => {
+    const currentPayments = bid.weeklyPayments || [];
+    let updatedPayments;
+    
+    if (paymentData.id) {
+      // Edit existing payment
+      updatedPayments = currentPayments.map(p => 
+        p.id === paymentData.id ? paymentData : p
+      );
+    } else {
+      // Add new payment
+      const maxWeekNumber = currentPayments.length > 0 
+        ? Math.max(...currentPayments.map(p => p.weekNumber || 0))
+        : 0;
+      const newPayment = {
+        ...paymentData,
+        id: paymentData.id || `week-${Date.now()}`,
+        weekNumber: paymentData.weekNumber || maxWeekNumber + 1,
+      };
+      updatedPayments = [...currentPayments, newPayment];
+    }
+    
+    // Sort by week number
+    updatedPayments.sort((a, b) => (a.weekNumber || 0) - (b.weekNumber || 0));
+    
+    updateBid('weeklyPayments', updatedPayments);
+    setWeeklyPaymentModal({ visible: false, item: null });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleDeleteWeeklyPayment = (paymentId) => {
+    Alert.alert(
+      'Delete Weekly Payment',
+      'Are you sure you want to delete this weekly payment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const updatedPayments = (bid.weeklyPayments || []).filter(p => p.id !== paymentId);
+            updateBid('weeklyPayments', updatedPayments);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          },
+        },
+      ]
+    );
+  };
+
+  useEffect(() => {
+    const sourceType =
+      bid?.projectType ||
+      bid?.projectCategory ||
+      bid?.category ||
+      bid?.template;
+    if (!sourceType) return;
+    const normalized = normalizeScope(sourceType);
+    if (normalized !== activeScope) {
+      setActiveScope(normalized);
+    }
+  }, [bid?.projectType, bid?.projectCategory, bid?.category, bid?.template, activeScope, normalizeScope]);
+
+  // Build Contract Document from Bid Data
+  const buildDocFromBid = (bidData, calcData) => {
+    const scopeBullets = bidData.scopeDescription 
+      ? bidData.scopeDescription.split('\n').filter(line => line.trim())
+      : ['Complete renovation as specified'];
+
+    // Build detailed line items from materials cart
+    const materialLineItems = materialsCart && materialsCart.length > 0
+      ? materialsCart.map(item => ({
+          description: item.name || item.description || 'Material',
+          unit: item.unit || 'ea',
+          quantity: item.qty || item.quantity || 1,
+          materials: item.total || 0,
+          labor: 0,
+          category: 'Materials',
+          section: item.section || 'General Materials'
+        }))
+      : ((calcData?.materials || 0) > 0 ? [{
+          description: 'Materials & Supplies',
+          unit: 'total',
+          quantity: 1,
+          materials: calcData.materials,
+          labor: 0,
+          category: 'Materials'
+        }] : []);
+
+    // Calculate total overhead
+    const totalOverhead = Number(bidData.insuranceOverhead || 0) + 
+                         Number(bidData.equipment || 0) + 
+                         Number(bidData.facilities || 0) + 
+                         Number(bidData.otherOverhead || 0);
+
+    return {
+      summary: {
+        contractId: bidData.id || `BPS-${Date.now()}`,
+        projectName: bidData.title || 'Untitled Project',
+        siteAddress: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || 'N/A',
+        unitPrice: bidData.sqft ? (() => {
+          const materials = calcData?.materials || 0;
+          const labor = calcData?.labor || 0;
+          const overhead = totalOverhead;
+          const permitCosts = bidData.permitCost || 0;
+          const subtotal = materials + labor + overhead + permitCosts;
+          const markup = subtotal * ((bidData.markupPct || 0) / 100);
+          return Math.round(subtotal + markup) / bidData.sqft;
+        })() : undefined,
+        totalBid: (() => {
+          const materials = calcData?.materials || 0;
+          const labor = calcData?.labor || 0;
+          const overhead = totalOverhead;
+          const permitCosts = bidData.permitCost || 0;
+          const subtotal = materials + labor + overhead + permitCosts;
+          const markup = subtotal * ((bidData.markupPct || 0) / 100);
+          return Math.round(subtotal + markup);
+        })(),
+        durationDays: bidData.projectDuration || 30,
+        estimatedStartDate: bidData.projectStartDate || undefined,
+        estimatedEndDate: bidData.projectEndDate || (bidData.projectStartDate ? 
+          new Date(new Date(bidData.projectStartDate).getTime() + (bidData.projectDuration || 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
+          : undefined),
+        startDate: bidData.projectStartDate ? new Date(bidData.projectStartDate + 'T00:00:00').toLocaleDateString() : 'TBD',
+        expiresDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+        retainagePct: 10,
+        version: bidData.revision ? `Rev ${bidData.revision}` : 'Final',
+      },
+      contractor: {
+        contactName: contractorProfile.name || undefined,
+        legalName: contractorProfile.company || 'AMERICAN HOME RESTORATION',
+        licenseNo: bidData.licenseNumber || undefined,
+        phone: undefined,
+        email: undefined,
+        insurer: bidData.insuranceCoverage || undefined,
+        glLimit: undefined,
+        wcActive: bidData.insurance || false,
+        logoUrl: contractorProfile.avatar || undefined,
+      },
+      owner: {
+        legalName: bidData.customerName || 'N/A',
+        phone: bidData.customerPhone || undefined,
+        email: bidData.customerEmail || undefined,
+        address: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || undefined,
+      },
+      scope: {
+        bullets: scopeBullets,
+        inclusions: [],
+        exclusions: [],
+        ownerResponsibilities: [],
+        materialLineItems: materialLineItems,
+        laborLineItems: (bidData.laborLineItems || []).map(item => ({
+          description: item.description || 'Labor',
+          labor: item.total || 0,
+          materials: 0,
+          category: 'Labor'
+        })),
+      },
+      allowances: [],
+      milestones: bidData.paymentSchedule === 'milestone-based' && bidData.paymentMilestones
+        ? bidData.paymentMilestones.map(m => ({
+            id: m.id,
+            name: m.name || 'Payment Milestone',
+            percentage: m.percentage || 0,
+            percent: m.percentage || 0,
+            paymentAmount: m.paymentAmount || 0,
+            amount: m.paymentAmount || 0,
+            description: m.description || undefined,
+            scheduledDate: m.scheduledDate || undefined,
+            dueDate: m.scheduledDate || undefined,
+            status: 'Pending',
+          }))
+        : bidData.paymentSchedule === 'weekly' && bidData.weeklyPayments
+        ? bidData.weeklyPayments.map((w, i) => ({
+            id: w.id,
+            name: `Week ${i + 1} Payment`,
+            percentage: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
+            percent: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
+            paymentAmount: w.amount || 0,
+            amount: w.amount || 0,
+            description: w.description || undefined,
+            scheduledDate: w.scheduledDate || undefined,
+            dueDate: w.scheduledDate || undefined,
+            status: 'Pending',
+          }))
+        : [],
+      terms: {
+        lateInterestPct: 1.5,
+        suspendDays: 7,
+        cureDays: 7,
+        convDays: 7,
+        convFeePct: 5,
+        escalationThresholdPct: 8,
+        warrantyYears: bidData.warrantyYears || 1,
+        stateLaw: bidData.customerState || 'Nevada',
+        workHours: bidData.workSchedule === 'weekdays' ? 'Mon–Fri, 8:00a–5:00p' : 'Flexible',
+        permitsBy: 'Contractor',
+        permitFeesPaidBy: 'Owner',
+      },
+      labor: calcData?.labor || 0,
+      materials: calcData?.materials || 0,
+      overhead: totalOverhead,
+      profitMarginPct: bidData.markupPct || 0,
+    };
+  };
+
+  // Generate and Share Contract - Goes straight to PDF sharing
+  const generateContract = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      console.log('🔨 Building and sharing contract from bid:', bid.title || 'Untitled');
+      console.log('👤 Using contractor profile:', contractorProfile);
+      
+      // Convert logo to base64 if it exists
+      let logoBase64 = null;
+      if (contractorProfile.avatar && contractorProfile.avatar.startsWith('file://')) {
+        try {
+          console.log('🖼️ Converting logo to base64...');
+          const base64 = await FileSystem.readAsStringAsync(contractorProfile.avatar, {
+            encoding: 'base64',
+          });
+          // Determine image type from file extension
+          const extension = contractorProfile.avatar.split('.').pop().toLowerCase();
+          const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+          logoBase64 = `data:${mimeType};base64,${base64}`;
+          console.log('✅ Logo converted to base64 data URI');
+        } catch (error) {
+          console.error('Failed to convert logo:', error);
+        }
+      }
+      
+      // Build contract document from bid data with real-time calculations
+      const doc = buildDocFromBid(bid, calc);
+      // Override logo with base64 version
+      if (logoBase64) {
+        doc.contractor.logoUrl = logoBase64;
+      }
+      console.log('📄 Built contract doc:', {
+        contractorName: doc.contractor.legalName,
+        contractorLogo: doc.contractor.logoUrl ? 'base64 data URI' : 'none'
+      });
+      
+      // Generate HTML and immediately export as PDF
+      const html = buildProposalHtml(doc);
+      console.log('🌐 Generated proposal HTML (' + html.length + ' chars)');
+      
+      // Export and share the PDF directly
+      await exportProposalPdf(html, `${bid.title || 'contract'}-${bid.id}`);
+      
+      console.log('✅ Contract PDF generated and shared successfully');
+    } catch (error) {
+      console.error('❌ Error generating contract:', error);
+      console.error('Error stack:', error.stack);
+      Alert.alert(
+        '❌ Error',
+        `Failed to generate contract: ${error.message}`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Manual recovery function for Haim bid
+  const handleRecoverHaimBid = async () => {
+    try {
+      console.log('🔍 COMPREHENSIVE Haim bid search starting...');
+      
+      // Get ALL AsyncStorage keys first
+      const allKeys = await AsyncStorage.getAllKeys();
+      console.log('📋 ALL storage keys found:', allKeys);
+      
+      // Check every single storage key for any data containing "haim"
+      let foundData = null;
+      let foundInKey = null;
+      
+      for (const key of allKeys) {
+        try {
+          console.log(`🔍 Checking key: ${key}`);
+          const data = await AsyncStorage.getItem(key);
+          if (data) {
+            // Try to parse as JSON
+            try {
+              const parsed = JSON.parse(data);
+              console.log(`📄 Key ${key} contains:`, typeof parsed, Array.isArray(parsed) ? `Array(${parsed.length})` : 'Object');
+              
+              // Check if it's an array of projects
+              if (Array.isArray(parsed)) {
+                for (let i = 0; i < parsed.length; i++) {
+                  const item = parsed[i];
+                  if (item && typeof item === 'object') {
+                    // Check all string properties for "haim"
+                    for (const prop in item) {
+                      if (typeof item[prop] === 'string' && item[prop].toLowerCase().includes('haim')) {
+                        console.log(`🎉 Found "haim" in ${key}[${i}].${prop}: "${item[prop]}"`);
+                        foundData = item;
+                        foundInKey = `${key}[${i}]`;
+                        break;
+                      }
+                    }
+                  }
+                }
+              } else if (parsed && typeof parsed === 'object') {
+                // Check all string properties for "haim"
+                for (const prop in parsed) {
+                  if (typeof parsed[prop] === 'string' && parsed[prop].toLowerCase().includes('haim')) {
+                    console.log(`🎉 Found "haim" in ${key}.${prop}: "${parsed[prop]}"`);
+                    foundData = parsed;
+                    foundInKey = key;
+                    break;
+                  }
+                }
+              }
+            } catch (parseError) {
+              // Not JSON, check if it's a string containing "haim"
+              if (data.toLowerCase().includes('haim')) {
+                console.log(`🎉 Found "haim" in raw data of ${key}: "${data.substring(0, 100)}..."`);
+                foundData = data;
+                foundInKey = key;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`⚠️ Error reading ${key}:`, e.message);
+        }
+      }
+      
+      if (foundData) {
+        console.log(`✅ Found Haim data in ${foundInKey}:`, foundData);
+        
+        // If it's a project with estimateData, use that
+        if (foundData.estimateData) {
+          console.log('🔄 Converting project estimateData back to bid...');
+          setBid(foundData.estimateData);
+          Alert.alert(
+            '✅ Haim Bid Recovered!',
+            `Found your Haim bid in ${foundInKey}`,
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                console.log('✅ Bid should now be loaded:', foundData.estimateData);
+              }
+            }]
+          );
+          return;
+        }
+        
+        // If it's a bid object, use it directly
+        if (foundData.title || foundData.id) {
+          console.log('🔄 Using found bid data directly...');
+          console.log('📋 Setting bid to:', foundData);
+          setBid(foundData);
+          
+          // Force a small delay to ensure state update
+          setTimeout(() => {
+            console.log('🔄 Forcing bid state refresh...');
+            setBid(prevBid => ({ ...prevBid, ...foundData }));
+          }, 100);
+          
+          Alert.alert(
+            '✅ Haim Bid Recovered!',
+            `Found your Haim bid in ${foundInKey}`,
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                console.log('✅ Bid should now be loaded:', foundData);
+                // Force another refresh after alert
+                setTimeout(() => {
+                  setBid(foundData);
+                }, 50);
+              }
+            }]
+          );
+          return;
+        }
+        
+        // If it's raw data, try to parse it as a bid
+        if (typeof foundData === 'string') {
+          try {
+            const parsedData = JSON.parse(foundData);
+            console.log('🔄 Parsing raw data as bid...');
+            setBid(parsedData);
+            Alert.alert(
+              '✅ Haim Bid Recovered!',
+              `Found your Haim bid in ${foundInKey}`,
+              [{ 
+                text: 'OK',
+                onPress: () => {
+                  console.log('✅ Bid should now be loaded:', parsedData);
+                }
+              }]
+            );
+            return;
+          } catch (e) {
+            console.log('⚠️ Could not parse raw data as JSON');
+          }
+        }
+      }
+      
+      // If we get here, show detailed failure info
+      console.log('❌ No Haim data found in any storage key');
+      Alert.alert(
+        '❌ Haim Bid Not Found',
+        `Searched ${allKeys.length} storage keys but couldn't find any data containing "haim". The bid may have been permanently overwritten.`,
+        [{ text: 'OK' }]
+      );
+      
+    } catch (error) {
+      console.error('❌ Error in comprehensive recovery:', error);
+      Alert.alert('Error', `Recovery failed: ${error.message}`);
+    }
+  };
+
+  // Save estimate to unified context
+  const handleSaveEstimate = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      console.log('🔍 Debug - calc object:', calc);
+      console.log('🔍 Debug - bid object:', bid);
+      
+      const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+      
+      // Add safety checks for calc values
+      const estimatedCost = Number(calc?.subtotal) || 0;
+      const bidPrice = Number(calc?.grandTotal) || 0;
+      const margin = Number(calc?.marginPercent) || 0;
+      const markup = Number(bid.markupPct) || 0;
+      
+      console.log('🔍 Debug - calculated values:', {
+        estimatedCost,
+        bidPrice,
+        margin,
+        markup,
+        calcSubtotal: calc?.subtotal,
+        calcGrandTotal: calc?.grandTotal,
+        calcMargin: calc?.marginPercent
+      });
+      
+      // Preserve existing status if bid was already submitted
+      const existingProject = [...activeProjects, ...estimates].find(p => p.id === bid.id);
+      const preservedStatus = existingProject?.status || 'estimate';
+      
+      const estimateData = {
+        id: bid.id,
+        title: bid.title || 'Untitled Bid',
+        status: preservedStatus, // Preserve existing status (estimate, bid_submitted, won, etc.)
+        estimatedCost,
+        bidPrice,
+        actualCost: 0,
+        margin,
+        markup,
+        location,
+        city: bid.customerCity,
+        state: bid.customerState,
+        zip: bid.customerZip,
+        startDate: bid.startDate || new Date().toISOString().split('T')[0],
+        endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        progress: 0,
+        client: bid.customerName || bid.clientName || 'Unknown Client',
+        clientEmail: bid.customerEmail || bid.clientEmail,
+        clientPhone: bid.customerPhone,
+        projectType: bid.projectType,
+        projectCategory: bid.projectCategory || PROJECT_CATEGORY_SLUGS[bid.projectType] || bid.category,
+        category: bid.category || PROJECT_CATEGORY_SLUGS[bid.projectType] || 'other',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        estimateData: bid,
+      };
+      
+      console.log('🔍 Debug - estimate data to save:', estimateData);
+      
+      addEstimate(estimateData);
+      
+      Alert.alert(
+        '✅ Estimate Saved!',
+        'Your estimate has been saved and will appear in Dashboard and Projects.',
+        [{ text: 'OK' }]
+      );
+      console.log(`✅ Saved estimate: ${bid.title} ($${bidPrice.toLocaleString()})`);
+    } catch (error) {
+      console.error('❌ Error saving estimate:', error);
+      console.error('❌ Error stack:', error.stack);
+      Alert.alert('Error', `Failed to save estimate: ${error.message}`);
+    }
+  };
+
+  // Submit bid to client (changes status to bid_submitted)
+  const handleSubmitBid = () => {
+    Alert.alert(
+      'Submit Bid to Client?',
+      'This will mark the estimate as submitted and track it as a pending bid.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit',
+          onPress: async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            
+            // First ensure the estimate is saved, then update status
+            try {
+              // Save the estimate first if it doesn't exist
+              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+              const estimatedCost = Number(calc?.subtotal) || 0;
+              const bidPrice = Number(calc?.grandTotal) || 0;
+              const margin = Number(calc?.marginPercent) || 0;
+              const markup = Number(bid.markupPct) || 0;
+              
+              const estimateData = {
+                id: bid.id,
+                title: bid.title || 'Untitled Bid',
+                status: 'in_progress', // Set status to in_progress so it shows as "In Progress" in projects
+                estimatedCost,
+                bidPrice,
+                actualCost: 0,
+                margin,
+                markup,
+                location,
+                city: bid.customerCity,
+                state: bid.customerState,
+                zip: bid.customerZip,
+                startDate: bid.startDate || new Date().toISOString().split('T')[0],
+                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                progress: 0,
+                client: bid.customerName || bid.clientName || 'Unknown Client',
+                clientEmail: bid.customerEmail || bid.clientEmail,
+                clientPhone: bid.customerPhone,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                estimateData: bid,
+              };
+              
+              console.log('🔍 Debug - submitting bid with data:', estimateData);
+              addEstimate(estimateData);
+              
+              // Update lead stage to "proposal" if this bid came from a qualified lead
+              if (bid.leadId && bid.leadSource === 'qualified_lead') {
+                try {
+                  const leadId = bid.leadId;
+                  console.log(`🔄 Updating lead ${leadId} stage to proposal after submitting bid`);
+                  
+                  // Track that bid was submitted
+                  const { trackBidSubmitted } = await import('../../services/engagementTracking');
+                  await trackBidSubmitted(leadId);
+                  
+                  // Check if it's an AUTO-* lead (frontend-only) or backend lead
+                  if (leadId.startsWith('AUTO-') || leadId.match(/^L\d{4}$/) || leadId.startsWith('MOCK-')) {
+                    // Update frontend-only lead in AsyncStorage
+                    const leadsData = await AsyncStorage.getItem('leadsData');
+                    if (leadsData) {
+                      const leads = JSON.parse(leadsData);
+                      const updatedLeads = leads.map((l) => 
+                        l.id === leadId ? { ...l, stage: 'proposal', updatedAt: new Date().toISOString() } : l
+                      );
+                      await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+                      console.log(`✅ Updated frontend lead ${leadId} stage to proposal in AsyncStorage`);
+                    }
+                  } else {
+                    // Update backend lead
+                    await unifiedLeadService.updateLeadStage(leadId, 'proposal');
+                    console.log(`✅ Updated backend lead ${leadId} stage to proposal`);
+                    
+                    // Also update AsyncStorage as backup so leads screen picks up the change
+                    const leadsData = await AsyncStorage.getItem('leadsData');
+                    if (leadsData) {
+                      const leads = JSON.parse(leadsData);
+                      const existingIndex = leads.findIndex((l) => l.id === leadId);
+                      if (existingIndex >= 0) {
+                        leads[existingIndex] = {
+                          ...leads[existingIndex],
+                          stage: 'proposal',
+                          updatedAt: new Date().toISOString()
+                        };
+                        await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
+                        console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
+                      }
+                    }
+                  }
+                } catch (leadUpdateError) {
+                  console.warn('⚠️ Failed to update lead stage after proposal submission:', leadUpdateError);
+                  // Don't block the submission if lead update fails
+                }
+              }
+              
+              Alert.alert('✅ Bid Submitted!', 'Your bid is now being tracked as pending and will appear in Dashboard and Projects.');
+              console.log(`📤 Submitted bid: ${bid.title} ($${bidPrice.toLocaleString()})`);
+            } catch (error) {
+              console.error('❌ Error submitting bid:', error);
+              Alert.alert('Error', `Failed to submit bid: ${error.message}`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Mark bid as won (converts to project)
+  const handleMarkAsWon = () => {
+    Alert.alert(
+      '🎉 Mark Bid as Won?',
+      'This will convert your bid into an active project.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Won',
+          style: 'default',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            // First, ensure the bid/estimate is saved to the projects list
+            // Check if it already exists
+            const allProjects = [...activeProjects, ...estimates];
+            console.log(`🔍 Checking for bid ${bid.id} in ${allProjects.length} projects`);
+            console.log(`🔍 Available project IDs:`, allProjects.map(p => `${p.id} (${p.status})`));
+            
+            const existingProject = allProjects.find(p => p.id === bid.id);
+            
+            if (!existingProject) {
+              console.log(`📝 Bid ${bid.id} not found in projects, saving it first...`);
+              // Save the estimate with 'in_progress' status directly (since we're marking it as won)
+              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+              const estimatedCost = Number(calc?.subtotal) || 0;
+              const bidPrice = Number(calc?.grandTotal) || 0;
+              const margin = Number(calc?.marginPercent) || 0;
+              const markup = Number(bid.markupPct) || 0;
+              
+              const estimateData = {
+                id: bid.id,
+                title: bid.title || 'Untitled Bid',
+                status: 'won', // Set status to 'won' so it shows as "Active" in projects
+                estimatedCost,
+                bidPrice,
+                actualCost: 0,
+                margin,
+                markup,
+                location,
+                city: bid.customerCity,
+                state: bid.customerState,
+                zip: bid.customerZip,
+                startDate: bid.startDate || new Date().toISOString().split('T')[0],
+                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                progress: 0,
+                client: bid.customerName || bid.clientName || 'Unknown Client',
+                clientEmail: bid.customerEmail || bid.clientEmail,
+                clientPhone: bid.customerPhone,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                estimateData: bid,
+              };
+              
+              console.log(`💾 Saving bid as active project with status 'won':`, {
+                id: estimateData.id,
+                title: estimateData.title,
+                status: estimateData.status,
+                bidPrice: estimateData.bidPrice
+              });
+              addEstimate(estimateData);
+              console.log(`✅ Bid saved! It should now appear in Projects tab with 'Active' status.`);
+            } else {
+              // Bid exists, convert it to won (Active)
+              console.log(`🔄 Converting existing bid ${bid.id} from status '${existingProject.status}' to 'won'`);
+              // Update the project status to 'won' so it shows as "Active"
+              updateProject(bid.id, { status: 'won' });
+              
+              // Verify the update happened
+              setTimeout(() => {
+                const updatedProjects = [...activeProjects, ...estimates];
+                const updated = updatedProjects.find(p => p.id === bid.id);
+                if (updated) {
+                  console.log(`✅ Verified: Bid ${bid.id} now has status '${updated.status}' (should display as 'Active')`);
+                } else {
+                  console.log(`⚠️ Warning: Could not find bid ${bid.id} after conversion`);
+                }
+              }, 500);
+            }
+            
+            // Update lead stage to "won" if this bid came from a qualified lead
+            if (bid.leadId && bid.leadSource === 'qualified_lead') {
+              try {
+                const leadId = bid.leadId;
+                console.log(`🔄 Updating lead ${leadId} stage to won after marking bid as won`);
+                
+                // Track that bid was won
+                const { trackBidWon } = await import('../../services/engagementTracking');
+                await trackBidWon(leadId);
+                
+                // Check if it's an AUTO-* lead (frontend-only) or backend lead
+                if (leadId.startsWith('AUTO-')) {
+                  // Update AUTO lead in AsyncStorage
+                  const leadsData = await AsyncStorage.getItem('leadsData');
+                  if (leadsData) {
+                    const leads = JSON.parse(leadsData);
+                    const updatedLeads = leads.map((l) => 
+                      l.id === leadId ? { ...l, stage: 'won' } : l
+                    );
+                    await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+                    console.log(`✅ Updated AUTO lead ${leadId} stage to won in AsyncStorage`);
+                  }
+                } else {
+                  // Update backend lead
+                  await unifiedLeadService.updateLeadStage(leadId, 'won');
+                  console.log(`✅ Updated backend lead ${leadId} stage to won`);
+                }
+              } catch (leadUpdateError) {
+                console.warn('⚠️ Failed to update lead stage after marking bid as won:', leadUpdateError);
+                // Don't block the action if lead update fails
+              }
+            }
+            
+            Alert.alert(
+              '🎉 Congratulations!',
+              `${bid.title} is now an active project! View it in the Projects tab.`,
+              [{ text: 'OK' }]
+            );
+            console.log(`🎉 Won bid converted to project: ${bid.title}`);
+          }
+        }
+      ]
+    );
+  };
+
+
+  // Clear payment terms and schedule notes
+  useEffect(() => {
+    setBid(prev => ({
+      ...prev,
+      additionalPaymentTerms: '',
+      scheduleNotes: ''
+    }));
+  }, []);
+
+  // Calculate and save overhead percentage
+  useEffect(() => {
+    const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0);
+    const totalMaterials = Number(calc.materials || 0);
+    const totalLabor = Number(calc.labor || 0);
+    const totalPermitCosts = Number(bid.permitCost || 0);
+    const subtotal = totalMaterials + totalLabor + totalPermitCosts;
+    const overheadPct = subtotal > 0 ? Math.round((totalOverhead / subtotal) * 100) : 0;
+    
+    if (bid.overheadPct !== overheadPct) {
+      setBid(prev => ({
+        ...prev,
+        overheadPct: overheadPct
+      }));
+    }
+  }, [bid.insuranceOverhead, bid.equipment, bid.facilities, bid.otherOverhead, calc.materials, calc.labor]);
+
+  
+  // Enhanced materials helpers
+  const filteredCatalog = useMemo(() => {
+    const q = materialSearch.trim().toLowerCase();
+    if (!q) return MATERIAL_CATALOG;
+    return MATERIAL_CATALOG.filter(c => 
+      c.name.toLowerCase().includes(q) ||
+      c.category.toLowerCase().includes(q) ||
+      (c.keywords || []).some(k => k.toLowerCase().includes(q))
+    );
+  }, [materialSearch]);
+  
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+  
+  const toggleCategory = (categoryKey) => {
+    setExpandedCategories(prev => ({ ...prev, [categoryKey]: !prev[categoryKey] }));
+  };
+  
+  const addMaterialToCart = (item, scope, section) => {
+    const vendorId = materialSelectedVendor[item.id] || PRICE_BOOK[item.id][0].vendorId;
+    const vendor = PRICE_BOOK[item.id].find(v => v.vendorId === vendorId);
+    const qty = Number(materialNeedQty[item.id] || 0);
+    if (!qty || qty <= 0 || !vendor) return;
+    
+    const row = {
+      id: String(Date.now()),
+      itemId: item.id,
+      name: item.name,
+      scope,
+      section,
+      vendorId,
+      quantity: qty,
+      unitPrice: vendor.price,
+      total: qty * vendor.price,
+    };
+    
+    setMaterialsCart(prev => [...prev, row]);
+    Alert.alert('Added', `${item.name} added to ${section}`);
+  };
+  
+  // Handle SKU attachment from live search
+  const handleSubcontractorSelect = (subData) => {
+    console.log('🔄 handleSubcontractorSelect called with:', subData);
+    try {
+      const newLaborItem = {
+        id: String(Date.now()),
+        name: `${subData.name} - ${subData.trade}`,
+        mode: 'hourly',
+        laborType: 'subcontractor',
+        hours: 0,
+        rate: subData.rate,
+        total: 0,
+        metadata: subData.metadata,
+      };
+      
+      console.log('📝 Creating new labor item:', newLaborItem);
+      
+      setBid(prev => {
+        console.log('🔄 Updating bid state...');
+        const updated = {
+          ...prev,
+          laborLineItems: [...(prev.laborLineItems || []), newLaborItem]
+        };
+        console.log('✅ Bid state updated, new labor items count:', updated.laborLineItems.length);
+        return updated;
+      });
+      
+      // Simple success feedback without Alert to prevent freezing
+      console.log('✅ Added subcontractor:', subData.name);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      console.log('✅ handleSubcontractorSelect completed successfully');
+    } catch (error) {
+      console.error('❌ Error in handleSubcontractorSelect:', error);
+    }
+  };
+
+  // Auto-categorize materials based on name/keywords
+  const autoCategorizeMaterial = (itemName, availableSections) => {
+    const name = itemName.toLowerCase();
+    
+    // Shower & Plumbing (priority check - must be before general plumbing)
+    if (name.includes('shower') || name.includes('showerhead') || name.includes('shower pan') || 
+        name.includes('shower base') || name.includes('handheld shower') || name.includes('rain shower') ||
+        name.includes('shower kit') || name.includes('shower door') || name.includes('shower surround')) {
+      return availableSections.find(s => s.toLowerCase().includes('shower')) || 
+             availableSections.find(s => s.toLowerCase().includes('plumb')) || 
+             availableSections[0];
+    }
+    
+    // Tile & Waterproofing
+    if (name.includes('tile') || name.includes('grout') || name.includes('mortar') || 
+        name.includes('thinset') || name.includes('redgard') || name.includes('kerdi') || 
+        name.includes('waterproof') || name.includes('schluter') || name.includes('membrane')) {
+      return availableSections.find(s => s.toLowerCase().includes('tile') || s.toLowerCase().includes('waterproof')) || availableSections[0];
+    }
+    
+    // Framing & Structure
+    if (name.includes('lumber') || name.includes('stud') || name.includes('2x4') || 
+        name.includes('2x6') || name.includes('2x8') || name.includes('plywood') || 
+        name.includes('osb') || name.includes('joist') || name.includes('beam') || 
+        name.includes('sheathing') || name.includes('framing')) {
+      return availableSections.find(s => s.toLowerCase().includes('fram')) || availableSections[0];
+    }
+    
+    // Concrete & Masonry
+    if (name.includes('concrete') || name.includes('cement') || name.includes('mortar') || 
+        name.includes('brick') || name.includes('block') || name.includes('masonry') || 
+        name.includes('rebar') || name.includes('foundation')) {
+      return availableSections.find(s => s.toLowerCase().includes('concrete') || s.toLowerCase().includes('masonry')) || availableSections[0];
+    }
+    
+    // Plumbing (general)
+    if (name.includes('pipe') || name.includes('pvc') || name.includes('plumb') || 
+        name.includes('drain') || name.includes('faucet') || name.includes('valve') || 
+        name.includes('fitting') || name.includes('toilet') || name.includes('sink')) {
+      return availableSections.find(s => s.toLowerCase().includes('plumb')) || availableSections[0];
+    }
+    
+    // Electrical
+    if (name.includes('wire') || name.includes('electric') || name.includes('cable') || 
+        name.includes('outlet') || name.includes('switch') || name.includes('breaker') || 
+        name.includes('conduit') || name.includes('panel') || name.includes('lighting')) {
+      return availableSections.find(s => s.toLowerCase().includes('electric')) || availableSections[0];
+    }
+    
+    // Drywall & Finishing
+    if (name.includes('drywall') || name.includes('sheetrock') || name.includes('gypsum') || 
+        name.includes('joint compound') || name.includes('mud') || name.includes('tape') || 
+        name.includes('sanding')) {
+      return availableSections.find(s => s.toLowerCase().includes('drywall') || s.toLowerCase().includes('finish')) || availableSections[0];
+    }
+    
+    // Paint & Coatings
+    if (name.includes('paint') || name.includes('primer') || name.includes('stain') || 
+        name.includes('sealer') || name.includes('coating') || name.includes('caulk')) {
+      return availableSections.find(s => s.toLowerCase().includes('paint')) || availableSections[0];
+    }
+    
+    // Flooring
+    if (name.includes('floor') || name.includes('laminate') || name.includes('vinyl') || 
+        name.includes('hardwood') || name.includes('carpet') || name.includes('underlayment')) {
+      return availableSections.find(s => s.toLowerCase().includes('floor')) || availableSections[0];
+    }
+    
+    // HVAC
+    if (name.includes('hvac') || name.includes('duct') || name.includes('vent') || 
+        name.includes('furnace') || name.includes('ac ') || name.includes('air condition')) {
+      return availableSections.find(s => s.toLowerCase().includes('hvac') || s.toLowerCase().includes('mechanical')) || availableSections[0];
+    }
+    
+    // Roofing
+    if (name.includes('roof') || name.includes('shingle') || name.includes('flashing') || 
+        name.includes('gutter') || name.includes('soffit') || name.includes('fascia')) {
+      return availableSections.find(s => s.toLowerCase().includes('roof')) || availableSections[0];
+    }
+    
+    // Default to first section if no match
+    return availableSections[0];
+  };
+
+  const handleSkuAttach = (skuItem) => {
+    setMaterialsCart(prev => {
+      // Check if this exact item already exists (same SKU + store)
+      const existingIndex = prev.findIndex(item => 
+        item.sku === skuItem.sku && 
+        item.vendorId === (skuItem.store === 'hd' ? 'hd' : 'lw') &&
+        item.scope === activeScope
+      );
+      
+      if (existingIndex >= 0) {
+        // Item exists - increase quantity
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: updated[existingIndex].quantity + 1,
+          total: (updated[existingIndex].quantity + 1) * updated[existingIndex].unitPrice
+        };
+        
+        Alert.alert('Updated!', `Quantity increased to ${updated[existingIndex].quantity}`);
+        return updated;
+      } else {
+        // New item - auto-categorize and add to cart
+        const autoSection = autoCategorizeMaterial(skuItem.title, SECTIONS[activeScope]);
+        
+        const row = {
+          id: String(Date.now()),
+          itemId: skuItem.sku,
+          name: skuItem.title,
+          scope: activeScope,
+          section: autoSection,
+          vendorId: skuItem.store === 'hd' ? 'hd' : 'lw',
+          quantity: 1,
+          unitPrice: skuItem.price,
+          total: skuItem.price,
+          sku: skuItem.sku,
+          url: skuItem.url,
+          store: skuItem.store,
+        };
+        
+        Alert.alert('Added!', `${skuItem.title} added to ${autoSection}`);
+        return [...prev, row];
+      }
+    });
+  };
+
+  // Handle manual material & labor entries from full-page screens
+  useFocusEffect(
+    useCallback(() => {
+      const checkForManualEntries = async () => {
+        try {
+          const [materialDataStr, laborDataStr] = await Promise.all([
+            AsyncStorage.getItem('manualMaterialEntry'),
+            AsyncStorage.getItem('manualLaborEntry'),
+          ]);

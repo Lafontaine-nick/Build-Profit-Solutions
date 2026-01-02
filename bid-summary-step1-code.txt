@@ -1,0 +1,316 @@
+      case 1: {
+        // Calculate AI level and confidence from health score
+        const aiLevel = healthScore >= 75 ? 'good' : healthScore >= 55 ? 'warn' : 'risk';
+        const aiConfidence = aiLevel === 'good' ? 'High' : aiLevel === 'warn' ? 'Medium' : 'Low';
+        const aiSummary = aiLevel === 'good'
+          ? 'No major issues detected. Estimate looks on track.'
+          : aiLevel === 'warn'
+          ? 'Some items may need review. Consider verifying labor and scope.'
+          : 'Risk detected. Labor-heavy bid and low health score—review before sending.';
+        
+        const maxBarHeight = 120;
+        const maxValue = Math.max(calc.materials, calc.labor, calc.overhead, calc.profit, 1);
+        const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
+        const laborHeight = (calc.labor / maxValue) * maxBarHeight;
+        const overheadHeight = (calc.overhead / maxValue) * maxBarHeight;
+        const markupHeight = (calc.profit / maxValue) * maxBarHeight;
+        
+        return (
+          <ScrollView 
+            style={{ flex: 1 }} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+          >
+            {/* Main Container - no border */}
+            <View style={{
+              marginHorizontal: -20,
+              paddingHorizontal: 8,
+              paddingVertical: 20,
+              backgroundColor: Colors.card,
+              marginBottom: 16,
+              marginTop: 16,
+            }}>
+                {/* Total Bid Section - green to blue gradient border */}
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={{
+                  borderRadius: 24,
+                  padding: 1,
+                  marginBottom: 12,
+                }}
+              >
+              <View style={{
+                backgroundColor: '#000000',
+                borderRadius: 22,
+                padding: 20,
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="heart" size={20} color="#22c55e" />
+                    <Text style={{ color: Colors.text, fontSize: 14, marginLeft: 8, fontWeight: '600' }}>{healthScore}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="trending-up" size={16} color="#22d3ee" />
+                    <Text style={{ color: '#22d3ee', fontSize: 12, marginLeft: 4 }}>+4.9%</Text>
+                  </View>
+                </View>
+                
+                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
+                  TOTAL BID
+                </Text>
+                
+                <Text style={{ color: Colors.text, fontSize: 36, textAlign: 'center', fontWeight: '700', marginBottom: 12 }}>
+                  {money(calc.total)}
+                </Text>
+                
+                <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 20 }}>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginRight: 8 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>{money(calc.unitPrice)} / sqft</Text>
+                  </View>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>Markup {bid.markupPct || 0}%</Text>
+                  </View>
+                </View>
+                
+                {/* Bar Chart */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: maxBarHeight + 40, marginBottom: 8 }}>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.materials)}</Text>
+                    <LinearGradient
+                      colors={['#3b82f6', '#60a5fa']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(materialsHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Materi</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.labor)}</Text>
+                    <LinearGradient
+                      colors={['#22c55e', '#4ade80']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(laborHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Labor</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.overhead)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(overheadHeight, 8),
+                        backgroundColor: '#f59e0b',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Overhe</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.profit)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(markupHeight, 8),
+                        backgroundColor: '#a78bfa',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Markup</Text>
+                  </View>
+                </View>
+              </View>
+              </LinearGradient>
+              
+              {/* Cost Breakdown - no border, same width as Total Bid */}
+              <View style={{
+                backgroundColor: Colors.card,
+                marginBottom: 12,
+                marginTop: 12,
+              }}>
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
+                    Cost Breakdown
+                  </Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                    Materials, labor, overhead & markup
+                  </Text>
+                </View>
+                {/* Full width cards with green-to-blue gradient border */}
+                <View style={{ gap: 12 }}>
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3b82f6', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Materials</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.materials)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Labor</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.labor)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Overhead</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.overhead)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#a78bfa', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Markup ({bid.markupPct || 0}%)</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.profit)}</Text>
+                    </View>
+                  </LinearGradient>
+                </View>
+              </View>
+              
+              {/* Project Actions - no border */}
+              <View style={{
+                paddingTop: 24,
+                paddingBottom: 24,
+                backgroundColor: Colors.card,
+                marginBottom: 0,
+              }}>
+                <View style={{ marginBottom: 24 }}>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 2 }}>
+                    Project Actions
+                  </Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                    Save, submit, or mark as won
+                  </Text>
+                </View>
+                
+                {/* Action Buttons Grid - black bg, white text, green-to-blue border */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  {/* Save Bid */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleSaveEstimate}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="save-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Save Bid</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Restore Bids */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={() => setShowRecoveryModal(true)}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="refresh-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Restore Bids</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Submit Bid */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleSubmitBid}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="send-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Submit Bid</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Mark as Won */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleMarkAsWon}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="trophy-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Mark as Won</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              </View>
+            </View>
+            {/* End Main Container Card */}
+          </ScrollView>
+        );
+      }

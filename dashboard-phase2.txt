@@ -1,0 +1,635 @@
+                style={[
+                  styles.trendText,
+                  trendDirection === "up"
+                    ? { color: "#16a34a" }
+                    : { color: "#f97316" },
+                ]}
+              >
+                {trend}
+              </Text>
+                </View>
+              </View>
+
+          <Text
+            style={[
+              styles.metricContext,
+              (gradient || label === "Avg Margin") && { color: "#020617bb" },
+            ]}
+          >
+            {context}
+                  </Text>
+        </CardWrapper>
+      </Pressable>
+    </Animated.View>
+  );
+};
+
+/* ----------------- NEXT STEP ITEM ----------------- */
+
+const NextStepItem = ({ label, chip }: { label: string; chip: string }) => (
+  <View style={styles.nextStepRow}>
+    <View style={styles.nextStepBullet} />
+    <Text style={styles.nextStepLabel}>{label}</Text>
+    <View style={styles.nextStepChip}>
+      <Text style={styles.nextStepChipText}>{chip}</Text>
+                    </View>
+                  </View>
+);
+
+/* ----------------- AI INSIGHT ITEM ----------------- */
+
+const InsightItem = ({
+  type,
+  title,
+  body,
+}: {
+  type: "alert" | "opportunity" | "info";
+  title: string;
+  body: string;
+}) => {
+  const iconMap: Record<typeof type, keyof typeof Ionicons.glyphMap> = {
+    alert: "warning",
+    opportunity: "star",
+    info: "information-circle",
+  };
+  const colorMap: Record<typeof type, string> = {
+    alert: "#f97316",
+    opportunity: "#22c55e",
+    info: "#22d3ee",
+  };
+
+  return (
+    <View style={styles.insightRow}>
+      <View style={[styles.insightIconCircle, { borderColor: colorMap[type] }]}>
+        <Ionicons name={iconMap[type]} size={16} color={colorMap[type]} />
+                    </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.insightTitle}>{title}</Text>
+        <Text style={styles.insightBody}>{body}</Text>
+                  </View>
+    </View>
+  );
+};
+
+/* ----------------- OVERVIEW ----------------- */
+
+interface OverviewSectionProps {
+  metrics: {
+    totalBids: string;
+    activeProjects: string;
+    avgMargin: string;
+    completedProfit: number;
+  };
+  projects: any[];
+  onProjectPress: (project: any) => void;
+  onViewAllPress: () => void;
+  aiPmMode: boolean;
+  aiData: AiDashboardResponse | null;
+  aiLoading: boolean;
+  aiError: string | null;
+}
+
+const OverviewSection: React.FC<OverviewSectionProps> = ({
+  metrics,
+  projects,
+  onProjectPress,
+  onViewAllPress,
+  aiPmMode,
+  aiData,
+  aiLoading,
+  aiError,
+}) => {
+  return (
+    <>
+      {/* KEY METRICS */}
+      <View style={styles.sectionHeaderRow}>
+        <View>
+          <Text style={styles.sectionTitle}>Key Metrics</Text>
+          <Text style={styles.sectionSubtitle}>This month at a glance</Text>
+                    </View>
+        <Text style={styles.linkText}>Swipe ➜</Text>
+                  </View>
+
+        <View style={[styles.metricsRow, styles.wideContainer]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: 24 }}
+          >
+          <EnhancedMetricCard
+            gradient
+            label="Total Bids"
+            value={metrics.totalBids}
+            timeframe="This Month"
+            trend="+12.5%"
+            trendDirection="up"
+            context="12% under expected at this phase"
+          />
+          <EnhancedMetricCard
+            label="Projects"
+            value={metrics.activeProjects}
+            timeframe="In Progress"
+            trend="+4.1%"
+            trendDirection="up"
+            context="3 jobs flagged for review"
+          />
+          <EnhancedMetricCard
+            label="Avg Margin"
+            value={metrics.avgMargin}
+            timeframe="This Month"
+            trend="-1.2%"
+            trendDirection="down"
+            context="Slightly below your 35% target"
+          />
+        </ScrollView>
+                  </View>
+
+      {/* AI INSIGHTS PANEL */}
+      <View style={styles.sectionHeaderRow}>
+        <View>
+          <Text style={styles.sectionTitle}>AI Insights for Today</Text>
+          <Text style={styles.sectionSubtitle}>What your AI project manager sees</Text>
+        </View>
+      </View>
+
+      <View style={[styles.wideContainer, !aiPmMode && { opacity: 0.4 }]}>
+        <LinearGradient
+          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={styles.aiPanelBorder}
+        >
+          <View style={styles.aiPanelInner}>
+            {aiError && (
+              <Text style={styles.aiPanelPausedText}>{aiError}</Text>
+            )}
+
+            {!aiError && !aiPmMode && (
+              <Text style={styles.aiPanelPausedText}>
+                AI PM Mode is off. Turn it back on to resume live monitoring.
+              </Text>
+            )}
+
+            {!aiError && aiPmMode && aiLoading && (
+              <Text style={styles.aiPanelPausedText}>Analyzing your projects…</Text>
+            )}
+
+            {!aiError && aiPmMode && !aiLoading && (aiData?.insights ?? []).length === 0 && (
+              <Text style={styles.aiPanelPausedText}>
+                No major issues detected. All projects look on track.
+              </Text>
+            )}
+
+            {aiPmMode &&
+              !aiLoading &&
+              !aiError &&
+              (aiData?.insights ?? []).map((insight) => (
+                <InsightItem
+                  key={insight.id}
+                  type={insight.type}
+                  title={insight.title}
+                  body={insight.body}
+                />
+              ))}
+          </View>
+        </LinearGradient>
+      </View>
+
+      {/* ALL PROJECTS */}
+      {(() => {
+        const totalProjects = projects.length;
+        const activeProjectsCount = projects.filter(
+          (p: any) => p.status === "Active"
+        ).length;
+
+        const hasMoreThanThree = projects.length > 3;
+
+        const ProjectSummaryCard = ({ project }: { project: any }) => (
+          <Pressable
+            style={styles.projectSummaryWrapper}
+            onPress={() => onProjectPress(project)}
+          >
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.projectSummaryBorder}
+            >
+              <View style={styles.projectSummaryCard}>
+                <View style={styles.projectSummaryRow}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={styles.projectSummaryName}>{project.name}</Text>
+                      {aiPmMode && (
+                        <View style={styles.aiTagChip}>
+                          <Ionicons name="sparkles-outline" size={10} color="#BBF7D0" />
+                          <Text style={styles.aiTagText}>AI</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.projectSummaryAmount}>
+                      {formatCurrencyShort(project.amount)}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      project.status === "Active" || project.status === "Completed"
+                        ? styles.statusPillActive
+                        : styles.statusPill,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        project.status === "Active" || project.status === "Completed"
+                          ? styles.statusPillTextActive
+                          : styles.statusPillText,
+                      ]}
+                    >
+                      {project.status}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.projectSummaryProgress}>
+                  <View style={styles.progressBarTrack}>
+                    <LinearGradient
+                      colors={['#22c55e', '#14b8a6', '#0ea5e9']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${Math.min(Math.max(project.progress * 100, 0), 100)}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.progressPercent}>
+                    {Math.round(project.progress * 100)}%
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </Pressable>
+        );
+
+  return (
+          <View style={styles.allProjectsContainer}>
+              <View style={styles.cardHeaderRow}>
+                <View>
+                  <Text style={styles.cardTitle}>All Projects</Text>
+                  <Text style={styles.cardSubtitle}>
+                    {totalProjects} total · {activeProjectsCount} active
+                  </Text>
+                </View>
+                <Pressable onPress={onViewAllPress}>
+                  <Text style={styles.linkText}>View all</Text>
+                </Pressable>
+              </View>
+
+              {projects.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="folder-outline" size={48} color="#7C8BA0" />
+                  <Text style={styles.emptyStateText}>No projects yet</Text>
+                  <Text style={styles.emptyStateSubtext}>
+                    Create your first project to get started
+                  </Text>
+                </View>
+              ) : hasMoreThanThree ? (
+                <ScrollView
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled={true}
+                  style={{ maxHeight: 400 }}
+                  contentContainerStyle={{ paddingBottom: 8 }}
+                >
+                  {projects.map((project) => (
+                    <ProjectSummaryCard key={project.id} project={project} />
+                  ))}
+                </ScrollView>
+              ) : (
+                projects.map((project) => (
+                  <ProjectSummaryCard key={project.id} project={project} />
+                ))
+              )}
+          </View>
+        );
+      })()}
+
+      {/* NEXT STEPS */}
+      <View style={styles.sectionHeaderRow}>
+        <View>
+          <Text style={styles.sectionTitle}>Next Steps for You</Text>
+          <Text style={styles.sectionSubtitle}>Quick actions to stay ahead</Text>
+        </View>
+      </View>
+
+      <View style={styles.wideContainer}>
+        <LinearGradient
+          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={styles.nextStepsBorder}
+        >
+        <View style={styles.nextStepsInner}>
+          {aiPmMode && aiLoading && (
+            <Text style={styles.aiPanelPausedText}>Building your next steps…</Text>
+          )}
+
+          {aiPmMode &&
+            !aiLoading &&
+            !aiError &&
+            (aiData?.nextSteps ?? []).map((step) => (
+              <NextStepItem
+                key={step.id}
+                label={step.label}
+                chip={step.chip}
+              />
+            ))}
+
+          {!aiPmMode && (
+            <Text style={styles.aiPanelPausedText}>
+              Turn AI PM Mode back on to get smart next steps.
+            </Text>
+          )}
+
+          {aiPmMode && !aiLoading && (aiData?.nextSteps ?? []).length === 0 && (
+            <Text style={styles.aiPanelPausedText}>
+              No immediate actions needed. Keep up the great work!
+            </Text>
+          )}
+        </View>
+      </LinearGradient>
+      </View>
+    </>
+  );
+};
+
+/* ----------------- ANALYTICS ----------------- */
+
+interface AnalyticsSectionProps {
+  metrics: {
+    totalBids: string;
+    activeProjects: string;
+    avgMargin: string;
+    completedProfit: number;
+  };
+  dashboardMetrics: any;
+  activeWonCount: number;
+  activeProjects: any[];
+  estimates: any[];
+}
+
+const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
+  metrics,
+  dashboardMetrics,
+  activeWonCount,
+  activeProjects,
+  estimates,
+}) => {
+  // Simple avg project value for the snapshot card
+  const avgProjectValue = useMemo(() => {
+    const rawTotal = metrics.totalBids; // e.g. "$44K"
+
+    const numeric = parseFloat(rawTotal.replace(/[^\d.]/g, "")); // 44
+    if (!numeric || !activeWonCount) return "$0";
+
+    // If the string contains "K", treat it as thousands
+    const isThousands = /K/i.test(rawTotal);
+    const totalValue = isThousands ? numeric * 1000 : numeric; // 44,000
+
+    return formatCurrencyShort(totalValue / activeWonCount);
+  }, [metrics.totalBids, activeWonCount]);
+
+  return (
+    <>
+      {/* Top snapshot card (4 mini metrics) */}
+      <View style={[styles.analyticsSection, styles.wideContainer]}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>Performance Snapshot</Text>
+        </View>
+
+        <View style={styles.analyticsGrid}>
+          <AnalyticsMetric label="Total Bids" value={metrics.totalBids} />
+          <AnalyticsMetric
+            label="Active Projects"
+            value={activeWonCount.toString()}
+          />
+          <AnalyticsMetric
+            label="Avg Project Value"
+            value={avgProjectValue}
+          />
+          <AnalyticsMetric
+            label="Avg Margin"
+            value={metrics.avgMargin}
+            extra="+0.0%"
+          />
+        </View>
+      </View>
+
+      {/* Deeper charts / profit analytics */}
+      <View style={[styles.analyticsSection, styles.wideContainer]}>
+        <ProfileAnalytics
+          activeWonCount={activeWonCount}
+          projectTypeStats={dashboardMetrics?.projectTypeStats}
+          overviewProfit={metrics.completedProfit}
+          completedProjects={[...activeProjects, ...estimates].filter(
+            (p) => (p.status || "").toString().toLowerCase() === "completed"
+          )}
+        />
+      </View>
+    </>
+  );
+};
+
+const AnalyticsMetric = ({
+  label,
+  value,
+  extra,
+}: {
+  label: string;
+  value: string;
+  extra?: string;
+}) => (
+  <LinearGradient
+    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+    start={{ x: 0.05, y: 0.15 }}
+    end={{ x: 0.95, y: 0.85 }}
+    style={styles.analyticsMetricBorder}
+  >
+    <View style={styles.analyticsMetricInner}>
+      <Text style={styles.analyticsLabel}>{label}</Text>
+      <Text style={styles.analyticsValue}>{value}</Text>
+      {extra ? <Text style={styles.analyticsExtra}>{extra}</Text> : null}
+    </View>
+  </LinearGradient>
+);
+
+/* ----------------- INSIGHTS ----------------- */
+
+interface InsightsSectionProps {
+  projects: any[];
+}
+
+const InsightsSection: React.FC<InsightsSectionProps> = ({ projects }) => {
+  const urgentProjects = useMemo(() => {
+    return projects.filter(
+      (p) =>
+        (p.status === "Active" || p.status === "In Progress") &&
+        p.progress < 0.3 &&
+        p.dateLabel.includes("Due")
+    );
+  }, [projects]);
+
+  const avgMargin =
+    projects.length > 0
+      ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
+      : 0;
+
+  return (
+    <View style={styles.wideContainer}>
+      <LinearGradient
+        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
+        style={styles.nextStepsBorder}
+      >
+        <View style={styles.nextStepsInner}>
+          <Text style={styles.cardTitle}>AI Insights</Text>
+          <Text style={[styles.cardSubtitle, { marginTop: 8 }]}>
+            {avgMargin > 80 && (
+              <>
+                Your average margin is trending above {avgMargin.toFixed(1)}%. Consider raising
+                your minimum markup on new bids.
+                {"\n\n"}
+              </>
+            )}
+            {urgentProjects.length > 0 && (
+              <>
+                {urgentProjects.length} project{urgentProjects.length > 1 ? "s are" : " is"} under-utilizing your labor team. Shift crew from completed jobs to in-progress
+                work to finish sooner.
+              </>
+            )}
+            {urgentProjects.length === 0 && avgMargin <= 80 && (
+              <>
+                Smart suggestions about your bids, margins, and project risks will appear here
+                as you add more projects.
+              </>
+            )}
+          </Text>
+        </View>
+      </LinearGradient>
+    </View>
+  );
+};
+
+/* ----------------- STYLES ----------------- */
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  scrollContent: {
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 120,
+  },
+  glossOverlay: {
+    position: "absolute",
+    top: -120,
+    left: -60,
+    right: -60,
+    height: 260,
+    backgroundColor: "rgba(15,23,42,0.6)",
+  },
+
+  // HEADER
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 12,
+    marginBottom: 18,
+    marginHorizontal: -20,
+    paddingHorizontal: 8,
+  },
+  titleGlow: {
+    position: "absolute",
+    left: -16,
+    top: -8,
+    width: 180,
+    height: 56,
+    opacity: 0.22,
+    borderRadius: 999,
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#f9fafb",
+  },
+  screenSubtitle: {
+    fontSize: 14,
+    color: "#9ca3af",
+    marginTop: 4,
+  },
+  aiStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  aiDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "#22c55e",
+    marginRight: 6,
+  },
+  aiStatusText: {
+    fontSize: 12,
+    color: "#6ee7b7",
+  },
+  profileOuter: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    padding: 2,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.9,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 14,
+  },
+  profileInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  profileInitials: {
+    color: "#e5e7eb",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+
+  // SEGMENTED CONTROL
+  segmentContainer: {
+    borderRadius: 999,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#19E180",
+    marginBottom: 18,
+  },
+  segmentInner: {
+    flexDirection: "row",
+    padding: 4,
+  },
+  segmentTab: {
+    flex: 1,
+    borderRadius: 999,
+  },
+  segmentTabActive: {
+    backgroundColor: "#19E180",
+    shadowColor: "#19E180",
+    shadowOpacity: 0.4,
+    shadowRadius: 14,

@@ -71,22 +71,35 @@ router.post('/', async (req, res) => {
   try {
     console.log('📥 ===== PROJECT LEAD CREATION REQUEST =====');
     console.log('🔍 Backend received request body:', JSON.stringify(req.body, null, 2));
+    console.log('✅ CODE VERSION: budgetMin is OPTIONAL - validation removed');
     
-    const { title, trade, projectId, city, state, budgetMin, budgetMax, timeline, createdBy, description } = req.body;
+    // Extract fields - explicitly ignore budgetMin if present
+    const { budgetMin, ...rest } = req.body;
+    const { title, trade, projectId, city, state, budgetMax, timeline, createdBy, description } = rest;
+
+    console.log('📋 Received fields:', Object.keys(req.body));
+    console.log('📋 budgetMin received?', 'budgetMin' in req.body, 'value:', budgetMin);
+    console.log('📋 budgetMax value:', budgetMax, 'type:', typeof budgetMax);
+    console.log('✅ budgetMin will be IGNORED - not validated');
 
     // More lenient validation - check for truthy values
+    // budgetMin is NOT required - completely removed from validation
+    // DO NOT ADD budgetMin TO missingFields - IT IS OPTIONAL
     const missingFields = [];
     if (!title) missingFields.push('title');
     if (!trade) missingFields.push('trade');
     if (!city) missingFields.push('city');
     if (!state) missingFields.push('state');
-    if (!budgetMin) missingFields.push('budgetMin');
-    if (!budgetMax) missingFields.push('budgetMax');
+    // budgetMin is optional - completely removed from validation - DO NOT CHECK IT
+    if (!budgetMax && budgetMax !== 0) missingFields.push('budgetMax');
     if (!timeline) missingFields.push('timeline');
     if (!createdBy) missingFields.push('createdBy');
+    
+    console.log('✅ Validation complete - budgetMin NOT checked. Missing fields:', missingFields);
 
     if (missingFields.length > 0) {
       console.log('❌ Missing fields:', missingFields);
+      console.log('📋 All received fields:', Object.keys(req.body));
       return res.status(400).json({ 
         error: 'Missing required fields',
         missing: missingFields,
@@ -109,13 +122,14 @@ router.post('/', async (req, res) => {
       },
       project: {
         type: 'other',
-        budgetMin: parseInt(budgetMin),
+        budgetMin: (budgetMin !== undefined && budgetMin !== null && budgetMin !== '') ? parseInt(budgetMin) : 0, // Default to 0 if not provided
         budgetMax: parseInt(budgetMax),
         timeline,
       },
       description: description || `Professional ${trade.toLowerCase()} services needed`,
       verified: true,
       createdBy,
+      isOwnRequest: true, // Mark as user's own request
     };
 
     // Use smart matching to create lead and notify contractors
@@ -134,8 +148,21 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      lead: result.lead,
-      matchedContractors: result.matchedContractors.length,
+      lead: {
+        ...result.lead,
+        isOwnRequest: true,
+        matchedContractors: result.matchedContractors.length,
+      },
+      matchedContractors: result.matchedContractors.map(c => ({
+        id: c.id,
+        name: c.name,
+        company: c.company,
+        rating: c.rating,
+        experience: c.experience,
+        distance: c.distance,
+        matchScore: c.matchScore,
+      })),
+      matchedContractorsCount: result.matchedContractors.length,
       notificationsSent: result.notificationsSent,
       message: `Subcontractor request created! ${result.matchedContractors.length > 0 ? `Matched with ${result.matchedContractors.length} qualified contractors.` : 'No matching contractors found yet.'}`,
     });
@@ -430,6 +457,7 @@ router.get('/my-requests/:userId', async (req, res) => {
         matchedContractors: lead.matchedContractors || 0,
         notificationsSent: lead.notificationsSent || 0,
         assignedTo: lead.assignedTo,
+        isOwnRequest: true, // All requests from this endpoint are user's own requests
       };
       // Debug log for campaign leads
       if (lead.projectId?.startsWith('CAMPAIGN-')) {

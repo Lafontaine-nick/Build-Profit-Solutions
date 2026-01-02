@@ -1,0 +1,635 @@
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  StatusBar,
+  SafeAreaView,
+  Animated,
+  Dimensions,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
+import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useProjectList } from "@/contexts/ProjectListContext";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { useAIManagerMode } from "@/hooks/useAIManagerMode";
+import AIAssistantModal from "@/components/AIAssistantModal";
+import ProfileAnalytics from "@/components/ProfileAnalytics";
+import * as Haptics from "expo-haptics";
+import { apiService } from "@/services/api";
+import type { AiDashboardResponse } from "@/types/aiDashboard";
+import { clerkAuthService } from "@/services/clerkAuth";
+
+const { width } = Dimensions.get("window");
+
+type TabKey = "overview" | "analytics" | "insights";
+
+const formatCurrencyShort = (value: number) => {
+  const absValue = Math.abs(value);
+  if (absValue >= 1_000_000_000) {
+    return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (absValue >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (absValue >= 1_000) {
+    return `$${(value / 1_000).toFixed(0)}K`;
+  }
+  return `$${Math.round(value).toLocaleString()}`;
+};
+
+const sanitizePositiveNumber = (value: any): number => {
+  if (value == null) return 0;
+  const num =
+    typeof value === "string"
+      ? Number(value.replace(/[$,\s]/g, ""))
+      : Number(value);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+};
+
+const getProjectRevenue = (project: any): number => {
+  if (!project) return 0;
+  const candidates: any[] = [
+    project?.bidPrice,
+    project?.projectData?.bidPrice,
+    project?.projectData?.totalBidPrice,
+    project?.estimateData?.bidPrice,
+    project?.estimateData?.grandTotal,
+    project?.total,
+    project?.totalRevenue,
+    project?.contractValue,
+    project?.estimatedCost,
+  ];
+  for (const candidate of candidates) {
+    const sanitized = sanitizePositiveNumber(candidate);
+    if (sanitized > 0) {
+      return sanitized;
+    }
+  }
+  return 0;
+};
+
+const computePipelineTotals = (projects: any[]) => {
+  let totalBidValue = 0;
+  let activeProjectsValue = 0;
+  let completedProfit = 0;
+
+  projects.forEach((project: any) => {
+    const status = (project?.status || "").toString().toLowerCase();
+    const revenue = getProjectRevenue(project);
+
+    if (
+      [
+        "in_progress",
+        "active",
+        "completed",
+        "won",
+        "draft",
+        "submitted",
+        "estimate",
+      ].includes(status)
+    ) {
+      totalBidValue += revenue;
+    }
+
+    if (["active", "completed", "won", "in_progress"].includes(status)) {
+      activeProjectsValue += revenue;
+    }
+
+    if (status === "completed" && revenue > 0) {
+      // Try to get actual cost first (most accurate)
+      const actualCost = 
+        project.actualCost ||
+        project.projectData?.actualCost ||
+        project.projectData?.spent ||
+        project.projectData?.totalSpent ||
+        project.totalSpent ||
+        0;
+      
+      if (actualCost > 0) {
+        // Use actual cost if available (revenue - actual cost = profit)
+        completedProfit += revenue - actualCost;
+      } else {
+        // Fall back to margin-based calculation if no actual cost
+        const margin = project.margin || 0;
+        const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
+        completedProfit += revenue * marginRatio;
+      }
+    }
+  });
+
+  return { totalBidValue, activeProjectsValue, completedProfit };
+};
+
+const DashboardScreen: React.FC = () => {
+  useRequireAuth();
+  const router = useRouter();
+  const { dashboardMetrics, activeProjects, estimates } = useProjectList();
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [aiPmMode, setAiPmMode] = useState<boolean>(true);
+  const [aiData, setAiData] = useState<AiDashboardResponse | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const user = {
+    name: "Nick Lafontaine",
+    initials: "NL",
+  };
+
+
+  // Fetch AI insights when AI PM Mode is enabled
+  useEffect(() => {
+    if (!aiPmMode) {
+      setAiData(null);
+      setAiError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchAiData = async () => {
+      try {
+        setAiLoading(true);
+        setAiError(null);
+
+        // Get userId from Clerk auth
+        const authState = clerkAuthService.getAuthState();
+        const userId = authState.user?.id || authState.user?.email || 'unknown';
+
+        // Get all projects from context to send to AI
+        const allProjects = [...activeProjects, ...estimates].map((p) => ({
+          id: p.id,
+          userId: userId,
+          name: p.title,
+          title: p.title,
+          status: p.status,
+          bidPrice: p.bidPrice || 0,
+          estimatedCost: p.estimatedCost || 0,
+          actualCost: p.actualCost || 0,
+          margin: p.margin || 0,
+          markup: p.markup || 0,
+          location: p.location || '',
+          city: p.city,
+          state: p.state,
+          projectType: p.projectType,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          progress: p.progress || 0,
+          overallProgressPct: p.overallProgressPct || p.progress || 0,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          lineItems: p.estimateData?.materialLineItems || p.projectData?.buckets || [],
+          receipts: p.projectData?.receipts || [],
+          hasReceiptsAttached: Boolean(p.projectData?.receipts?.length),
+          hasPermitFees: Boolean(p.estimateData?.hasPermitFees || p.projectData?.hasPermitFees),
+          permitFeesIncluded: Boolean(p.estimateData?.permitFeesIncluded || p.projectData?.permitFeesIncluded),
+        }));
+
+        const response = await apiService.post<AiDashboardResponse>(
+          "/api/ai/dashboard-insights",
+          { userId, projects: allProjects }
+        );
+
+        if (!cancelled) {
+          setAiData(response.data);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          // Check for route not found first - this is expected if endpoint doesn't exist
+          const isRouteNotFound = 
+            err.message?.includes("Route") && err.message?.includes("not found") ||
+            err.message?.includes("Endpoint not found") ||
+            err.status === 404 ||
+            err.isNotFound;
+
+          if (isRouteNotFound) {
+            // Endpoint doesn't exist - silently fail without showing error
+            if (__DEV__) {
+              console.log("ℹ️  AI dashboard endpoint not available, skipping AI insights");
+            }
+            setAiData(null);
+            setAiError(null);
+            return;
+          }
+
+          // Check for network errors - don't show as critical errors
+          const isNetworkError = 
+            err.message?.includes("Network request failed") || 
+            err.message?.includes("Failed to fetch") ||
+            err.message?.includes("NetworkError") ||
+            err.message?.includes("Cannot connect to backend") ||
+            err.isNetworkError ||
+            (err.name === "TypeError" && err.message?.includes("Network"));
+
+          if (isNetworkError) {
+            // Network error - log but don't show to user
+            if (__DEV__) {
+              console.warn("⚠️  Cannot connect to backend for AI insights:", err.message);
+            }
+            setAiData(null);
+            setAiError(null);
+            return;
+          }
+
+          // For other errors, log appropriately
+          if (__DEV__) {
+            console.warn("⚠️  AI dashboard fetch error:", err.message || err);
+          }
+
+          // Only set error for unexpected errors
+          let errorMessage = "Could not load AI insights";
+          if (err.message) {
+            if (err.message.includes("OpenAI API key") || err.message.includes("AI service unavailable")) {
+              errorMessage = "AI service not configured. Please set up OpenAI API key.";
+            } else if (err.message.includes("status: 500")) {
+              errorMessage = "Server error. Please try again later.";
+            } else if (err.message.includes("status: 401") || err.message.includes("status: 403")) {
+              errorMessage = "Authentication error. Please sign in again.";
+            } else {
+              // For other errors, don't show to user - just log
+              setAiError(null);
+              return;
+            }
+          }
+          setAiError(errorMessage);
+        }
+      } finally {
+        if (!cancelled) {
+          setAiLoading(false);
+        }
+      }
+    };
+
+    fetchAiData();
+
+    // Refresh every 5 minutes when AI PM Mode is on
+    const interval = setInterval(() => {
+      if (aiPmMode && !cancelled) {
+        fetchAiData();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [aiPmMode, activeProjects, estimates]); // Re-fetch when projects change
+
+  // Transform projects data
+  const projects = useMemo(() => {
+    return [...activeProjects, ...estimates].map((p) => {
+      const status = p.status || "draft";
+      let displayStatus = "Draft";
+      if (status === "estimate") displayStatus = "Draft";
+      else if (status === "bid_submitted") displayStatus = "Submitted";
+      else if (status === "won") displayStatus = "Active";
+      else if (status === "in_progress") displayStatus = "Active";
+      else if (status === "completed") displayStatus = "Completed";
+      else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
+
+      const revenue = getProjectRevenue(p);
+      const margin = p.margin || 0;
+      const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
+
+      return {
+        id: p.id,
+        name: p.title || "Untitled Project",
+        status: displayStatus,
+        location: p.location || "Unknown, Unknown",
+        progress: (p.progress || p.overallProgressPct || 0) / 100, // Convert to 0-1
+        amount: revenue,
+        margin: marginRatio * 100,
+        marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
+        dateLabel: p.endDate
+          ? status === "completed"
+            ? `Completed ${new Date(p.endDate).toISOString().split("T")[0]}`
+            : `Due ${new Date(p.endDate).toISOString().split("T")[0]}`
+          : "No due date",
+        rawProject: p,
+      };
+    });
+  }, [activeProjects, estimates]);
+
+  // Calculate metrics
+  const metrics = useMemo(() => {
+    const pipelineTotals = computePipelineTotals([...activeProjects, ...estimates]);
+    const totalBids = pipelineTotals.totalBidValue || dashboardMetrics?.totalRevenue || 0;
+    const activeProjectsValue = pipelineTotals.activeProjectsValue || totalBids;
+    const avgMargin =
+      projects.length > 0
+        ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
+        : 0;
+
+    return {
+      totalBids: formatCurrencyShort(totalBids),
+      activeProjects: formatCurrencyShort(activeProjectsValue),
+      avgMargin: `${avgMargin.toFixed(1)}%`,
+      completedProfit: pipelineTotals.completedProfit,
+    };
+  }, [activeProjects, estimates, dashboardMetrics, projects]);
+
+  const handleProjectPress = useCallback(
+    (project: any) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      router.push("/(tabs)/projects");
+    },
+    [router]
+  );
+
+  const handleTabPress = useCallback(
+    (tab: TabKey) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setActiveTab(tab);
+    },
+    []
+  );
+
+  // Get active/won projects count
+  const activeWonCount = useMemo(() => {
+    return projects.filter(
+      (p) => p.status === "Active" || p.status === "Completed"
+    ).length;
+  }, [projects]);
+
+  return (
+    <SafeAreaView style={styles.root}>
+      <StatusBar barStyle="light-content" />
+
+      {/* Background */}
+      <View style={StyleSheet.absoluteFill} />
+
+        <ScrollView
+        contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+        {/* HEADER */}
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+            <Text style={styles.screenTitle}>Dashboard</Text>
+            <Text style={styles.screenSubtitle}>Welcome back, {user.name}</Text>
+
+            {/* AI status badge */}
+            {(() => {
+              const aiStatusText = aiPmMode
+                ? "AI monitoring active · No issues detected"
+                : "AI monitoring paused · Manual mode";
+              const aiStatusColor = aiPmMode ? "#6ee7b7" : "#6b7280";
+              const lastUpdatedText =
+                aiPmMode && aiData?.lastUpdated
+                  ? ` · Updated ${new Date(aiData.lastUpdated).toLocaleTimeString()}`
+                  : "";
+              return (
+                <View style={styles.aiStatusRow}>
+                  <View
+                    style={[
+                      styles.aiDot,
+                      { backgroundColor: aiPmMode ? "#22c55e" : "#4b5563" },
+                    ]}
+                  />
+                  <Text style={[styles.aiStatusText, { color: aiStatusColor }]}>
+                    {aiStatusText}{lastUpdatedText}
+                  </Text>
+                </View>
+              );
+            })()}
+            </View>
+            
+          {/* Profile with glow */}
+            <LinearGradient
+            colors={["#22c55e", "#22d3ee"]}
+            style={styles.profileOuter}
+          >
+            <Pressable
+              style={styles.profileInner}
+              onPress={() => router.push("/profile")}
+            >
+              <Text style={styles.profileInitials}>{user.initials}</Text>
+            </Pressable>
+            </LinearGradient>
+          </View>
+
+        {/* SEGMENTED CONTROL */}
+        <View style={styles.wideContainer}>
+          <BlurView intensity={35} tint="dark" style={styles.segmentContainer}>
+            <View style={styles.segmentInner}>
+            <SegmentTab
+              label="Overview"
+              icon="grid-outline"
+              isActive={activeTab === "overview"}
+              onPress={() => handleTabPress("overview")}
+            />
+            <SegmentTab
+              label="Analytics"
+              icon="bar-chart-outline"
+              isActive={activeTab === "analytics"}
+              onPress={() => handleTabPress("analytics")}
+            />
+            <SegmentTab
+              label="Insights"
+              icon="bulb-outline"
+              isActive={activeTab === "insights"}
+              onPress={() => handleTabPress("insights")}
+            />
+          </View>
+        </BlurView>
+        </View>
+
+        {/* CONTENT */}
+        {activeTab === "overview" && (
+          <OverviewSection
+            metrics={metrics}
+            projects={projects}
+            onProjectPress={handleProjectPress}
+            onViewAllPress={() => router.push("/(tabs)/projects")}
+            aiPmMode={aiPmMode}
+            aiData={aiData}
+            aiLoading={aiLoading}
+            aiError={aiError}
+          />
+        )}
+        {activeTab === "analytics" && (
+          <AnalyticsSection
+            metrics={metrics}
+            dashboardMetrics={dashboardMetrics}
+            activeWonCount={activeWonCount}
+            activeProjects={activeProjects}
+            estimates={estimates}
+          />
+        )}
+        {activeTab === "insights" && <InsightsSection projects={projects} />}
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
+
+      {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
+      <Pressable
+        style={styles.aiFloatingWrapper}
+        onPress={() => setAiPmMode((prev) => !prev)}
+      >
+        <LinearGradient
+          colors={aiPmMode ? ["#22c55e", "#22d3ee"] : ["#4b5563", "#020617"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiFloating}
+        >
+          <Ionicons
+            name="sparkles"
+            size={18}
+            color={aiPmMode ? "#020617" : "#e5e7eb"}
+          />
+          <Text style={styles.aiFloatingText}>
+            {aiPmMode ? "AI PM Mode: On" : "AI PM Mode: Off"}
+          </Text>
+        </LinearGradient>
+      </Pressable>
+
+      {/* AI Assistant Modal */}
+      <AIAssistantModal
+        visible={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        context={JSON.stringify({
+          screen: "Dashboard",
+          allProjects: [...activeProjects, ...estimates].map((p) => ({
+            id: p.id,
+            title: p.title,
+            customerName: (p as any).client || p.title,
+            status: p.status,
+            bidPrice: p.bidPrice || 0,
+            estimatedCost: p.estimatedCost || 0,
+            totalBudget: p.estimatedCost || p.bidPrice || 0,
+          })),
+        })}
+      />
+    </SafeAreaView>
+  );
+};
+
+type SegmentProps = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  isActive: boolean;
+  onPress: () => void;
+};
+
+const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) => {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.segmentTab, isActive && styles.segmentTabActive]}
+    >
+      <View style={styles.segmentTabInner}>
+        <Ionicons name={icon} size={18} color={isActive ? "#050B13" : "#E5F7FF"} />
+        <Text style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}>
+          {label}
+        </Text>
+                      </View>
+    </Pressable>
+  );
+};
+
+/* ----------------- ENHANCED METRIC CARD ----------------- */
+
+const EnhancedMetricCard = ({
+  gradient,
+  label,
+  value,
+  timeframe,
+  trend,
+  trendDirection,
+  context,
+}: {
+  gradient?: boolean;
+  label: string;
+  value: string;
+  timeframe: string;
+  trend: string;
+  trendDirection: "up" | "down";
+  context: string;
+}) => {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 8,
+    }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 30,
+      bounciness: 8,
+    }).start();
+  };
+
+  const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+    gradient ? (
+      <LinearGradient
+        colors={["#22c55e", "#22d3ee"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.metricGradientCard}
+      >
+        {children}
+      </LinearGradient>
+    ) : label === "Active Projects" ? (
+      <View style={styles.metricCardSecondary}>{children}</View>
+    ) : (
+      <LinearGradient
+        colors={["#1AD0B2", "#0088FF", "#003E66"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.metricGradientCard}
+      >
+        {children}
+      </LinearGradient>
+    );
+
+  return (
+    <Animated.View
+      style={[
+        styles.metricOuter,
+        { transform: [{ scale }] },
+      ]}
+    >
+      <Pressable
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={{ flex: 1 }}
+      >
+        <CardWrapper>
+          <View style={styles.metricTopRow}>
+            <View style={styles.metricIconCircle}>
+              <Ionicons
+                name={trendDirection === "up" ? "trending-up" : "trending-down"}
+                size={16}
+                color={gradient || label === "Avg Margin" ? "#020617" : "#22d3ee"}
+                  />
+                </View>
+          </View>
+          <Text style={[styles.metricValue, (gradient || label === "Avg Margin") && { color: "#020617" }]}>
+            {value}
+          </Text>
+          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "#020617aa" }]}>
+            {label}
+          </Text>
+
+          <View style={styles.metricBottomRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>{timeframe}</Text>
+                  </View>
+            <View style={styles.trendRow}>
+              <MaterialIcons
+                name={trendDirection === "up" ? "north-east" : "south-east"}
+                size={14}
+                color={trendDirection === "up" ? "#16a34a" : "#f97316"}
+              />
+              <Text
