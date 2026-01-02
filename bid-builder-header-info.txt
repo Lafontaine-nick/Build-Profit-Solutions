@@ -1,0 +1,326 @@
+// ============ IMPORTS ============
+// BlurView IS already imported (line 25)
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  Modal,
+  Switch,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Linking,
+  LayoutAnimation,
+  Share,
+  StatusBar,
+  FlatList,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Dimensions } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';  // ✅ Already imported
+import { Calendar } from 'react-native-calendars';
+import * as Haptics from 'expo-haptics';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons, MaterialCommunityIcons, Feather, MaterialIcons } from '@expo/vector-icons';
+// ... other component imports ...
+
+
+// ============ STYLESHEET ============
+const s = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.bg,
+  },
+  // Gradient border wrapper for cards
+  cardBorderWrapper: {
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 24,
+    padding: 1,
+  },
+  stepCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.5)',
+  },
+  // For inline stepCard usage without gradient wrapper
+  stepCardWithBorder: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.5)',
+  },
+  stepSub: {
+    color: Colors.sub,
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  customerInfoCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.line,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  iconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  cardTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  cardSubtitle: {
+    color: Colors.sub,
+    fontSize: 14,
+    marginTop: 4,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Colors.line,
+    marginVertical: 16,
+  },
+  inputGroupCompact: {
+    marginBottom: 16,
+  },
+  label: {
+    color: Colors.sub,
+    fontSize: 12,
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  inputGradientWrapper: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  inputGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  modernInputGradient: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.line,
+  },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.3)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: Colors.text,
+    fontSize: 14,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.cardDark,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  chipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  chipMedium: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.cardDark,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  chipRowWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  chipText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  outlineBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+  },
+  outlineBtnText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  labelValue: {
+    color: Colors.text,
+    fontSize: 14,
+  },
+  infoBox: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
+  },
+  infoText: {
+    color: Colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.line,
+  },
+  editBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  editBtnText: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.cardDark,
+    borderWidth: 1,
+    borderColor: Colors.line,
+  },
+  cancelBtnText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  closeBtn: {
+    padding: 8,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  bottomSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+});
+
+
+// ============ CURRENT HEADER JSX BLOCK (to be replaced) ============
+// Lines 5777-5822 in estimate-generator.jsx
+
+      {/* Header */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Text style={{ color: Colors.text, fontSize: 28, fontWeight: '800' }}>Bid Builder</Text>
+          <TouchableOpacity
+            style={{
+              backgroundColor: Colors.primary,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+            }}
+            onPress={() => {
+              setBid(blankState());
+              setMaterialsCart([]);
+              setStep(1);
+            }}
+          >
+            <Text style={{ color: '#000', fontSize: 14, fontWeight: '700' }}>+ New</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Navigation Pill - bright green border */}
+        <View style={{ 
+          borderRadius: 30, 
+          borderWidth: 1, 
+          borderColor: '#19E180',
+          marginBottom: 16,
+        }}>
+          <View style={{ flexDirection: 'row', backgroundColor: '#000000', borderRadius: 28, padding: 4 }}>
+            <TouchableOpacity
+              onPress={() => {
+                if (step > 1) {
+                  setStep(step - 1);
+                } else {
+                  router.back();
+                }
+              }}
+              style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.05)' }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowCostBreakdownModal(true)}
+              style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, alignItems: 'center' }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>View Summary</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>

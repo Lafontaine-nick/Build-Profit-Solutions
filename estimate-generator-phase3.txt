@@ -1,0 +1,2157 @@
+
+          if (materialDataStr) {
+            const materialData = JSON.parse(materialDataStr);
+            await AsyncStorage.removeItem('manualMaterialEntry');
+            
+            const { name, quantity, unitPrice, vendorId, section } = materialData;
+            const qty = Number(quantity);
+            const price = Number(unitPrice);
+            
+            const autoSection = section || autoCategorizeMaterial(name, SECTIONS[activeScope]);
+            const finalVendorId = vendorId || 'loc';
+            
+            const row = {
+              id: String(Date.now()),
+              itemId: `manual_${Date.now()}`,
+              name: name.trim(),
+              scope: activeScope,
+              section: autoSection,
+              vendorId: finalVendorId,
+              quantity: qty,
+              unitPrice: price,
+              total: qty * price,
+              isManual: true,
+            };
+            
+            setMaterialsCart(prev => [...prev, row]);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+
+          if (laborDataStr) {
+            const laborData = JSON.parse(laborDataStr);
+            await AsyncStorage.removeItem('manualLaborEntry');
+
+            const laborName = laborData.name?.trim() || 'Labor Item';
+            const mode = laborData.mode === 'sqft' ? 'sqft' : 'hourly';
+            const laborType = laborData.laborType === 'subcontractor' ? 'subcontractor' : 'inhouse';
+            const hours = Number(laborData.hours) || Number(laborData.quantity) || 0;
+            const rate = Number(laborData.rate) || 0;
+
+            const laborRow = {
+              id: String(Date.now()),
+              name: laborName,
+              mode,
+              laborType,
+              hours,
+              rate,
+              total: hours * rate,
+            };
+
+            setBid(prev => ({
+              ...prev,
+              laborLineItems: [...(prev.laborLineItems || []), laborRow],
+            }));
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        } catch (error) {
+          console.error('Error processing manual entries:', error);
+        }
+      };
+      
+      checkForManualEntries();
+    }, [activeScope])
+  );
+  
+  const totalBySection = (section) => {
+    return materialsCart
+      .filter(r => r.scope === activeScope && r.section === section)
+      .reduce((sum, r) => sum + r.total, 0);
+  };
+  
+  const totalByScope = (scope) => {
+    return materialsCart
+      .filter(r => r.scope === scope)
+      .reduce((sum, r) => sum + r.total, 0);
+  };
+  
+  const grandMaterialsTotal = materialsCart.reduce((sum, r) => sum + r.total, 0);
+  
+  // Rental equipment helpers
+  const handleRentalAttach = (rentalItem) => {
+    const row = {
+      id: Date.now(),
+      scope: activeScope,
+      section: 'Equipment',
+      title: rentalItem.title,
+      sku: rentalItem.sku,
+      store: rentalItem.store,
+      unit: rentalItem.unit || 'day',
+      qty: 1,
+      duration: 1, // days
+      url: rentalItem.url,
+    };
+    
+    setRentalCart(prev => [...prev, row]);
+    Alert.alert('Added!', `${rentalItem.title} added to Equipment section`);
+  };
+
+  const updateRentalDuration = (id, duration) => {
+    setRentalCart(prev => prev.map(item => 
+      item.id === id ? { ...item, duration } : item
+    ));
+  };
+
+  const removeRentalItem = (id) => {
+    setRentalCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  const grandRentalsTotal = rentalCart.reduce((sum, r) => sum + (r.duration || 1), 0);
+  
+  // Group materials by category for better organization
+  const materialsByCategory = useMemo(() => {
+    const groups = {};
+    filteredCatalog.forEach(item => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    return groups;
+  }, [filteredCatalog]);
+
+  // Line item management
+  const addMaterial = () => setMaterialModal({ visible: true, item: null });
+  const editMaterial = (item) => setMaterialModal({ visible: true, item });
+  const saveMaterial = (item) => {
+    if (item.id) {
+      // Update existing
+      setBid(prev => ({
+        ...prev,
+        materialLineItems: prev.materialLineItems.map(m => m.id === item.id ? item : m)
+      }));
+    } else {
+      // Add new
+      const newItem = { ...item, id: String(Date.now()) };
+      setBid(prev => ({
+        ...prev,
+        materialLineItems: [...(prev.materialLineItems || []), newItem]
+      }));
+    }
+    setMaterialModal({ visible: false, item: null });
+  };
+  const deleteMaterial = (id) => {
+    setBid(prev => ({
+      ...prev,
+      materialLineItems: prev.materialLineItems.filter(m => m.id !== id)
+    }));
+  };
+
+  const addLabor = () => setLaborModal({ visible: true, item: null });
+  const editLabor = (item) => setLaborModal({ visible: true, item });
+  const saveLabor = (item) => {
+    if (item.id) {
+      // Update existing
+      setBid(prev => ({
+        ...prev,
+        laborLineItems: prev.laborLineItems.map(l => l.id === item.id ? item : l)
+      }));
+    } else {
+      // Add new
+      const newItem = { ...item, id: String(Date.now()) };
+      setBid(prev => ({
+        ...prev,
+        laborLineItems: [...(prev.laborLineItems || []), newItem]
+      }));
+    }
+    setLaborModal({ visible: false, item: null });
+  };
+  const deleteLabor = (id) => {
+    setBid(prev => ({
+      ...prev,
+      laborLineItems: prev.laborLineItems.filter(l => l.id !== id)
+    }));
+  };
+
+  const createNewBid = () => {
+    Alert.alert('New Bid', 'Start a new bid? Current bid will be saved.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'New Bid',
+        onPress: async () => {
+          await backupCurrentEstimateSilently();
+          try {
+            await AsyncStorage.multiRemove([
+              'bps.materialsCart',
+              'bps.rentalCart',
+              'manualMaterialEntry',
+              'manualLaborEntry',
+            ]);
+          } catch (error) {
+            console.warn('Failed to clear previous bid carts:', error);
+          }
+
+          const nextBid = blankState();
+          lastSavedBidRef.current = null;
+          pendingSaveRef.current = null;
+
+          setMaterialsCart([]);
+          setRentalCart([]);
+          setBid(nextBid);
+          setStep(1);
+          setActiveScope('kitchen');
+
+          try {
+            await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+            console.log('🆕 Started new bid and saved blank state to storage');
+          } catch (error) {
+            console.warn('Failed to save new blank bid to storage:', error);
+          }
+        },
+      },
+    ]);
+  };
+
+  const applyTemplate = (template) => {
+    const templates = {
+      residential: { materials: 4200, labor: 3500, markupPct: 15, contingencyPct: 7, template: 'residential' },
+      commercial: { materials: 8500, labor: 7200, markupPct: 18, contingencyPct: 5, template: 'commercial' },
+      multifamily: { materials: 12000, labor: 10500, markupPct: 20, contingencyPct: 6, template: 'multifamily' },
+    };
+    setBid(prev => ({ ...prev, ...templates[template] }));
+    Alert.alert('Template Applied', `${template} template loaded successfully!`);
+  };
+
+
+  // Render step content
+  const renderStepContent = () => {
+    switch (step) {
+      case 1: {
+        // Calculate AI level and confidence from health score
+        const aiLevel = healthScore >= 75 ? 'good' : healthScore >= 55 ? 'warn' : 'risk';
+        const aiConfidence = aiLevel === 'good' ? 'High' : aiLevel === 'warn' ? 'Medium' : 'Low';
+        const aiSummary = aiLevel === 'good'
+          ? 'No major issues detected. Estimate looks on track.'
+          : aiLevel === 'warn'
+          ? 'Some items may need review. Consider verifying labor and scope.'
+          : 'Risk detected. Labor-heavy bid and low health score—review before sending.';
+        
+        const maxBarHeight = 120;
+        const maxValue = Math.max(calc.materials, calc.labor, calc.overhead, calc.profit, 1);
+        const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
+        const laborHeight = (calc.labor / maxValue) * maxBarHeight;
+        const overheadHeight = (calc.overhead / maxValue) * maxBarHeight;
+        const markupHeight = (calc.profit / maxValue) * maxBarHeight;
+        
+        return (
+          <ScrollView 
+            style={{ flex: 1 }} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+          >
+            {/* Main Container - no border */}
+            <View style={{
+              marginHorizontal: -20,
+              paddingHorizontal: 8,
+              paddingVertical: 20,
+              backgroundColor: Colors.card,
+              marginBottom: 16,
+              marginTop: 16,
+            }}>
+                {/* Total Bid Section - green to blue gradient border */}
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={{
+                  borderRadius: 24,
+                  padding: 1,
+                  marginBottom: 12,
+                }}
+              >
+              <View style={{
+                backgroundColor: '#000000',
+                borderRadius: 22,
+                padding: 20,
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="heart" size={20} color="#22c55e" />
+                    <Text style={{ color: Colors.text, fontSize: 14, marginLeft: 8, fontWeight: '600' }}>{healthScore}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="trending-up" size={16} color="#22d3ee" />
+                    <Text style={{ color: '#22d3ee', fontSize: 12, marginLeft: 4 }}>+4.9%</Text>
+                  </View>
+                </View>
+                
+                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
+                  TOTAL BID
+                </Text>
+                
+                <Text style={{ color: Colors.text, fontSize: 36, textAlign: 'center', fontWeight: '700', marginBottom: 12 }}>
+                  {money(calc.total)}
+                </Text>
+                
+                <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 20 }}>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginRight: 8 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>{money(calc.unitPrice)} / sqft</Text>
+                  </View>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>Markup {bid.markupPct || 0}%</Text>
+                  </View>
+                </View>
+                
+                {/* Bar Chart */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: maxBarHeight + 40, marginBottom: 8 }}>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.materials)}</Text>
+                    <LinearGradient
+                      colors={['#3b82f6', '#60a5fa']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(materialsHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Materi</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.labor)}</Text>
+                    <LinearGradient
+                      colors={['#22c55e', '#4ade80']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(laborHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Labor</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.overhead)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(overheadHeight, 8),
+                        backgroundColor: '#f59e0b',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Overhe</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.profit)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(markupHeight, 8),
+                        backgroundColor: '#a78bfa',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Markup</Text>
+                  </View>
+                </View>
+              </View>
+              </LinearGradient>
+              
+              {/* Cost Breakdown - no border, same width as Total Bid */}
+              <View style={{
+                backgroundColor: Colors.card,
+                marginBottom: 12,
+                marginTop: 12,
+              }}>
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
+                    Cost Breakdown
+                  </Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                    Materials, labor, overhead & markup
+                  </Text>
+                </View>
+                {/* Full width cards with green-to-blue gradient border */}
+                <View style={{ gap: 12 }}>
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3b82f6', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Materials</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.materials)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Labor</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.labor)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Overhead</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.overhead)}</Text>
+                    </View>
+                  </LinearGradient>
+                  
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ borderRadius: 20, padding: 1 }}
+                  >
+                    <View style={{ backgroundColor: '#000000', borderRadius: 18, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#a78bfa', marginRight: 10 }} />
+                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Markup ({bid.markupPct || 0}%)</Text>
+                      </View>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.profit)}</Text>
+                    </View>
+                  </LinearGradient>
+                </View>
+              </View>
+              
+              {/* Project Actions - no border */}
+              <View style={{
+                paddingTop: 24,
+                paddingBottom: 24,
+                backgroundColor: Colors.card,
+                marginBottom: 0,
+              }}>
+                <View style={{ marginBottom: 24 }}>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 2 }}>
+                    Project Actions
+                  </Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                    Save, submit, or mark as won
+                  </Text>
+                </View>
+                
+                {/* Action Buttons Grid - black bg, white text, green-to-blue border */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  {/* Save Bid */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleSaveEstimate}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="save-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Save Bid</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Restore Bids */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={() => setShowRecoveryModal(true)}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="refresh-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Restore Bids</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Submit Bid */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleSubmitBid}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="send-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Submit Bid</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                  
+                  {/* Mark as Won */}
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={{ flex: 1, minWidth: '47%', borderRadius: 20, padding: 1 }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 12 }}
+                      onPress={handleMarkAsWon}
+                    >
+                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                        <Ionicons name="trophy-outline" size={16} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Mark as Won</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              </View>
+            </View>
+            {/* End Main Container Card */}
+          </ScrollView>
+        );
+      }
+      
+      case 2: {
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <GradientCard style={{ marginTop: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                  <Ionicons name="person" size={18} color="#2DFFC4" />
+                </View>
+                <View>
+                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>Customer Information</Text>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>Client contact details and preferences</Text>
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Customer Name *</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Enter customer name"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerName || ''}
+                  onChangeText={(text) => updateBid('customerName', text)}
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Email</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="customer@example.com"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerEmail || ''}
+                  onChangeText={(text) => updateBid('customerEmail', text)}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Phone</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="(555) 123-4567"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerPhone || ''}
+                  onChangeText={(text) => updateBid('customerPhone', text)}
+                  keyboardType="phone-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Address</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Street address"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerAddress || ''}
+                  onChangeText={(text) => updateBid('customerAddress', text)}
+                />
+              </View>
+              
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <View style={[s.inputGroup, { width: '48%' }]}>
+                  <Text style={s.label}>City</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="City"
+                    placeholderTextColor={Colors.sub}
+                    value={bid.customerCity || ''}
+                    onChangeText={(text) => updateBid('customerCity', text)}
+                  />
+                </View>
+                
+                <View style={[s.inputGroup, { width: '48%' }]}>
+                  <Text style={s.label}>State</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="State"
+                    placeholderTextColor={Colors.sub}
+                    value={bid.customerState || ''}
+                    onChangeText={(text) => updateBid('customerState', text)}
+                    maxLength={2}
+                    autoCapitalize="characters"
+                  />
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>ZIP Code</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="12345"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerZip || ''}
+                  onChangeText={(text) => updateBid('customerZip', text)}
+                  keyboardType="number-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Company (Optional)</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="Company name"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerCompany || ''}
+                  onChangeText={(text) => updateBid('customerCompany', text)}
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Notes</Text>
+                <TextInput
+                  style={[s.input, { minHeight: 100, textAlignVertical: 'top' }]}
+                  placeholder="Additional notes about the customer..."
+                  placeholderTextColor={Colors.sub}
+                  value={bid.customerNotes || ''}
+                  onChangeText={(text) => updateBid('customerNotes', text)}
+                  multiline
+                  numberOfLines={4}
+                />
+              </View>
+            </GradientCard>
+          </ScrollView>
+        );
+      }
+      
+      case 3: {
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <GradientCard style={{ marginTop: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                  <Ionicons name="information-circle" size={18} color="#2DFFC4" />
+                </View>
+                <View>
+                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>Project Information</Text>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>Core details drive unit pricing and regional adjustments</Text>
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Project Title *</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="e.g., Kitchen Renovation"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.title || ''}
+                  onChangeText={(text) => updateBid('title', text)}
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Project Type</Text>
+                <View style={s.chipRow}>
+                  {PROJECT_TYPES.map((type) => (
+                    <TouchableOpacity
+                      key={type.value}
+                      style={[s.chip, bid.projectType === type.value && s.chipActive]}
+                      onPress={() => updateBid('projectType', type.value)}
+                    >
+                      <Text style={[s.chipText, bid.projectType === type.value && { color: '#fff' }]}>
+                        {type.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Square Footage</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="1250"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.sqft?.toString() || ''}
+                  onChangeText={(text) => updateBid('sqft', parseInt(text) || 0)}
+                  keyboardType="number-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Project Description</Text>
+                <TextInput
+                  style={[s.input, { minHeight: 120, textAlignVertical: 'top' }]}
+                  placeholder="Describe the project scope, requirements, and special considerations..."
+                  placeholderTextColor={Colors.sub}
+                  value={bid.scopeDescription || ''}
+                  onChangeText={(text) => updateBid('scopeDescription', text)}
+                  multiline
+                  numberOfLines={6}
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Start Date</Text>
+                <TouchableOpacity
+                  style={s.input}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={{ color: bid.startDate ? Colors.text : Colors.sub }}>
+                    {bid.startDate || 'Select start date'}
+                  </Text>
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={bid.startDate ? new Date(bid.startDate + 'T00:00:00') : new Date()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                    onChange={(event, selectedDate) => {
+                      setShowDatePicker(false);
+                      if (selectedDate) {
+                        updateBid('startDate', selectedDate.toISOString().split('T')[0]);
+                      }
+                    }}
+                  />
+                )}
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>End Date</Text>
+                <TouchableOpacity
+                  style={s.input}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={{ color: bid.endDate ? Colors.text : Colors.sub }}>
+                    {bid.endDate || 'Select end date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </GradientCard>
+          </ScrollView>
+        );
+      }
+      
+      case 4: {
+        const sections = SECTIONS[activeScope] || SECTIONS.other;
+        
+        return (
+          <View style={{ flex: 1 }}>
+            {/* Search Bar and SKU Search Button */}
+            <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 12, borderWidth: 1, borderColor: Colors.line, paddingHorizontal: 12 }}>
+                  <Ionicons name="search" size={20} color={Colors.sub} style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={{ flex: 1, color: Colors.text, fontSize: 14, paddingVertical: 10 }}
+                    placeholder="Search materials..."
+                    placeholderTextColor={Colors.sub}
+                    value={materialSearch}
+                    onChangeText={setMaterialSearch}
+                  />
+                  {materialSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setMaterialSearch('')}>
+                      <Ionicons name="close-circle" size={20} color={Colors.sub} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: Colors.primary,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                  onPress={() => setSkuModalVisible(true)}
+                >
+                  <Ionicons name="barcode-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity
+                style={[s.outlineBtn, { marginBottom: 0 }]}
+                onPress={() => setMaterialModal({ visible: true, item: null })}
+              >
+                <Ionicons name="add" size={20} color={Colors.text} style={{ marginRight: 8 }} />
+                <Text style={s.outlineBtnText}>Add Manual Material</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              <View style={{ padding: 16 }}>
+                {/* Materials Cart Summary */}
+                {materialsCart.length > 0 && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 12 }}>
+                      Materials Cart ({materialsCart.length})
+                    </Text>
+                    {materialsCart.map((item, index) => (
+                      <View key={item.id || index} style={[s.stepCard, { marginBottom: 12 }]}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                              {item.name || item.description || 'Material'}
+                            </Text>
+                            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                              {item.quantity || 0} {item.unit || 'ea'} × {money(item.unitPrice || item.cost || 0)}
+                              {item.vendorId && ` (${VENDORS.find(v => v.id === item.vendorId)?.name || item.vendorId})`}
+                            </Text>
+                            {item.sku && (
+                              <Text style={{ color: '#22d3ee', fontSize: 11, marginTop: 2 }}>
+                                SKU: {item.sku}
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>
+                            {money(item.total || 0)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                    <View style={{
+                      backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: 'rgba(34, 197, 94, 0.3)',
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                          Total Materials:
+                        </Text>
+                        <Text style={{ color: '#22c55e', fontSize: 20, fontWeight: '700' }}>
+                          {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+                
+                {/* Materials Catalog */}
+                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 12 }}>
+                  Materials Catalog
+                </Text>
+                
+                {filteredCatalog.length === 0 ? (
+                  <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                    <Ionicons name="search-outline" size={64} color={Colors.sub} />
+                    <Text style={{ color: Colors.sub, fontSize: 16, marginTop: 16 }}>
+                      No materials found
+                    </Text>
+                  </View>
+                ) : (
+                  sections.map((section) => {
+                    const sectionMaterials = filteredCatalog.filter(m => {
+                      const itemSection = m.section || m.category || 'General';
+                      return itemSection.toLowerCase().includes(section.toLowerCase()) ||
+                             section.toLowerCase().includes(itemSection.toLowerCase());
+                    });
+                    
+                    if (sectionMaterials.length === 0) return null;
+                    
+                    const isExpanded = expandedSections[section];
+                    
+                    return (
+                      <View key={section} style={{ marginBottom: 16 }}>
+                        <TouchableOpacity
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingVertical: 12,
+                            paddingHorizontal: 16,
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: Colors.line,
+                            marginBottom: 8,
+                          }}
+                          onPress={() => toggleSection(section)}
+                        >
+                          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                            {section}
+                          </Text>
+                          <Ionicons
+                            name={isExpanded ? "chevron-up" : "chevron-down"}
+                            size={20}
+                            color={Colors.sub}
+                          />
+                        </TouchableOpacity>
+                        
+                        {isExpanded && (
+                          <View>
+                            {sectionMaterials.map((item) => {
+                              const vendors = PRICE_BOOK[item.id] || [];
+                              const selectedVendorId = materialSelectedVendor[item.id] || vendors[0]?.vendorId;
+                              const selectedVendor = vendors.find(v => v.vendorId === selectedVendorId);
+                              const qty = materialNeedQty[item.id] || 0;
+                              
+                              return (
+                                <View
+                                  key={item.id}
+                                  style={{
+                                    backgroundColor: Colors.card,
+                                    borderRadius: 12,
+                                    padding: 16,
+                                    marginBottom: 8,
+                                    borderWidth: 1,
+                                    borderColor: Colors.line,
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                                        {item.name}
+                                      </Text>
+                                      <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                                        {item.category}
+                                      </Text>
+                                    </View>
+                                    {selectedVendor && (
+                                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                                        {money(selectedVendor.price)}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  
+                                  {vendors.length > 1 && (
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12, gap: 8 }}>
+                                      {vendors.map((vendor) => (
+                                        <TouchableOpacity
+                                          key={vendor.vendorId}
+                                          style={[
+                                            {
+                                              paddingHorizontal: 12,
+                                              paddingVertical: 6,
+                                              borderRadius: 8,
+                                              borderWidth: 1,
+                                              backgroundColor: selectedVendorId === vendor.vendorId ? Colors.primary : Colors.cardDark,
+                                              borderColor: selectedVendorId === vendor.vendorId ? Colors.primary : Colors.line,
+                                            }
+                                          ]}
+                                          onPress={() => setMaterialSelectedVendor(prev => ({ ...prev, [item.id]: vendor.vendorId }))}
+                                        >
+                                          <Text style={{
+                                            color: selectedVendorId === vendor.vendorId ? '#fff' : Colors.text,
+                                            fontSize: 12,
+                                            fontWeight: '600'
+                                          }}>
+                                            {VENDORS.find(v => v.id === vendor.vendorId)?.name || vendor.vendorId}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      ))}
+                                    </View>
+                                  )}
+                                  
+                                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                                    <TextInput
+                                      style={{
+                                        flex: 1,
+                                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: Colors.line,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 8,
+                                        color: Colors.text,
+                                        fontSize: 14,
+                                      }}
+                                      placeholder="Qty"
+                                      placeholderTextColor={Colors.sub}
+                                      value={qty.toString()}
+                                      onChangeText={(text) => {
+                                        const num = parseInt(text) || 0;
+                                        setMaterialNeedQty(prev => ({ ...prev, [item.id]: num }));
+                                      }}
+                                      keyboardType="number-pad"
+                                    />
+                                    <TouchableOpacity
+                                      style={{
+                                        backgroundColor: Colors.primary,
+                                        paddingHorizontal: 16,
+                                        paddingVertical: 8,
+                                        borderRadius: 8,
+                                      }}
+                                      onPress={() => {
+                                        if (qty > 0 && selectedVendor) {
+                                          addMaterialToCart(item, activeScope, section);
+                                          setMaterialNeedQty(prev => ({ ...prev, [item.id]: 0 }));
+                                        }
+                                      }}
+                                    >
+                                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
+                                        Add
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </ScrollView>
+            
+            {/* SKU Search Modal */}
+            <AttachSkuModal
+              visible={skuModalVisible}
+              defaultZip={bid.customerZip || ''}
+              onClose={() => setSkuModalVisible(false)}
+              onAttach={handleSkuAttach}
+            />
+          </View>
+        );
+      }
+      
+      case 5: {
+        const laborItems = bid.laborLineItems || [];
+        const totalLabor = laborItems.reduce((sum, item) => sum + (item.total || 0), 0);
+        
+        return (
+          <View style={{ flex: 1 }}>
+            {/* Header Actions */}
+            <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: Colors.primary,
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderRadius: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={() => setSubcontractorModalVisible(true)}
+                >
+                  <Ionicons name="search" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
+                    Find Subcontractor
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: Colors.line,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={() => setLaborModal({ visible: true, item: null })}
+                >
+                  <Ionicons name="add" size={20} color={Colors.text} style={{ marginRight: 8 }} />
+                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                    Add Labor Item
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              {/* Pricing Mode Toggle */}
+              <View style={{ flexDirection: 'row', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 12, padding: 4 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    backgroundColor: laborPricingMode === 'hourly' ? Colors.primary : 'transparent',
+                    alignItems: 'center',
+                  }}
+                  onPress={() => setLaborPricingMode('hourly')}
+                >
+                  <Text style={{
+                    color: laborPricingMode === 'hourly' ? '#fff' : Colors.sub,
+                    fontSize: 14,
+                    fontWeight: '600'
+                  }}>
+                    Hourly Rate
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    backgroundColor: laborPricingMode === 'sqft' ? Colors.primary : 'transparent',
+                    alignItems: 'center',
+                  }}
+                  onPress={() => setLaborPricingMode('sqft')}
+                >
+                  <Text style={{
+                    color: laborPricingMode === 'sqft' ? '#fff' : Colors.sub,
+                    fontSize: 14,
+                    fontWeight: '600'
+                  }}>
+                    Per Square Foot
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              <View style={{ padding: 16 }}>
+                {/* Labor Summary */}
+                {laborItems.length > 0 && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 12 }}>
+                      Labor Items ({laborItems.length})
+                    </Text>
+                    
+                    {laborItems.map((item, index) => (
+                      <TouchableOpacity
+                        key={item.id || index}
+                        style={[s.stepCard, { marginBottom: 12 }]}
+                        onPress={() => setLaborModal({ visible: true, item })}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                                {item.description || item.name || 'Labor'}
+                              </Text>
+                              {item.laborType === 'subcontractor' && (
+                                <View style={{
+                                  marginLeft: 8,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 2,
+                                  borderRadius: 8,
+                                  backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                                  borderWidth: 1,
+                                  borderColor: '#f59e0b',
+                                }}>
+                                  <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>
+                                    SUB
+                                  </Text>
+                                </View>
+                              )}
+                              {item.laborType === 'inhouse' && (
+                                <View style={{
+                                  marginLeft: 8,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 2,
+                                  borderRadius: 8,
+                                  backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                  borderWidth: 1,
+                                  borderColor: '#22c55e',
+                                }}>
+                                  <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '600' }}>
+                                    IN-HOUSE
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                              {item.mode === 'sqft' ? (
+                                `${bid.sqft || 0} sqft × ${money(item.rate || 0)}/sqft`
+                              ) : (
+                                `${item.hours || 0} hrs × ${money(item.rate || 0)}/hr`
+                              )}
+                            </Text>
+                            {item.metadata && (
+                              <View style={{ marginTop: 4 }}>
+                                {item.metadata.rating && (
+                                  <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                    ⭐ {item.metadata.rating} ({item.metadata.reviews || 0} reviews)
+                                  </Text>
+                                )}
+                                {item.metadata.location && (
+                                  <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                    📍 {item.metadata.location}
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>
+                              {money(item.total || 0)}
+                            </Text>
+                            <TouchableOpacity
+                              style={{ marginTop: 8 }}
+                              onPress={() => {
+                                Alert.alert(
+                                  'Delete Labor Item?',
+                                  `Remove "${item.description || item.name || 'Labor'}"?`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: () => {
+                                        const updated = laborItems.filter(l => l.id !== item.id);
+                                        updateBid('laborLineItems', updated);
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                      }
+                                    }
+                                  ]
+                                );
+                              }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color={Colors.sub} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                    
+                    <View style={{
+                      backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: 'rgba(34, 197, 94, 0.3)',
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                          Total Labor:
+                        </Text>
+                        <Text style={{ color: '#22c55e', fontSize: 20, fontWeight: '700' }}>
+                          {money(totalLabor)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+                
+                {/* Empty State */}
+                {laborItems.length === 0 && (
+                  <View style={{ alignItems: 'center', paddingVertical: 60 }}>
+                    <Ionicons name="people-outline" size={80} color={Colors.sub} />
+                    <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '600', marginTop: 16, marginBottom: 8 }}>
+                      No Labor Items Yet
+                    </Text>
+                    <Text style={{ color: Colors.sub, fontSize: 14, textAlign: 'center', marginBottom: 24 }}>
+                      Add in-house labor or search for subcontractors to get started
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+            
+            {/* Subcontractor Search Modal */}
+            <SubcontractorSearchModal
+              visible={subcontractorModalVisible}
+              onClose={() => setSubcontractorModalVisible(false)}
+              onSelect={handleSubcontractorSelect}
+              defaultZip={bid.customerZip || ''}
+            />
+          </View>
+        );
+      }
+      
+      case 6: {
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ padding: 16 }}>
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Insurance Overhead</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.insuranceOverhead?.toString() || ''}
+                  onChangeText={(text) => updateBid('insuranceOverhead', parseFloat(text) || 0)}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Equipment</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.equipment?.toString() || ''}
+                  onChangeText={(text) => updateBid('equipment', parseFloat(text) || 0)}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Facilities</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.facilities?.toString() || ''}
+                  onChangeText={(text) => updateBid('facilities', parseFloat(text) || 0)}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Other Overhead</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.otherOverhead?.toString() || ''}
+                  onChangeText={(text) => updateBid('otherOverhead', parseFloat(text) || 0)}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Markup Percentage</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="15"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.markupPct?.toString() || ''}
+                  onChangeText={(text) => updateBid('markupPct', parseFloat(text) || 0)}
+                  keyboardType="decimal-pad"
+                />
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                  Current markup: {money(calc.profit)} ({bid.markupPct || 0}%)
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        );
+      }
+      
+      case 7: {
+        return (
+          <ProjectAnalysis
+            bid={bid}
+            calc={calc}
+            materialsCart={materialsCart}
+            laborLineItems={bid.laborLineItems || []}
+          />
+        );
+      }
+      
+      case 8: {
+        const scheduleType = bid.paymentSchedule || 'milestone-based';
+        const milestones = bid.paymentMilestones || [];
+        const weeklyPayments = bid.weeklyPayments || [];
+        const grandTotal = calc?.grandTotal || calc?.total || 0;
+        
+        // Calculate totals
+        const milestoneTotal = milestones.reduce((sum, m) => sum + (m.paymentAmount || 0), 0);
+        const weeklyTotal = weeklyPayments.reduce((sum, w) => sum + (w.amount || 0), 0);
+        const milestoneTotalPct = milestones.reduce((sum, m) => sum + (m.percentage || 0), 0);
+        
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ padding: 16 }}>
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Payment Schedule Type</Text>
+                <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+                  <TouchableOpacity
+                    style={[s.chip, scheduleType === 'milestone-based' && s.chipActive]}
+                    onPress={() => {
+                      updateBid('paymentSchedule', 'milestone-based');
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                  >
+                    <Text style={[s.chipText, scheduleType === 'milestone-based' && { color: '#fff' }]}>
+                      Milestone-Based
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.chip, scheduleType === 'weekly' && s.chipActive]}
+                    onPress={() => {
+                      updateBid('paymentSchedule', 'weekly');
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                  >
+                    <Text style={[s.chipText, scheduleType === 'weekly' && { color: '#fff' }]}>
+                      Weekly
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {scheduleType === 'milestone-based' ? (
+                <View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={[s.label, { marginBottom: 0 }]}>Payment Milestones</Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: Colors.primary,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                      }}
+                      onPress={handleAddMilestone}
+                    >
+                      <Ionicons name="add" size={16} color="#fff" />
+                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                        Add Milestone
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {milestones.length === 0 ? (
+                    <View style={[s.stepCard, { padding: 24, alignItems: 'center' }]}>
+                      <Ionicons name="calendar-outline" size={48} color={Colors.sub} />
+                      <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 12, textAlign: 'center' }}>
+                        No payment milestones added yet.{'\n'}Add milestones to track payment schedule.
+                      </Text>
+                    </View>
+                  ) : (
+                    milestones.map((milestone, index) => {
+                      // Calculate percentage if not set but amount is
+                      let displayPercentage = milestone.percentage || 0;
+                      if (!displayPercentage && milestone.paymentAmount && grandTotal > 0) {
+                        displayPercentage = Math.round((milestone.paymentAmount / grandTotal) * 100);
+                      }
+                      
+                      return (
+                        <View key={milestone.id || index} style={[s.stepCard, { marginBottom: 12, position: 'relative' }]}>
+                          <TouchableOpacity
+                            style={{
+                              position: 'absolute',
+                              top: 12,
+                              right: 12,
+                              flexDirection: 'row',
+                              gap: 8,
+                            }}
+                            onPress={() => handleEditMilestone(milestone)}
+                          >
+                            <TouchableOpacity
+                              onPress={() => handleEditMilestone(milestone)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="create-outline" size={18} color={Colors.primary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteMilestone(milestone.id)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color={Colors.red} />
+                            </TouchableOpacity>
+                          </TouchableOpacity>
+                          
+                          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8, paddingRight: 60 }}>
+                        {milestone.name || `Milestone ${index + 1}`}
+                      </Text>
+                          {milestone.description && (
+                            <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8 }}>
+                              {milestone.description}
+                            </Text>
+                          )}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <View>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Amount</Text>
+                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                                {money(milestone.paymentAmount || 0)}
+                              </Text>
+                            </View>
+                            <View style={{ alignItems: 'flex-end' }}>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Percentage</Text>
+                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                                {displayPercentage}%
+                              </Text>
+                            </View>
+                      </View>
+                      {milestone.scheduledDate && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                              <Ionicons name="calendar-outline" size={14} color={Colors.sub} />
+                              <Text style={{ color: Colors.sub, fontSize: 12, marginLeft: 6 }}>
+                                Due: {milestone.scheduledDate}
+                        </Text>
+                            </View>
+                      )}
+                    </View>
+                      );
+                    })
+                  )}
+                  
+                  {milestones.length > 0 && (
+                    <View style={[s.stepCard, { backgroundColor: 'rgba(34, 197, 94, 0.1)', borderColor: 'rgba(34, 197, 94, 0.3)' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Scheduled</Text>
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                          {money(milestoneTotal)}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Percentage</Text>
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                          {milestoneTotalPct}%
+                        </Text>
+                      </View>
+                      {grandTotal > 0 && Math.abs(milestoneTotal - grandTotal) > 1 && (
+                        <Text style={{ color: Colors.orange, fontSize: 11, marginTop: 8 }}>
+                          ⚠️ Total doesn't match bid amount ({money(grandTotal)})
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={[s.label, { marginBottom: 0 }]}>Weekly Payments</Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: Colors.primary,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                      }}
+                      onPress={handleAddWeeklyPayment}
+                    >
+                      <Ionicons name="add" size={16} color="#fff" />
+                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                        Add Payment
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {weeklyPayments.length === 0 ? (
+                    <View style={[s.stepCard, { padding: 24, alignItems: 'center' }]}>
+                      <Ionicons name="calendar-outline" size={48} color={Colors.sub} />
+                      <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 12, textAlign: 'center' }}>
+                        No weekly payments added yet.{'\n'}Add weekly payments to track progress payments.
+                      </Text>
+                    </View>
+                  ) : (
+                    weeklyPayments.map((payment, index) => {
+                      // Calculate percentage if not set but amount is
+                      let displayPercentage = payment.percentage || 0;
+                      if (!displayPercentage && payment.amount && grandTotal > 0) {
+                        displayPercentage = Math.round((payment.amount / grandTotal) * 100);
+                      }
+                      
+                      return (
+                        <View key={payment.id || index} style={[s.stepCard, { marginBottom: 12, position: 'relative' }]}>
+                          <TouchableOpacity
+                            style={{
+                              position: 'absolute',
+                              top: 12,
+                              right: 12,
+                              flexDirection: 'row',
+                              gap: 8,
+                            }}
+                          >
+                            <TouchableOpacity
+                              onPress={() => handleEditWeeklyPayment(payment)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="create-outline" size={18} color={Colors.primary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleDeleteWeeklyPayment(payment.id)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="trash-outline" size={18} color={Colors.red} />
+                            </TouchableOpacity>
+                          </TouchableOpacity>
+                          
+                          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8, paddingRight: 60 }}>
+                            {payment.description || `Week ${payment.weekNumber || index + 1} Payment`}
+                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <View>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Amount</Text>
+                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                                {money(payment.amount || 0)}
+                              </Text>
+                            </View>
+                            <View style={{ alignItems: 'flex-end' }}>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Percentage</Text>
+                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                                {displayPercentage}%
+                              </Text>
+                            </View>
+                      </View>
+                      {payment.scheduledDate && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                              <Ionicons name="calendar-outline" size={14} color={Colors.sub} />
+                              <Text style={{ color: Colors.sub, fontSize: 12, marginLeft: 6 }}>
+                                Due: {payment.scheduledDate}
+                        </Text>
+                            </View>
+                      )}
+                    </View>
+                      );
+                    })
+                  )}
+                  
+                  {weeklyPayments.length > 0 && (
+                    <View style={[s.stepCard, { backgroundColor: 'rgba(34, 197, 94, 0.1)', borderColor: 'rgba(34, 197, 94, 0.3)' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Scheduled</Text>
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                          {money(weeklyTotal)}
+                        </Text>
+                      </View>
+                      {grandTotal > 0 && Math.abs(weeklyTotal - grandTotal) > 1 && (
+                        <Text style={{ color: Colors.orange, fontSize: 11, marginTop: 8 }}>
+                          ⚠️ Total doesn't match bid amount ({money(grandTotal)})
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        );
+      }
+      
+      case 9: {
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ padding: 16 }}>
+              <View style={s.inputGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={s.label}>License Required</Text>
+                  <Switch
+                    value={bid.license || false}
+                    onValueChange={(value) => updateBid('license', value)}
+                    trackColor={{ false: Colors.line, true: Colors.primary }}
+                    thumbColor={bid.license ? '#fff' : Colors.sub}
+                  />
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={s.label}>Insurance Required</Text>
+                  <Switch
+                    value={bid.insurance || false}
+                    onValueChange={(value) => updateBid('insurance', value)}
+                    trackColor={{ false: Colors.line, true: Colors.primary }}
+                    thumbColor={bid.insurance ? '#fff' : Colors.sub}
+                  />
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={s.label}>Bond Required</Text>
+                  <Switch
+                    value={bid.bond || false}
+                    onValueChange={(value) => updateBid('bond', value)}
+                    trackColor={{ false: Colors.line, true: Colors.primary }}
+                    thumbColor={bid.bond ? '#fff' : Colors.sub}
+                  />
+                </View>
+              </View>
+              
+              <View style={s.inputGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={s.label}>OSHA Compliance</Text>
+                  <Switch
+                    value={bid.osha || false}
+                    onValueChange={(value) => updateBid('osha', value)}
+                    trackColor={{ false: Colors.line, true: Colors.primary }}
+                    thumbColor={bid.osha ? '#fff' : Colors.sub}
+                  />
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        );
+      }
+      
+      case 10: {
+        const aiLevel = healthScore >= 75 ? 'good' : healthScore >= 55 ? 'warn' : 'risk';
+        
+        return (
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ padding: 16 }}>
+              <LinearGradient
+                colors={["rgba(34, 197, 94, 0.15)", "rgba(34, 211, 238, 0.08)", "rgba(34, 197, 94, 0)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  borderRadius: 20,
+                  padding: 20,
+                  marginBottom: 16,
+                  borderWidth: 1,
+                  borderColor: 'rgba(34, 197, 94, 0.3)',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
+                  HEALTH SCORE
+                </Text>
+                <Text style={{ color: healthColor, fontSize: 48, fontWeight: '700', marginBottom: 8 }}>
+                  {healthScore}
+                </Text>
+                <Text style={{ color: Colors.sub, fontSize: 14 }}>
+                  {aiLevel === 'good' ? 'Ready to send' : aiLevel === 'warn' ? 'Review recommended' : 'Needs attention'}
+                </Text>
+              </LinearGradient>
+              
+              <TouchableOpacity
+                style={{
+                  backgroundColor: Colors.primary,
+                  borderRadius: 12,
+                  padding: 16,
+                  alignItems: 'center',
+                  marginBottom: 16,
+                }}
+                onPress={generateContract}
+              >
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+                  Generate & Export Contract
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={s.outlineBtn}
+                onPress={handleSaveEstimate}
+              >
+                <Text style={s.outlineBtnText}>Save Bid</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        );
+      }
+      
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <SafeAreaView style={s.container} edges={['top']}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Header */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <Text style={{ color: Colors.text, fontSize: 28, fontWeight: '800' }}>Bid Builder</Text>
+          <TouchableOpacity
+            style={{
+              backgroundColor: Colors.primary,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+            }}
+            onPress={() => {
+              setBid(blankState());
+              setMaterialsCart([]);
+              setStep(1);
+            }}
+          >
+            <Text style={{ color: '#000', fontSize: 14, fontWeight: '700' }}>+ New</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Navigation Pill - bright green border */}
+        <View style={{ 
+          borderRadius: 30, 
+          borderWidth: 1, 
+          borderColor: '#19E180',
+          marginBottom: 16,
+        }}>
+          <View style={{ flexDirection: 'row', backgroundColor: '#000000', borderRadius: 28, padding: 4 }}>
+            <TouchableOpacity
+              onPress={() => {
+                if (step > 1) {
+                  setStep(step - 1);
+                } else {
+                  router.back();
+                }
+              }}
+              style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.05)' }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowCostBreakdownModal(true)}
+              style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, alignItems: 'center' }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>View Summary</Text>
+            </TouchableOpacity>
+            <LinearGradient
+              colors={['#2DFFC4', '#00A6FF']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={{ borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10 }}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  if (step < 10) {
+                    setStep(step + 1);
+                  }
+                }}
+              >
+                <Text style={{ color: '#000', fontSize: 14, fontWeight: '700' }}>Next →</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+        
+        {/* Step Section Card with Icons - bright green border */}
+        <View style={{ 
+          borderRadius: 20, 
+          borderWidth: 1, 
+          borderColor: '#19E180',
+        }}>
+          <View style={{ backgroundColor: '#000000', borderRadius: 18, paddingVertical: 12, paddingHorizontal: 8 }}>
+            {/* Current Step Info */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(25, 225, 128, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
+                <MaterialIcons name={getStepIcon(step)} size={20} color="#19E180" />
+              </View>
+              <View>
+                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>{STEPS[step - 1]?.title}</Text>
+                <Text style={{ color: Colors.sub, fontSize: 12 }}>{STEPS[step - 1]?.subtitle}</Text>
+              </View>
+            </View>
+            
+            {/* Step Icons Row */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 4 }}>
+              {STEPS.map((stepItem) => (
+                <TouchableOpacity
+                  key={stepItem.id}
+                  onPress={() => setStep(stepItem.id)}
+                  style={{
+                    alignItems: 'center',
+                    marginHorizontal: 6,
+                    opacity: step === stepItem.id ? 1 : 0.5,
+                  }}
+                >
+                  <View style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: step === stepItem.id ? 'rgba(25, 225, 128, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                    borderWidth: step === stepItem.id ? 2 : 1,
+                    borderColor: step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.1)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 4,
+                  }}>
+                    <MaterialIcons
+                      name={getStepIcon(stepItem.id)}
+                      size={18}
+                      color={step === stepItem.id ? '#19E180' : Colors.sub}
+                    />
+                  </View>
+                  <Text style={{
+                    color: step === stepItem.id ? '#19E180' : Colors.sub,
+                    fontSize: 10,
+                    fontWeight: step === stepItem.id ? '700' : '500',
+                  }}>
+                    {stepItem.id}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </View>
+      
+      {/* Step Content */}
+      {renderStepContent()}
+      
+      {/* Modals */}
+      <LineItemModal
+        visible={materialModal.visible}
+        onClose={() => setMaterialModal({ visible: false, item: null })}
+        item={materialModal.item}
+        onSave={(item) => {
+          if (materialModal.item) {
+            setMaterialsCart(prev => prev.map(m => m.id === materialModal.item.id ? item : m));
+          } else {
+            setMaterialsCart(prev => [...prev, { ...item, id: Date.now().toString() }]);
+          }
+          setMaterialModal({ visible: false, item: null });
+        }}
+        title="Material"
+        laborMode={false}
+      />
+      
+      <LineItemModal
+        visible={laborModal.visible}
+        onClose={() => setLaborModal({ visible: false, item: null })}
+        item={laborModal.item}
+        onSave={(item) => {
+          const updated = bid.laborLineItems || [];
+          if (laborModal.item) {
+            const index = updated.findIndex(l => l.id === laborModal.item.id);
+            if (index >= 0) {
+              updated[index] = item;
+            }
+          } else {
+            updated.push({ ...item, id: Date.now().toString() });
+          }
+          updateBid('laborLineItems', updated);
+          setLaborModal({ visible: false, item: null });
+        }}
+        title="Labor"
+        laborMode={true}
+      />
+      
+      {/* Payment Milestone Modal */}
+      <PaymentMilestoneModal
+        visible={milestoneModal.visible}
+        onClose={() => setMilestoneModal({ visible: false, item: null })}
+        item={milestoneModal.item}
+        onSave={handleSaveMilestone}
+        grandTotal={calc?.grandTotal || calc?.total || 0}
+      />
+      
+      {/* Weekly Payment Modal */}
+      <WeeklyPaymentModal
+        visible={weeklyPaymentModal.visible}
+        onClose={() => setWeeklyPaymentModal({ visible: false, item: null })}
+        item={weeklyPaymentModal.item}
+        onSave={handleSaveWeeklyPayment}
+        grandTotal={calc?.grandTotal || calc?.total || 0}
+      />
+      
+      {/* Recovery Modal - Full Page */}
+      <Modal
+        visible={showRecoveryModal}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setShowRecoveryModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
+          <StatusBar barStyle="light-content" />
+          <ScrollView
+            contentContainerStyle={{ paddingTop: 20, paddingHorizontal: 20, paddingBottom: 120 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              marginTop: 12,
+              marginBottom: 18,
+            }}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setShowRecoveryModal(false);
+                    }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                      borderColor: 'rgba(34, 197, 94, 0.3)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginRight: 12,
+                    }}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color="#22c55e" />
+                  </TouchableOpacity>
+                  <Text style={{ color: '#f9fafb', fontSize: 32, fontWeight: '800' }}>
+                    Restore
+                  </Text>
+                </View>
+                <Text style={{ color: '#9ca3af', fontSize: 14, marginTop: 4, marginLeft: 52 }}>
+                  {savedEstimates.length} {savedEstimates.length === 1 ? 'saved bid' : 'saved bids'}
+                </Text>
+              </View>
+            </View>
+            
+            {/* List of Saved Estimates */}
+            {savedEstimates.length === 0 ? (
+              <View style={{
+                padding: 48,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <View style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 24,
+                }}>
+                  <Ionicons name="document-outline" size={40} color="#22c55e" />
+                </View>
+                <Text style={{ color: '#f9fafb', fontSize: 18, fontWeight: '700', marginBottom: 8, textAlign: 'center' }}>
+                  No saved bids found
+                </Text>
+                <Text style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center' }}>
+                  Save a bid to restore it later
+                </Text>
+              </View>
+            ) : (
+              <View style={{
+                borderRadius: 28,
+                padding: 18,
+                backgroundColor: '#020617',
+                borderWidth: 1,
+                borderColor: 'rgba(34, 197, 94, 0.25)',
+                marginBottom: 16,
+                shadowColor: '#000',
+                shadowOpacity: 0.4,
+                shadowRadius: 18,
+                shadowOffset: { width: 0, height: 10 },
+              }}>
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 2 }}>
+                    Saved Bids
+                  </Text>
+                  <Text style={{ marginTop: 2, fontSize: 13, color: '#8DA0B8' }}>
+                    Tap to restore a saved bid
+                  </Text>
+                </View>
+                
+                {savedEstimates.map((item, index) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={{
+                      borderRadius: 24,
+                      padding: 16,
+                      marginBottom: index < savedEstimates.length - 1 ? 12 : 0,
+                      backgroundColor: 'transparent',
+                      borderWidth: 1,
+                      borderColor: 'rgba(34, 197, 94, 0.3)',
+                      shadowColor: '#000',
+                      shadowOpacity: 0.4,
+                      shadowRadius: 18,
+                      shadowOffset: { width: 0, height: 10 },
+                    }}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      loadEstimate(item);
+                      setShowRecoveryModal(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <LinearGradient
+                      colors={["rgba(34, 197, 94, 0.15)", "rgba(34, 211, 238, 0.08)", "rgba(34, 197, 94, 0)"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        borderRadius: 24,
+                        padding: 16,
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                      }}
+                    />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
+                      <View style={{ flex: 1, marginRight: 12 }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>
+                          {item.title || 'Untitled Bid'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                          <Ionicons name="person-outline" size={14} color="#8DA0B8" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#7C8BA0', fontSize: 13 }}>
+                            {item.customer || 'Unknown Customer'}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Ionicons name="calendar-outline" size={14} color="#8DA0B8" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#7C8BA0', fontSize: 13 }}>
+                            {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : 'Unknown date'}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: '#22c55e', fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
+                          ${(item.total || 0).toLocaleString()}
+                        </Text>
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderRadius: 12,
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(239, 68, 68, 0.2)',
+                          }}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            Alert.alert(
+                              'Delete Bid?',
+                              `Are you sure you want to delete "${item.title || 'Untitled Bid'}"?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: () => deleteEstimate(item.id),
+                                },
+                              ]
+                            );
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+    </SafeAreaView>
+  );
+}

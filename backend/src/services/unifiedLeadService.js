@@ -30,6 +30,8 @@ class UnifiedLeadService {
         stage: 'new',
         aiScore: this.calculateAIScore(leadData),
         verified: leadData.verified !== undefined ? leadData.verified : true,
+        isOwnRequest: leadData.isOwnRequest || false, // Preserve isOwnRequest flag
+        matchedContractors: 0, // Will be updated after matching
         ...leadData,
       };
 
@@ -46,6 +48,9 @@ class UnifiedLeadService {
       }
 
       console.log(`✅ Found ${matchedContractors.length} matching contractors`);
+
+      // Update lead with matched contractors count
+      lead.matchedContractors = matchedContractors.length;
 
       // IMPORTANT: Store the original lead first (for the creator to see in "my-requests")
       // This is the unassigned version that the creator posted

@@ -14,19 +14,20 @@ router.get('/search', async (req, res) => {
     return res.status(400).json({ error: 'q and zip are required' });
   }
 
+  // Global timeout wrapper - fail fast if everything takes too long
+  const globalTimeout = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Request timeout: Search took too long')), 20000)
+  );
+
   try {
     console.log(`🔍 SKU Search: ${q} at ${store} in ${zip}`);
     
     // Try real API first, fallback to mock data if API fails
     let results = [];
     
-    try {
-      // Try direct store API first (most reliable, no API key needed!)
-      console.log('🔑 Using direct store API for real data');
-      results = await searchDirectStoreAPI(q, store, zip);
-      console.log(`✅ Direct API returned ${results.length} results`);
-    } catch (directApiError) {
-      console.warn('⚠️ Direct API failed, trying backup methods:', directApiError.message);
+    const searchPromise = (async () => {
+      // ROOT FIX: Skip direct store API - it hangs and causes timeouts
+      // Go straight to configured APIs or mock data
       
       // Try SerpAPI first (most reliable for e-commerce)
       if (process.env.SERPAPI_KEY && process.env.SERPAPI_KEY !== 'YOUR_SERPAPI_KEY_HERE') {
@@ -35,9 +36,16 @@ router.get('/search', async (req, res) => {
           results = await searchWithSerpAPI(q, store, zip);
           console.log(`✅ SerpAPI returned ${results.length} results`);
         } catch (serpError) {
-          console.warn('⚠️ SerpAPI failed:', serpError.message);
+          const isRateLimit = serpError.message?.includes('RATE_LIMIT_EXCEEDED') || 
+                              serpError.message?.toLowerCase().includes('too many requests');
           
-          // Try WebScrapingAPI as final backup
+          if (isRateLimit) {
+            console.warn('⚠️ SerpAPI rate limit reached, falling back to alternative data source');
+          } else {
+            console.warn('⚠️ SerpAPI failed:', serpError.message);
+          }
+          
+          // Try WebScrapingAPI as backup
           if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
             try {
               console.log('🔑 Trying WebScrapingAPI as backup');
@@ -45,11 +53,11 @@ router.get('/search', async (req, res) => {
               console.log(`✅ WebScrapingAPI returned ${results.length} results`);
             } catch (webError) {
               console.warn('❌ WebScrapingAPI also failed, using mock data');
-              results = generateEnhancedMockResults(q, store, zip);
+              results = await generateEnhancedMockResults(q, store, zip);
             }
           } else {
             console.warn('❌ No other APIs configured, using mock data');
-            results = generateEnhancedMockResults(q, store, zip);
+            results = await generateEnhancedMockResults(q, store, zip);
           }
         }
       } else if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
@@ -59,28 +67,52 @@ router.get('/search', async (req, res) => {
           console.log(`✅ WebScrapingAPI returned ${results.length} results`);
         } catch (webError) {
           console.warn('❌ WebScrapingAPI failed, using mock data:', webError.message);
-          results = generateEnhancedMockResults(q, store, zip);
+          results = await generateEnhancedMockResults(q, store, zip);
         }
       } else {
-        console.warn('⚠️ No API keys configured, using mock data');
-        results = generateEnhancedMockResults(q, store, zip);
+        // No API keys - go straight to mock data (fast, no timeout issues)
+        console.log('⚠️ No API keys configured, using mock data immediately');
+        results = await generateEnhancedMockResults(q, store, zip);
       }
-    }
+    })();
+    
+    // Race against global timeout
+    await Promise.race([searchPromise, globalTimeout]);
     
     // Add metadata to indicate if this is mock data
     const isMockData = results.length > 0 && results[0]?.sku && (results[0].sku.startsWith('HD-1') || results[0].sku.startsWith('LW-1'));
+    
+    // Check if we hit rate limits (results might be from fallback)
+    const usedFallback = isMockData && results.length > 0;
     
     res.json({ 
       results,
       metadata: {
         isMockData,
-        message: isMockData ? '⚠️ Using estimated prices. For real pricing, configure SerpAPI. See REAL_PRICING_SOLUTION.md' : '✅ Real pricing data',
-        dataSource: isMockData ? 'mock' : 'api'
+        message: isMockData 
+          ? '⚠️ Using estimated prices. SerpAPI rate limit reached - using fallback data. Try again in a few minutes for real pricing.' 
+          : '✅ Real pricing data',
+        dataSource: isMockData ? 'mock' : 'api',
+        rateLimited: usedFallback
       }
     });
   } catch (error) {
     console.error('SKU search error:', error);
-    res.status(500).json({ error: error.message });
+    // If timeout, return mock data instead of error
+    if (error.message.includes('timeout')) {
+      console.warn('⏱️ Request timed out, returning mock data');
+      const results = await generateEnhancedMockResults(q, store, zip);
+      res.json({ 
+        results,
+        metadata: {
+          isMockData: true,
+          message: '⚠️ Request timed out. Using estimated prices.',
+          dataSource: 'mock'
+        }
+      });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -137,7 +169,7 @@ async function searchDirectStoreAPI(query, store, zip) {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': 'application/json'
         },
-        timeout: 10000
+        timeout: 5000 // Reduced to 5 seconds for faster failure
       });
       
       if (response.data?.data?.searchModel?.products) {
@@ -169,7 +201,7 @@ async function searchDirectStoreAPI(query, store, zip) {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml'
         },
-        timeout: 10000
+        timeout: 5000 // Reduced to 5 seconds for faster failure
       });
       
       // Extract JSON data from HTML (Lowes embeds it in script tags)
@@ -223,6 +255,130 @@ router.get('/test-keys', (req, res) => {
 });
 
 /**
+ * Smart relevance scoring for search results
+ * Prioritizes common/popular items for general category searches
+ */
+function scoreAndSortResults(results, query) {
+  const queryLower = query.toLowerCase();
+  
+  // Common item patterns for different categories
+  const commonPatterns = {
+    lumber: [
+      { pattern: /2\s*x\s*4\s*x\s*8/i, score: 100 }, // Most common: 2x4x8
+      { pattern: /2\s*x\s*4\s*x\s*10/i, score: 90 },
+      { pattern: /2\s*x\s*4\s*x\s*12/i, score: 85 },
+      { pattern: /2\s*x\s*6\s*x\s*8/i, score: 80 },
+      { pattern: /2\s*x\s*6\s*x\s*10/i, score: 75 },
+      { pattern: /4\s*x\s*4\s*x\s*8/i, score: 70 },
+      { pattern: /2\s*x\s*4/i, score: 60 }, // Generic 2x4
+      { pattern: /stud/i, score: 50 },
+      { pattern: /premium|grade|#2/i, score: 30 }, // Quality indicators
+    ],
+    concrete: [
+      { pattern: /80\s*lb|80\s*pound/i, score: 100 }, // Most common: 80lb bag
+      { pattern: /60\s*lb|60\s*pound/i, score: 90 },
+      { pattern: /quikrete/i, score: 85 }, // Popular brand
+      { pattern: /sakrete/i, score: 80 },
+      { pattern: /ready\s*mix|ready-mix/i, score: 70 },
+      { pattern: /fast\s*setting/i, score: 60 },
+      { pattern: /concrete\s*mix/i, score: 50 },
+    ],
+    plywood: [
+      { pattern: /4\s*x\s*8/i, score: 100 }, // Standard sheet size
+      { pattern: /1\/2|half|0\.5/i, score: 90 }, // Common thickness
+      { pattern: /3\/4|three quarter|0\.75/i, score: 85 },
+      { pattern: /1\/4|quarter|0\.25/i, score: 80 },
+      { pattern: /cdx/i, score: 70 }, // Common grade
+      { pattern: /osb/i, score: 65 },
+    ],
+    drywall: [
+      { pattern: /4\s*x\s*8/i, score: 100 }, // Standard sheet
+      { pattern: /1\/2|half|0\.5/i, score: 90 },
+      { pattern: /5\/8|five eight|0\.625/i, score: 85 },
+      { pattern: /sheetrock/i, score: 80 }, // Popular brand
+      { pattern: /gypsum/i, score: 70 },
+    ],
+    rebar: [
+      { pattern: /#4|4\s*rebar/i, score: 100 }, // Most common
+      { pattern: /#3|3\s*rebar/i, score: 90 },
+      { pattern: /#5|5\s*rebar/i, score: 85 },
+      { pattern: /1\/2|half/i, score: 80 },
+      { pattern: /20\s*ft|20\s*foot/i, score: 70 }, // Common length
+    ],
+    insulation: [
+      { pattern: /r-?13/i, score: 100 }, // Common R-value
+      { pattern: /r-?19/i, score: 90 },
+      { pattern: /r-?30/i, score: 85 },
+      { pattern: /fiberglass/i, score: 70 },
+      { pattern: /batts|batt/i, score: 60 },
+    ],
+  };
+  
+  // Determine category from query
+  let category = null;
+  if (queryLower.includes('lumber') || queryLower.includes('wood') || queryLower.includes('board')) {
+    category = 'lumber';
+  } else if (queryLower.includes('concrete') || queryLower.includes('cement')) {
+    category = 'concrete';
+  } else if (queryLower.includes('plywood') || queryLower.includes('sheet')) {
+    category = 'plywood';
+  } else if (queryLower.includes('drywall') || queryLower.includes('sheetrock')) {
+    category = 'drywall';
+  } else if (queryLower.includes('rebar') || queryLower.includes('reinforcement')) {
+    category = 'rebar';
+  } else if (queryLower.includes('insulation') || queryLower.includes('insulate')) {
+    category = 'insulation';
+  }
+  
+  // Score each result
+  const scoredResults = results.map((item, idx) => {
+    let relevanceScore = 0;
+    const title = (item.title || '').toLowerCase();
+    
+    // Score based on common patterns
+    if (category && commonPatterns[category]) {
+      for (const { pattern, score } of commonPatterns[category]) {
+        if (pattern.test(title)) {
+          relevanceScore += score;
+          break; // Only count highest matching pattern
+        }
+      }
+    }
+    
+    // Boost score for exact query matches in title
+    if (title.includes(queryLower)) {
+      relevanceScore += 20;
+    }
+    
+    // Boost for common size patterns (e.g., "2x4x8", "4x8")
+    if (/\d+\s*x\s*\d+(\s*x\s*\d+)?/.test(title)) {
+      relevanceScore += 10;
+    }
+    
+    // Boost for price availability (items with prices are more relevant)
+    if (item.price) {
+      relevanceScore += 5;
+    }
+    
+    return { item, relevanceScore, originalIndex: idx };
+  });
+  
+  // Sort by relevance score (highest first), then by original order
+  scoredResults.sort((a, b) => {
+    if (b.relevanceScore !== a.relevanceScore) {
+      return b.relevanceScore - a.relevanceScore;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+  
+  if (scoredResults.length > 0) {
+    console.log(`📊 Relevance scores (top 5): ${scoredResults.slice(0, 5).map(r => `${r.relevanceScore}`).join(', ')}`);
+  }
+  
+  return scoredResults.map(({ item }) => item);
+}
+
+/**
  * Search using SerpAPI (Google Shopping results)
  */
 async function searchWithSerpAPI(query, store, zip) {
@@ -242,7 +398,22 @@ async function searchWithSerpAPI(query, store, zip) {
   
   console.log(`📡 SerpAPI Query: "${searchQuery}" in ${zip}`);
   
-  const response = await axios.get('https://serpapi.com/search', { params });
+  let response;
+  try {
+    response = await axios.get('https://serpapi.com/search', { 
+      params,
+      timeout: 15000 // 15 second timeout for SerpAPI
+    });
+  } catch (error) {
+    // Check for rate limiting errors
+    if (error.response?.status === 429 || 
+        error.response?.data?.error?.toLowerCase().includes('too many requests') ||
+        error.message?.toLowerCase().includes('too many requests')) {
+      throw new Error('RATE_LIMIT_EXCEEDED: SerpAPI rate limit reached. Please try again later or upgrade your plan.');
+    }
+    // Re-throw other errors
+    throw error;
+  }
   
   console.log(`📊 SerpAPI raw results: ${response.data.shopping_results?.length || 0} items`);
   
@@ -282,7 +453,8 @@ async function searchWithSerpAPI(query, store, zip) {
   
   console.log(`🎯 Filtered to ${filteredResults.length} items from ${storeName}`);
   
-  return filteredResults.map((item, idx) => {
+  // Map to result format first
+  const mappedResults = filteredResults.map((item, idx) => {
     // Try to extract direct merchant link from various fields
     let productUrl = null;
     
@@ -321,7 +493,7 @@ async function searchWithSerpAPI(query, store, zip) {
     }
     
     return {
-      sku: item.product_id || `SERP-${Date.now()}`,
+      sku: item.product_id || `SERP-${Date.now()}-${idx}`,
       title: item.title,
       price: parseFloat(item.price?.replace(/[^0-9.]/g, '')) || null,
       unit: 'each',
@@ -331,6 +503,9 @@ async function searchWithSerpAPI(query, store, zip) {
       image: item.thumbnail
     };
   });
+  
+  // Apply smart sorting to prioritize common items
+  return scoreAndSortResults(mappedResults, query);
 }
 
 /**
@@ -351,7 +526,10 @@ async function searchWithWebScrapingAPI(query, store, zip) {
     url: searchUrl
   };
   
-  const response = await axios.get('https://api.webscrapingapi.com/v1', { params });
+  const response = await axios.get('https://api.webscrapingapi.com/v1', { 
+    params,
+    timeout: 15000 // 15 second timeout for WebScrapingAPI
+  });
   
   const html = response.data;
   const results = [];
@@ -471,14 +649,15 @@ async function searchWithWebScrapingAPI(query, store, zip) {
   if (results.length === 0) {
     throw new Error('Could not parse any products from HTML response');
   }
-  
-  return results;
+
+  // Apply smart sorting to prioritize common items
+  return scoreAndSortResults(results, query);
 }
 
 /**
  * Enhanced mock data generator with more realistic results
  */
-function generateEnhancedMockResults(query, store, zip) {
+async function generateEnhancedMockResults(query, store, zip) {
   const q = query.toLowerCase();
   const results = [];
   
@@ -3651,21 +3830,27 @@ function generateEnhancedMockResults(query, store, zip) {
       // Try to construct image URL from SKU or product URL
       let imageUrl = null;
       
-      // First, try to extract product ID from SKU (format: HD-161640 or LW-123456)
-      const skuMatch = item.sku?.match(/(\d+)/);
-      if (skuMatch && skuMatch[1]) {
-        const productId = skuMatch[1];
+      // Extract product ID from SKU (item.sku is just the number like '161640')
+      const productId = item.sku && typeof item.sku === 'string' ? item.sku.replace(/\D/g, '') : String(item.sku || '').replace(/\D/g, '');
+      
+      if (productId && productId.length > 0) {
         if (store === 'hd' && productId.length >= 6) {
-          // Home Depot product images pattern
-          // Format: https://images.homedepot-static.com/productImages/{first2}/{next2}/{fullId}/sd/{fullId}.jpg
+          // NOTE: Home Depot uses GUID-based image URLs, not SKU-based.
+          // Constructed URLs often return 404. Real implementation would need to:
+          // 1. Scrape the product page to extract the actual image URL, or
+          // 2. Use a product image API service
+          // For now, we try the pattern but it may not work for all products
           const first2 = productId.substring(0, 2);
           const next2 = productId.substring(2, 4);
           imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
         } else if (store === 'lowes' && productId.length >= 4) {
-          // Lowes product images pattern
+          // Lowes product images pattern (more reliable than HD)
           imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
         }
       }
+      
+      // Note: imageUrl may be null or may return 404 when loaded
+      // The frontend will show a placeholder icon when images fail to load
       
       // If still no image, try from URL
       if (!imageUrl && url) {
@@ -3687,7 +3872,7 @@ function generateEnhancedMockResults(query, store, zip) {
         }
       }
       
-      results.push({
+      const resultItem = {
         sku: `${storePrefix}-${item.sku}`,
         title: item.title,
         price: item.sku.startsWith('111') ? null : Math.round(price * 100) / 100, // No pricing for rental equipment
@@ -3696,12 +3881,195 @@ function generateEnhancedMockResults(query, store, zip) {
         store,
         zip,
         image: imageUrl
-      });
+      };
+      
+      // Log first few results with image URLs for debugging
+      if (results.length < 3) {
+        console.log(`📸 Image URL for ${item.title}: ${imageUrl || 'NONE (will try to fetch from product page)'}`);
+      }
+      
+      results.push(resultItem);
     }
   });
   
   // Limit results to top 50 most relevant (increased for comprehensive tile searches)
-  return results.slice(0, 50);
+  // Apply smart sorting to prioritize common items
+  const sortedResults = scoreAndSortResults(results, query);
+  const limitedResults = sortedResults.slice(0, 50);
+
+  // For mock data results without images, try to fetch images from product pages
+  // Only fetch for first 5 results to keep response time reasonable
+  if (limitedResults.length > 0) {
+    const resultsNeedingImages = limitedResults.slice(0, 5).filter(r => !r.image);
+    
+    if (resultsNeedingImages.length > 0) {
+      console.log(`🖼️ Fetching ${resultsNeedingImages.length} product images from product pages...`);
+      
+      // Fetch images sequentially (to avoid overwhelming the servers)
+      for (const result of resultsNeedingImages) {
+        try {
+          const productImage = await fetchProductImage(result.url, result.store);
+          if (productImage) {
+            result.image = productImage;
+            console.log(`✅ Found image for ${result.title.substring(0, 30)}`);
+          }
+        } catch (error) {
+          // Silently fail - placeholder will be shown
+          console.log(`⚠️ Could not fetch image for ${result.title.substring(0, 30)}`);
+        }
+      }
+    }
+  }
+  
+  return limitedResults;
 }
+
+/**
+ * Fetch product image URL by scraping the product page
+ * This is used for mock data results that don't have images
+ */
+async function fetchProductImage(productUrl, store) {
+  if (!productUrl || !productUrl.includes('http')) {
+    return null;
+  }
+  
+  try {
+    const response = await axios.get(productUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+      timeout: 5000, // 5 second timeout
+      maxRedirects: 5,
+    });
+    
+    const html = response.data;
+    
+    if (store === 'hd') {
+      // Home Depot: Look for image in JSON-LD structured data or meta tags
+      // Pattern 1: JSON-LD structured data
+      const jsonLdMatch = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+      if (jsonLdMatch) {
+        try {
+          const jsonData = JSON.parse(jsonLdMatch[1]);
+          if (jsonData.image) {
+            if (Array.isArray(jsonData.image)) {
+              return jsonData.image[0] || null;
+            }
+            return jsonData.image;
+          }
+        } catch (e) {
+          // Continue to other patterns
+        }
+      }
+      
+      // Pattern 2: Open Graph image
+      const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
+      if (ogImageMatch && ogImageMatch[1]) {
+        return ogImageMatch[1];
+      }
+      
+      // Pattern 3: Look for product image in script tags
+      const imagePattern = /"primaryImageUrl"\s*:\s*"([^"]+)"/i;
+      const imageMatch = html.match(imagePattern);
+      if (imageMatch && imageMatch[1]) {
+        return imageMatch[1].replace(/\\\//g, '/');
+      }
+    } else if (store === 'lowes') {
+      // Lowes: Similar patterns
+      const jsonLdMatch = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+      if (jsonLdMatch) {
+        try {
+          const jsonData = JSON.parse(jsonLdMatch[1]);
+          if (jsonData.image) {
+            if (Array.isArray(jsonData.image)) {
+              return jsonData.image[0] || null;
+            }
+            return jsonData.image;
+          }
+        } catch (e) {
+          // Continue
+        }
+      }
+      
+      // Open Graph image
+      const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
+      if (ogImageMatch && ogImageMatch[1]) {
+        return ogImageMatch[1];
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    // Silently fail - will show placeholder
+    return null;
+  }
+}
+
+/**
+ * Image proxy endpoint - fetches images from external URLs and serves them
+ * This bypasses CORS and security restrictions in React Native
+ * GET /api/sku/image-proxy?url=https://encrypted-tbn...
+ */
+router.get('/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'URL parameter is required' });
+  }
+  
+  try {
+    // Validate URL
+    let imageUrl;
+    try {
+      imageUrl = new URL(url);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+    
+    // Only allow certain domains for security
+    const allowedDomains = [
+      'encrypted-tbn.gstatic.com',
+      'encrypted-tbn0.gstatic.com',
+      'encrypted-tbn1.gstatic.com',
+      'encrypted-tbn2.gstatic.com',
+      'encrypted-tbn3.gstatic.com',
+      'images.homedepot-static.com',
+      'mobileimages.lowes.com',
+      'www.homedepot.com',
+      'www.lowes.com',
+    ];
+    
+    if (!allowedDomains.some(domain => imageUrl.hostname.includes(domain))) {
+      return res.status(403).json({ error: 'Domain not allowed' });
+    }
+    
+    // Fetch the image
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/*',
+        'Referer': 'https://www.google.com/',
+      },
+      timeout: 10000,
+    });
+    
+    // Set appropriate headers
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    
+    // Send the image data
+    res.send(Buffer.from(response.data));
+  } catch (error) {
+    console.error('Image proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch image' });
+  }
+});
 
 module.exports = router;

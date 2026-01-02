@@ -61,7 +61,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https:"],
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "https:", "data:"],
-      connectSrc: ["'self'", "http://localhost:3001", "http://192.168.68.115:3001"],
+      connectSrc: ["'self'", "http://localhost:3001", "http://192.168.0.142:3001", "http://192.168.68.115:3001", "http://192.168.*:3001"],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],

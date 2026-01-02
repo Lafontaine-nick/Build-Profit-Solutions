@@ -1,0 +1,94 @@
+
+> build-profit-solutions-backend@1.0.0 start
+> node src/server.js
+
+📦 Loaded 1 users from disk
+📦 Loaded 18 unified leads from persistent storage
+⏭️ Skipping demo leads - 18 leads already loaded from storage
+📦 Loaded 4 project leads from persistent storage
+✅ Database initialization attempted
+🚀 Starting marketplace lead sync service...
+🔄 Syncing marketplace leads...
+🚀 Server running on port 3001
+📊 Health check: http://localhost:3001/health
+🔗 API Base: http://localhost:3001/api
+🌐 Customer website: http://localhost:3001
+📱 LAN access: http://192.168.0.142:3001
+   - Health: http://192.168.0.142:3001/health
+   - API: http://192.168.0.142:3001/api
+🌍 Environment: development
+🔄 Marketplace sync: Running every 5 minutes
+❌ Database connection failed: 
+Error code: ECONNREFUSED
+Error details: { code: 'ECONNREFUSED', message: '', hint: undefined }
+💡 PostgreSQL might not be running. Start it with: brew services start postgresql@14 (or your version)
+📄 Loaded 4 invoices from storage
+[0mGET /api/marketplace-leads?since=2026-01-02T03:42:36.980Z [32m200[0m 1.217 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T03:47:36.990Z [32m200[0m 1.485 ms - 76[0m
+✅ No new marketplace leads to sync
+[0mGET /api/sku/image-proxy?url=https://encrypted-tbn3.gstatic.com/shopping?q=tbn:ANd9GcRgFE6_XLVICihXq2C1BivKX1zDBr-ROrAtaVjMZ03uJV9zv4foHXCATDynQl4gYpzKuZl_4pGZkJ-_-mEF4BzYHf5oQI4cSF89gjuCcCmGUyZ7KKv52NSMgg [32m200[0m 190.551 ms - 23126[0m
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T03:52:36.991Z [32m200[0m 0.575 ms - 76[0m
+✅ No new marketplace leads to sync
+[0mGET /health [32m200[0m 0.294 ms - 100[0m
+[0mGET /health [32m200[0m 0.378 ms - 100[0m
+🔍 SKU Search: lumber at hd in 89141
+🔑 Using direct store API for real data
+⚠️ Direct API failed, trying backup methods: No products found from direct API
+🔑 Using SerpAPI for real pricing data
+📡 SerpAPI Query: "lumber Home Depot" in 89141
+📊 SerpAPI raw results: 40 items
+🎯 Filtered to 40 items from Home Depot
+🔗 Direct merchant link found: false
+🔗 Final URL: https://www.homedepot.com/s/The+Home+Depot+2+in.+x+4+in.+x+16+ft.+Premium+Grade+Fir+Dimensional
+✅ SerpAPI returned 40 results
+[0mGET /api/sku/search?store=hd&zip=89141&q=lumber [32m200[0m 3308.939 ms - 17061[0m
+[0mGET /api/sku/image-proxy?url=https://encrypted-tbn3.gstatic.com/shopping?q=tbn:ANd9GcRgFE6_XLVICihXq2C1BivKX1zDBr-ROrAtaVjMZ03uJV9zv4foHXCATDynQl4gYpzKuZl_4pGZkJ-_-mEF4BzYHf5oQI4cSF89gjuCcCmGUyZ7KKv52NSMgg [32m200[0m 215.878 ms - 23126[0m
+[0mGET /health [32m200[0m 0.310 ms - 100[0m
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T03:57:36.991Z [32m200[0m 0.728 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:02:36.990Z [32m200[0m 0.380 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:07:36.989Z [32m200[0m 0.262 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:12:36.988Z [32m200[0m 0.714 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:17:36.991Z [32m200[0m 0.180 ms - 76[0m
+✅ No new marketplace leads to sync
+🔍 SKU Search: lumber at hd in 89141
+🔑 Using direct store API for real data
+⚠️ Direct API failed, trying backup methods: No products found from direct API
+🔑 Using SerpAPI for real pricing data
+📡 SerpAPI Query: "lumber Home Depot" in 89141
+📊 SerpAPI raw results: 40 items
+🎯 Filtered to 40 items from Home Depot
+🔗 Direct merchant link found: false
+🔗 Final URL: https://www.homedepot.com/s/The+Home+Depot+2+in.+x+4+in.+x+16+ft.+Premium+Grade+Fir+Dimensional
+✅ SerpAPI returned 40 results
+[0mGET /api/sku/search?store=hd&zip=89141&q=lumber [32m200[0m 425.647 ms - 17061[0m
+[0mGET /health [32m200[0m 0.230 ms - 100[0m
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:22:36.988Z [32m200[0m 0.305 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-01-02T04:27:36.989Z [32m200[0m 0.446 ms - 76[0m
+✅ No new marketplace leads to sync
+[0mGET /health [32m200[0m 0.207 ms - 100[0m
+🔍 SKU Search: lumber at hd in 89141
+🔑 Using direct store API for real data
+⚠️ Direct API failed, trying backup methods: No products found from direct API
+🔑 Using SerpAPI for real pricing data
+📡 SerpAPI Query: "lumber Home Depot" in 89141
+📊 SerpAPI raw results: 40 items
+🎯 Filtered to 40 items from Home Depot
+🔗 Direct merchant link found: false
+🔗 Final URL: https://www.homedepot.com/s/The+Home+Depot+2+in.+x+4+in.+x+16+ft.+Premium+Grade+Fir+Dimensional
+✅ SerpAPI returned 40 results
+[0mGET /api/sku/search?store=hd&zip=89141&q=lumber [32m200[0m 334.466 ms - 17061[0m

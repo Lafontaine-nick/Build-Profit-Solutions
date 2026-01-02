@@ -1,0 +1,635 @@
+    shadowOffset: { width: 0, height: 0 },
+  },
+  segmentTabInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    gap: 8,
+  },
+  segmentLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#E5F7FF",
+  },
+  segmentLabelActive: {
+    color: "#050B13",
+  },
+
+  // GENERIC CARD
+  card: {
+    borderRadius: 28,
+    padding: 18,
+    backgroundColor: "#000000",
+    borderWidth: 1,
+    borderColor: "#111827",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  allProjectsCard: {
+    marginHorizontal: -8,
+    paddingHorizontal: 12,
+    paddingVertical: 18,
+  },
+  allProjectsContainer: {
+    marginBottom: 16,
+    marginHorizontal: -20,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+  },
+  analyticsCardWide: {
+    marginHorizontal: -8,
+    paddingHorizontal: 12,
+    paddingVertical: 18,
+    borderWidth: 0,
+  },
+  analyticsSection: {
+    marginBottom: 16,
+  },
+  performanceSnapshotCard: {
+    backgroundColor: "transparent", // gradient handles the fill
+    borderRadius: 22,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#102131",
+    marginBottom: 16,
+  },
+  analyticsGradient: {
+    width: "100%",
+    borderRadius: 22,
+    padding: 16,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  cardSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#8DA0B8",
+  },
+  linkText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#15E08A",
+  },
+
+  // METRICS
+  metricRow: {
+    flexDirection: "row",
+    gap: 12,
+    paddingRight: 20,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  metricCard: {
+    width: 200,
+    borderRadius: 26,
+    padding: 16,
+    justifyContent: "space-between",
+    minHeight: 140,
+  },
+  metricCardSecondary: {
+    width: 200,
+    borderRadius: 26,
+    padding: 16,
+    backgroundColor: "#0A2641",
+    justifyContent: "space-between",
+    minHeight: 140,
+  },
+  metricIconPill: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#E5F7FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  metricIconPillSecondary: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#E5F7FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  metricValue: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  metricValueSecondary: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  metricLabel: {
+    marginTop: 2,
+    fontSize: 14,
+    color: "#E6F5FF",
+  },
+  metricLabelSecondary: {
+    marginTop: 2,
+    fontSize: 14,
+    color: "#E6F5FF",
+  },
+  metricFooterRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  metricChip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "rgba(4, 16, 30, 0.75)",
+  },
+  metricChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  metricDeltaText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#E5FFF3",
+  },
+  metricChipSecondary: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: "#062033",
+  },
+  metricChipTextSecondary: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#E5F7FF",
+  },
+
+  // PROJECTS
+  projectCard: {
+    marginTop: 8,
+    borderRadius: 24,
+    backgroundColor: "transparent", // gradient handles the fill
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#102131",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  projectCardGradient: {
+    width: "100%",
+    borderRadius: 24,
+    padding: 16,
+  },
+  projectTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  projectName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  projectLocationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+    gap: 4,
+  },
+  projectLocationText: {
+    fontSize: 13,
+    color: "#7C8BA0",
+  },
+  statusPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#1B2938",
+  },
+  statusPillActive: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#15E08A",
+  },
+  statusPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#9FB3C8",
+  },
+  statusPillTextActive: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#052114",
+  },
+  projectMiddleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginTop: 10,
+  },
+  projectAmount: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  projectMetaText: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#9BB2C8",
+  },
+  projectMetaLabel: {
+    fontSize: 12,
+    color: "#7C8BA0",
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 16,
+    gap: 8,
+  },
+  progressBarTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#1B2938",
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: 6,
+    borderRadius: 999,
+  },
+  progressPercent: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#E5F7FF",
+  },
+  progressLabel: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#7C8BA0",
+  },
+  aiTagChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "rgba(34,197,94,0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(187,247,208,0.3)",
+  },
+  aiTagText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#BBF7D0",
+    letterSpacing: 0.3,
+  },
+
+  // PROJECT SUMMARY CARDS
+  projectSummaryWrapper: {
+    marginTop: 10,
+  },
+  projectSummaryBorder: {
+    borderRadius: 20,
+    padding: 1,
+  },
+  projectSummaryCard: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    backgroundColor: "#000000",
+  },
+  projectSummaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  projectSummaryName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  projectSummaryAmount: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#9BB2C8",
+    marginTop: 4,
+  },
+  projectSummaryProgress: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  // ANALYTICS
+  analyticsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 12,
+    gap: 10,
+  },
+  analyticsMetricBorder: {
+    width: "48%",
+    borderRadius: 16,
+    padding: 1,
+    marginBottom: 2,
+  },
+  analyticsMetricInner: {
+    flex: 1,
+    backgroundColor: "#000000",
+    borderRadius: 14,
+    padding: 14,
+    justifyContent: "center",
+  },
+  analyticsMetricCard: {
+    width: "48%",
+    backgroundColor: "transparent",
+    borderRadius: 18,
+    overflow: "hidden",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#102131",
+  },
+  analyticsMetricGradient: {
+    width: "100%",
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  analyticsLabel: {
+    fontSize: 12,
+    color: "#8DA0B8",
+  },
+  analyticsValue: {
+    marginTop: 8,
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  analyticsExtra: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#22C55E",
+  },
+
+  // EMPTY STATE
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 32,
+    marginTop: 16,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    marginTop: 12,
+  },
+  emptyStateSubtext: {
+    fontSize: 13,
+    color: "#8DA0B8",
+    marginTop: 4,
+    textAlign: "center",
+  },
+
+  // ENHANCED METRIC CARDS
+  metricOuter: {
+    width: width * 0.72,
+    marginRight: 14,
+  },
+  metricGradientCard: {
+    flex: 1,
+    borderRadius: 24,
+    padding: 16,
+    minHeight: 140,
+    justifyContent: "space-between",
+  },
+  metricTopRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  metricIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  metricBottomRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 14,
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.7)",
+  },
+  chipText: {
+    fontSize: 11,
+    color: "#e5e7eb",
+    fontWeight: "600",
+  },
+  trendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  trendText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  metricContext: {
+    fontSize: 12,
+    color: "#9ca3af",
+    marginTop: 10,
+  },
+
+  // WIDE CONTAINER (matches allProjectsContainer)
+  wideContainer: {
+    marginHorizontal: -20,
+    paddingHorizontal: 8,
+  },
+
+  // SECTION HEADERS
+  sectionHeaderRow: {
+    marginTop: 8,
+    marginBottom: 10,
+    marginHorizontal: -20,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#e5e7eb",
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginTop: 2,
+  },
+
+  // AI INSIGHTS PANEL
+  aiPanelBorder: {
+    borderRadius: 20,
+    padding: 1,
+    marginBottom: 16,
+  },
+  aiPanelInner: {
+    backgroundColor: "#000000",
+    borderRadius: 18,
+    padding: 16,
+  },
+  aiPanel: {
+    backgroundColor: "#000000",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#111827",
+    marginBottom: 16,
+  },
+  aiPanelWide: {
+    marginHorizontal: -8,
+    paddingHorizontal: 12,
+    paddingVertical: 18,
+  },
+  aiPanelPausedText: {
+    fontSize: 12,
+    color: "#9ca3af",
+    marginBottom: 10,
+  },
+  insightRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  insightIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  insightTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#e5e7eb",
+  },
+  insightBody: {
+    fontSize: 12,
+    color: "#9ca3af",
+    marginTop: 2,
+  },
+
+  // NEXT STEPS
+  nextStepsBorder: {
+    borderRadius: 20,
+    padding: 1,
+    marginBottom: 16,
+  },
+  nextStepsInner: {
+    backgroundColor: "#000000",
+    borderRadius: 18,
+    padding: 16,
+  },
+  nextStepsCard: {
+    marginTop: 4,
+    borderRadius: 20,
+    backgroundColor: "#000000",
+    borderWidth: 1,
+    borderColor: "#111827",
+    padding: 14,
+    marginBottom: 16,
+  },
+  nextStepsCardWide: {
+    marginHorizontal: -8,
+    paddingHorizontal: 12,
+    paddingVertical: 18,
+  },
+  nextStepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  nextStepBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#22c55e",
+    marginRight: 8,
+  },
+  nextStepLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: "#e5e7eb",
+  },
+  nextStepChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(34,197,94,0.18)",
+    marginLeft: 8,
+  },
+  nextStepChipText: {
+    fontSize: 10,
+    color: "#4ade80",
+    fontWeight: "600",
+  },
+
+  // FLOATING AI BADGE
+  aiFloatingWrapper: {
+    position: "absolute",
+    right: 20,
+    bottom: 88, // sits above bottom nav
+  },
+  aiFloating: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  aiFloatingText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#020617",
+  },
+});
+export default DashboardScreen;
+
