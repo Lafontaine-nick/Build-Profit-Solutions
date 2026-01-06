@@ -16,34 +16,26 @@
         const markupHeight = (calc.profit / maxValue) * maxBarHeight;
         
         return (
-          <ScrollView 
-            style={{ flex: 1 }} 
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
-          >
-            {/* Main Container - no border */}
-            <View style={{
-              marginHorizontal: -20,
-              paddingHorizontal: 8,
-              paddingVertical: 20,
-              backgroundColor: Colors.card,
-              marginBottom: 16,
-              marginTop: 16,
-            }}>
+          <View style={[s.wideContainer, {
+            paddingVertical: 20,
+            backgroundColor: Colors.card,
+            marginBottom: 16,
+            marginTop: 16,
+          }]}>
                 {/* Total Bid Section - green to blue gradient border */}
               <LinearGradient
                 colors={['#2DFFC4', '#00A6FF']}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={{
-                  borderRadius: 24,
+                  borderRadius: 20,
                   padding: 1,
                   marginBottom: 12,
                 }}
               >
               <View style={{
                 backgroundColor: '#000000',
-                borderRadius: 22,
+                borderRadius: 18,
                 padding: 20,
               }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -310,7 +302,5 @@
                 </View>
               </View>
             </View>
-            {/* End Main Container Card */}
-          </ScrollView>
         );
       }

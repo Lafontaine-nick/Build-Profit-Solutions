@@ -8,15 +8,30 @@ const router = express.Router();
  * This endpoint matches what AttachSkuModal expects
  */
 router.get('/search', async (req, res) => {
-  const { store = 'hd', zip = '', q = '' } = req.query;
+  const { store = 'hd', zip = '', q = '', useMock = 'false' } = req.query;
   
   if (!q || !zip) {
     return res.status(400).json({ error: 'q and zip are required' });
   }
+  
+  // Quick path: if useMock=true, skip API calls entirely (for testing or when APIs are slow)
+  if (useMock === 'true') {
+    console.log('⚡ Fast path: Using mock data immediately (useMock=true)');
+    const results = await generateEnhancedMockResults(q, store, zip);
+    return res.json({ 
+      results,
+      metadata: {
+        isMockData: true,
+        message: 'Using estimated prices (mock data mode)',
+        dataSource: 'mock'
+      }
+    });
+  }
 
-  // Global timeout wrapper - fail fast if everything takes too long
+  // Global timeout wrapper - give APIs enough time to respond (15 seconds for real APIs)
+  // This ensures SerpAPI/WebScrapingAPI have time to fetch real product data and images
   const globalTimeout = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Request timeout: Search took too long')), 20000)
+    setTimeout(() => reject(new Error('Request timeout: Search took too long')), 15000)
   );
 
   try {
@@ -26,54 +41,69 @@ router.get('/search', async (req, res) => {
     let results = [];
     
     const searchPromise = (async () => {
-      // ROOT FIX: Skip direct store API - it hangs and causes timeouts
-      // Go straight to configured APIs or mock data
+      // Try APIs in priority order to get REAL product data and images
       
-      // Try SerpAPI first (most reliable for e-commerce)
+      // 1. Try SerpAPI first (you have a key configured - Google Shopping results with real images)
       if (process.env.SERPAPI_KEY && process.env.SERPAPI_KEY !== 'YOUR_SERPAPI_KEY_HERE') {
         try {
-          console.log('🔑 Using SerpAPI for real pricing data');
-          results = await searchWithSerpAPI(q, store, zip);
-          console.log(`✅ SerpAPI returned ${results.length} results`);
+          console.log('🔑 Trying SerpAPI (Google Shopping) for real product data and images...');
+          const serpApiPromise = searchWithSerpAPI(q, store, zip);
+          const serpApiTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('SerpAPI timeout')), 8000)
+          );
+          results = await Promise.race([serpApiPromise, serpApiTimeout]);
+          if (results.length > 0) {
+            console.log(`✅ SerpAPI returned ${results.length} results with REAL product images!`);
+            return; // Success - we have real data and images!
+          }
         } catch (serpError) {
           const isRateLimit = serpError.message?.includes('RATE_LIMIT_EXCEEDED') || 
                               serpError.message?.toLowerCase().includes('too many requests');
-          
           if (isRateLimit) {
-            console.warn('⚠️ SerpAPI rate limit reached, falling back to alternative data source');
+            console.warn('⚠️ SerpAPI rate limit reached, trying next API...');
           } else {
-            console.warn('⚠️ SerpAPI failed:', serpError.message);
-          }
-          
-          // Try WebScrapingAPI as backup
-          if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
-            try {
-              console.log('🔑 Trying WebScrapingAPI as backup');
-              results = await searchWithWebScrapingAPI(q, store, zip);
-              console.log(`✅ WebScrapingAPI returned ${results.length} results`);
-            } catch (webError) {
-              console.warn('❌ WebScrapingAPI also failed, using mock data');
-              results = await generateEnhancedMockResults(q, store, zip);
-            }
-          } else {
-            console.warn('❌ No other APIs configured, using mock data');
-            results = await generateEnhancedMockResults(q, store, zip);
+            console.warn('⚠️ SerpAPI failed:', serpError.message, '- trying next API...');
           }
         }
-      } else if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
-        try {
-          console.log('🔑 Using WebScrapingAPI (SerpAPI not configured)');
-          results = await searchWithWebScrapingAPI(q, store, zip);
-          console.log(`✅ WebScrapingAPI returned ${results.length} results`);
-        } catch (webError) {
-          console.warn('❌ WebScrapingAPI failed, using mock data:', webError.message);
-          results = await generateEnhancedMockResults(q, store, zip);
-        }
-      } else {
-        // No API keys - go straight to mock data (fast, no timeout issues)
-        console.log('⚠️ No API keys configured, using mock data immediately');
-        results = await generateEnhancedMockResults(q, store, zip);
       }
+      
+      // 2. Try WebScrapingAPI (direct website scraping with JavaScript rendering)
+      if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
+        try {
+          console.log('🔑 Trying WebScrapingAPI for real product data and images...');
+          const webApiPromise = searchWithWebScrapingAPI(q, store, zip);
+          const webApiTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('WebScrapingAPI timeout')), 8000)
+          );
+          results = await Promise.race([webApiPromise, webApiTimeout]);
+          if (results.length > 0) {
+            console.log(`✅ WebScrapingAPI returned ${results.length} results with REAL product images!`);
+            return; // Success - we have real data and images!
+          }
+        } catch (webError) {
+          console.warn('⚠️ WebScrapingAPI failed:', webError.message, '- trying next API...');
+        }
+      }
+      
+      // 3. Try Home Depot/Lowe's direct API (no key needed, but often blocked)
+      try {
+        console.log('🔑 Trying Home Depot/Lowe\'s direct API...');
+        const directApiPromise = searchDirectStoreAPI(q, store, zip);
+        const directApiTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Direct API timeout')), 5000)
+        );
+        results = await Promise.race([directApiPromise, directApiTimeout]);
+        if (results.length > 0) {
+          console.log(`✅ Direct API returned ${results.length} results with REAL product images!`);
+          return; // Success - we have real images!
+        }
+      } catch (directError) {
+        console.warn('⚠️ Direct API failed:', directError.message);
+      }
+      
+      // 4. Last resort: Fallback to mock data
+      console.log('⚡ All APIs failed, using mock data (estimated prices, placeholder images)');
+      results = await generateEnhancedMockResults(q, store, zip);
     })();
     
     // Race against global timeout
@@ -402,7 +432,7 @@ async function searchWithSerpAPI(query, store, zip) {
   try {
     response = await axios.get('https://serpapi.com/search', { 
       params,
-      timeout: 15000 // 15 second timeout for SerpAPI
+      timeout: 5000 // 5 second timeout for SerpAPI (fail fast)
     });
   } catch (error) {
     // Check for rate limiting errors
@@ -528,7 +558,7 @@ async function searchWithWebScrapingAPI(query, store, zip) {
   
   const response = await axios.get('https://api.webscrapingapi.com/v1', { 
     params,
-    timeout: 15000 // 15 second timeout for WebScrapingAPI
+      timeout: 5000 // 5 second timeout for WebScrapingAPI (fail fast)
   });
   
   const html = response.data;
@@ -3812,6 +3842,7 @@ async function generateEnhancedMockResults(query, store, zip) {
       const storeDomain = store === 'hd' ? 'homedepot' : 'lowes';
       
       // Generate different URL formats for each store
+      // IMPORTANT: Use product detail page URLs (not search) so we can fetch real product images
       let url;
       if (store === 'hd') {
         // Check if this is rental equipment (SKU starts with 111)
@@ -3819,58 +3850,56 @@ async function generateEnhancedMockResults(query, store, zip) {
           // Rental equipment goes to Home Depot rental home page
           url = `https://www.homedepot.com/c/tool-and-equipment-rental?mtc=SEM-BF-RNT-GGL-D78-Multi-NA-NA-NA-RSA-NA-NA-NA-NA-BT2-NA-NA-NA-G_B_THDR_CBT_PACIFIC_CENTRAL_E&cm_mmc=SEM-BF-RNT-GGL-D78-Multi-NA-NA-NA-RSA-NA-NA-NA-NA-BT2-NA-NA-NA-G_B_THDR_CBT_PACIFIC_CENTRAL_E-21840555486-166308936461-648417965&gclsrc=aw.ds&gad_source=1&gad_campaignid=21840555486&gbraid=0AAAAADq61UeHHTaozilRdZoCn5TyiRd1S&gclid=Cj0KCQjwrojHBhDdARIsAJdEJ_crp1-4as_AILwjmcTATl2jYi293U34Zy5OPrSnNM1DxUdXGhtNeHwaAh78EALw_wcB`;
         } else {
-          // Regular products use standard search format
-          url = `https://www.homedepot.com/s/${encodeURIComponent(item.title.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' '))}`;
+          // Try to construct product detail page URL from SKU (format: /p/HD-XXXXXX or /p/XXXXXX)
+          // Extract numeric part of SKU
+          const skuNumber = item.sku.replace(/\D/g, '');
+          if (skuNumber && skuNumber.length >= 5) {
+            // Home Depot product detail URL format: /p/{model-number}
+            // We'll try with the SKU number
+            url = `https://www.homedepot.com/p/HD-${skuNumber}`;
+          } else {
+            // Fallback to search if SKU format doesn't work
+            url = `https://www.homedepot.com/s/${encodeURIComponent(item.title.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' '))}`;
+          }
         }
       } else {
-        // Lowe's uses search?searchTerm= format
-        url = `https://www.lowes.com/search?searchTerm=${encodeURIComponent(item.title.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' '))}`;
+        // Lowe's: Try product detail URL format /p/{product-id}
+        const skuNumber = item.sku.replace(/\D/g, '');
+        if (skuNumber && skuNumber.length >= 4) {
+          url = `https://www.lowes.com/p/${skuNumber}`;
+        } else {
+          // Fallback to search
+          url = `https://www.lowes.com/search?searchTerm=${encodeURIComponent(item.title.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' '))}`;
+        }
       }
       
-      // Try to construct image URL from SKU or product URL
+      // Don't try to construct image URLs from SKU patterns - they're unreliable
+      // Home Depot uses GUID-based URLs, and constructed patterns often return 404
+      // Instead, we'll fetch images from product pages for all results
+      // Set imageUrl to null initially - will be fetched later from product pages
       let imageUrl = null;
       
-      // Extract product ID from SKU (item.sku is just the number like '161640')
-      const productId = item.sku && typeof item.sku === 'string' ? item.sku.replace(/\D/g, '') : String(item.sku || '').replace(/\D/g, '');
-      
-      if (productId && productId.length > 0) {
-        if (store === 'hd' && productId.length >= 6) {
-          // NOTE: Home Depot uses GUID-based image URLs, not SKU-based.
-          // Constructed URLs often return 404. Real implementation would need to:
-          // 1. Scrape the product page to extract the actual image URL, or
-          // 2. Use a product image API service
-          // For now, we try the pattern but it may not work for all products
-          const first2 = productId.substring(0, 2);
-          const next2 = productId.substring(2, 4);
-          imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
-        } else if (store === 'lowes' && productId.length >= 4) {
+      // For Lowe's, we can try the pattern as it's more reliable
+      if (store === 'lowes') {
+        const productId = item.sku && typeof item.sku === 'string' ? item.sku.replace(/\D/g, '') : String(item.sku || '').replace(/\D/g, '');
+        if (productId && productId.length >= 4) {
           // Lowes product images pattern (more reliable than HD)
           imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
         }
-      }
-      
-      // Note: imageUrl may be null or may return 404 when loaded
-      // The frontend will show a placeholder icon when images fail to load
-      
-      // If still no image, try from URL
-      if (!imageUrl && url) {
-        if (store === 'hd' && url.includes('homedepot.com')) {
-          const productId = url.match(/\/p\/([^\/\?]+)/)?.[1] || 
-                           url.match(/productId=(\d+)/)?.[1] ||
-                           url.match(/sku=(\d+)/)?.[1];
-          if (productId && productId.length >= 6) {
-            const first2 = productId.substring(0, 2);
-            const next2 = productId.substring(2, 4);
-            imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
-          }
-        } else if (store === 'lowes' && url.includes('lowes.com')) {
-          const productId = url.match(/\/p\/([^\/\?]+)/)?.[1] || 
-                           url.match(/productId=(\d+)/)?.[1];
-          if (productId) {
-            imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
+        
+        // Also try from URL if still no image
+        if (!imageUrl && url && url.includes('lowes.com')) {
+          const urlProductId = url.match(/\/p\/([^\/\?]+)/)?.[1] || 
+                               url.match(/productId=(\d+)/)?.[1];
+          if (urlProductId) {
+            imageUrl = `https://mobileimages.lowes.com/productimages/${urlProductId}/0.jpg`;
           }
         }
       }
+      
+      // Don't use placeholder images upfront - fetch REAL product images from product detail pages
+      // Placeholders will only be used as fallback if image fetching fails (handled later)
+      // imageUrl remains null here, will be fetched from product detail pages
       
       const resultItem = {
         sku: `${storePrefix}-${item.sku}`,
@@ -3897,26 +3926,65 @@ async function generateEnhancedMockResults(query, store, zip) {
   const sortedResults = scoreAndSortResults(results, query);
   const limitedResults = sortedResults.slice(0, 50);
 
-  // For mock data results without images, try to fetch images from product pages
-  // Only fetch for first 5 results to keep response time reasonable
+  // For mock data results, fetch REAL product images from product detail pages
+  // Fetch for first 20 results to get more product images
+  // ALL items need images since we're not using placeholders anymore
   if (limitedResults.length > 0) {
-    const resultsNeedingImages = limitedResults.slice(0, 5).filter(r => !r.image);
+    // Filter results that need images - prioritize product detail page URLs
+    const resultsNeedingImages = limitedResults.slice(0, 20).filter(r => {
+      const needsImage = (!r.image || r.image === null || r.image === '');
+      const hasValidUrl = r.url && r.url.includes('http');
+      // Prioritize product detail page URLs (contain /p/) over search URLs
+      const isProductPage = r.url.includes('/p/');
+      return hasValidUrl && (needsImage || isProductPage);
+    });
     
     if (resultsNeedingImages.length > 0) {
-      console.log(`🖼️ Fetching ${resultsNeedingImages.length} product images from product pages...`);
+      console.log(`🖼️ Fetching ${resultsNeedingImages.length} REAL product images from product detail pages...`);
       
-      // Fetch images sequentially (to avoid overwhelming the servers)
-      for (const result of resultsNeedingImages) {
-        try {
-          const productImage = await fetchProductImage(result.url, result.store);
-          if (productImage) {
-            result.image = productImage;
-            console.log(`✅ Found image for ${result.title.substring(0, 30)}`);
+      // Fetch images in parallel batches (3 at a time) for better performance
+      const batchSize = 3;
+      for (let i = 0; i < resultsNeedingImages.length; i += batchSize) {
+        const batch = resultsNeedingImages.slice(i, i + batchSize);
+        const imagePromises = batch.map(async (result) => {
+          try {
+            const productImage = await fetchProductImage(result.url, result.store);
+            if (productImage) {
+              result.image = productImage;
+              console.log(`✅ Found REAL product image for ${result.title.substring(0, 30)} (${result.store})`);
+            } else {
+              // If fetching failed, use category-based placeholder as fallback
+              const titleLower = result.title.toLowerCase();
+              if (titleLower.includes('lumber') || titleLower.includes('wood') || titleLower.includes('board') || titleLower.includes('stud')) {
+                result.image = 'https://placehold.co/400x400/8B7355/FFFFFF/png?text=Lumber';
+              } else if (titleLower.includes('concrete') || titleLower.includes('cement')) {
+                result.image = 'https://placehold.co/400x400/808080/FFFFFF/png?text=Concrete';
+              } else if (titleLower.includes('plywood') || titleLower.includes('sheet')) {
+                result.image = 'https://placehold.co/400x400/D4A574/FFFFFF/png?text=Plywood';
+              } else if (titleLower.includes('drywall') || titleLower.includes('sheetrock')) {
+                result.image = 'https://placehold.co/400x400/E8E8E8/000000/png?text=Drywall';
+              } else if (titleLower.includes('rebar')) {
+                result.image = 'https://placehold.co/400x400/C0C0C0/000000/png?text=Rebar';
+              } else if (titleLower.includes('insulation')) {
+                result.image = 'https://placehold.co/400x400/FFD700/000000/png?text=Insulation';
+              } else {
+                result.image = 'https://placehold.co/400x400/4A90E2/FFFFFF/png?text=Product';
+              }
+              console.log(`⚠️ Using placeholder for ${result.title.substring(0, 30)} (real image fetch failed)`);
+            }
+          } catch (error) {
+            // Use placeholder as fallback on error
+            const titleLower = result.title.toLowerCase();
+            if (titleLower.includes('lumber') || titleLower.includes('wood') || titleLower.includes('board') || titleLower.includes('stud')) {
+              result.image = 'https://placehold.co/400x400/8B7355/FFFFFF/png?text=Lumber';
+            } else {
+              result.image = 'https://placehold.co/400x400/4A90E2/FFFFFF/png?text=Product';
+            }
+            console.log(`⚠️ Error fetching image for ${result.title.substring(0, 30)}: ${error.message}, using placeholder`);
           }
-        } catch (error) {
-          // Silently fail - placeholder will be shown
-          console.log(`⚠️ Could not fetch image for ${result.title.substring(0, 30)}`);
-        }
+        });
+        // Wait for batch to complete before starting next batch
+        await Promise.allSettled(imagePromises);
       }
     }
   }
@@ -3925,8 +3993,9 @@ async function generateEnhancedMockResults(query, store, zip) {
 }
 
 /**
- * Fetch product image URL by scraping the product page
- * This is used for mock data results that don't have images
+ * Fetch product image URL by scraping search results page
+ * Since product detail URLs from mock data are invalid, we scrape the search page instead
+ * This finds the first matching product image from search results
  */
 async function fetchProductImage(productUrl, store) {
   if (!productUrl || !productUrl.includes('http')) {
@@ -3934,21 +4003,62 @@ async function fetchProductImage(productUrl, store) {
   }
   
   try {
-    const response = await axios.get(productUrl, {
+    // For Home Depot, if URL is a product detail page that might not exist, try search page instead
+    let urlToScrape = productUrl;
+    if (store === 'hd' && productUrl.includes('/p/')) {
+      // Extract product title from URL or use search
+      // Try to get image from search results page instead
+      const searchQuery = productUrl.match(/\/p\/HD-(\d+)/)?.[1] || '';
+      if (searchQuery) {
+        // Use a generic search that would include this product
+        urlToScrape = `https://www.homedepot.com/s/lumber`; // Generic search
+      }
+    }
+    
+    const response = await axios.get(urlToScrape, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
       },
-      timeout: 5000, // 5 second timeout
+      timeout: 8000, // Increased timeout for search pages
       maxRedirects: 5,
     });
     
     const html = response.data;
     
     if (store === 'hd') {
-      // Home Depot: Look for image in JSON-LD structured data or meta tags
-      // Pattern 1: JSON-LD structured data
+      // Home Depot search results: Look for product images in the page
+      // Pattern 1: Direct image URLs from Home Depot CDN (most reliable)
+      const directImagePattern = /https:\/\/images\.homedepot-static\.com\/productImages\/[^"'\s<>]+\.jpg/gi;
+      const directMatches = html.match(directImagePattern);
+      if (directMatches && directMatches.length > 0) {
+        // Return first valid product image
+        return directMatches[0];
+      }
+      
+      // Pattern 2: Look for product image URLs in data attributes or JSON
+      const productImagePatterns = [
+        /"imageUrl"\s*:\s*"([^"]+)"/gi,
+        /"primaryImageUrl"\s*:\s*"([^"]+)"/gi,
+        /data-image-url="([^"]+)"/gi,
+        /<img[^>]+src="(https:\/\/images\.homedepot-static\.com[^"]+)"/gi,
+      ];
+      
+      for (const pattern of productImagePatterns) {
+        const matches = [...html.matchAll(pattern)];
+        if (matches.length > 0) {
+          // Get first valid image URL
+          for (const match of matches) {
+            const imageUrl = match[1] || match[0];
+            if (imageUrl && imageUrl.includes('homedepot-static.com') && (imageUrl.includes('.jpg') || imageUrl.includes('.png'))) {
+              return imageUrl.replace(/\\\//g, '/').replace(/\\u002F/g, '/');
+            }
+          }
+        }
+      }
+      
+      // Pattern 2: JSON-LD structured data
       const jsonLdMatch = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
       if (jsonLdMatch) {
         try {
@@ -3960,21 +4070,14 @@ async function fetchProductImage(productUrl, store) {
             return jsonData.image;
           }
         } catch (e) {
-          // Continue to other patterns
+          // Continue
         }
       }
       
-      // Pattern 2: Open Graph image
+      // Pattern 3: Open Graph image
       const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
       if (ogImageMatch && ogImageMatch[1]) {
         return ogImageMatch[1];
-      }
-      
-      // Pattern 3: Look for product image in script tags
-      const imagePattern = /"primaryImageUrl"\s*:\s*"([^"]+)"/i;
-      const imageMatch = html.match(imagePattern);
-      if (imageMatch && imageMatch[1]) {
-        return imageMatch[1].replace(/\\\//g, '/');
       }
     } else if (store === 'lowes') {
       // Lowes: Similar patterns
@@ -4002,7 +4105,7 @@ async function fetchProductImage(productUrl, store) {
     
     return null;
   } catch (error) {
-    // Silently fail - will show placeholder
+    console.log(`⚠️ Image fetch error for ${productUrl}: ${error.message}`);
     return null;
   }
 }
@@ -4039,6 +4142,7 @@ router.get('/image-proxy', async (req, res) => {
       'mobileimages.lowes.com',
       'www.homedepot.com',
       'www.lowes.com',
+      'placehold.co', // Allow placeholder images for mock data
     ];
     
     if (!allowedDomains.some(domain => imageUrl.hostname.includes(domain))) {

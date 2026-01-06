@@ -232,6 +232,27 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   - API: http://${LOCAL_IP}:${PORT}/api`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔄 Marketplace sync: Running every 5 minutes`);
+  
+  // Verify SKU Search configuration on startup
+  const serpApiKey = process.env.SERPAPI_KEY;
+  const webScrapingApiKey = process.env.WEBSCRAPINGAPI_KEY;
+  const hasSerpApi = serpApiKey && serpApiKey !== 'YOUR_SERPAPI_KEY_HERE';
+  const hasWebScrapingApi = webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE';
+  
+  console.log(`\n✅ SKU Search API ready:`);
+  if (hasSerpApi) {
+    console.log(`   ✅ SerpAPI configured (real product images & prices)`);
+  } else {
+    console.log(`   ⚠️  SerpAPI not configured (will use mock data)`);
+  }
+  if (hasWebScrapingApi) {
+    console.log(`   ✅ WebScrapingAPI configured (backup)`);
+  }
+  if (!hasSerpApi && !hasWebScrapingApi) {
+    console.log(`   ⚠️  No API keys configured - SKU search will use mock data only`);
+    console.log(`   💡 To enable real data: Configure SERPAPI_KEY in .env file`);
+  }
+  console.log('');
 });
 
 module.exports = app; 
