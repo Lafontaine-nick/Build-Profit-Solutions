@@ -4142,11 +4142,24 @@ router.get('/image-proxy', async (req, res) => {
       'mobileimages.lowes.com',
       'www.homedepot.com',
       'www.lowes.com',
+      'homedepot.com',
+      'lowes.com',
       'placehold.co', // Allow placeholder images for mock data
+      'lh3.googleusercontent.com', // Google Shopping images
+      'googleusercontent.com', // Google images
+      'serpapi.com', // SerpAPI image sources
+      'webscrapingapi.com', // WebScrapingAPI image sources
     ];
     
-    if (!allowedDomains.some(domain => imageUrl.hostname.includes(domain))) {
-      return res.status(403).json({ error: 'Domain not allowed' });
+    const isAllowed = allowedDomains.some(domain => imageUrl.hostname.includes(domain));
+    if (!isAllowed) {
+      console.warn(`🚫 Image proxy blocked domain: ${imageUrl.hostname} for URL: ${url.substring(0, 100)}`);
+      console.warn(`🚫 Allowed domains: ${allowedDomains.join(', ')}`);
+      return res.status(403).json({ 
+        error: 'Domain not allowed',
+        domain: imageUrl.hostname,
+        allowedDomains: allowedDomains
+      });
     }
     
     // Fetch the image
@@ -4171,8 +4184,14 @@ router.get('/image-proxy', async (req, res) => {
     // Send the image data
     res.send(Buffer.from(response.data));
   } catch (error) {
-    console.error('Image proxy error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch image' });
+    console.error('❌ Image proxy error:', error.message);
+    console.error('❌ Failed URL:', url);
+    console.error('❌ Error details:', error.response?.status, error.response?.statusText);
+    res.status(500).json({ 
+      error: 'Failed to fetch image',
+      message: error.message,
+      url: url.substring(0, 200) // Log first 200 chars of URL for debugging
+    });
   }
 });
 
