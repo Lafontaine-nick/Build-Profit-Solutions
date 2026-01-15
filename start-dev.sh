@@ -18,17 +18,9 @@ sleep 2
 echo "✅ All processes stopped"
 echo ""
 
-echo "🧹 Clearing caches..."
-cd mobile
-rm -rf .expo .expo-shared node_modules/.cache .metro-cache 2>/dev/null || true
-
-# Clear Watchman cache if available
-if command -v watchman &> /dev/null; then
-    watchman watch-del-all 2>/dev/null || true
-fi
-
-cd "$SCRIPT_DIR"
-echo "✅ Caches cleared"
+# Note: Not clearing caches to preserve Fast Refresh/hot reload
+# If you need to clear caches, run: cd mobile && npm run dev:clear
+echo "💡 Fast Refresh enabled - caches preserved for hot reload"
 echo ""
 
 # Check if running on macOS
@@ -44,7 +36,7 @@ osascript -e 'tell app "Terminal" to do script "cd '"$SCRIPT_DIR"'/backend && ec
 sleep 2
 
 echo "🚀 Starting Mobile App in new terminal..."
-osascript -e 'tell app "Terminal" to do script "cd '"$SCRIPT_DIR"'/mobile && echo \"🚀 Starting Mobile App...\" && npx expo start --clear"'
+osascript -e 'tell app "Terminal" to do script "cd '"$SCRIPT_DIR"'/mobile && echo \"🚀 Starting Mobile App...\" && npx expo start --lan"'
 
 echo ""
 echo "✅ Both services starting in separate terminal windows"

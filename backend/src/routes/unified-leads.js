@@ -263,6 +263,21 @@ router.get('/contractor/:contractorId/insights', async (req, res) => {
   }
 });
 
+// Reload leads from disk (useful when file is updated externally)
+router.post('/reload', async (req, res) => {
+  try {
+    const count = unifiedLeadService.reloadLeads();
+    res.json({
+      success: true,
+      message: 'Leads reloaded successfully',
+      count
+    });
+  } catch (error) {
+    console.error('Error reloading leads:', error);
+    res.status(500).json({ error: 'Failed to reload leads' });
+  }
+});
+
 module.exports = router;
 
 

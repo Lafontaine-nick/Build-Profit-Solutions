@@ -20,6 +20,13 @@ class UnifiedLeadService {
     }
   }
 
+  // Reload unified leads from disk (useful when file is updated externally)
+  reloadLeads() {
+    this.allLeads = loadUnifiedLeads();
+    console.log(`🔄 Reloaded ${this.allLeads.length} unified leads from disk`);
+    return this.allLeads.length;
+  }
+
   // Create a lead with smart matching and notifications
   async createLeadWithMatching(leadData) {
     try {
