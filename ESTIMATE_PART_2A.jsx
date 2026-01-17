@@ -1,0 +1,2072 @@
+/*
+ * ESTIMATE GENERATOR - PART 2A of 5
+ * 
+ * This part contains (first half of original Part 2):
+ * - Auto-adjustment logic for payment amounts
+ * - Additional useEffect hooks
+ * - UI rendering logic for various steps (beginning)
+ * - Form inputs and handlers (beginning)
+ * 
+ * Lines: 4134-6207 (approximately)
+ */
+
+  // Auto-adjust payment amounts when total bid price changes
+  useEffect(() => {
+    if (!isLoaded || !calc) return;
+    
+    // Skip auto-adjustment during initial load to prevent glitching
+    if (isInitialLoadRef.current) {
+      if (!bid.previousTotal && calc.total) {
+        const silentBid = { ...bid, previousTotal: calc.total };
+        AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(silentBid)).catch(() => {});
+      }
+      return;
+    }
+
+    // Get current total from calc (most up-to-date)
+    const currentTotal = calc.total || calc.grandTotal || 0;
+    if (currentTotal <= 0) return;
+    
+    // Initialize previousTotal only if it doesn't exist
+    if (!bid.previousTotal) {
+      console.log(`🔧 Initializing previousTotal to ${currentTotal}`);
+      updateBid('previousTotal', currentTotal);
+      return; // Skip adjustment on first load
+    }
+    
+    const previousTotal = bid.previousTotal || currentTotal;
+    
+    // Only adjust if total changed significantly (more than $1)
+    if (Math.abs(currentTotal - previousTotal) > 1) {
+      console.log(`💰 Total bid changed from $${previousTotal} to $${currentTotal}, adjusting payment amounts...`);
+      
+      // Get current payment schedule and payments (use latest from bid state)
+      const scheduleType = bid.paymentSchedule;
+      const currentMilestones = bid.paymentMilestones || [];
+      const currentWeeklyPayments = bid.weeklyPayments || [];
+      
+      // Handle milestone-based payments - recalculate from percentages
+      if (scheduleType === 'milestone-based' && currentMilestones.length > 0) {
+        const updatedMilestones = currentMilestones.map(milestone => {
+          // Get percentage (prioritize stored percentage, fallback to calculating from old amount)
+          let percentage = milestone.percentage;
+          if (!percentage && milestone.paymentAmount && previousTotal > 0) {
+            percentage = (milestone.paymentAmount / previousTotal) * 100;
+          }
+          
+          // Recalculate amount from percentage
+          const newAmount = roundPayment((percentage / 100) * currentTotal);
+          
+          return {
+            ...milestone,
+            paymentAmount: newAmount,
+            amount: newAmount,
+            percentage: percentage || 0
+          };
+        });
+        
+        // Normalize to ensure exact total match
+        const normalizedMilestones = normalizePaymentsToExactTotal(updatedMilestones, currentTotal, true);
+        updateBid('paymentMilestones', normalizedMilestones);
+        console.log(`✅ Payment amounts adjusted for ${normalizedMilestones.length} milestones`);
+      }
+      
+      // Handle weekly payments - recalculate from percentages
+      if (scheduleType === 'weekly' && currentWeeklyPayments.length > 0) {
+        const updatedWeeklyPayments = currentWeeklyPayments.map(payment => {
+          // Get percentage (prioritize stored percentage, fallback to calculating from old amount)
+          let percentage = payment.percentage;
+          if (!percentage && payment.amount && previousTotal > 0) {
+            percentage = (payment.amount / previousTotal) * 100;
+          }
+          
+          // Recalculate amount from percentage
+          const newAmount = roundPayment((percentage / 100) * currentTotal);
+          
+          return {
+            ...payment,
+            amount: newAmount,
+            percentage: percentage || 0
+          };
+        });
+        
+        // Normalize to ensure exact total match
+        const normalizedWeekly = normalizePaymentsToExactTotal(updatedWeeklyPayments, currentTotal, false);
+        updateBid('weeklyPayments', normalizedWeekly);
+        console.log(`✅ Weekly payment amounts adjusted for ${normalizedWeekly.length} payments`);
+      }
+      
+      // Handle hybrid payments - recalculate both milestones and weekly from percentages
+      if (scheduleType === 'hybrid' && (currentMilestones.length > 0 || currentWeeklyPayments.length > 0)) {
+        // Recalculate milestone amounts from percentages
+        let updatedMilestones = [];
+        if (currentMilestones.length > 0) {
+          updatedMilestones = currentMilestones.map(milestone => {
+            let percentage = milestone.percentage;
+            if (!percentage && milestone.paymentAmount && previousTotal > 0) {
+              percentage = (milestone.paymentAmount / previousTotal) * 100;
+            }
+            const newAmount = roundPayment((percentage / 100) * currentTotal);
+            return {
+              ...milestone,
+              paymentAmount: newAmount,
+              amount: newAmount,
+              percentage: percentage || 0
+            };
+          });
+        }
+        
+        // Recalculate weekly amounts from percentages
+        let updatedWeekly = [];
+        if (currentWeeklyPayments.length > 0) {
+          updatedWeekly = currentWeeklyPayments.map(payment => {
+            let percentage = payment.percentage;
+            if (!percentage && payment.amount && previousTotal > 0) {
+              percentage = (payment.amount / previousTotal) * 100;
+            }
+            const newAmount = roundPayment((percentage / 100) * currentTotal);
+            return {
+              ...payment,
+              amount: newAmount,
+              percentage: percentage || 0
+            };
+          });
+        }
+        
+        // Normalize hybrid payments together to ensure combined total equals exactly grandTotal
+        const normalized = normalizeHybridPaymentsToExactTotal(updatedMilestones, updatedWeekly, currentTotal);
+        
+        // Update both in single state update
+        setBid(prev => {
+          const updated = {
+            ...prev,
+            paymentMilestones: normalized.milestones,
+            weeklyPayments: normalized.weeklyPayments,
+            previousTotal: currentTotal
+          };
+          AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+          return updated;
+        });
+        console.log(`✅ Hybrid payment amounts adjusted: ${normalized.milestones.length} milestones, ${normalized.weeklyPayments.length} weekly`);
+      }
+      
+      // Store current total for next comparison (if not already updated in hybrid)
+      if (scheduleType !== 'hybrid') {
+        updateBid('previousTotal', currentTotal);
+      }
+      
+      console.log(`🎯 Auto-adjusted payment amounts based on new total: $${currentTotal}`);
+    }
+  }, [calc?.total, calc?.grandTotal, isLoaded, bid.paymentSchedule]);
+
+
+  // Shared health score calculation
+  const healthScore = useMemo(() => {
+    let points = 0;
+    
+    // Project Information (15 points)
+    if (bid.title) points += 5;
+    if (bid.projectDescription) points += 5;
+    if (bid.customerCity || bid.location) points += 5;
+    
+    // Customer Information (16 points)
+    if (bid.customerEmail) points += 2;
+    if (bid.customerPhone) points += 2;
+    if (bid.customerAddress) points += 2;
+    if (bid.customerCity) points += 1.5;
+    if (bid.customerState) points += 1.5;
+    if (bid.customerZip) points += 1.5;
+    if (bid.customerCompany) points += 1.5;
+    if (bid.customerNotes) points += 1;
+    if (bid.customerName) points += 3;
+    
+    // Project Dates (10 points)
+    const startDate = bid.startDate || bid.projectStartDate;
+    const endDate = bid.endDate || bid.projectEndDate;
+    if (startDate) points += 5;
+    if (endDate) points += 5;
+    
+    // Materials & Labor (20 points)
+    if ((materialsCart?.length || 0) > 0) points += 10;
+    if ((bid.laborLineItems?.length || 0) > 0) points += 10;
+    
+    // Overhead & Markup (15 points)
+    if (bid.overheadPct && bid.overheadPct > 0) points += 8;
+    if (bid.markupPct && bid.markupPct > 0) points += 7;
+    
+    // Payment Schedule (25 points)
+    if (bid.paymentSchedule === 'milestone-based') {
+      const totalPct = bid.paymentMilestones?.reduce((sum, m) => sum + (m.percentage || 0), 0) || 0;
+      if (Math.abs(totalPct - 100) < 0.1) {
+        points += 25;
+      } else if (totalPct > 0) {
+        points += 15;
+      }
+    } else if (bid.paymentSchedule === 'weekly') {
+      const totalScheduled = bid.weeklyPayments?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0;
+      if (calc.total > 0 && Math.abs(calc.total - totalScheduled) < 1) {
+        points += 25;
+      } else if (totalScheduled > 0) {
+        points += 15;
+      }
+    }
+    
+    // Legal & Compliance (10 points)
+    if (bid.licenseNumber) points += 5;
+    if (bid.insuranceCoverage) points += 5;
+    
+    // Work Schedule (5 points)
+    if (bid.workSchedule) points += 5;
+    
+    return Math.min(100, Math.round(points));
+  }, [bid, materialsCart, calc]);
+
+  const healthColor = healthScore >= 80 ? '#38d39f' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
+
+  // Helper function to round payment amounts to 2 decimal places
+  const roundPayment = (amount) => {
+    return Math.round((amount || 0) * 100) / 100;
+  };
+  
+  // Helper function to normalize payment amounts so they sum to exactly grandTotal
+  // Also recalculates all percentages from amounts to ensure they sum to exactly 100%
+  const normalizePaymentsToExactTotal = (payments, grandTotal, isMilestone = false) => {
+    if (!payments || payments.length === 0 || grandTotal <= 0) return payments;
+    
+    // Calculate sum of all payments except the last one
+    let sum = 0;
+    const normalized = payments.map((p) => {
+      const amount = isMilestone ? (p.paymentAmount || p.amount || 0) : (p.amount || 0);
+      sum += amount;
+      return { ...p };
+    });
+    
+    // Make the last payment equal to grandTotal - sum of all others
+    if (normalized.length > 0) {
+      const lastIndex = normalized.length - 1;
+      const lastCurrentAmount = isMilestone ? (normalized[lastIndex].paymentAmount || normalized[lastIndex].amount || 0) : (normalized[lastIndex].amount || 0);
+      const lastAmount = roundPayment(grandTotal - (sum - lastCurrentAmount));
+      
+      if (isMilestone) {
+        normalized[lastIndex].paymentAmount = lastAmount;
+        normalized[lastIndex].amount = lastAmount;
+      } else {
+        normalized[lastIndex].amount = lastAmount;
+      }
+    }
+    
+    // Recalculate ALL percentages from amounts to ensure they sum to exactly 100%
+    // This eliminates rounding errors from stored percentages
+    if (grandTotal > 0) {
+      let percentageSum = 0;
+      normalized.forEach((p, index) => {
+        const amount = isMilestone ? (p.paymentAmount || p.amount || 0) : (p.amount || 0);
+        // Calculate percentage with high precision
+        const pct = (amount / grandTotal) * 100;
+        
+        // For all but the last payment, round to 2 decimal places
+        // The last payment will absorb any rounding differences
+        if (index < normalized.length - 1) {
+          const roundedPct = Math.round(pct * 100) / 100;
+          p.percentage = roundedPct;
+          percentageSum += roundedPct;
+        } else {
+          // Last payment: ensure total is exactly 100%
+          p.percentage = Math.round((100 - percentageSum) * 100) / 100;
+        }
+      });
+    }
+    
+    return normalized;
+  };
+
+  // Helper function to normalize hybrid payments (milestones + weekly) to ensure combined total equals exactly grandTotal
+  const normalizeHybridPaymentsToExactTotal = (milestones, weeklyPayments, grandTotal) => {
+    if (grandTotal <= 0) return { milestones, weeklyPayments };
+    
+    // First normalize each separately
+    const normalizedMilestones = milestones.length > 0 ? normalizePaymentsToExactTotal(milestones, grandTotal, true) : [];
+    const normalizedWeekly = weeklyPayments.length > 0 ? normalizePaymentsToExactTotal(weeklyPayments, grandTotal, false) : [];
+    
+    // Calculate combined total
+    const milestoneTotal = normalizedMilestones.reduce((sum, m) => sum + (m.paymentAmount || m.amount || 0), 0);
+    const weeklyTotal = normalizedWeekly.reduce((sum, w) => sum + (w.amount || 0), 0);
+    const combinedTotal = milestoneTotal + weeklyTotal;
+    const difference = grandTotal - combinedTotal;
+    
+    // If there's a difference, adjust the final payment to maintain 100% total
+    // In hybrid mode, prefer adjusting final milestone, then last weekly payment
+    if (Math.abs(difference) > 0.01) {
+      // Find final milestone first (for hybrid mode)
+      const finalMilestoneIndex = normalizedMilestones.findIndex(m => 
+        m.type === 'final' || (m.name && (m.name.toLowerCase().includes('final') || m.name.toLowerCase().includes('completion')))
+      );
+      
+      if (finalMilestoneIndex >= 0) {
+        // Adjust final milestone
+        const currentAmount = normalizedMilestones[finalMilestoneIndex].paymentAmount || normalizedMilestones[finalMilestoneIndex].amount || 0;
+        const adjustedAmount = roundPayment(currentAmount + difference);
+        normalizedMilestones[finalMilestoneIndex].paymentAmount = adjustedAmount;
+        normalizedMilestones[finalMilestoneIndex].amount = adjustedAmount;
+        // Recalculate percentage
+        if (grandTotal > 0) {
+          normalizedMilestones[finalMilestoneIndex].percentage = (adjustedAmount / grandTotal) * 100;
+        }
+      } else if (normalizedWeekly.length > 0) {
+        // If no final milestone, adjust last weekly payment
+        const lastIndex = normalizedWeekly.length - 1;
+        const currentAmount = normalizedWeekly[lastIndex].amount || 0;
+        const adjustedAmount = roundPayment(currentAmount + difference);
+        normalizedWeekly[lastIndex].amount = adjustedAmount;
+        // Recalculate percentage
+        if (grandTotal > 0) {
+          normalizedWeekly[lastIndex].percentage = (adjustedAmount / grandTotal) * 100;
+        }
+      } else if (normalizedMilestones.length > 0) {
+        // Fallback: adjust last milestone
+        const lastIndex = normalizedMilestones.length - 1;
+        const currentAmount = normalizedMilestones[lastIndex].paymentAmount || normalizedMilestones[lastIndex].amount || 0;
+        const adjustedAmount = roundPayment(currentAmount + difference);
+        normalizedMilestones[lastIndex].paymentAmount = adjustedAmount;
+        normalizedMilestones[lastIndex].amount = adjustedAmount;
+        // Recalculate percentage
+        if (grandTotal > 0) {
+          normalizedMilestones[lastIndex].percentage = (adjustedAmount / grandTotal) * 100;
+        }
+      }
+    }
+    
+    // Recalculate all percentages from final amounts to ensure accuracy
+    if (grandTotal > 0) {
+      // Recalculate milestone percentages
+      normalizedMilestones.forEach(m => {
+        const amount = m.paymentAmount || m.amount || 0;
+        m.percentage = (amount / grandTotal) * 100;
+      });
+      
+      // Recalculate weekly percentages
+      normalizedWeekly.forEach(w => {
+        const amount = w.amount || 0;
+        w.percentage = (amount / grandTotal) * 100;
+      });
+      
+      // Ensure combined percentages sum to exactly 100% by adjusting the final payment
+      // In hybrid mode, prefer adjusting final milestone, then last weekly payment
+      const milestonePctSum = normalizedMilestones.reduce((sum, m) => sum + (m.percentage || 0), 0);
+      const weeklyPctSum = normalizedWeekly.reduce((sum, w) => sum + (w.percentage || 0), 0);
+      const combinedPctSum = milestonePctSum + weeklyPctSum;
+      const pctDifference = 100 - combinedPctSum;
+      
+      if (Math.abs(pctDifference) > 0.01) {
+        // Find final milestone first (for hybrid mode)
+        const finalMilestoneIndex = normalizedMilestones.findIndex(m => 
+          m.type === 'final' || (m.name && (m.name.toLowerCase().includes('final') || m.name.toLowerCase().includes('completion')))
+        );
+        
+        if (finalMilestoneIndex >= 0) {
+          // Adjust final milestone percentage
+          normalizedMilestones[finalMilestoneIndex].percentage = Math.round((normalizedMilestones[finalMilestoneIndex].percentage + pctDifference) * 100) / 100;
+          // Recalculate amount from percentage
+          const newFinalAmount = roundPayment((grandTotal * normalizedMilestones[finalMilestoneIndex].percentage) / 100);
+          normalizedMilestones[finalMilestoneIndex].paymentAmount = newFinalAmount;
+          normalizedMilestones[finalMilestoneIndex].amount = newFinalAmount;
+        } else if (normalizedWeekly.length > 0) {
+          // If no final milestone, adjust last weekly payment
+          const lastIndex = normalizedWeekly.length - 1;
+          normalizedWeekly[lastIndex].percentage = Math.round((normalizedWeekly[lastIndex].percentage + pctDifference) * 100) / 100;
+          // Recalculate amount from percentage
+          const newWeeklyAmount = roundPayment((grandTotal * normalizedWeekly[lastIndex].percentage) / 100);
+          normalizedWeekly[lastIndex].amount = newWeeklyAmount;
+        } else if (normalizedMilestones.length > 0) {
+          // Fallback: adjust last milestone
+          const lastIndex = normalizedMilestones.length - 1;
+          normalizedMilestones[lastIndex].percentage = Math.round((normalizedMilestones[lastIndex].percentage + pctDifference) * 100) / 100;
+          // Recalculate amount from percentage
+          const newMilestoneAmount = roundPayment((grandTotal * normalizedMilestones[lastIndex].percentage) / 100);
+          normalizedMilestones[lastIndex].paymentAmount = newMilestoneAmount;
+          normalizedMilestones[lastIndex].amount = newMilestoneAmount;
+        }
+      }
+    }
+    
+    return { milestones: normalizedMilestones, weeklyPayments: normalizedWeekly };
+  };
+
+  const updateBid = async (key, value) => {
+    let normalizedValue = value;
+    
+    // For payment updates, calculate current total and recalculate amounts from percentages
+    if (key === 'paymentMilestones' || key === 'weeklyPayments') {
+      // Calculate current total from materials, labor, overhead, markup
+      const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
+      const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+      const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0);
+      const permitCosts = bid.permitCost || 0;
+      const subtotal = materials + labor + overhead + permitCosts;
+      const profit = (subtotal * (bid.markupPct || 0)) / 100;
+      const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || bid.grandTotal || bid.total || 0;
+      
+      if (grandTotal > 0 && Array.isArray(value) && value.length > 0) {
+        if (key === 'paymentMilestones') {
+          // First, recalculate all amounts from percentages
+          normalizedValue = value.map(m => {
+            const percentage = m.percentage || 0;
+            const newAmount = roundPayment((percentage / 100) * grandTotal);
+            return {
+              ...m,
+              paymentAmount: newAmount,
+              amount: newAmount
+            };
+          });
+          // Then normalize to ensure exact total match
+          normalizedValue = normalizePaymentsToExactTotal(normalizedValue, grandTotal, true);
+        } else if (key === 'weeklyPayments') {
+          // First, recalculate all amounts from percentages
+          normalizedValue = value.map(p => {
+            const percentage = p.percentage || 0;
+            const newAmount = roundPayment((percentage / 100) * grandTotal);
+            return {
+              ...p,
+              amount: newAmount
+            };
+          });
+          // Then normalize to ensure exact total match
+          normalizedValue = normalizePaymentsToExactTotal(normalizedValue, grandTotal, false);
+        }
+      }
+    }
+    
+    const updatedBid = { ...bid, [key]: normalizedValue };
+    setBid(updatedBid);
+    
+    // Auto-save payment schedule changes immediately
+    if (key === 'paymentSchedule' || key === 'paymentMilestones' || key === 'weeklyPayments') {
+      try {
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid));
+        console.log(`💾 Auto-saved payment schedule change: ${key}`);
+      } catch (error) {
+        console.error('Error auto-saving payment schedule:', error);
+      }
+    }
+  };
+
+  // Payment Milestone Management
+  const handleAddMilestone = () => {
+    setMilestoneModal({ visible: true, item: null });
+  };
+
+  const handleEditMilestone = (milestone) => {
+    setMilestoneModal({ visible: true, item: milestone });
+  };
+
+  const handleSaveMilestone = (milestoneData) => {
+    const currentMilestones = bid.paymentMilestones || [];
+    const grandTotal = bid.grandTotal || bid.total || 0;
+    let updatedMilestones;
+    
+    if (milestoneData.id) {
+      // Edit existing milestone - apply smart recalculation
+      const editedMilestone = currentMilestones.find(m => m.id === milestoneData.id);
+      const isDeposit = editedMilestone?.type === 'deposit' || (editedMilestone?.name && editedMilestone.name.toLowerCase().includes('deposit'));
+      const isFinal = editedMilestone?.type === 'final' || (editedMilestone?.name && editedMilestone.name.toLowerCase().includes('final')) || (editedMilestone?.name && editedMilestone.name.toLowerCase().includes('completion'));
+      
+      // Get the new percentage from the edited milestone
+      const newPct = milestoneData.percentage || (milestoneData.paymentAmount && grandTotal > 0 ? (milestoneData.paymentAmount / grandTotal) * 100 : 0);
+      
+      // Get all other milestones (excluding the one being edited)
+      const otherMilestones = currentMilestones.filter(m => m.id !== milestoneData.id);
+      
+      // Calculate total percentage of other milestones
+      const otherMilestonesPct = otherMilestones.reduce((sum, m) => {
+        const pct = m.percentage || (m.paymentAmount && grandTotal > 0 ? (m.paymentAmount / grandTotal) * 100 : 0);
+        return sum + pct;
+      }, 0);
+      
+      // Calculate remaining percentage after the edited milestone
+      const remainingPct = 100 - newPct;
+      
+      // If remaining is negative or zero, adjust the edited milestone down
+      if (remainingPct <= 0) {
+        const adjustedPct = Math.max(0, 100 - otherMilestonesPct);
+        const adjustedAmount = roundPayment((grandTotal * adjustedPct) / 100);
+        milestoneData.percentage = adjustedPct;
+        milestoneData.paymentAmount = adjustedAmount;
+        milestoneData.amount = adjustedAmount;
+        updatedMilestones = currentMilestones.map(m => 
+          m.id === milestoneData.id ? milestoneData : m
+        );
+      } else if (otherMilestonesPct > remainingPct && otherMilestones.length > 0) {
+        // Recalculate other milestones proportionally
+        const scaleFactor = remainingPct / otherMilestonesPct;
+        const adjustedOtherMilestones = otherMilestones.map(m => {
+          const currentPct = m.percentage || (m.paymentAmount && grandTotal > 0 ? (m.paymentAmount / grandTotal) * 100 : 0);
+          const newPct = currentPct * scaleFactor;
+          return {
+            ...m,
+            percentage: newPct,
+            paymentAmount: roundPayment((grandTotal * newPct) / 100),
+            amount: roundPayment((grandTotal * newPct) / 100)
+          };
+        });
+        
+        // Update the edited milestone with correct amount
+        const newAmount = roundPayment((grandTotal * newPct) / 100);
+        milestoneData.paymentAmount = newAmount;
+        milestoneData.amount = newAmount;
+        
+        updatedMilestones = [milestoneData, ...adjustedOtherMilestones].sort((a, b) => {
+          // Keep deposit first, final last, others in between
+          const aIsDeposit = a.type === 'deposit' || (a.name && a.name.toLowerCase().includes('deposit'));
+          const bIsDeposit = b.type === 'deposit' || (b.name && b.name.toLowerCase().includes('deposit'));
+          const aIsFinal = a.type === 'final' || (a.name && a.name.toLowerCase().includes('final')) || (a.name && a.name.toLowerCase().includes('completion'));
+          const bIsFinal = b.type === 'final' || (b.name && b.name.toLowerCase().includes('final')) || (b.name && b.name.toLowerCase().includes('completion'));
+          
+          if (aIsDeposit) return -1;
+          if (bIsDeposit) return 1;
+          if (aIsFinal) return 1;
+          if (bIsFinal) return -1;
+          return 0;
+        });
+      } else {
+        // No adjustment needed, just update the edited milestone
+        const newAmount = roundPayment((grandTotal * newPct) / 100);
+        milestoneData.paymentAmount = newAmount;
+        milestoneData.amount = newAmount;
+        updatedMilestones = currentMilestones.map(m => 
+          m.id === milestoneData.id ? milestoneData : m
+        );
+      }
+    } else {
+      // Add new milestone - check if total would exceed 100%
+      const newPct = milestoneData.percentage || (milestoneData.paymentAmount && grandTotal > 0 ? (milestoneData.paymentAmount / grandTotal) * 100 : 0);
+      const currentTotalPct = currentMilestones.reduce((sum, m) => {
+        const pct = m.percentage || (m.paymentAmount && grandTotal > 0 ? (m.paymentAmount / grandTotal) * 100 : 0);
+        return sum + pct;
+      }, 0);
+      
+      if (currentTotalPct + newPct > 100) {
+        // Adjust all milestones proportionally
+        const totalPct = currentTotalPct + newPct;
+        const scaleFactor = 100 / totalPct;
+        
+        const adjustedMilestones = currentMilestones.map(m => {
+          const currentPct = m.percentage || (m.paymentAmount && grandTotal > 0 ? (m.paymentAmount / grandTotal) * 100 : 0);
+          const adjustedPct = currentPct * scaleFactor;
+          return {
+            ...m,
+            percentage: adjustedPct,
+            paymentAmount: roundPayment((grandTotal * adjustedPct) / 100),
+            amount: roundPayment((grandTotal * adjustedPct) / 100)
+          };
+        });
+        
+        const adjustedNewPct = newPct * scaleFactor;
+        const newMilestone = {
+          ...milestoneData,
+          id: milestoneData.id || `milestone-${Date.now()}`,
+          percentage: adjustedNewPct,
+          paymentAmount: roundPayment((grandTotal * adjustedNewPct) / 100),
+          amount: roundPayment((grandTotal * adjustedNewPct) / 100)
+        };
+        
+        updatedMilestones = [...adjustedMilestones, newMilestone];
+      } else {
+        // No adjustment needed
+        const newMilestone = {
+          ...milestoneData,
+          id: milestoneData.id || `milestone-${Date.now()}`,
+        };
+        updatedMilestones = [...currentMilestones, newMilestone];
+      }
+    }
+    
+    // Normalize to ensure exact total match (grandTotal already declared at function start)
+    if (grandTotal > 0 && updatedMilestones.length > 0) {
+      updatedMilestones = normalizePaymentsToExactTotal(updatedMilestones, grandTotal, true);
+    }
+    
+    updateBid('paymentMilestones', updatedMilestones);
+    setMilestoneModal({ visible: false, item: null });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleDeleteMilestone = (milestoneId) => {
+    Alert.alert(
+      'Delete Milestone',
+      'Are you sure you want to delete this payment milestone?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const updatedMilestones = (bid.paymentMilestones || []).filter(m => m.id !== milestoneId);
+            updateBid('paymentMilestones', updatedMilestones);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          },
+        },
+      ]
+    );
+  };
+
+  // Weekly Payment Management
+  const handleAddWeeklyPayment = () => {
+    setWeeklyPaymentModal({ visible: true, item: null });
+  };
+
+  const handleEditWeeklyPayment = (payment) => {
+    setWeeklyPaymentModal({ visible: true, item: payment });
+  };
+
+  const handleSaveWeeklyPayment = (paymentData) => {
+    const currentPayments = bid.weeklyPayments || [];
+    const grandTotal = bid.grandTotal || bid.total || 0;
+    let updatedPayments;
+    
+    if (paymentData.id) {
+      // Edit existing payment - apply smart recalculation for time-based
+      const editedPayment = currentPayments.find(p => p.id === paymentData.id);
+      const isDeposit = editedPayment?.weekNumber === 0 || (editedPayment?.description && editedPayment.description.toLowerCase().includes('deposit'));
+      
+      // Get the new percentage from the edited payment
+      const newPct = paymentData.percentage || (paymentData.amount && grandTotal > 0 ? (paymentData.amount / grandTotal) * 100 : 0);
+      
+      // Get all other payments (excluding the one being edited)
+      const otherPayments = currentPayments.filter(p => p.id !== paymentData.id);
+      
+      // Calculate total percentage of other payments
+      const otherPaymentsPct = otherPayments.reduce((sum, p) => {
+        const pct = p.percentage || (p.amount && grandTotal > 0 ? (p.amount / grandTotal) * 100 : 0);
+        return sum + pct;
+      }, 0);
+      
+      // Calculate remaining percentage after the edited payment
+      const remainingPct = 100 - newPct;
+      
+      // If remaining is negative or zero, adjust the edited payment down
+      if (remainingPct <= 0) {
+        const adjustedPct = Math.max(0, 100 - otherPaymentsPct);
+        const adjustedAmount = roundPayment((grandTotal * adjustedPct) / 100);
+        paymentData.percentage = adjustedPct;
+        paymentData.amount = adjustedAmount;
+        updatedPayments = currentPayments.map(p => 
+          p.id === paymentData.id ? paymentData : p
+        );
+      } else if (otherPaymentsPct > remainingPct && otherPayments.length > 0) {
+        // Recalculate other payments proportionally
+        const scaleFactor = remainingPct / otherPaymentsPct;
+        const adjustedOtherPayments = otherPayments.map(p => {
+          const currentPct = p.percentage || (p.amount && grandTotal > 0 ? (p.amount / grandTotal) * 100 : 0);
+          const newPct = currentPct * scaleFactor;
+          return {
+            ...p,
+            percentage: newPct,
+            amount: roundPayment((grandTotal * newPct) / 100)
+          };
+        });
+        
+        // Update the edited payment with correct amount
+        const newAmount = roundPayment((grandTotal * newPct) / 100);
+        paymentData.amount = newAmount;
+        
+        updatedPayments = [paymentData, ...adjustedOtherPayments].sort((a, b) => (a.weekNumber || 0) - (b.weekNumber || 0));
+      } else {
+        // No adjustment needed, just update the edited payment
+        const newAmount = roundPayment((grandTotal * newPct) / 100);
+        paymentData.amount = newAmount;
+        updatedPayments = currentPayments.map(p => 
+          p.id === paymentData.id ? paymentData : p
+        );
+      }
+    } else {
+      // Add new payment - check if total would exceed 100%
+      const newPct = paymentData.percentage || (paymentData.amount && grandTotal > 0 ? (paymentData.amount / grandTotal) * 100 : 0);
+      const currentTotalPct = currentPayments.reduce((sum, p) => {
+        const pct = p.percentage || (p.amount && grandTotal > 0 ? (p.amount / grandTotal) * 100 : 0);
+        return sum + pct;
+      }, 0);
+      
+      if (currentTotalPct + newPct > 100) {
+        // Adjust all payments proportionally
+        const totalPct = currentTotalPct + newPct;
+        const scaleFactor = 100 / totalPct;
+        
+        const adjustedPayments = currentPayments.map(p => {
+          const currentPct = p.percentage || (p.amount && grandTotal > 0 ? (p.amount / grandTotal) * 100 : 0);
+          const adjustedPct = currentPct * scaleFactor;
+          return {
+            ...p,
+            percentage: adjustedPct,
+            amount: roundPayment((grandTotal * adjustedPct) / 100)
+          };
+        });
+        
+        const maxWeekNumber = currentPayments.length > 0 
+          ? Math.max(...currentPayments.map(p => p.weekNumber || 0))
+          : 0;
+        const adjustedNewPct = newPct * scaleFactor;
+        const newPayment = {
+          ...paymentData,
+          id: paymentData.id || `week-${Date.now()}`,
+          weekNumber: paymentData.weekNumber || maxWeekNumber + 1,
+          percentage: adjustedNewPct,
+          amount: roundPayment((grandTotal * adjustedNewPct) / 100)
+        };
+        
+        updatedPayments = [...adjustedPayments, newPayment];
+      } else {
+        // No adjustment needed
+        const maxWeekNumber = currentPayments.length > 0 
+          ? Math.max(...currentPayments.map(p => p.weekNumber || 0))
+          : 0;
+        const newPayment = {
+          ...paymentData,
+          id: paymentData.id || `week-${Date.now()}`,
+          weekNumber: paymentData.weekNumber || maxWeekNumber + 1,
+        };
+        updatedPayments = [...currentPayments, newPayment];
+      }
+    }
+    
+    // Sort by week number
+    updatedPayments.sort((a, b) => (a.weekNumber || 0) - (b.weekNumber || 0));
+    
+    // Normalize to ensure exact total match (grandTotal already declared at function start)
+    if (grandTotal > 0 && updatedPayments.length > 0) {
+      updatedPayments = normalizePaymentsToExactTotal(updatedPayments, grandTotal, false);
+    }
+    
+    updateBid('weeklyPayments', updatedPayments);
+    setWeeklyPaymentModal({ visible: false, item: null });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleDeleteWeeklyPayment = (paymentId) => {
+    Alert.alert(
+      'Delete Weekly Payment',
+      'Are you sure you want to delete this weekly payment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const updatedPayments = (bid.weeklyPayments || []).filter(p => p.id !== paymentId);
+            updateBid('weeklyPayments', updatedPayments);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          },
+        },
+      ]
+    );
+  };
+
+  useEffect(() => {
+    const sourceType =
+      bid?.projectType ||
+      bid?.projectCategory ||
+      bid?.category ||
+      bid?.template;
+    if (!sourceType) return;
+    const normalized = normalizeScope(sourceType);
+    if (normalized !== activeScope) {
+      setActiveScope(normalized);
+    }
+  }, [bid?.projectType, bid?.projectCategory, bid?.category, bid?.template, activeScope, normalizeScope]);
+
+  // Build Contract Document from Bid Data
+  const buildDocFromBid = (bidData, calcData) => {
+    const scopeBullets = bidData.scopeDescription 
+      ? bidData.scopeDescription.split('\n').filter(line => line.trim())
+      : ['Complete renovation as specified'];
+
+    // Build detailed line items from materials cart
+    const materialLineItems = materialsCart && materialsCart.length > 0
+      ? materialsCart.map(item => ({
+          description: item.name || item.description || 'Material',
+          unit: item.unit || 'ea',
+          quantity: item.qty || item.quantity || 1,
+          materials: item.total || 0,
+          labor: 0,
+          category: 'Materials',
+          section: item.section || 'General Materials'
+        }))
+      : ((calcData?.materials || 0) > 0 ? [{
+          description: 'Materials & Supplies',
+          unit: 'total',
+          quantity: 1,
+          materials: calcData.materials,
+          labor: 0,
+          category: 'Materials'
+        }] : []);
+
+    // Calculate total overhead
+    const totalOverhead = Number(bidData.insuranceOverhead || 0) + 
+                         Number(bidData.equipment || 0) + 
+                         Number(bidData.facilities || 0) + 
+                         Number(bidData.otherOverhead || 0);
+
+    return {
+      summary: {
+        contractId: bidData.id || `BPS-${Date.now()}`,
+        projectName: bidData.title || 'Untitled Project',
+        siteAddress: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || 'N/A',
+        unitPrice: bidData.sqft ? (() => {
+          const materials = calcData?.materials || 0;
+          const labor = calcData?.labor || 0;
+          const overhead = totalOverhead;
+          const permitCosts = bidData.permitCost || 0;
+          const subtotal = materials + labor + overhead + permitCosts;
+          const markup = subtotal * ((bidData.markupPct || 0) / 100);
+          return Math.round(subtotal + markup) / bidData.sqft;
+        })() : undefined,
+        totalBid: (() => {
+          const materials = calcData?.materials || 0;
+          const labor = calcData?.labor || 0;
+          const overhead = totalOverhead;
+          const permitCosts = bidData.permitCost || 0;
+          const subtotal = materials + labor + overhead + permitCosts;
+          const markup = subtotal * ((bidData.markupPct || 0) / 100);
+          return Math.round(subtotal + markup);
+        })(),
+        durationDays: bidData.projectDuration || 30,
+        estimatedStartDate: bidData.projectStartDate || undefined,
+        estimatedEndDate: bidData.projectEndDate || (bidData.projectStartDate ? 
+          new Date(new Date(bidData.projectStartDate).getTime() + (bidData.projectDuration || 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
+          : undefined),
+        startDate: bidData.projectStartDate ? new Date(bidData.projectStartDate + 'T00:00:00').toLocaleDateString() : 'TBD',
+        expiresDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+        retainagePct: 10,
+        version: bidData.revision ? `Rev ${bidData.revision}` : 'Final',
+      },
+      contractor: {
+        contactName: contractorProfile.name || undefined,
+        legalName: contractorProfile.company || 'AMERICAN HOME RESTORATION',
+        licenseNo: bidData.licenseNumber || undefined,
+        phone: undefined,
+        email: undefined,
+        insurer: bidData.insuranceCoverage || undefined,
+        glLimit: undefined,
+        wcActive: bidData.insurance || false,
+        logoUrl: contractorProfile.avatar || undefined,
+      },
+      owner: {
+        legalName: bidData.customerName || 'N/A',
+        phone: bidData.customerPhone || undefined,
+        email: bidData.customerEmail || undefined,
+        address: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || undefined,
+      },
+      scope: {
+        bullets: scopeBullets,
+        inclusions: [],
+        exclusions: [],
+        ownerResponsibilities: [],
+        materialLineItems: materialLineItems,
+        laborLineItems: (bidData.laborLineItems || []).map(item => ({
+          description: item.description || 'Labor',
+          labor: item.total || 0,
+          materials: 0,
+          category: 'Labor'
+        })),
+      },
+      allowances: [],
+      milestones: bidData.paymentSchedule === 'milestone-based' && bidData.paymentMilestones
+        ? bidData.paymentMilestones.map(m => ({
+            id: m.id,
+            name: m.name || 'Payment Milestone',
+            percentage: m.percentage || 0,
+            percent: m.percentage || 0,
+            paymentAmount: m.paymentAmount || 0,
+            amount: m.paymentAmount || 0,
+            description: m.description || undefined,
+            scheduledDate: m.scheduledDate || undefined,
+            dueDate: m.scheduledDate || undefined,
+            status: 'Pending',
+          }))
+        : bidData.paymentSchedule === 'weekly' && bidData.weeklyPayments
+        ? bidData.weeklyPayments.map((w, i) => ({
+            id: w.id,
+            name: `Week ${i + 1} Payment`,
+            percentage: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
+            percent: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
+            paymentAmount: w.amount || 0,
+            amount: w.amount || 0,
+            description: w.description || undefined,
+            scheduledDate: w.scheduledDate || undefined,
+            dueDate: w.scheduledDate || undefined,
+            status: 'Pending',
+          }))
+        : [],
+      terms: {
+        lateInterestPct: 1.5,
+        suspendDays: 7,
+        cureDays: 7,
+        convDays: 7,
+        convFeePct: 5,
+        escalationThresholdPct: 8,
+        warrantyYears: bidData.warrantyYears || 1,
+        stateLaw: bidData.customerState || 'Nevada',
+        workHours: bidData.workSchedule === 'weekdays' ? 'Mon–Fri, 8:00a–5:00p' : 'Flexible',
+        permitsBy: 'Contractor',
+        permitFeesPaidBy: 'Owner',
+      },
+      labor: calcData?.labor || 0,
+      materials: calcData?.materials || 0,
+      overhead: totalOverhead,
+      profitMarginPct: bidData.markupPct || 0,
+    };
+  };
+
+  // Generate and Share Contract - Goes straight to PDF sharing
+  const generateContract = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      console.log('🔨 Building and sharing contract from bid:', bid.title || 'Untitled');
+      console.log('👤 Using contractor profile:', contractorProfile);
+      
+      // Convert logo to base64 if it exists
+      let logoBase64 = null;
+      if (contractorProfile.avatar && contractorProfile.avatar.startsWith('file://')) {
+        try {
+          console.log('🖼️ Converting logo to base64...');
+          const base64 = await FileSystem.readAsStringAsync(contractorProfile.avatar, {
+            encoding: 'base64',
+          });
+          // Determine image type from file extension
+          const extension = contractorProfile.avatar.split('.').pop().toLowerCase();
+          const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+          logoBase64 = `data:${mimeType};base64,${base64}`;
+          console.log('✅ Logo converted to base64 data URI');
+        } catch (error) {
+          console.error('Failed to convert logo:', error);
+        }
+      }
+      
+      // Build contract document from bid data with real-time calculations
+      const doc = buildDocFromBid(bid, calc);
+      // Override logo with base64 version
+      if (logoBase64) {
+        doc.contractor.logoUrl = logoBase64;
+      }
+      console.log('📄 Built contract doc:', {
+        contractorName: doc.contractor.legalName,
+        contractorLogo: doc.contractor.logoUrl ? 'base64 data URI' : 'none'
+      });
+      
+      // Generate HTML and immediately export as PDF
+      const html = buildProposalHtml(doc);
+      console.log('🌐 Generated proposal HTML (' + html.length + ' chars)');
+      
+      // Export and share the PDF directly
+      await exportProposalPdf(html, `${bid.title || 'contract'}-${bid.id}`);
+      
+      console.log('✅ Contract PDF generated and shared successfully');
+    } catch (error) {
+      console.error('❌ Error generating contract:', error);
+      console.error('Error stack:', error.stack);
+      Alert.alert(
+        '❌ Error',
+        `Failed to generate contract: ${error.message}`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Manual recovery function for Haim bid
+  const handleRecoverHaimBid = async () => {
+    try {
+      console.log('🔍 COMPREHENSIVE Haim bid search starting...');
+      
+      // Get ALL AsyncStorage keys first
+      const allKeys = await AsyncStorage.getAllKeys();
+      console.log('📋 ALL storage keys found:', allKeys);
+      
+      // Check every single storage key for any data containing "haim"
+      let foundData = null;
+      let foundInKey = null;
+      
+      for (const key of allKeys) {
+        try {
+          console.log(`🔍 Checking key: ${key}`);
+          const data = await AsyncStorage.getItem(key);
+          if (data) {
+            // Try to parse as JSON
+            try {
+              const parsed = JSON.parse(data);
+              console.log(`📄 Key ${key} contains:`, typeof parsed, Array.isArray(parsed) ? `Array(${parsed.length})` : 'Object');
+              
+              // Check if it's an array of projects
+              if (Array.isArray(parsed)) {
+                for (let i = 0; i < parsed.length; i++) {
+                  const item = parsed[i];
+                  if (item && typeof item === 'object') {
+                    // Check all string properties for "haim"
+                    for (const prop in item) {
+                      if (typeof item[prop] === 'string' && item[prop].toLowerCase().includes('haim')) {
+                        console.log(`🎉 Found "haim" in ${key}[${i}].${prop}: "${item[prop]}"`);
+                        foundData = item;
+                        foundInKey = `${key}[${i}]`;
+                        break;
+                      }
+                    }
+                  }
+                }
+              } else if (parsed && typeof parsed === 'object') {
+                // Check all string properties for "haim"
+                for (const prop in parsed) {
+                  if (typeof parsed[prop] === 'string' && parsed[prop].toLowerCase().includes('haim')) {
+                    console.log(`🎉 Found "haim" in ${key}.${prop}: "${parsed[prop]}"`);
+                    foundData = parsed;
+                    foundInKey = key;
+                    break;
+                  }
+                }
+              }
+            } catch (parseError) {
+              // Not JSON, check if it's a string containing "haim"
+              if (data.toLowerCase().includes('haim')) {
+                console.log(`🎉 Found "haim" in raw data of ${key}: "${data.substring(0, 100)}..."`);
+                foundData = data;
+                foundInKey = key;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`⚠️ Error reading ${key}:`, e.message);
+        }
+      }
+      
+      if (foundData) {
+        console.log(`✅ Found Haim data in ${foundInKey}:`, foundData);
+        
+        // If it's a project with estimateData, use that
+        if (foundData.estimateData) {
+          console.log('🔄 Converting project estimateData back to bid...');
+          setBid(foundData.estimateData);
+          Alert.alert(
+            '✅ Haim Bid Recovered!',
+            `Found your Haim bid in ${foundInKey}`,
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                console.log('✅ Bid should now be loaded:', foundData.estimateData);
+              }
+            }]
+          );
+          return;
+        }
+        
+        // If it's a bid object, use it directly
+        if (foundData.title || foundData.id) {
+          console.log('🔄 Using found bid data directly...');
+          console.log('📋 Setting bid to:', foundData);
+          setBid(foundData);
+          
+          // Force a small delay to ensure state update
+          setTimeout(() => {
+            console.log('🔄 Forcing bid state refresh...');
+            setBid(prevBid => ({ ...prevBid, ...foundData }));
+          }, 100);
+          
+          Alert.alert(
+            '✅ Haim Bid Recovered!',
+            `Found your Haim bid in ${foundInKey}`,
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                console.log('✅ Bid should now be loaded:', foundData);
+                // Force another refresh after alert
+                setTimeout(() => {
+                  setBid(foundData);
+                }, 50);
+              }
+            }]
+          );
+          return;
+        }
+        
+        // If it's raw data, try to parse it as a bid
+        if (typeof foundData === 'string') {
+          try {
+            const parsedData = JSON.parse(foundData);
+            console.log('🔄 Parsing raw data as bid...');
+            setBid(parsedData);
+            Alert.alert(
+              '✅ Haim Bid Recovered!',
+              `Found your Haim bid in ${foundInKey}`,
+              [{ 
+                text: 'OK',
+                onPress: () => {
+                  console.log('✅ Bid should now be loaded:', parsedData);
+                }
+              }]
+            );
+            return;
+          } catch (e) {
+            console.log('⚠️ Could not parse raw data as JSON');
+          }
+        }
+      }
+      
+      // If we get here, show detailed failure info
+      console.log('❌ No Haim data found in any storage key');
+      Alert.alert(
+        '❌ Haim Bid Not Found',
+        `Searched ${allKeys.length} storage keys but couldn't find any data containing "haim". The bid may have been permanently overwritten.`,
+        [{ text: 'OK' }]
+      );
+      
+    } catch (error) {
+      console.error('❌ Error in comprehensive recovery:', error);
+      Alert.alert('Error', `Recovery failed: ${error.message}`);
+    }
+  };
+
+  // Save estimate to unified context
+  const handleSaveEstimate = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      console.log('🔍 Debug - calc object:', calc);
+      console.log('🔍 Debug - bid object:', bid);
+      
+      const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+      
+      // Add safety checks for calc values
+      const estimatedCost = Number(calc?.subtotal) || 0;
+      const bidPrice = Number(calc?.grandTotal) || 0;
+      const margin = Number(calc?.marginPercent) || 0;
+      const markup = Number(bid.markupPct) || 0;
+      
+      console.log('🔍 Debug - calculated values:', {
+        estimatedCost,
+        bidPrice,
+        margin,
+        markup,
+        calcSubtotal: calc?.subtotal,
+        calcGrandTotal: calc?.grandTotal,
+        calcMargin: calc?.marginPercent
+      });
+      
+      // Preserve existing status if bid was already submitted
+      const existingProject = [...activeProjects, ...estimates].find(p => p.id === bid.id);
+      const preservedStatus = existingProject?.status || 'estimate';
+      
+      const estimateData = {
+        id: bid.id,
+        title: bid.title || 'Untitled Bid',
+        status: preservedStatus, // Preserve existing status (estimate, bid_submitted, won, etc.)
+        estimatedCost,
+        bidPrice,
+        actualCost: 0,
+        margin,
+        markup,
+        location,
+        city: bid.customerCity,
+        state: bid.customerState,
+        zip: bid.customerZip,
+        startDate: bid.startDate || new Date().toISOString().split('T')[0],
+        endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        progress: 0,
+        client: bid.customerName || bid.clientName || 'Unknown Client',
+        clientEmail: bid.customerEmail || bid.clientEmail,
+        clientPhone: bid.customerPhone,
+        projectType: bid.projectType,
+        projectCategory: bid.projectCategory || PROJECT_CATEGORY_SLUGS[bid.projectType] || bid.category,
+        category: bid.category || PROJECT_CATEGORY_SLUGS[bid.projectType] || 'other',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        estimateData: bid,
+      };
+      
+      console.log('🔍 Debug - estimate data to save:', estimateData);
+      
+      addEstimate(estimateData);
+      
+      Alert.alert(
+        '✅ Estimate Saved!',
+        'Your estimate has been saved and will appear in Dashboard and Projects.',
+        [{ text: 'OK' }]
+      );
+      console.log(`✅ Saved estimate: ${bid.title} ($${bidPrice.toLocaleString()})`);
+    } catch (error) {
+      console.error('❌ Error saving estimate:', error);
+      console.error('❌ Error stack:', error.stack);
+      Alert.alert('Error', `Failed to save estimate: ${error.message}`);
+    }
+  };
+
+  // Submit bid to client (changes status to bid_submitted)
+  const handleSubmitBid = () => {
+    console.log('🔍 handleSubmitBid called');
+    console.log('🔍 calc object:', calc);
+    console.log('🔍 bid object:', bid);
+    
+    Alert.alert(
+      'Submit Bid to Client?',
+      'This will mark the estimate as submitted and track it as a pending bid.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit',
+          onPress: async () => {
+            console.log('🔍 Submit button pressed');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            
+            // First ensure the estimate is saved, then update status
+            try {
+              // Save the estimate first if it doesn't exist
+              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+              const estimatedCost = Number(calc?.subtotal || 0);
+              const bidPrice = Number(calc?.total || 0);
+              const margin = Number(calc?.marginPercent || 0);
+              const markup = Number(bid.markupPct || 0);
+              
+              console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup });
+              
+              const estimateData = {
+                id: bid.id,
+                title: bid.title || 'Untitled Bid',
+                status: 'bid_submitted', // Set status to bid_submitted so it shows as "Submitted" in projects
+                estimatedCost,
+                bidPrice,
+                actualCost: 0,
+                margin,
+                markup,
+                location,
+                city: bid.customerCity,
+                state: bid.customerState,
+                zip: bid.customerZip,
+                startDate: bid.startDate || new Date().toISOString().split('T')[0],
+                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                progress: 0,
+                client: bid.customerName || bid.clientName || 'Unknown Client',
+                clientEmail: bid.customerEmail || bid.clientEmail,
+                clientPhone: bid.customerPhone,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                estimateData: bid,
+              };
+              
+              console.log('🔍 Debug - submitting bid with data:', estimateData);
+              addEstimate(estimateData);
+              
+              // Update lead stage to "proposal" if this bid came from a qualified lead
+              if (bid.leadId && bid.leadSource === 'qualified_lead') {
+                try {
+                  const leadId = bid.leadId;
+                  console.log(`🔄 Updating lead ${leadId} stage to proposal after submitting bid`);
+                  console.log(`🔄 Lead source: ${bid.leadSource}, Lead ID: ${leadId}`);
+                  
+                  // Track that bid was submitted
+                  const { trackBidSubmitted } = await import('../../services/engagementTracking');
+                  await trackBidSubmitted(leadId);
+                  
+                  // Update backend lead (including MOCK- leads which are backend-managed)
+                  try {
+                    await unifiedLeadService.updateLeadStage(leadId, 'proposal');
+                    console.log(`✅ Updated backend lead ${leadId} stage to proposal`);
+                    
+                    // Also update AsyncStorage as backup so leads screen picks up the change
+                    const leadsData = await AsyncStorage.getItem('leadsData');
+                    if (leadsData) {
+                      const leads = JSON.parse(leadsData);
+                      const existingIndex = leads.findIndex((l) => l.id === leadId);
+                      if (existingIndex >= 0) {
+                        leads[existingIndex] = {
+                          ...leads[existingIndex],
+                          stage: 'proposal',
+                          updatedAt: new Date().toISOString()
+                        };
+                        await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
+                        console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
+                      }
+                    }
+                  } catch (updateError) {
+                    // If backend update fails (e.g., 404 for frontend-only leads), update AsyncStorage only
+                    console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
+                    const leadsData = await AsyncStorage.getItem('leadsData');
+                    if (leadsData) {
+                      const leads = JSON.parse(leadsData);
+                      const updatedLeads = leads.map((l) => 
+                        l.id === leadId ? { ...l, stage: 'proposal', updatedAt: new Date().toISOString() } : l
+                      );
+                      await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+                      console.log(`✅ Updated frontend lead ${leadId} stage to proposal in AsyncStorage`);
+                    }
+                  }
+                } catch (leadUpdateError) {
+                  console.warn('⚠️ Failed to update lead stage after proposal submission:', leadUpdateError);
+                  // Don't block the submission if lead update fails
+                }
+              }
+              
+              Alert.alert('✅ Bid Submitted!', 'Your bid is now being tracked as pending and will appear in Dashboard and Projects.');
+              console.log(`📤 Submitted bid: ${bid.title} ($${bidPrice.toLocaleString()})`);
+              
+              // If this came from a lead, navigate back to leads screen to see the updated stage
+              if (bid.leadId && bid.leadSource === 'qualified_lead') {
+                console.log('🔄 Navigating back to leads screen to show updated stage');
+                // Small delay to ensure backend update completes
+                setTimeout(() => {
+                  router.push('/(tabs)/leads');
+                }, 500);
+              }
+            } catch (error) {
+              console.error('❌ Error submitting bid:', error);
+              Alert.alert('Error', `Failed to submit bid: ${error.message}`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Mark bid as won (converts to project)
+  const handleMarkAsWon = () => {
+    Alert.alert(
+      '🎉 Mark Bid as Won?',
+      'This will convert your bid into an active project.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Won',
+          style: 'default',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            // First, ensure the bid/estimate is saved to the projects list
+            // Check if it already exists
+            const allProjects = [...activeProjects, ...estimates];
+            console.log(`🔍 Checking for bid ${bid.id} in ${allProjects.length} projects`);
+            console.log(`🔍 Available project IDs:`, allProjects.map(p => `${p.id} (${p.status})`));
+            
+            const existingProject = allProjects.find(p => p.id === bid.id);
+            
+            if (!existingProject) {
+              console.log(`📝 Bid ${bid.id} not found in projects, saving it first...`);
+              // Save the estimate with 'in_progress' status directly (since we're marking it as won)
+              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+              const estimatedCost = Number(calc?.subtotal) || 0;
+              const bidPrice = Number(calc?.grandTotal) || 0;
+              const margin = Number(calc?.marginPercent) || 0;
+              const markup = Number(bid.markupPct) || 0;
+              
+              const estimateData = {
+                id: bid.id,
+                title: bid.title || 'Untitled Bid',
+                status: 'won', // Set status to 'won' so it shows as "Active" in projects
+                estimatedCost,
+                bidPrice,
+                actualCost: 0,
+                margin,
+                markup,
+                location,
+                city: bid.customerCity,
+                state: bid.customerState,
+                zip: bid.customerZip,
+                startDate: bid.startDate || new Date().toISOString().split('T')[0],
+                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                progress: 0,
+                client: bid.customerName || bid.clientName || 'Unknown Client',
+                clientEmail: bid.customerEmail || bid.clientEmail,
+                clientPhone: bid.customerPhone,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                estimateData: bid,
+              };
+              
+              console.log(`💾 Saving bid as active project with status 'won':`, {
+                id: estimateData.id,
+                title: estimateData.title,
+                status: estimateData.status,
+                bidPrice: estimateData.bidPrice
+              });
+              addEstimate(estimateData);
+              console.log(`✅ Bid saved! It should now appear in Projects tab with 'Active' status.`);
+            } else {
+              // Bid exists, convert it to won (Active)
+              console.log(`🔄 Converting existing bid ${bid.id} from status '${existingProject.status}' to 'won'`);
+              // Update the project status to 'won' so it shows as "Active"
+              updateProject(bid.id, { status: 'won' });
+              
+              // Verify the update happened
+              setTimeout(() => {
+                const updatedProjects = [...activeProjects, ...estimates];
+                const updated = updatedProjects.find(p => p.id === bid.id);
+                if (updated) {
+                  console.log(`✅ Verified: Bid ${bid.id} now has status '${updated.status}' (should display as 'Active')`);
+                } else {
+                  console.log(`⚠️ Warning: Could not find bid ${bid.id} after conversion`);
+                }
+              }, 500);
+            }
+            
+            // Update lead stage to "won" if this bid came from a qualified lead
+            if (bid.leadId && bid.leadSource === 'qualified_lead') {
+              try {
+                const leadId = bid.leadId;
+                console.log(`🔄 Updating lead ${leadId} stage to won after marking bid as won`);
+                
+                // Track that bid was won
+                const { trackBidWon } = await import('../../services/engagementTracking');
+                await trackBidWon(leadId);
+                
+                // Update backend lead (including MOCK- leads which are backend-managed)
+                try {
+                  await unifiedLeadService.updateLeadStage(leadId, 'won');
+                  console.log(`✅ Updated backend lead ${leadId} stage to won`);
+                  
+                  // Also update AsyncStorage as backup
+                  const leadsData = await AsyncStorage.getItem('leadsData');
+                  if (leadsData) {
+                    const leads = JSON.parse(leadsData);
+                    const existingIndex = leads.findIndex((l) => l.id === leadId);
+                    if (existingIndex >= 0) {
+                      leads[existingIndex] = {
+                        ...leads[existingIndex],
+                        stage: 'won',
+                        updatedAt: new Date().toISOString()
+                      };
+                      await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
+                      console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
+                    }
+                  }
+                } catch (updateError) {
+                  // If backend update fails (e.g., 404 for frontend-only leads), update AsyncStorage only
+                  console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
+                  const leadsData = await AsyncStorage.getItem('leadsData');
+                  if (leadsData) {
+                    const leads = JSON.parse(leadsData);
+                    const updatedLeads = leads.map((l) => 
+                      l.id === leadId ? { ...l, stage: 'won', updatedAt: new Date().toISOString() } : l
+                    );
+                    await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+                    console.log(`✅ Updated frontend lead ${leadId} stage to won in AsyncStorage`);
+                  }
+                }
+              } catch (leadUpdateError) {
+                console.warn('⚠️ Failed to update lead stage after marking bid as won:', leadUpdateError);
+                // Don't block the action if lead update fails
+              }
+            }
+            
+            Alert.alert(
+              '🎉 Congratulations!',
+              `${bid.title} is now an active project! View it in the Projects tab.`,
+              [{ text: 'OK' }]
+            );
+            console.log(`🎉 Won bid converted to project: ${bid.title}`);
+          }
+        }
+      ]
+    );
+  };
+
+
+  // Clear payment terms and schedule notes
+  useEffect(() => {
+    setBid(prev => ({
+      ...prev,
+      additionalPaymentTerms: '',
+      scheduleNotes: ''
+    }));
+  }, []);
+
+  // Calculate and save overhead percentage
+  useEffect(() => {
+    const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0);
+    const totalMaterials = Number(calc.materials || 0);
+    const totalLabor = Number(calc.labor || 0);
+    const totalPermitCosts = Number(bid.permitCost || 0);
+    const subtotal = totalMaterials + totalLabor + totalPermitCosts;
+    const overheadPct = subtotal > 0 ? Math.round((totalOverhead / subtotal) * 100) : 0;
+    
+    if (bid.overheadPct !== overheadPct) {
+      setBid(prev => ({
+        ...prev,
+        overheadPct: overheadPct
+      }));
+    }
+  }, [bid.insuranceOverhead, bid.equipment, bid.facilities, bid.otherOverhead, calc.materials, calc.labor]);
+
+  
+  // Enhanced materials helpers
+  const filteredCatalog = useMemo(() => {
+    const q = materialSearch.trim().toLowerCase();
+    if (!q) return MATERIAL_CATALOG;
+    return MATERIAL_CATALOG.filter(c => 
+      c.name.toLowerCase().includes(q) ||
+      c.category.toLowerCase().includes(q) ||
+      (c.keywords || []).some(k => k.toLowerCase().includes(q))
+    );
+  }, [materialSearch]);
+  
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+  
+  const toggleCategory = (categoryKey) => {
+    setExpandedCategories(prev => ({ ...prev, [categoryKey]: !prev[categoryKey] }));
+  };
+  
+  const addMaterialToCart = (item, scope, section) => {
+    const vendorId = materialSelectedVendor[item.id] || PRICE_BOOK[item.id][0].vendorId;
+    const vendor = PRICE_BOOK[item.id].find(v => v.vendorId === vendorId);
+    const qty = Number(materialNeedQty[item.id] || 0);
+    if (!qty || qty <= 0 || !vendor) return;
+    
+    const row = {
+      id: String(Date.now()),
+      itemId: item.id,
+      name: item.name,
+      scope,
+      section,
+      vendorId,
+      quantity: qty,
+      unitPrice: vendor.price,
+      total: qty * vendor.price,
+    };
+    
+    setMaterialsCart(prev => [...prev, row]);
+    Alert.alert('Added', `${item.name} added to ${section}`);
+  };
+  
+  // Handle SKU attachment from live search
+  const handleSubcontractorSelect = (subData) => {
+    console.log('🔄 handleSubcontractorSelect called with:', subData);
+    try {
+      const newLaborItem = {
+        id: String(Date.now()),
+        name: `${subData.name} - ${subData.trade}`,
+        mode: 'hourly',
+        laborType: 'subcontractor',
+        hours: 0,
+        rate: subData.rate,
+        total: 0,
+        metadata: subData.metadata,
+      };
+      
+      console.log('📝 Creating new labor item:', newLaborItem);
+      
+      setBid(prev => {
+        console.log('🔄 Updating bid state...');
+        const updated = {
+          ...prev,
+          laborLineItems: [...(prev.laborLineItems || []), newLaborItem]
+        };
+        console.log('✅ Bid state updated, new labor items count:', updated.laborLineItems.length);
+        return updated;
+      });
+      
+      // Simple success feedback without Alert to prevent freezing
+      console.log('✅ Added subcontractor:', subData.name);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      console.log('✅ handleSubcontractorSelect completed successfully');
+    } catch (error) {
+      console.error('❌ Error in handleSubcontractorSelect:', error);
+    }
+  };
+
+  // Auto-categorize materials based on name/keywords
+  const autoCategorizeMaterial = (itemName, availableSections) => {
+    const name = itemName.toLowerCase();
+    
+    // Shower & Plumbing (priority check - must be before general plumbing)
+    if (name.includes('shower') || name.includes('showerhead') || name.includes('shower pan') || 
+        name.includes('shower base') || name.includes('handheld shower') || name.includes('rain shower') ||
+        name.includes('shower kit') || name.includes('shower door') || name.includes('shower surround')) {
+      return availableSections.find(s => s.toLowerCase().includes('shower')) || 
+             availableSections.find(s => s.toLowerCase().includes('plumb')) || 
+             availableSections[0];
+    }
+    
+    // Tile & Waterproofing
+    if (name.includes('tile') || name.includes('grout') || name.includes('mortar') || 
+        name.includes('thinset') || name.includes('redgard') || name.includes('kerdi') || 
+        name.includes('waterproof') || name.includes('schluter') || name.includes('membrane')) {
+      return availableSections.find(s => s.toLowerCase().includes('tile') || s.toLowerCase().includes('waterproof')) || availableSections[0];
+    }
+    
+    // Framing & Structure
+    if (name.includes('lumber') || name.includes('stud') || name.includes('2x4') || 
+        name.includes('2x6') || name.includes('2x8') || name.includes('plywood') || 
+        name.includes('osb') || name.includes('joist') || name.includes('beam') || 
+        name.includes('sheathing') || name.includes('framing')) {
+      return availableSections.find(s => s.toLowerCase().includes('fram')) || availableSections[0];
+    }
+    
+    // Concrete & Masonry
+    if (name.includes('concrete') || name.includes('cement') || name.includes('mortar') || 
+        name.includes('brick') || name.includes('block') || name.includes('masonry') || 
+        name.includes('rebar') || name.includes('foundation')) {
+      return availableSections.find(s => s.toLowerCase().includes('concrete') || s.toLowerCase().includes('masonry')) || availableSections[0];
+    }
+    
+    // Plumbing (general)
+    if (name.includes('pipe') || name.includes('pvc') || name.includes('plumb') || 
+        name.includes('drain') || name.includes('faucet') || name.includes('valve') || 
+        name.includes('fitting') || name.includes('toilet') || name.includes('sink')) {
+      return availableSections.find(s => s.toLowerCase().includes('plumb')) || availableSections[0];
+    }
+    
+    // Electrical
+    if (name.includes('wire') || name.includes('electric') || name.includes('cable') || 
+        name.includes('outlet') || name.includes('switch') || name.includes('breaker') || 
+        name.includes('conduit') || name.includes('panel') || name.includes('lighting')) {
+      return availableSections.find(s => s.toLowerCase().includes('electric')) || availableSections[0];
+    }
+    
+    // Drywall & Finishing
+    if (name.includes('drywall') || name.includes('sheetrock') || name.includes('gypsum') || 
+        name.includes('joint compound') || name.includes('mud') || name.includes('tape') || 
+        name.includes('sanding')) {
+      return availableSections.find(s => s.toLowerCase().includes('drywall') || s.toLowerCase().includes('finish')) || availableSections[0];
+    }
+    
+    // Paint & Coatings
+    if (name.includes('paint') || name.includes('primer') || name.includes('stain') || 
+        name.includes('sealer') || name.includes('coating') || name.includes('caulk')) {
+      return availableSections.find(s => s.toLowerCase().includes('paint')) || availableSections[0];
+    }
+    
+    // Flooring
+    if (name.includes('floor') || name.includes('laminate') || name.includes('vinyl') || 
+        name.includes('hardwood') || name.includes('carpet') || name.includes('underlayment')) {
+      return availableSections.find(s => s.toLowerCase().includes('floor')) || availableSections[0];
+    }
+    
+    // HVAC
+    if (name.includes('hvac') || name.includes('duct') || name.includes('vent') || 
+        name.includes('furnace') || name.includes('ac ') || name.includes('air condition')) {
+      return availableSections.find(s => s.toLowerCase().includes('hvac') || s.toLowerCase().includes('mechanical')) || availableSections[0];
+    }
+    
+    // Roofing
+    if (name.includes('roof') || name.includes('shingle') || name.includes('flashing') || 
+        name.includes('gutter') || name.includes('soffit') || name.includes('fascia')) {
+      return availableSections.find(s => s.toLowerCase().includes('roof')) || availableSections[0];
+    }
+    
+    // Default to first section if no match
+    return availableSections[0];
+  };
+
+  const handleSkuAttach = (skuItem) => {
+    const quantity = skuItem.quantity || 1; // Get quantity from item, default to 1
+    
+    setMaterialsCart(prev => {
+      // Check if this exact item already exists (same SKU + store)
+      const existingIndex = prev.findIndex(item => 
+        item.sku === skuItem.sku && 
+        item.vendorId === (skuItem.store === 'hd' ? 'hd' : 'lw') &&
+        item.scope === activeScope
+      );
+      
+      if (existingIndex >= 0) {
+        // Item exists - add to existing quantity
+        const updated = [...prev];
+        const newQuantity = updated[existingIndex].quantity + quantity;
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          quantity: newQuantity,
+          total: newQuantity * updated[existingIndex].unitPrice
+        };
+        
+        Alert.alert('Updated!', `Quantity increased to ${newQuantity}`);
+        return updated;
+      } else {
+        // New item - auto-categorize and add to cart
+        const autoSection = autoCategorizeMaterial(skuItem.title, SECTIONS[activeScope]);
+        
+        const row = {
+          id: String(Date.now()),
+          itemId: skuItem.sku,
+          name: skuItem.title,
+          scope: activeScope,
+          section: autoSection,
+          vendorId: skuItem.store === 'hd' ? 'hd' : 'lw',
+          quantity: quantity, // Use quantity from selector
+          unitPrice: skuItem.price,
+          total: (skuItem.price || 0) * quantity, // Calculate total based on quantity
+          sku: skuItem.sku,
+          url: skuItem.url,
+          store: skuItem.store,
+        };
+        
+        Alert.alert('Added!', `${skuItem.title} added to ${autoSection}`);
+        return [...prev, row];
+      }
+    });
+  };
+
+  // Handle manual material & labor entries from full-page screens
+  useFocusEffect(
+    useCallback(() => {
+      const checkForManualEntries = async () => {
+        try {
+          const [materialDataStr, laborDataStr] = await Promise.all([
+            AsyncStorage.getItem('manualMaterialEntry'),
+            AsyncStorage.getItem('manualLaborEntry'),
+          ]);
+
+          if (materialDataStr) {
+            const materialData = JSON.parse(materialDataStr);
+            await AsyncStorage.removeItem('manualMaterialEntry');
+            
+            const { name, quantity, unitPrice, vendorId, section } = materialData;
+            const qty = Number(quantity);
+            const price = Number(unitPrice);
+            
+            const autoSection = section || autoCategorizeMaterial(name, SECTIONS[activeScope]);
+            const finalVendorId = vendorId || 'loc';
+            
+            const row = {
+              id: String(Date.now()),
+              itemId: `manual_${Date.now()}`,
+              name: name.trim(),
+              scope: activeScope,
+              section: autoSection,
+              vendorId: finalVendorId,
+              quantity: qty,
+              unitPrice: price,
+              total: qty * price,
+              isManual: true,
+            };
+            
+            setMaterialsCart(prev => [...prev, row]);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+
+          if (laborDataStr) {
+            const laborData = JSON.parse(laborDataStr);
+            await AsyncStorage.removeItem('manualLaborEntry');
+
+            const laborName = laborData.name?.trim() || 'Labor Item';
+            const mode = laborData.mode === 'sqft' ? 'sqft' : 'hourly';
+            const laborType = laborData.laborType === 'subcontractor' ? 'subcontractor' : 'inhouse';
+            const hours = Number(laborData.hours) || Number(laborData.quantity) || 0;
+            const rate = Number(laborData.rate) || 0;
+
+            const laborRow = {
+              id: String(Date.now()),
+              name: laborName,
+              mode,
+              laborType,
+              hours,
+              rate,
+              total: hours * rate,
+            };
+
+            setBid(prev => ({
+              ...prev,
+              laborLineItems: [...(prev.laborLineItems || []), laborRow],
+            }));
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        } catch (error) {
+          console.error('Error processing manual entries:', error);
+        }
+      };
+      
+      checkForManualEntries();
+    }, [activeScope])
+  );
+  
+  const totalBySection = (section) => {
+    return materialsCart
+      .filter(r => r.scope === activeScope && r.section === section)
+      .reduce((sum, r) => sum + r.total, 0);
+  };
+  
+  const totalByScope = (scope) => {
+    return materialsCart
+      .filter(r => r.scope === scope)
+      .reduce((sum, r) => sum + r.total, 0);
+  };
+  
+  const grandMaterialsTotal = materialsCart.reduce((sum, r) => sum + r.total, 0);
+  
+  // Rental equipment helpers
+  const handleRentalAttach = (rentalItem) => {
+    const row = {
+      id: Date.now(),
+      scope: activeScope,
+      section: 'Equipment',
+      title: rentalItem.title,
+      sku: rentalItem.sku,
+      store: rentalItem.store,
+      unit: rentalItem.unit || 'day',
+      qty: 1,
+      duration: 1, // days
+      url: rentalItem.url,
+    };
+    
+    setRentalCart(prev => [...prev, row]);
+    Alert.alert('Added!', `${rentalItem.title} added to Equipment section`);
+  };
+
+  const updateRentalDuration = (id, duration) => {
+    setRentalCart(prev => prev.map(item => 
+      item.id === id ? { ...item, duration } : item
+    ));
+  };
+
+  const removeRentalItem = (id) => {
+    setRentalCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  const grandRentalsTotal = rentalCart.reduce((sum, r) => sum + (r.duration || 1), 0);
+  
+  // Group materials by category for better organization
+  const materialsByCategory = useMemo(() => {
+    const groups = {};
+    filteredCatalog.forEach(item => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    return groups;
+  }, [filteredCatalog]);
+
+  // Line item management
+  const addMaterial = () => setMaterialModal({ visible: true, item: null });
+  const editMaterial = (item) => setMaterialModal({ visible: true, item });
+  const saveMaterial = (item) => {
+    if (item.id) {
+      // Update existing
+      setBid(prev => ({
+        ...prev,
+        materialLineItems: prev.materialLineItems.map(m => m.id === item.id ? item : m)
+      }));
+    } else {
+      // Add new
+      const newItem = { ...item, id: String(Date.now()) };
+      setBid(prev => ({
+        ...prev,
+        materialLineItems: [...(prev.materialLineItems || []), newItem]
+      }));
+    }
+    setMaterialModal({ visible: false, item: null });
+  };
+  const deleteMaterial = (id) => {
+    setBid(prev => ({
+      ...prev,
+      materialLineItems: prev.materialLineItems.filter(m => m.id !== id)
+    }));
+  };
+
+  const addLabor = () => setLaborModal({ visible: true, item: null });
+  const editLabor = (item) => setLaborModal({ visible: true, item });
+  const saveLabor = (item) => {
+    if (item.id) {
+      // Update existing
+      setBid(prev => ({
+        ...prev,
+        laborLineItems: prev.laborLineItems.map(l => l.id === item.id ? item : l)
+      }));
+    } else {
+      // Add new
+      const newItem = { ...item, id: String(Date.now()) };
+      setBid(prev => ({
+        ...prev,
+        laborLineItems: [...(prev.laborLineItems || []), newItem]
+      }));
+    }
+    setLaborModal({ visible: false, item: null });
+  };
+  const deleteLabor = (id) => {
+    setBid(prev => ({
+      ...prev,
+      laborLineItems: prev.laborLineItems.filter(l => l.id !== id)
+    }));
+  };
+
+  const createNewBid = () => {
+    Alert.alert('New Bid', 'Start a new bid? Current bid will be saved.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'New Bid',
+        onPress: async () => {
+          await backupCurrentEstimateSilently();
+          try {
+            await AsyncStorage.multiRemove([
+              'bps.materialsCart',
+              'bps.rentalCart',
+              'manualMaterialEntry',
+              'manualLaborEntry',
+            ]);
+          } catch (error) {
+            console.warn('Failed to clear previous bid carts:', error);
+          }
+
+          const nextBid = blankState();
+          lastSavedBidRef.current = null;
+          pendingSaveRef.current = null;
+
+          setMaterialsCart([]);
+          setRentalCart([]);
+          setBid(nextBid);
+          setStep(1);
+          setActiveScope('kitchen');
+
+          try {
+            await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+            console.log('🆕 Started new bid and saved blank state to storage');
+          } catch (error) {
+            console.warn('Failed to save new blank bid to storage:', error);
+          }
+        },
+      },
+    ]);
+  };
+
+  const applyTemplate = (template) => {
+    const templates = {
+      residential: { materials: 4200, labor: 3500, markupPct: 20, contingencyPct: 7, template: 'residential' },
+      commercial: { materials: 8500, labor: 7200, markupPct: 18, contingencyPct: 5, template: 'commercial' },
+      multifamily: { materials: 12000, labor: 10500, markupPct: 20, contingencyPct: 6, template: 'multifamily' },
+    };
+    setBid(prev => ({ ...prev, ...templates[template] }));
+    Alert.alert('Template Applied', `${template} template loaded successfully!`);
+  };
+
+
+  // Render step content
+  const renderStepContent = () => {
+    switch (step) {
+      case 0: {
+        // Bid Summary - not a numbered step, accessible via Summary button
+        // Calculate AI level and confidence from health score
+        const aiLevel = healthScore >= 75 ? 'good' : healthScore >= 55 ? 'warn' : 'risk';
+        const aiConfidence = aiLevel === 'good' ? 'High' : aiLevel === 'warn' ? 'Medium' : 'Low';
+        const aiSummary = aiLevel === 'good'
+          ? 'No major issues detected. Estimate looks on track.'
+          : aiLevel === 'warn'
+          ? 'Some items may need review. Consider verifying labor and scope.'
+          : 'Risk detected. Labor-heavy bid and low health score—review before sending.';
+        
+        const maxBarHeight = 120;
+        const maxValue = Math.max(calc.materials, calc.labor, calc.overhead, calc.profit, 1);
+        const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
+        const laborHeight = (calc.labor / maxValue) * maxBarHeight;
+        const overheadHeight = (calc.overhead / maxValue) * maxBarHeight;
+        const markupHeight = (calc.profit / maxValue) * maxBarHeight;
+        
+        return (
+          <View style={[s.wideContainer, {
+            paddingVertical: 20,
+            backgroundColor: Colors.card,
+            marginBottom: 16,
+            marginTop: 16,
+          }]}>
+                {/* Total Bid Section - green to blue gradient border */}
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={{
+                  borderRadius: 20,
+                  padding: 1,
+                  marginBottom: 12,
+                }}
+              >
+              <View style={{
+                backgroundColor: '#000000',
+                borderRadius: 18,
+                padding: 20,
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="heart" size={20} color="#22c55e" />
+                    <Text style={{ color: Colors.text, fontSize: 14, marginLeft: 8, fontWeight: '600' }}>{healthScore}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="trending-up" size={16} color="#22d3ee" />
+                    <Text style={{ color: '#22d3ee', fontSize: 12, marginLeft: 4 }}>+4.9%</Text>
+                  </View>
+                </View>
+                
+                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
+                  TOTAL BID
+                </Text>
+                
+                <Text style={{ color: Colors.text, fontSize: 36, textAlign: 'center', fontWeight: '700', marginBottom: 12 }}>
+                  {money(calc.total)}
+                </Text>
+                
+                <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 20 }}>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginRight: 8 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>{money(calc.unitPrice)} / sqft</Text>
+                  </View>
+                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11 }}>Markup {bid.markupPct || 0}%</Text>
+                  </View>
+                </View>
+                
+                {/* Bar Chart */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: maxBarHeight + 40, marginBottom: 8 }}>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.materials)}</Text>
+                    <LinearGradient
+                      colors={['#3b82f6', '#60a5fa']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(materialsHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Materi</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.labor)}</Text>
+                    <LinearGradient
+                      colors={['#22c55e', '#4ade80']}
+                      start={{ x: 0, y: 1 }}
+                      end={{ x: 0, y: 0 }}
+                      style={{
+                        width: '80%',
+                        height: Math.max(laborHeight, 8),
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Labor</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.overhead)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(overheadHeight, 8),
+                        backgroundColor: '#f59e0b',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Overhe</Text>
+                  </View>
+                  <View style={{ alignItems: 'center', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.profit)}</Text>
+                    <View
+                      style={{
+                        width: '80%',
+                        height: Math.max(markupHeight, 8),
+                        backgroundColor: '#a78bfa',
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                      }}
+                    />
+                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Markup</Text>
+                  </View>
+                </View>
+              </View>
+              </LinearGradient>
+              
+              {/* Cost Breakdown - green to blue gradient border */}
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}

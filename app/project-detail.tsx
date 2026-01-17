@@ -33,27 +33,58 @@ export type ProjectOverviewData = {
 const currency = (n: number, currency = "USD") =>
   new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n);
 
-function pillColor(status: "Good" | "At Risk" | "Critical" | "On Track") {
+function pillColor(status: "Good" | "At Risk" | "Critical" | "On Track", darkMode: boolean = true) {
   switch (status) {
     case "Good":
     case "On Track":
-      return { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', borderColor: 'rgba(34, 197, 94, 0.4)' };
+      return { 
+        backgroundColor: 'rgba(34, 197, 94, 0.2)', 
+        color: '#22c55e', 
+        borderColor: 'rgba(34, 197, 94, 0.4)' 
+      };
     case "At Risk":
-      return { backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', borderColor: 'rgba(245, 158, 11, 0.4)' };
+      return { 
+        backgroundColor: 'rgba(245, 158, 11, 0.2)', 
+        color: '#f59e0b', 
+        borderColor: 'rgba(245, 158, 11, 0.4)' 
+      };
     case "Critical":
-      return { backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)' };
+      return { 
+        backgroundColor: 'rgba(239, 68, 68, 0.2)', 
+        color: '#ef4444', 
+        borderColor: 'rgba(239, 68, 68, 0.4)' 
+      };
     default:
-      return { backgroundColor: 'rgba(100, 116, 139, 0.2)', color: '#64748b', borderColor: 'rgba(100, 116, 139, 0.4)' };
+      return { 
+        backgroundColor: darkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(148, 163, 184, 0.15)', 
+        color: darkMode ? '#64748b' : '#475569', 
+        borderColor: darkMode ? 'rgba(100, 116, 139, 0.4)' : 'rgba(148, 163, 184, 0.25)' 
+      };
   }
 }
 
 const SectionCard: React.FC<{ title: string; children: React.ReactNode; style?: any }> = ({ title, children, style = {} }) => {
   const { darkMode } = useTheme();
   return (
-    <View style={[styles.sectionCard, { backgroundColor: darkMode ? '#1e293b' : '#f8fafc' }, style]}>
-      <Text style={[styles.sectionTitle, { color: darkMode ? '#f1f5f9' : '#1e293b' }]}>{title}</Text>
-      {children}
-    </View>
+    <LinearGradient
+      colors={["#2DFFC4", "#00A6FF"]}
+      start={{ x: 0.05, y: 0.15 }}
+      end={{ x: 0.95, y: 0.85 }}
+      style={{
+        borderRadius: 20,
+        padding: 1,
+        marginBottom: 16,
+        ...style,
+      }}
+    >
+      <View style={[styles.sectionCard, { 
+        backgroundColor: darkMode ? '#1e293b' : '#E2E8F0', // Same grey as dashboard project cards
+        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+      }, style]}>
+        <Text style={[styles.sectionTitle, { color: darkMode ? '#f1f5f9' : '#1e293b' }]}>{title}</Text>
+        {children}
+      </View>
+    </LinearGradient>
   );
 };
 
@@ -78,7 +109,7 @@ const Bar: React.FC<{ pct: number }> = ({ pct }) => {
 
 // Budget Tab Component
 const BudgetTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }) => {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeTokens } = useTheme();
   const theme = darkMode ? {
     background: '#1a1a1a',
     card: '#2d2d2d',
@@ -87,11 +118,11 @@ const BudgetTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData
     accent: '#43cea2',
     border: '#404040',
   } : {
-    background: '#f5f7fa',
-    card: '#fff',
-    text: '#222',
-    subtext: '#555',
-    accent: '#43cea2',
+    background: themeTokens?.bg || '#F8FAFC', // Match dashboard background
+    card: themeTokens?.card || '#FFFFFF',
+    text: themeTokens?.text || '#1e293b',
+    subtext: themeTokens?.subtext || '#64748b',
+    accent: '#22c55e', // Match dashboard green
     border: '#e0e0e0',
   };
 
@@ -102,7 +133,7 @@ const BudgetTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData
   ];
 
   return (
-    <View style={[styles.tabContainer, { backgroundColor: theme.background }]}>
+    <View style={[styles.tabContainer, { backgroundColor: darkMode ? theme.background : 'transparent' }]}>
       <ScrollView contentContainerStyle={styles.tabContent}>
         <SectionCard title="Budget Overview">
           <LabeledRow label="Total Budget" value={currency(projectData.budgeted)} />
@@ -124,7 +155,7 @@ const BudgetTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData
                 <Text style={[styles.budgetCategory, { color: theme.text }]}>{category.name}</Text>
                 <Text style={[styles.budgetAmount, { color: theme.text }]}>{currency(category.amount)}</Text>
               </View>
-              <View style={styles.budgetBar}>
+              <View style={[styles.budgetBar, { backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1' }]}>
                 <View style={[styles.budgetBarFill, { width: `${category.percentage}%`, backgroundColor: theme.accent }]} />
               </View>
               <Text style={[styles.budgetPercentage, { color: theme.subtext }]}>{category.percentage}%</Text>
@@ -156,7 +187,7 @@ const BudgetTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData
 
 // Timeline Tab Component
 const TimelineTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }) => {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeTokens } = useTheme();
   const theme = darkMode ? {
     background: '#1a1a1a',
     card: '#2d2d2d',
@@ -165,11 +196,11 @@ const TimelineTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectDa
     accent: '#43cea2',
     border: '#404040',
   } : {
-    background: '#f5f7fa',
-    card: '#fff',
-    text: '#222',
-    subtext: '#555',
-    accent: '#43cea2',
+    background: themeTokens?.bg || '#F8FAFC',
+    card: themeTokens?.card || '#FFFFFF',
+    text: themeTokens?.text || '#1e293b',
+    subtext: themeTokens?.subtext || '#64748b',
+    accent: '#22c55e',
     border: '#e0e0e0',
   };
 
@@ -192,7 +223,7 @@ const TimelineTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectDa
   };
 
   return (
-    <View style={[styles.tabContainer, { backgroundColor: theme.background }]}>
+    <View style={[styles.tabContainer, { backgroundColor: darkMode ? theme.background : 'transparent' }]}>
       <ScrollView contentContainerStyle={styles.tabContent}>
         <SectionCard title="Project Timeline">
           <LabeledRow label="Start Date" value={fmtDate(projectData.startDate)} />
@@ -220,7 +251,7 @@ const TimelineTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectDa
                 <Text style={[styles.phaseName, { color: theme.text }]}>{phase.name}</Text>
                 <Text style={[styles.phaseProgress, { color: theme.subtext }]}>{phase.progress}%</Text>
               </View>
-              <View style={styles.phaseBar}>
+              <View style={[styles.phaseBar, { backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1' }]}>
                 <View style={[styles.phaseBarFill, { width: `${phase.progress}%`, backgroundColor: getPhaseStatusColor(phase.status) }]} />
               </View>
               <View style={styles.phaseDates}>
@@ -237,7 +268,7 @@ const TimelineTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectDa
 
 // Team Tab Component
 const TeamTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }) => {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeTokens } = useTheme();
   const theme = darkMode ? {
     background: '#1a1a1a',
     card: '#2d2d2d',
@@ -246,11 +277,11 @@ const TeamTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }
     accent: '#43cea2',
     border: '#404040',
   } : {
-    background: '#f5f7fa',
-    card: '#fff',
-    text: '#222',
-    subtext: '#555',
-    accent: '#43cea2',
+    background: themeTokens?.bg || '#F8FAFC',
+    card: themeTokens?.card || '#FFFFFF',
+    text: themeTokens?.text || '#1e293b',
+    subtext: themeTokens?.subtext || '#64748b',
+    accent: '#22c55e',
     border: '#e0e0e0',
   };
 
@@ -271,7 +302,7 @@ const TeamTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }
   };
 
   return (
-    <View style={[styles.tabContainer, { backgroundColor: theme.background }]}>
+    <View style={[styles.tabContainer, { backgroundColor: darkMode ? theme.background : 'transparent' }]}>
       <ScrollView contentContainerStyle={styles.tabContent}>
         <SectionCard title="Team Overview">
           <LabeledRow label="Project Manager" value={projectData.team.pm || "Not assigned"} />
@@ -307,7 +338,7 @@ const TeamTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }
 
 // Communications Tab Component
 const CommunicationsTab: React.FC<{ projectData: ProjectOverviewData }> = ({ projectData }) => {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeTokens } = useTheme();
   const theme = darkMode ? {
     background: '#1a1a1a',
     card: '#2d2d2d',
@@ -316,11 +347,11 @@ const CommunicationsTab: React.FC<{ projectData: ProjectOverviewData }> = ({ pro
     accent: '#43cea2',
     border: '#404040',
   } : {
-    background: '#f5f7fa',
-    card: '#fff',
-    text: '#222',
-    subtext: '#555',
-    accent: '#43cea2',
+    background: themeTokens?.bg || '#F8FAFC',
+    card: themeTokens?.card || '#FFFFFF',
+    text: themeTokens?.text || '#1e293b',
+    subtext: themeTokens?.subtext || '#64748b',
+    accent: '#22c55e',
     border: '#e0e0e0',
   };
 
@@ -349,7 +380,7 @@ const CommunicationsTab: React.FC<{ projectData: ProjectOverviewData }> = ({ pro
   ];
 
   return (
-    <View style={[styles.tabContainer, { backgroundColor: theme.background }]}>
+    <View style={[styles.tabContainer, { backgroundColor: darkMode ? theme.background : 'transparent' }]}>
       <ScrollView contentContainerStyle={styles.tabContent}>
         <SectionCard title="Project Communications">
           <Text style={[styles.commSubtitle, { color: theme.subtext }]}>
@@ -395,7 +426,7 @@ const CommunicationsTab: React.FC<{ projectData: ProjectOverviewData }> = ({ pro
 
 // Root Screen ------------------------------------------------------
 export default function ProjectDetailScreen() {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeTokens } = useTheme();
   const router = useRouter();
   const { projectId, projectTitle, projectData } = useLocalSearchParams();
   
@@ -450,8 +481,14 @@ export default function ProjectDetailScreen() {
     card: '#ffffff'
   };
 
+  // Use LinearGradient for dark mode, solid backgroundColor for light mode (matching dashboard)
+  const Container = darkMode ? LinearGradient : View;
+  const containerProps = darkMode 
+    ? { colors: theme.background as [string, string, string], style: styles.container }
+    : { style: [styles.container, { backgroundColor: themeTokens?.bg || '#F8FAFC' }] };
+
   return (
-    <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>
+    <Container {...containerProps}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header with Back Button */}
         <View style={styles.header}>
@@ -473,8 +510,10 @@ export default function ProjectDetailScreen() {
         <View style={{
           flexDirection: "row",
           marginBottom: 16,
-          backgroundColor: darkMode ? "rgba(30, 41, 59, 0.3)" : "rgba(248, 250, 252, 0.8)",
-          borderRadius: 16,
+          borderRadius: 999,
+          borderWidth: 2,
+          borderColor: "#19E180",
+          backgroundColor: darkMode ? "transparent" : "#F1F5F9",
           padding: 4,
           gap: 4,
         }}>
@@ -486,11 +525,15 @@ export default function ProjectDetailScreen() {
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
-                paddingVertical: 12,
+                paddingVertical: 10,
                 paddingHorizontal: 8,
-                borderRadius: 12,
+                borderRadius: 999,
                 gap: 6,
-                backgroundColor: activeTab === tab ? "#10b981" : "transparent"
+                backgroundColor: activeTab === tab ? (darkMode ? "#22c55e" : "#FFFFFF") : "transparent",
+                shadowColor: activeTab === tab && !darkMode ? "#000" : "transparent",
+                shadowOpacity: activeTab === tab && !darkMode ? 0.12 : 0,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 0 },
               }}
               onPress={() => setActiveTab(tab)}
             >
@@ -502,7 +545,7 @@ export default function ProjectDetailScreen() {
               <Text style={{
                 fontSize: 14,
                 fontWeight: "600",
-                color: activeTab === tab ? "#ffffff" : (darkMode ? "#cbd5e1" : "#64748b")
+                color: activeTab === tab ? (darkMode ? "#050B13" : "#071018") : (darkMode ? "#E5F7FF" : "#475569")
               }}>
                 {tab}
               </Text>
@@ -563,13 +606,13 @@ export default function ProjectDetailScreen() {
               <SectionCard title="Health" style={styles.flexCard}>
                 <View style={styles.healthRow}>
                   <Text style={[styles.label, { color: darkMode ? '#cbd5e1' : '#64748b' }]}>Cost Efficiency</Text>
-                  <Text style={[styles.healthStatus, { color: pillColor(data.costEfficiencyStatus).color }]}>
+                  <Text style={[styles.healthStatus, { color: pillColor(data.costEfficiencyStatus, darkMode).color }]}>
                     {data.costEfficiencyStatus}
                   </Text>
                 </View>
                 <View style={styles.healthRow}>
                   <Text style={[styles.label, { color: darkMode ? '#cbd5e1' : '#64748b' }]}>Schedule Efficiency</Text>
-                  <Text style={[styles.healthStatus, { color: pillColor(data.scheduleEfficiencyStatus).color }]}>
+                  <Text style={[styles.healthStatus, { color: pillColor(data.scheduleEfficiencyStatus, darkMode).color }]}>
                     {data.scheduleEfficiencyStatus}
                   </Text>
                 </View>
@@ -578,11 +621,11 @@ export default function ProjectDetailScreen() {
                   <View style={[
                     styles.statusPill,
                     {
-                      backgroundColor: pillColor(data.overallStatus).backgroundColor,
-                      borderColor: pillColor(data.overallStatus).borderColor,
+                      backgroundColor: pillColor(data.overallStatus, darkMode).backgroundColor,
+                      borderColor: pillColor(data.overallStatus, darkMode).borderColor,
                     }
                   ]}>
-                    <Text style={[styles.statusPillText, { color: pillColor(data.overallStatus).color }]}>
+                    <Text style={[styles.statusPillText, { color: pillColor(data.overallStatus, darkMode).color }]}>
                       {data.overallStatus}
                     </Text>
                   </View>
@@ -620,7 +663,7 @@ export default function ProjectDetailScreen() {
         {activeTab === "Team" && <TeamTab projectData={data} />}
         {activeTab === "Messages" && <CommunicationsTab projectData={data} />}
       </ScrollView>
-    </LinearGradient>
+    </Container>
   );
 }
 
@@ -729,9 +772,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   sectionCard: {
-    borderRadius: 24,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     padding: 16,
   },
   sectionTitle: {
@@ -876,7 +918,6 @@ const styles = StyleSheet.create({
   },
   budgetBar: {
     height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 4,
     marginBottom: 4,
   },
@@ -934,7 +975,6 @@ const styles = StyleSheet.create({
   },
   phaseBar: {
     height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 3,
     marginBottom: 4,
   },

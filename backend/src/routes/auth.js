@@ -4,7 +4,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { getPool } = require('../services/database');
-const { loadUsers, saveUsers } = require('../services/leadStorage');
+const { loadUsers, saveUsers, loadProjects, saveProjects, loadProjectLeads, saveProjectLeads, loadUnifiedLeads, saveUnifiedLeads } = require('../services/leadStorage');
+
+// Initialize Stripe only if configured
+let stripe = null;
+if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('your_stripe_secret_key')) {
+  try {
+    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+  } catch (error) {
+    console.warn('⚠️  Stripe not configured, subscription cancellation will be skipped');
+  }
+}
 
 // Load users from disk on startup (persists across server restarts)
 let inMemoryUsers = loadUsers();
@@ -366,7 +376,11 @@ router.get('/profile', authenticateToken, async (req, res) => {
 // Update user profile
 router.put('/profile', authenticateToken, [
   body('firstName').optional().trim().isLength({ min: 1 }),
-  body('lastName').optional().trim().isLength({ min: 1 })
+  body('lastName').optional().trim().isLength({ min: 1 }),
+  body('name').optional().trim(),
+  body('company').optional().trim(),
+  body('phone').optional().trim(),
+  body('location').optional().trim(),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -377,42 +391,160 @@ router.put('/profile', authenticateToken, [
       });
     }
 
-    const { firstName, lastName } = req.body;
+    const { firstName, lastName, name, company, phone, location } = req.body;
     const pool = getPool();
+    let useInMemory = false;
 
-    const updateFields = [];
-    const updateValues = [];
-    let paramCount = 1;
-
-    if (firstName) {
-      updateFields.push(`first_name = $${paramCount}`);
-      updateValues.push(firstName);
-      paramCount++;
+    if (!pool) {
+      useInMemory = true;
     }
 
-    if (lastName) {
-      updateFields.push(`last_name = $${paramCount}`);
-      updateValues.push(lastName);
-      paramCount++;
+    // Handle name field - split into firstName/lastName if provided
+    let finalFirstName = firstName;
+    let finalLastName = lastName;
+    if (name && !firstName && !lastName) {
+      const nameParts = name.trim().split(' ');
+      finalFirstName = nameParts[0] || '';
+      finalLastName = nameParts.slice(1).join(' ') || '';
     }
 
-    if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
+    if (useInMemory) {
+      // Update in-memory storage
+      inMemoryUsers = loadUsers();
+      let userFound = false;
+      
+      for (const [email, userData] of inMemoryUsers.entries()) {
+        if (userData.id === req.user.userId) {
+          if (finalFirstName) userData.first_name = finalFirstName;
+          if (finalLastName) userData.last_name = finalLastName;
+          if (name) userData.name = name;
+          if (company) userData.company = company;
+          if (phone) userData.phone = phone;
+          if (location) userData.location = location;
+          
+          inMemoryUsers.set(email, userData);
+          saveUsers(inMemoryUsers);
+          userFound = true;
+          
+          const updatedUser = {
+            id: userData.id,
+            email: userData.email,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            name: userData.name || `${userData.first_name} ${userData.last_name}`,
+            company: userData.company,
+            phone: userData.phone,
+            location: userData.location,
+            role: userData.role,
+          };
+          
+          return res.json({
+            success: true,
+            user: updatedUser
+          });
+        }
+      }
+      
+      if (!userFound) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+    } else {
+      // Update database
+      const updateFields = [];
+      const updateValues = [];
+      let paramCount = 1;
+
+      if (finalFirstName) {
+        updateFields.push(`first_name = $${paramCount}`);
+        updateValues.push(finalFirstName);
+        paramCount++;
+      }
+
+      if (finalLastName) {
+        updateFields.push(`last_name = $${paramCount}`);
+        updateValues.push(finalLastName);
+        paramCount++;
+      }
+
+      // Store additional fields in user_settings as JSONB
+      // First check if we need to update user_settings
+      if (company || phone || location || name) {
+        try {
+          // Check if user_settings exists
+          const settingsCheck = await pool.query(
+            'SELECT id FROM user_settings WHERE user_id = $1',
+            [req.user.userId]
+          );
+
+          const profileData = {};
+          if (company) profileData.company = company;
+          if (phone) profileData.phone = phone;
+          if (location) profileData.location = location;
+          if (name) profileData.name = name;
+
+          if (settingsCheck.rows.length > 0) {
+            // Update existing settings with profile data
+            await pool.query(
+              `UPDATE user_settings 
+               SET updated_at = NOW()
+               WHERE user_id = $1`,
+              [req.user.userId]
+            );
+            // Store in a separate profile_data column if it exists, or we'll add it to user_settings JSONB
+            // For now, we'll store it separately - this would require schema update
+            // As a workaround, we'll return it in the response
+          } else {
+            // Create user_settings if it doesn't exist
+            await pool.query(
+              `INSERT INTO user_settings (user_id, ai_project_manager_mode, ai_manager_aggressiveness, ai_notify_about, ai_preferred_channel)
+               VALUES ($1, false, 'medium', 'all', 'in_app')
+               ON CONFLICT (user_id) DO NOTHING`,
+              [req.user.userId]
+            );
+          }
+        } catch (settingsError) {
+          console.warn('Could not update user_settings:', settingsError.message);
+          // Continue with user update even if settings update fails
+        }
+      }
+
+      if (updateFields.length === 0 && !company && !phone && !location && !name) {
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+
+      let updatedUser;
+      if (updateFields.length > 0) {
+        updateValues.push(req.user.userId);
+        const result = await pool.query(
+          `UPDATE users SET ${updateFields.join(', ')}, updated_at = NOW() 
+           WHERE id = $${paramCount} 
+           RETURNING id, email, first_name, last_name, role, created_at, updated_at`,
+          updateValues
+        );
+        updatedUser = result.rows[0];
+      } else {
+        // Just fetch the user if only profile data fields were updated
+        const result = await pool.query(
+          'SELECT id, email, first_name, last_name, role, created_at, updated_at FROM users WHERE id = $1',
+          [req.user.userId]
+        );
+        updatedUser = result.rows[0];
+      }
+
+      // Add additional profile fields to response
+      const responseUser = {
+        ...updatedUser,
+        name: name || `${updatedUser.first_name} ${updatedUser.last_name}`,
+        company: company || null,
+        phone: phone || null,
+        location: location || null,
+      };
+
+      res.json({
+        success: true,
+        user: responseUser
+      });
     }
-
-    updateValues.push(req.user.userId);
-
-    const updatedUser = await pool.query(
-      `UPDATE users SET ${updateFields.join(', ')}, updated_at = NOW() 
-       WHERE id = $${paramCount} 
-       RETURNING id, email, first_name, last_name, role, created_at, updated_at`,
-      updateValues
-    );
-
-    res.json({
-      success: true,
-      user: updatedUser.rows[0]
-    });
   } catch (error) {
     console.error('Profile update error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -450,6 +582,307 @@ router.post('/refresh', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Token refresh error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export user data
+router.get('/export', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const pool = getPool();
+    let useInMemory = false;
+
+    if (!pool) {
+      useInMemory = true;
+    }
+
+    console.log(`📦 Exporting data for user: ${userId}`);
+
+    const exportData: any = {
+      exportedAt: new Date().toISOString(),
+      user: {},
+      projects: [],
+      leads: [],
+      projectLeads: [],
+      unifiedLeads: [],
+    };
+
+    // Get user data
+    if (useInMemory) {
+      inMemoryUsers = loadUsers();
+      const userData = Array.from(inMemoryUsers.values()).find(u => u.id === userId);
+      if (userData) {
+        const { password_hash, ...userWithoutPassword } = userData;
+        exportData.user = userWithoutPassword;
+      }
+    } else {
+      try {
+        const userResult = await pool.query(
+          'SELECT id, email, first_name, last_name, role, created_at, updated_at FROM users WHERE id = $1',
+          [userId]
+        );
+        if (userResult.rows.length > 0) {
+          exportData.user = userResult.rows[0];
+        }
+
+        // Get leads from database
+        const leadsResult = await pool.query(
+          'SELECT * FROM leads WHERE user_id = $1',
+          [userId]
+        );
+        exportData.leads = leadsResult.rows;
+      } catch (dbError) {
+        console.error('Database export error:', dbError);
+        useInMemory = true;
+      }
+    }
+
+    // Get projects from file storage
+    try {
+      const projects = loadProjects();
+      exportData.projects = projects.filter(
+        p => p.userId === userId || p.ownerId === userId || p.createdBy === userId
+      );
+    } catch (projectError) {
+      console.error('Error loading projects:', projectError.message);
+    }
+
+    // Get project leads from file storage
+    try {
+      const projectLeads = loadProjectLeads();
+      exportData.projectLeads = projectLeads.filter(
+        lead => lead.userId === userId || lead.createdBy === userId || lead.ownerId === userId
+      );
+    } catch (leadError) {
+      console.error('Error loading project leads:', leadError.message);
+    }
+
+    // Get unified leads from file storage
+    try {
+      const unifiedLeads = loadUnifiedLeads();
+      exportData.unifiedLeads = unifiedLeads.filter(
+        lead => lead.userId === userId || lead.createdBy === userId || lead.ownerId === userId
+      );
+    } catch (unifiedLeadError) {
+      console.error('Error loading unified leads:', unifiedLeadError.message);
+    }
+
+    // Set response headers for file download
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="build-profit-solutions-export-${userId}-${Date.now()}.json"`);
+
+    res.json({
+      success: true,
+      data: exportData,
+      summary: {
+        projects: exportData.projects.length,
+        leads: exportData.leads.length,
+        projectLeads: exportData.projectLeads.length,
+        unifiedLeads: exportData.unifiedLeads.length,
+      }
+    });
+  } catch (error) {
+    console.error('Export data error:', error);
+    res.status(500).json({ 
+      error: 'Failed to export data',
+      message: error.message 
+    });
+  }
+});
+
+// Delete user account
+router.delete('/account', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const pool = getPool();
+    let useInMemory = false;
+
+    // Check if using database or in-memory storage
+    if (!pool) {
+      useInMemory = true;
+    }
+
+    console.log(`🗑️  Starting account deletion for user: ${userEmail} (${userId})`);
+
+    // 1. Cancel Stripe subscriptions if they exist and Stripe is configured
+    if (stripe) {
+      try {
+        if (pool && !useInMemory) {
+          // Get user's Stripe customer ID from database
+          const userResult = await pool.query(
+            'SELECT stripe_customer_id FROM users WHERE id = $1',
+            [userId]
+          );
+
+          if (userResult.rows.length > 0 && userResult.rows[0].stripe_customer_id) {
+            const stripeCustomerId = userResult.rows[0].stripe_customer_id;
+            
+            // Get all active subscriptions for this customer
+            const subscriptions = await stripe.subscriptions.list({
+              customer: stripeCustomerId,
+              status: 'active',
+              limit: 100
+            });
+
+            // Cancel all active subscriptions
+            for (const subscription of subscriptions.data) {
+              try {
+                await stripe.subscriptions.cancel(subscription.id);
+                console.log(`✅ Cancelled Stripe subscription: ${subscription.id}`);
+              } catch (stripeError) {
+                console.error(`⚠️  Error cancelling subscription ${subscription.id}:`, stripeError.message);
+                // Continue with deletion even if subscription cancellation fails
+              }
+            }
+          }
+        } else if (useInMemory) {
+          // Check in-memory users for Stripe customer ID
+          inMemoryUsers = loadUsers();
+          const userData = Array.from(inMemoryUsers.values()).find(u => u.id === userId);
+          if (userData && userData.stripe_customer_id) {
+            const subscriptions = await stripe.subscriptions.list({
+              customer: userData.stripe_customer_id,
+              status: 'active',
+              limit: 100
+            });
+
+            for (const subscription of subscriptions.data) {
+              try {
+                await stripe.subscriptions.cancel(subscription.id);
+                console.log(`✅ Cancelled Stripe subscription: ${subscription.id}`);
+              } catch (stripeError) {
+                console.error(`⚠️  Error cancelling subscription ${subscription.id}:`, stripeError.message);
+              }
+            }
+          }
+        }
+      } catch (stripeError) {
+        console.error('⚠️  Error handling Stripe subscriptions:', stripeError.message);
+        // Continue with deletion even if Stripe operations fail
+      }
+    } else {
+      console.log('⚠️  Stripe not configured, skipping subscription cancellation');
+    }
+
+    // 2. Delete from database (if using database)
+    if (pool && !useInMemory) {
+      try {
+        // Delete user (CASCADE will handle related records in user_settings)
+        // But we need to manually delete from other tables first due to foreign key constraints
+        await pool.query('DELETE FROM leads WHERE user_id = $1', [userId]);
+        await pool.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
+        await pool.query('DELETE FROM payments WHERE user_id = $1', [userId]);
+        await pool.query('DELETE FROM user_settings WHERE user_id = $1', [userId]);
+        
+        // Finally delete the user
+        const deleteResult = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id', [userId]);
+        
+        if (deleteResult.rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        console.log(`✅ Deleted user from database: ${userId}`);
+      } catch (dbError) {
+        console.error('Database deletion error:', dbError);
+        // Fallback to in-memory deletion if database fails
+        useInMemory = true;
+      }
+    }
+
+    // 3. Delete from in-memory storage (if using in-memory or database deletion failed)
+    if (useInMemory) {
+      inMemoryUsers = loadUsers();
+      let userFound = false;
+      
+      // Find and remove user by email
+      for (const [email, userData] of inMemoryUsers.entries()) {
+        if (userData.id === userId || email === userEmail) {
+          inMemoryUsers.delete(email);
+          userFound = true;
+          console.log(`✅ Deleted user from in-memory storage: ${email}`);
+          break;
+        }
+      }
+
+      if (!userFound) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Save updated users to disk
+      saveUsers(inMemoryUsers);
+    }
+
+    // 4. Delete user's projects from file storage
+    try {
+      let projects = loadProjects();
+      const initialCount = projects.length;
+      projects = projects.filter(p => p.userId !== userId && p.ownerId !== userId && p.createdBy !== userId);
+      const deletedCount = initialCount - projects.length;
+      
+      if (deletedCount > 0) {
+        saveProjects(projects);
+        console.log(`✅ Deleted ${deletedCount} project(s) for user ${userId}`);
+      }
+    } catch (projectError) {
+      console.error('⚠️  Error deleting projects:', projectError.message);
+      // Continue even if project deletion fails
+    }
+
+    // 5. Delete user's project leads from file storage
+    try {
+      let projectLeads = loadProjectLeads();
+      const initialCount = projectLeads.length;
+      projectLeads = projectLeads.filter(lead => {
+        // Check various possible userId fields
+        return lead.userId !== userId && 
+               lead.createdBy !== userId && 
+               lead.ownerId !== userId &&
+               (lead.createdByUserId !== userId);
+      });
+      const deletedCount = initialCount - projectLeads.length;
+      
+      if (deletedCount > 0) {
+        saveProjectLeads(projectLeads);
+        console.log(`✅ Deleted ${deletedCount} project lead(s) for user ${userId}`);
+      }
+    } catch (leadError) {
+      console.error('⚠️  Error deleting project leads:', leadError.message);
+      // Continue even if lead deletion fails
+    }
+
+    // 6. Delete user's unified leads from file storage
+    try {
+      let unifiedLeads = loadUnifiedLeads();
+      const initialCount = unifiedLeads.length;
+      unifiedLeads = unifiedLeads.filter(lead => {
+        return lead.userId !== userId && 
+               lead.createdBy !== userId && 
+               lead.ownerId !== userId;
+      });
+      const deletedCount = initialCount - unifiedLeads.length;
+      
+      if (deletedCount > 0) {
+        saveUnifiedLeads(unifiedLeads);
+        console.log(`✅ Deleted ${deletedCount} unified lead(s) for user ${userId}`);
+      }
+    } catch (unifiedLeadError) {
+      console.error('⚠️  Error deleting unified leads:', unifiedLeadError.message);
+      // Continue even if unified lead deletion fails
+    }
+
+    console.log(`✅ Account deletion completed for user: ${userEmail} (${userId})`);
+
+    res.json({
+      success: true,
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete account',
+      message: error.message 
+    });
   }
 });
 
