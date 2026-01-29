@@ -1,0 +1,11 @@
+
+  // Lead Management API Methods
+  async getLeads(filters?: any): Promise<any> {
+    const params = filters ? { ...filters } : {};
+    return this.get("/leads", params);
+  }
+
+  async getLeadAnalytics(): Promise<any> {
+    return this.get("/leads/analytics");
+  }
+

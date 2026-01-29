@@ -1,0 +1,39 @@
+{
+  "common": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "close": "إغلاق",
+    "done": "تم",
+    "next": "التالي",
+    "back": "رجوع",
+    "loading": "جاري التحميل...",
+    "error": "خطأ",
+    "success": "نجاح"
+  },
+  "profile": {
+    "title": "الملف الشخصي",
+    "editProfile": "تعديل الملف الشخصي",
+    "firstName": "الاسم الأول",
+    "lastName": "اسم العائلة",
+    "email": "البريد الإلكتروني",
+    "phone": "الهاتف",
+    "company": "الشركة",
+    "role": "الدور",
+    "location": "الموقع",
+    "saveChanges": "حفظ التغييرات",
+    "selectLanguage": "اختر اللغة",
+    "language": "اللغة",
+    "notifications": "الإشعارات",
+    "darkMode": "الوضع الداكن"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "account": "الحساب",
+    "preferences": "التفضيلات",
+    "notifications": "الإشعارات",
+    "privacy": "الخصوصية",
+    "about": "حول"
+  }
+}

@@ -1,0 +1,33 @@
+env: load .env.local .env
+env: export RSMEANS_API_KEY CONSTRUCTION_INDEX_API_KEY BLS_API_KEY SUNBELT_API_KEY UNITED_RENTALS_API_KEY BUILD_PROFIT_API_KEY OPENAI_API_KEY EXPO_PUBLIC_API_BASE_URL EXPO_PUBLIC_APP_ENV EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY
+Starting project at /Users/nick_lafontaine/build-profit-solutions/mobile
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+Starting Metro Bundler
+Unable to run simctl:
+Error: xcrun simctl help exited with non-zero code: 72
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+Tunnel connected.
+Tunnel ready.
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env.production -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+The following packages should be updated for best compatibility with the installed expo version:
+  expo@54.0.10 - expected version: 54.0.12
+  expo-device@8.0.8 - expected version: ~8.0.9
+  expo-file-system@19.0.15 - expected version: ~19.0.16
+  expo-notifications@0.32.11 - expected version: ~0.32.12
+  expo-router@6.0.8 - expected version: ~6.0.10
+  expo-web-browser@15.0.7 - expected version: ~15.0.8
+Your project may not work correctly until you install the expected versions of the packages.
+Waiting on http://localhost:8081
+Logs for your project will appear below.

@@ -1,0 +1,39 @@
+{
+  "common": {
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "edit": "Редактировать",
+    "delete": "Удалить",
+    "close": "Закрыть",
+    "done": "Готово",
+    "next": "Далее",
+    "back": "Назад",
+    "loading": "Загрузка...",
+    "error": "Ошибка",
+    "success": "Успешно"
+  },
+  "profile": {
+    "title": "Профиль",
+    "editProfile": "Редактировать Профиль",
+    "firstName": "Имя",
+    "lastName": "Фамилия",
+    "email": "Электронная Почта",
+    "phone": "Телефон",
+    "company": "Компания",
+    "role": "Роль",
+    "location": "Местоположение",
+    "saveChanges": "Сохранить Изменения",
+    "selectLanguage": "Выбрать Язык",
+    "language": "Язык",
+    "notifications": "Уведомления",
+    "darkMode": "Темный Режим"
+  },
+  "settings": {
+    "title": "Настройки",
+    "account": "Аккаунт",
+    "preferences": "Предпочтения",
+    "notifications": "Уведомления",
+    "privacy": "Конфиденциальность",
+    "about": "О программе"
+  }
+}

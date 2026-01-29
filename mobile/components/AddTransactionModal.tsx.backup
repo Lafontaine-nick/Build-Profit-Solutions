@@ -1,0 +1,412 @@
+import React, { useState, useRef, useEffect } from "react";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { formatMoneyFull } from "@/src/lib/budgetUtils";
+
+type Props = {
+  visible: boolean;
+  categoryName: string;
+  onClose: () => void;
+  onSave: (transaction: { id: string; vendor: string; amount: number; description: string; po?: string; date: string }) => void;
+};
+
+export default function AddTransactionModal({ visible, categoryName, onClose, onSave }: Props) {
+  const [vendor, setVendor] = useState("");
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [po, setPo] = useState("");
+
+  // Input refs for keyboard navigation
+  const vendorRef = useRef<TextInput>(null);
+  const amountRef = useRef<TextInput>(null);
+  const descriptionRef = useRef<TextInput>(null);
+  const poRef = useRef<TextInput>(null);
+
+  // Auto-focus vendor field when modal opens
+  useEffect(() => {
+    if (visible) {
+      setTimeout(() => vendorRef.current?.focus(), 100);
+    }
+  }, [visible]);
+
+  const categoryIcon = categoryName === 'Labor' ? '👷' : 
+                       categoryName === 'Materials' ? '🧱' :
+                       categoryName === 'Equipment' ? '🔧' : 
+                       categoryName === 'Subs' ? '👥' : '📦';
+
+  // Customize labels based on category
+  const vendorLabel = categoryName === 'Labor' || categoryName === 'Subs' 
+    ? 'Sub / Trade *' 
+    : 'Vendor / Supplier *';
+  
+  const vendorPlaceholder = categoryName === 'Labor' || categoryName === 'Subs'
+    ? 'e.g., ABC Electrical, Joe\'s Plumbing'
+    : 'e.g., Home Depot, ABC Contractors';
+
+  const descriptionPlaceholder = categoryName === 'Labor' || categoryName === 'Subs'
+    ? 'What work was performed?'
+    : categoryName === 'Equipment'
+    ? 'What was rented or purchased?'
+    : 'What was purchased or service provided?';
+
+  const handleSave = () => {
+    if (!vendor.trim()) {
+      const fieldName = categoryName === 'Labor' || categoryName === 'Subs' ? 'sub/trade name' : 'vendor name';
+      Alert.alert("Required", `Please enter a ${fieldName}`);
+      return;
+    }
+    
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a valid amount");
+      return;
+    }
+
+    onSave({
+      id: `txn-${Date.now()}`,
+      vendor: vendor.trim(),
+      amount: amountNum,
+      description: description.trim(),
+      po: po.trim() || undefined,
+      date: new Date().toISOString(),
+    });
+
+    // Reset form
+    setVendor("");
+    setAmount("");
+    setDescription("");
+    setPo("");
+  };
+
+  const handleCancel = () => {
+    setVendor("");
+    setAmount("");
+    setDescription("");
+    setPo("");
+    onClose();
+  };
+
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Format category name for display
+  const displayCategoryName = categoryName.replace('/', ' & ');
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+      <LinearGradient
+        colors={['#020617', '#010409']}
+        style={styles.container}
+      >
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                handleCancel();
+              }}
+              style={styles.backBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <View style={styles.headerTitleRow}>
+              <View style={styles.headerIconContainer}>
+                <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.title}>Add {displayCategoryName}</Text>
+                <Text style={styles.subtitle}>Log your expense</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Form */}
+          <ScrollView 
+            ref={scrollViewRef}
+            style={styles.form} 
+            showsVerticalScrollIndicator={false} 
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.field}>
+              <Text style={styles.label}>{vendorLabel}</Text>
+              <TextInput
+                ref={vendorRef}
+                style={styles.input}
+                placeholder={vendorPlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={vendor}
+                onChangeText={setVendor}
+                autoCapitalize="words"
+                returnKeyType="next"
+                onSubmitEditing={() => amountRef.current?.focus()}
+                blurOnSubmit={false}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Amount *</Text>
+              <View style={styles.amountInputContainer}>
+                <Text style={styles.dollarSign}>$</Text>
+                <TextInput
+                  ref={amountRef}
+                  style={[styles.input, styles.amountInput]}
+                  placeholder="0.00"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={amount}
+                  onChangeText={(text) => {
+                    // Allow only numbers and one decimal point
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const parts = cleaned.split('.');
+                    if (parts.length > 2) {
+                      setAmount(parts[0] + '.' + parts.slice(1).join(''));
+                    } else {
+                      setAmount(cleaned);
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="next"
+                  onSubmitEditing={() => descriptionRef.current?.focus()}
+                  blurOnSubmit={false}
+                />
+              </View>
+
+              {amount && !isNaN(parseFloat(amount)) && (
+                <Text style={styles.hint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
+              )}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Description (Optional)</Text>
+              <TextInput
+                ref={descriptionRef}
+                style={[styles.input, styles.textArea]}
+                placeholder={descriptionPlaceholder}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={description}
+                onChangeText={setDescription}
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }}
+                multiline
+                numberOfLines={2}
+                returnKeyType="next"
+                onSubmitEditing={() => poRef.current?.focus()}
+                blurOnSubmit={false}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>PO Number (Optional)</Text>
+              <TextInput
+                ref={poRef}
+                style={styles.input}
+                placeholder="e.g., PO-1003"
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                value={po}
+                onChangeText={setPo}
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }}
+                autoCapitalize="characters"
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  Keyboard.dismiss();
+                  handleSave();
+                }}
+              />
+            </View>
+          </ScrollView>
+
+          {/* Actions */}
+          <View style={styles.actions}>
+            <TouchableOpacity 
+              onPress={handleCancel} 
+              style={[styles.button, styles.cancelButton]}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => {
+                Keyboard.dismiss();
+                handleSave();
+              }} 
+              style={[styles.button, styles.saveButton]}
+            >
+              <Text style={styles.saveButtonText}>✓ Save</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "flex-end",
+  },
+  container: {
+    flex: 1,
+    backgroundColor: "#020617",
+    paddingBottom: 20,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(34, 197, 94, 0.25)",
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  headerIconContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.3)',
+  },
+  title: {
+    color: "white",
+    fontSize: 26,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    lineHeight: 32,
+  },
+  subtitle: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    marginTop: 4,
+    fontWeight: "500",
+    letterSpacing: 0.2,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  form: {
+    padding: 20,
+  },
+  field: {
+    marginBottom: 20,
+  },
+  label: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 10,
+    letterSpacing: 0.2,
+  },
+  input: {
+    backgroundColor: "#020617",
+    color: "white",
+    fontSize: 15,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.3)",
+    fontWeight: "500",
+  },
+  amountInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  dollarSign: {
+    position: "absolute",
+    left: 16,
+    color: "#22c55e",
+    fontSize: 18,
+    fontWeight: "600",
+    zIndex: 1,
+  },
+  amountInput: {
+    paddingLeft: 32,
+    flex: 1,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  hint: {
+    color: "#22d3ee",
+    fontSize: 13,
+    marginTop: 6,
+    fontWeight: "600",
+  },
+  actions: {
+    flexDirection: "row",
+    padding: 20,
+    paddingTop: 12,
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(34, 197, 94, 0.25)",
+    backgroundColor: "#020617",
+  },
+  button: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: "#020617",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.3)",
+  },
+  cancelButtonText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: "#22c55e",
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  saveButtonText: {
+    color: "#020617",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+}); 

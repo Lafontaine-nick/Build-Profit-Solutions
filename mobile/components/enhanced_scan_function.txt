@@ -1,0 +1,56 @@
+  const scanReceipt = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { 
+        alert("Camera permission is required."); 
+        return; 
+      }
+      
+      const res = await ImagePicker.launchCameraAsync({ 
+        quality: 0.7, 
+        allowsEditing: true,
+        base64: false 
+      });
+      
+      if (!res.canceled && res.assets[0]) {
+        const imageUri = res.assets[0].uri;
+        setF({ ...f, receiptUri: imageUri });
+        
+        // Process receipt with OCR
+        setIsProcessingReceipt(true);
+        
+        try {
+          const ocrResult = await receiptOCRService.processReceipt(imageUri);
+          
+          if (ocrResult.success && ocrResult.data) {
+            const receiptData = ocrResult.data;
+            
+            // Auto-fill form fields from OCR data
+            setF(prev => ({
+              ...prev,
+              receiptUri: imageUri,
+              vendor: receiptData.vendor || prev.vendor,
+              amount: receiptData.amount || prev.amount,
+              category: receiptData.category || prev.category,
+              date: receiptData.date || prev.date,
+              notes: receiptData.items?.map(item => 
+                `${item.description}: $${item.amount}`
+              ).join(', ') || prev.notes
+            }));
+            
+            alert(`Receipt processed successfully!\nVendor: ${receiptData.vendor}\nAmount: $${receiptData.amount}\nConfidence: ${receiptData.confidence}%`);
+          } else {
+            alert('Could not extract data from receipt. Please enter details manually.');
+          }
+        } catch (error) {
+          console.error('OCR processing error:', error);
+          alert('Error processing receipt. Please enter details manually.');
+        } finally {
+          setIsProcessingReceipt(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      alert('Error taking photo. Please try again.');
+    }
+  };

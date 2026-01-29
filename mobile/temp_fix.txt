@@ -1,0 +1,12 @@
+  // Test connection method
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl}/health`, {
+        method: 'GET'
+      });
+      return response.ok;
+    } catch (error) {
+      console.log('Backend connection test failed:', error);
+      return false;
+    }
+  }

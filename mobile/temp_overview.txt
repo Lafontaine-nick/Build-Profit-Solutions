@@ -1,0 +1,305 @@
+                  <View>
+                    {/* Project Header with Status Badge */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: theme.text, fontSize: 28, fontWeight: 'bold', marginBottom: 8 }}>
+                          {selectedProject.name}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                          <MaterialIcons name="location-on" size={16} color={theme.subtext} />
+                          <Text style={{ color: theme.subtext, fontSize: 16, marginLeft: 4 }}>
+                            {selectedProject.location}
+                          </Text>
+                        </View>
+                        {selectedProject.lastUpdated && (
+                          <Text style={{ color: theme.subtext, fontSize: 14 }}>
+                            Last updated: {new Date(selectedProject.lastUpdated).toLocaleDateString()}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      {/* Status Badge */}
+                      <View style={{
+                        backgroundColor: selectedProject.status === 'Draft' ? '#FFF3CD' : 
+                                        selectedProject.status === 'Submitted' ? '#D1ECF1' : 
+                                        selectedProject.status === 'Approved' ? '#D4EDDA' : '#F8D7DA',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 20,
+                        borderWidth: 1,
+                        borderColor: selectedProject.status === 'Draft' ? '#FFEAA7' : 
+                                    selectedProject.status === 'Submitted' ? '#74B9FF' : 
+                                    selectedProject.status === 'Approved' ? '#00B894' : '#E84393'
+                      }}>
+                        <Text style={{
+                          color: selectedProject.status === 'Draft' ? '#B7791F' : 
+                                selectedProject.status === 'Submitted' ? '#0984E3' : 
+                                selectedProject.status === 'Approved' ? '#00A085' : '#C44569',
+                          fontSize: 12,
+                          fontWeight: 'bold'
+                        }}>
+                          {selectedProject.status}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Progress Section */}
+                    <View style={{ 
+                      backgroundColor: theme.card, 
+                      borderRadius: 16, 
+                      padding: 20, 
+                      marginBottom: 16,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 4,
+                      elevation: 3
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold' }}>
+                          Project Progress
+                        </Text>
+                        <Text style={{ color: theme.accent, fontSize: 16, fontWeight: 'bold' }}>
+                          {selectedProject.progress || 0}%
+                        </Text>
+                      </View>
+                      
+                      {/* Progress Bar */}
+                      <View style={{
+                        height: 8,
+                        backgroundColor: theme.border,
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        marginBottom: 12
+                      }}>
+                        <View style={{
+                          height: '100%',
+                          width: `${selectedProject.progress || 0}%`,
+                          backgroundColor: theme.accent,
+                          borderRadius: 4
+                        }} />
+                      </View>
+                      
+                      {/* Priority Indicator */}
+                      {selectedProject.priority && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <MaterialIcons 
+                            name="flag" 
+                            size={16} 
+                            color={selectedProject.priority === 'high' ? '#E74C3C' : 
+                                  selectedProject.priority === 'medium' ? '#F39C12' : '#27AE60'} 
+                          />
+                          <Text style={{ 
+                            color: selectedProject.priority === 'high' ? '#E74C3C' : 
+                                  selectedProject.priority === 'medium' ? '#F39C12' : '#27AE60',
+                            fontSize: 14,
+                            fontWeight: 'bold',
+                            marginLeft: 4,
+                            textTransform: 'capitalize'
+                          }}>
+                            {selectedProject.priority} Priority
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Key Metrics Grid */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                      {/* Budget Card */}
+                      <View style={{ 
+                        flex: 1,
+                        backgroundColor: theme.card, 
+                        borderRadius: 12, 
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        alignItems: 'center'
+                      }}>
+                        <MaterialIcons name="attach-money" size={24} color={theme.accent} />
+                        <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                          Budget
+                        </Text>
+                        <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold', textAlign: 'center' }}>
+                          {selectedProject.budget ? `$${selectedProject.budget.toLocaleString()}` : 'Not set'}
+                        </Text>
+                      </View>
+                      
+                      {/* Margin Card */}
+                      <View style={{ 
+                        flex: 1,
+                        backgroundColor: theme.card, 
+                        borderRadius: 12, 
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        alignItems: 'center'
+                      }}>
+                        <MaterialIcons name="trending-up" size={24} color={theme.accent} />
+                        <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                          Margin
+                        </Text>
+                        <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold', textAlign: 'center' }}>
+                          {selectedProject.margin}%
+                        </Text>
+                      </View>
+                      
+                      {/* Duration Card */}
+                      <View style={{ 
+                        flex: 1,
+                        backgroundColor: theme.card, 
+                        borderRadius: 12, 
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        alignItems: 'center'
+                      }}>
+                        <MaterialIcons name="schedule" size={24} color={theme.accent} />
+                        <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                          Duration
+                        </Text>
+                        <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold', textAlign: 'center' }}>
+                          {selectedProject.timeline?.duration || 'TBD'} wks
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Timeline Section */}
+                    {selectedProject.timeline && (
+                      <View style={{ 
+                        backgroundColor: theme.card, 
+                        borderRadius: 16, 
+                        padding: 20, 
+                        marginBottom: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border
+                      }}>
+                        <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>
+                          Project Timeline
+                        </Text>
+                        
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: theme.subtext, fontSize: 14, marginBottom: 4 }}>Start Date</Text>
+                            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '600' }}>
+                              {new Date(selectedProject.timeline.startDate).toLocaleDateString()}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                            <Text style={{ color: theme.subtext, fontSize: 14, marginBottom: 4 }}>End Date</Text>
+                            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '600' }}>
+                              {new Date(selectedProject.timeline.endDate).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        </View>
+                        
+                        {/* Timeline Progress Bar */}
+                        <View style={{ marginTop: 12 }}>
+                          <Text style={{ color: theme.subtext, fontSize: 14, marginBottom: 8 }}>Timeline Progress</Text>
+                          <View style={{
+                            height: 6,
+                            backgroundColor: theme.border,
+                            borderRadius: 3,
+                            overflow: 'hidden'
+                          }}>
+                            <View style={{
+                              height: '100%',
+                              width: `${selectedProject.progress || 0}%`,
+                              backgroundColor: theme.accent,
+                              borderRadius: 3
+                            }} />
+                          </View>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Quick Actions */}
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>
+                        Quick Actions
+                      </Text>
+                      
+                      <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+                        <TouchableOpacity
+                          onPress={handleEditProject}
+                          style={{
+                            flex: 1,
+                            backgroundColor: theme.accent,
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            flexDirection: 'row',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <MaterialIcons name="edit" size={20} color="#fff" style={{ marginRight: 8 }} />
+                          <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+                            Edit Project
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => setActiveTab('bids')}
+                          style={{
+                            flex: 1,
+                            backgroundColor: theme.card,
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            flexDirection: 'row',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: theme.border
+                          }}
+                        >
+                          <MaterialIcons name="gavel" size={20} color={theme.text} style={{ marginRight: 8 }} />
+                          <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>
+                            View Bids
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => setActiveTab('files')}
+                          style={{
+                            flex: 1,
+                            backgroundColor: theme.card,
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            flexDirection: 'row',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: theme.border
+                          }}
+                        >
+                          <MaterialIcons name="folder" size={20} color={theme.text} style={{ marginRight: 8 }} />
+                          <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>
+                            Files
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={handleDeleteProject}
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#FFF5F5',
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            flexDirection: 'row',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: '#FED7D7'
+                          }}
+                        >
+                          <MaterialIcons name="delete" size={20} color="#E53E3E" style={{ marginRight: 8 }} />
+                          <Text style={{ color: '#E53E3E', fontSize: 16, fontWeight: 'bold' }}>
+                            Delete
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>

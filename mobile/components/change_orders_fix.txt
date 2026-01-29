@@ -1,0 +1,23 @@
+        {tab === 'cos' && (
+          <View style={[styles.tabContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {projectData.changeOrders.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No change orders yet</Text>
+                <Text style={[styles.emptyStateSubtext, { color: theme.subtext }]}>Tap "Add Change Order" to get started</Text>
+              </View>
+            ) : (
+              projectData.changeOrders.map(co => (
+                <View key={co.id} style={styles.changeOrderItem}>
+                  <View style={styles.changeOrderHeader}>
+                    <Text style={[styles.changeOrderTitle, { color: theme.text }]}>{co.title}</Text>
+                    <Text style={[
+                      styles.changeOrderAmount,
+                      { color: co.approved ? '#22c55e' : '#f59e0b' }
+                    ]}>{money(co.amount, currency)}</Text>
+                  </View>
+                  <Text style={[styles.changeOrderStatus, { color: theme.subtext }]}>Status: {co.approved ? 'Approved' : 'Pending'}</Text>
+                </View>
+              ))
+            )}
+          </View>
+        )}

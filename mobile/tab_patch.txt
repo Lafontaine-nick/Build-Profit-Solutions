@@ -1,0 +1,81 @@
+Add tab navigation to projects.tsx:
+
+1. Add tab state after line 96:
+  const [activeTab, setActiveTab] = useState("Overview");
+  const tabs = ["Overview", "Costs", "Timeline", "Team"];
+
+2. Add tab navigation component after header (around line 128):
+        {/* Tab Navigation */}
+        <View style={{
+          flexDirection: 'row',
+          marginBottom: 16,
+          backgroundColor: darkMode ? "rgba(30, 41, 59, 0.3)" : "rgba(248, 250, 252, 0.8)",
+          borderRadius: 16,
+          padding: 4,
+          gap: 4,
+        }}>
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 12,
+                paddingHorizontal: 8,
+                borderRadius: 12,
+                gap: 6,
+                backgroundColor: activeTab === tab ? "#10b981" : "transparent"
+              }}
+              onPress={() => setActiveTab(tab)}
+            >
+              {tab === "Overview" && <Text style={{fontSize: 16}}>ℹ️</Text>}
+              {tab === "Costs" && <Text style={{fontSize: 16}}>💲</Text>}
+              {tab === "Timeline" && <Text style={{fontSize: 16}}>🕒</Text>}
+              {tab === "Team" && <Text style={{fontSize: 16}}>👥</Text>}
+              <Text style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: activeTab === tab ? "#ffffff" : (darkMode ? "#cbd5e1" : "#64748b")
+              }}>
+                {tab}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+3. Wrap existing Grid section in conditional:
+        {activeTab === "Overview" && (
+          // existing Grid content here
+        )}
+
+        {activeTab === "Costs" && (
+          <View style={styles.gridContainer}>
+            <SectionCard title="Cost Breakdown">
+              <LabeledRow label="Materials" value={currency(data.spent * 0.6)} />
+              <LabeledRow label="Labor" value={currency(data.spent * 0.3)} />
+              <LabeledRow label="Equipment" value={currency(data.spent * 0.1)} />
+            </SectionCard>
+          </View>
+        )}
+
+        {activeTab === "Timeline" && (
+          <View style={styles.gridContainer}>
+            <SectionCard title="Project Timeline">
+              <LabeledRow label="Start Date" value={fmtDate(data.startDate)} />
+              <LabeledRow label="End Date" value={fmtDate(data.endDate)} />
+              <LabeledRow label="Days Remaining" value={`${data.daysLeft || 0} days`} />
+            </SectionCard>
+          </View>
+        )}
+
+        {activeTab === "Team" && (
+          <View style={styles.gridContainer}>
+            <SectionCard title="Team Overview">
+              <LabeledRow label="Project Manager" value={data.team.pm || "Not assigned"} />
+              <LabeledRow label="Active Subcontractors" value={`${data.team.activeSubs ?? 0}`} />
+              <LabeledRow label="Crew Members" value={`${data.team.crewCount ?? 0}`} />
+            </SectionCard>
+          </View>
+        )}

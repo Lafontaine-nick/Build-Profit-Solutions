@@ -1,0 +1,23 @@
+        {tab === 'expenses' && (
+          <View style={[styles.tabContent, styles.expensesContent, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {projectData.expenses.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={[styles.emptyStateText, { color: theme.subtext }]}>No expenses yet</Text>
+                <Text style={[styles.emptyStateSubtext, { color: theme.subtext }]}>Tap "Add Expense" to get started</Text>
+              </View>
+            ) : (
+              projectData.expenses.map(e=> (
+                <View key={e.id} style={styles.expenseItem}>
+                  <View style={styles.expenseHeader}>
+                    <Text style={[styles.expenseVendor, { color: theme.text }]}>{e.vendor}</Text>
+                    <Text style={[styles.expenseAmount, { color: theme.text }]}>{money(e.amount, currency)}</Text>
+                  </View>
+                  <Text style={[styles.expenseDate, { color: theme.subtext }]}>{new Date(e.date).toLocaleDateString()}</Text>
+                  {typeof e.aiConfidence === 'number' && (
+                    <Text style={styles.aiConfidence}>AI {Math.round(e.aiConfidence*100)}%</Text>
+                  )}
+                </View>
+              ))
+            )}
+          </View>
+        )}

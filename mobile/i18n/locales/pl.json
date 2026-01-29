@@ -1,0 +1,39 @@
+{
+  "common": {
+    "save": "Zapisz",
+    "cancel": "Anuluj",
+    "edit": "Edytuj",
+    "delete": "Usuń",
+    "close": "Zamknij",
+    "done": "Gotowe",
+    "next": "Dalej",
+    "back": "Wstecz",
+    "loading": "Ładowanie...",
+    "error": "Błąd",
+    "success": "Sukces"
+  },
+  "profile": {
+    "title": "Profil",
+    "editProfile": "Edytuj Profil",
+    "firstName": "Imię",
+    "lastName": "Nazwisko",
+    "email": "E-mail",
+    "phone": "Telefon",
+    "company": "Firma",
+    "role": "Rola",
+    "location": "Lokalizacja",
+    "saveChanges": "Zapisz Zmiany",
+    "selectLanguage": "Wybierz Język",
+    "language": "Język",
+    "notifications": "Powiadomienia",
+    "darkMode": "Tryb Ciemny"
+  },
+  "settings": {
+    "title": "Ustawienia",
+    "account": "Konto",
+    "preferences": "Preferencje",
+    "notifications": "Powiadomienia",
+    "privacy": "Prywatność",
+    "about": "O aplikacji"
+  }
+}

@@ -1,0 +1,649 @@
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { MaterialIcons } from "@expo/vector-icons";
+import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import AddTransactionModal from "./AddTransactionModal";
+import EditTransactionModal from "./EditTransactionModal";
+import EditPurchaseOrderModal from "./EditPurchaseOrderModal";
+import { useProjectData } from "../contexts/ProjectDataContext";
+
+type Props = {
+  visible: boolean;
+  categoryName: string;
+  onClose: () => void;
+  theme?: any;
+};
+
+export default function CategoryDetailModal({ visible, categoryName, onClose, theme }: Props) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const previousDataRef = useRef<any[]>([]);
+  const { projectData, addExpense, deleteExpense, updateExpense, reloadFromStorage } = useProjectData();
+  
+  // Force re-render when expenses change
+  // Use both the count and IDs to ensure we catch all changes
+  const expensesKey = useMemo(() => {
+    const expenses = projectData.expenses || [];
+    const ids = expenses.map(e => e.id).join(',');
+    const count = expenses.length;
+    return `${count}:${ids}`;
+  }, [projectData.expenses]);
+
+  // Filter expenses by category (flexible matching for Materials/Equipment)
+  const data = useMemo(() => {
+    const expenses = projectData.expenses || [];
+    const categoryLower = categoryName.toLowerCase();
+    
+    console.log('📊 CategoryDetailModal: Filtering expenses. Total:', expenses.length, 'Category:', categoryName);
+    
+    const filtered = expenses
+      .filter(exp => {
+        const expCategory = (exp.category || '').toLowerCase();
+        
+        // Exact match
+        if (expCategory === categoryLower) return true;
+        
+        // Flexible match for Materials/Equipment
+        if ((categoryLower.includes('materials') || categoryLower.includes('equipment')) &&
+            (expCategory.includes('materials') || expCategory.includes('equipment'))) {
+          return true;
+        }
+        
+        // Flexible match for Labor
+        if (categoryLower.includes('labor') && expCategory.includes('labor')) {
+          return true;
+        }
+        
+        return false;
+      })
+      .map(exp => {
+        // CRITICAL: Preserve the original expense ID - don't generate a new one
+        // If the expense doesn't have an ID, we need to find it in the original array
+        const expenseId = exp.id;
+        if (!expenseId) {
+          console.warn('⚠️ Expense missing ID:', exp);
+        }
+        return {
+          id: expenseId || `exp-${Date.now()}-${Math.random()}`, // Only generate if truly missing
+          date: exp.date || new Date().toISOString(),
+          vendor: exp.vendor || 'Unknown',
+          amount: exp.amount || 0,
+          description: exp.notes || '',
+          po: undefined,
+        };
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Most recent first
+    
+    console.log('📊 CategoryDetailModal: Filtered expenses count:', filtered.length);
+    
+    // Store previous data for smooth transitions (only when we have data)
+    if (filtered.length > 0) {
+      previousDataRef.current = filtered;
+    }
+    
+    // Return filtered data (don't freeze during delete - let it update naturally)
+    return filtered;
+  }, [projectData.expenses, categoryName]);
+
+  const total = useMemo(() => {
+    return data.reduce((sum, item) => sum + (item.amount || 0), 0);
+  }, [data]);
+
+  // Update ref when data changes
+  useEffect(() => {
+    previousDataRef.current = data;
+  }, [data]);
+  
+  // Debug: Log when projectData.expenses changes
+  useEffect(() => {
+    console.log('🔄 CategoryDetailModal: projectData.expenses changed, count:', projectData.expenses?.length || 0);
+  }, [projectData.expenses]);
+
+  const categoryIcon = categoryName.toLowerCase().includes('labor') ? '👷' : 
+                       categoryName.toLowerCase().includes('materials') || categoryName.toLowerCase().includes('equipment') ? '🧱' :
+                       categoryName.toLowerCase().includes('equipment') ? '🔧' : 
+                       categoryName.toLowerCase().includes('subs') ? '👥' : '📦';
+
+  const handleAddTransaction = (transaction: any) => {
+    // Add expense to project data with category
+    addExpense({
+      id: transaction.id || String(Date.now()),
+      category: categoryName,
+      vendor: transaction.vendor,
+      amount: transaction.amount,
+      date: transaction.date,
+      notes: transaction.description,
+      receiptUri: null,
+    });
+
+    Alert.alert(
+      'Success!',
+      `Added ${formatMoneyFull(transaction.amount, { decimals: 2 })} to ${categoryName}`,
+      [{ text: 'OK' }]
+    );
+    setShowAddForm(false);
+  };
+
+  const t = theme || {
+    card: '#0f2540',
+    text: '#ffffff',
+    subtext: 'rgba(255,255,255,0.7)',
+    accent: '#43cea2',
+    background: ['#17314f'],
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+      <View style={[styles.container, { backgroundColor: '#020617' }]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity 
+              onPress={onClose} 
+              style={styles.backButton}
+            >
+              <MaterialIcons name='arrow-back' size={24} color='#FFFFFF' />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={styles.headerIconContainer}>
+                  <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.headerTitle}>
+                    {categoryName.replace('/', ' & ')}
+                  </Text>
+                  <Text style={styles.headerSubtitle}>Transactions & Invoices</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Total Spent Card */}
+          <View style={styles.outerCard}>
+            <View style={styles.totalCard}>
+              <Text style={styles.totalLabel}>Total Spent</Text>
+              <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
+            </View>
+          </View>
+
+          {/* Add Button */}
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => setShowAddForm(true)}
+          >
+            <Text style={styles.addButtonText}>+ Add {categoryName}</Text>
+          </TouchableOpacity>
+
+          {/* Transactions List */}
+          {data.length > 0 ? (
+            <View style={styles.transactionsContainer}>
+              {data.map((item) => {
+                const isItemDeleting = deletingId === item.id;
+                return (
+                  <TouchableOpacity 
+                    key={item.id}
+                    style={[
+                      styles.transactionCard, 
+                      { 
+                        opacity: isItemDeleting ? 0.5 : 1,
+                      }
+                    ]}
+                    onPress={() => {
+                      if (isItemDeleting) return;
+                      // For Purchase Orders category, convert expense to PO format
+                      if (categoryName === 'Purchase Orders') {
+                        const poLike = {
+                          id: item.id,
+                          poNumber: item.po || '',
+                          vendor: item.vendor || '',
+                          category: item.category || 'Materials',
+                          amount: item.amount || 0,
+                          description: item.notes || '',
+                          orderDate: item.date || new Date().toISOString().split('T')[0],
+                          expectedDelivery: '',
+                          status: 'Pending' as const,
+                        };
+                        setEditingPurchaseOrder(poLike);
+                      } else {
+                        setEditingTransaction(item);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                    disabled={isItemDeleting}
+                  >
+                    <View style={styles.transactionHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.vendor}>{item.vendor}</Text>
+                        {item.description && (
+                          <Text style={styles.description} numberOfLines={1} ellipsizeMode="tail">
+                            {item.description}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
+                    </View>
+                    
+                    <View style={styles.transactionFooter}>
+                      <Text style={styles.date}>
+                        {new Date(item.date).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          year: 'numeric' 
+                        })}
+                      </Text>
+                      {item.po && (
+                        <View style={styles.poBadge}>
+                          <Text style={styles.poText}>📋 {item.po}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <Text style={{ fontSize: 40 }}>{categoryIcon}</Text>
+              </View>
+              <Text style={styles.emptyText}>No transactions yet</Text>
+              <Text style={styles.emptySubtext}>
+                Expenses will appear here as they're added
+              </Text>
+            </View>
+          )}
+          
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
+      </View>
+
+      {/* Add Transaction Form */}
+      <AddTransactionModal
+        visible={showAddForm}
+        categoryName={categoryName}
+        onClose={() => setShowAddForm(false)}
+        onSave={handleAddTransaction}
+      />
+
+      {/* Edit Purchase Order Modal (for Purchase Orders category) */}
+      <EditPurchaseOrderModal
+        visible={categoryName === 'Purchase Orders' && editingPurchaseOrder !== null}
+        purchaseOrder={editingPurchaseOrder}
+        onClose={() => setEditingPurchaseOrder(null)}
+        onSave={(updated) => {
+          // Convert PO back to expense format
+          updateExpense({
+            id: updated.id,
+            category: 'Purchase Orders',
+            vendor: updated.vendor,
+            amount: updated.amount,
+            date: updated.orderDate || new Date().toISOString(),
+            notes: updated.description,
+          });
+          Alert.alert('Updated!', 'Purchase Order updated successfully');
+          setEditingPurchaseOrder(null);
+        }}
+        onCancel={(id) => {
+          // For expenses, we want to delete, not cancel
+          Alert.alert(
+            'Delete Purchase Order?',
+            'This will permanently remove this purchase order.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: () => {
+                  deleteExpense(id);
+                  setEditingPurchaseOrder(null);
+                }
+              }
+            ]
+          );
+        }}
+      />
+
+      {/* Edit Transaction Modal (for other categories) */}
+      <EditTransactionModal
+        visible={editingTransaction !== null && categoryName !== 'Purchase Orders'}
+        transaction={editingTransaction}
+        categoryName={categoryName}
+        onClose={() => setEditingTransaction(null)}
+        onSave={(updated) => {
+          updateExpense({
+            id: updated.id,
+            category: categoryName,
+            vendor: updated.vendor,
+            amount: updated.amount,
+            date: updated.date,
+            notes: updated.description,
+          });
+          Alert.alert('Updated!', 'Transaction updated successfully');
+          setEditingTransaction(null);
+        }}
+        onDelete={(id) => {
+          console.log('🗑️ CategoryDetailModal: Deleting expense ID:', id);
+          console.log('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
+          console.log('🗑️ Current filtered data IDs:', data.map(d => d.id));
+          
+          // Verify the ID exists in the actual expenses
+          const expenseExists = projectData.expenses?.some((e: any) => e.id === id);
+          console.log('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
+          
+          if (!expenseExists) {
+            console.error('❌ Expense ID not found in projectData.expenses!');
+            console.error('❌ Looking for ID:', id);
+            console.error('❌ Available IDs:', projectData.expenses?.map((e: any) => e.id) || []);
+            Alert.alert('Error', 'Expense not found. Please try again.');
+            return;
+          }
+          
+          // Close edit modal first
+          setEditingTransaction(null);
+          // Set deleting state for this specific item only
+          setDeletingId(id);
+          
+          // Delete expense - use a small delay to ensure modal closes first
+          setTimeout(() => {
+            console.log('🗑️ Calling deleteExpense with ID:', id);
+            deleteExpense(id);
+            
+            // Reset deleting state after a short delay to allow state to update
+            // Don't reload from storage - the state update should be enough
+            // The useEffect in ProjectDataContext will save to AsyncStorage automatically
+            setTimeout(() => {
+              setDeletingId(null);
+              console.log('✅ Delete complete, resetting deletingId');
+            }, 300);
+          }, 50);
+        }}
+      />
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(34, 197, 94, 0.15)',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  headerIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(34, 211, 238, 0.25)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#22c55e',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  headerTitle: {
+    color: "white",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    lineHeight: 34,
+  },
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    marginTop: 2,
+    fontWeight: '500',
+    letterSpacing: 0.1,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(34, 211, 238, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 120,
+  },
+  outerCard: {
+    backgroundColor: "#020617",
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: "rgba(34, 197, 94, 0.25)",
+    padding: 24,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  totalCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  totalLabel: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  totalValue: {
+    color: "#22c55e",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+  },
+  addButton: {
+    backgroundColor: "#22c55e",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    marginBottom: 24,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#22c55e',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
+  },
+  addButtonText: {
+    color: "#020617",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  transactionsContainer: {
+    gap: 14,
+  },
+  transactionCard: {
+    backgroundColor: "#020617",
+    borderRadius: 18,
+    padding: 20,
+    marginBottom: 0,
+    borderWidth: 1.5,
+    borderColor: "rgba(34, 197, 94, 0.25)",
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  transactionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 14,
+    gap: 16,
+  },
+  vendor: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 17,
+    flex: 1,
+    letterSpacing: -0.3,
+    lineHeight: 22,
+  },
+  amount: {
+    color: "#22c55e",
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  description: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    marginTop: 6,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  transactionFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34, 197, 94, 0.12)',
+  },
+  date: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  poBadge: {
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.25)',
+  },
+  poText: {
+    color: "#22d3ee",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+  },
+  emptyState: {
+    paddingVertical: 80,
+    paddingHorizontal: 40,
+    alignItems: "center",
+  },
+  emptyIconContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34, 211, 238, 0.2)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#22c55e',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: -0.3,
+  },
+  emptySubtext: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
+    lineHeight: 20,
+    letterSpacing: 0.1,
+  },
+  tapToEdit: {
+    color: "#22c55e",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+  },
+  bottomSpacer: {
+    height: 32,
+  },
+}); 

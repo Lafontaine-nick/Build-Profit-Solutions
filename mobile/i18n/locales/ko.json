@@ -1,0 +1,39 @@
+{
+  "common": {
+    "save": "저장",
+    "cancel": "취소",
+    "edit": "편집",
+    "delete": "삭제",
+    "close": "닫기",
+    "done": "완료",
+    "next": "다음",
+    "back": "뒤로",
+    "loading": "로딩 중...",
+    "error": "오류",
+    "success": "성공"
+  },
+  "profile": {
+    "title": "프로필",
+    "editProfile": "프로필 편집",
+    "firstName": "이름",
+    "lastName": "성",
+    "email": "이메일",
+    "phone": "전화",
+    "company": "회사",
+    "role": "역할",
+    "location": "위치",
+    "saveChanges": "변경 사항 저장",
+    "selectLanguage": "언어 선택",
+    "language": "언어",
+    "notifications": "알림",
+    "darkMode": "다크 모드"
+  },
+  "settings": {
+    "title": "설정",
+    "account": "계정",
+    "preferences": "환경 설정",
+    "notifications": "알림",
+    "privacy": "개인정보 보호",
+    "about": "정보"
+  }
+}

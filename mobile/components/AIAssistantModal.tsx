@@ -1,0 +1,1769 @@
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Animated } from "react-native";
+import {
+  Modal,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  Alert,
+  Linking,
+  ScrollView,
+  StatusBar,
+  Keyboard,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import Constants from "expo-constants";
+import SubcontractorSearchModal from "./SubcontractorSearchModal";
+import { useAIManagerMode } from "@/state/useAIManagerMode";
+import { Switch, ActivityIndicator } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "@/contexts/ThemeContext";
+import { getColors } from "@/theme/getColors";
+
+const Colors = {
+  bg: "#000000",
+  card: "#000000",
+  cardDark: "#000000",
+  text: "#F9FAFB",
+  sub: "#8DA0B8",
+  line: "rgba(148, 163, 184, 0.1)",
+  primary: "#22c55e",
+  yellow: "#ffd166",
+  blue: "#60a5fa",
+  green: "#22c55e",
+  orange: "#fbbf24",
+  red: "#ef4444",
+  purple: "#a78bfa",
+};
+
+const CARD_GRADIENT: [string, string] = [
+  "rgba(16, 242, 151, 0.07)",
+  "rgba(16, 242, 151, 0)",
+];
+
+type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: Date;
+  pdfUri?: string;
+  attachment?: {
+    type: 'pdf';
+    uri: string;
+    name: string;
+  };
+};
+
+type Props = {
+  visible: boolean;
+  onClose: () => void;
+  // optional extra context from the current screen
+  context?: string;
+  // callback for AI actions (e.g., add material, update budget)
+  // Returns a promise that may resolve with additional data (e.g., PDF URI for show_contract)
+  onAction?: (action: { type: string; [key: string]: any }) => Promise<any> | void;
+  // Optional ZIP code for contractor search
+  defaultZip?: string;
+};
+
+const QUICK_ACTIONS = [
+  "Add Material",
+  "Add Labor",
+  "Set Payment Schedule",
+  "Show Bid Summary",
+  "Check Profit",
+  "Find Subcontractors",
+];
+
+const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction, defaultZip = '89011' }) => {
+  const { theme } = useTheme();
+  const ThemeColors = useMemo(() => getColors(theme), [theme]);
+  const darkMode = theme.bg === '#000000';
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showContractorModal, setShowContractorModal] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const flatListRef = useRef<FlatList<Message>>(null);
+  const { enabled: aiManagerEnabled, loading: aiModeLoading, toggleEnabled } = useAIManagerMode();
+  const [hasProactiveCheck, setHasProactiveCheck] = useState(false);
+  const insets = useSafeAreaInsets();
+  const dotAnim1 = useRef(new Animated.Value(0.4)).current;
+  const dotAnim2 = useRef(new Animated.Value(0.4)).current;
+  const dotAnim3 = useRef(new Animated.Value(0.4)).current;
+  const sendButtonScale = useRef(new Animated.Value(1)).current;
+
+  // Proactive monitoring: When AI PM mode is enabled and modal opens, trigger a health check
+  useEffect(() => {
+    if (visible && aiManagerEnabled && !hasProactiveCheck && messages.length === 0 && projectInfo) {
+      setHasProactiveCheck(true);
+      
+      // Auto-trigger health check by setting input and triggering send
+      setTimeout(() => {
+        handleQuickAction("Give me a project health check.");
+      }, 500);
+    }
+    
+    // Reset proactive check when modal closes
+    if (!visible) {
+      setHasProactiveCheck(false);
+    }
+  }, [visible, aiManagerEnabled, hasProactiveCheck, messages.length, projectInfo]);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 150);
+    }
+  }, [messages.length]);
+
+  // Animate typing dots
+  useEffect(() => {
+    if (isTyping) {
+      const animateDot = (animValue: Animated.Value, delay: number) => {
+        return Animated.loop(
+          Animated.sequence([
+            Animated.delay(delay),
+            Animated.timing(animValue, {
+              toValue: 1,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValue, {
+              toValue: 0.4,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+          ])
+        );
+      };
+
+      const anim1 = animateDot(dotAnim1, 0);
+      const anim2 = animateDot(dotAnim2, 200);
+      const anim3 = animateDot(dotAnim3, 400);
+
+      anim1.start();
+      anim2.start();
+      anim3.start();
+
+      return () => {
+        anim1.stop();
+        anim2.stop();
+        anim3.stop();
+      };
+    } else {
+      dotAnim1.setValue(0.4);
+      dotAnim2.setValue(0.4);
+      dotAnim3.setValue(0.4);
+    }
+  }, [isTyping]);
+
+  // Parse ZIP from context if available
+  let zipCode = defaultZip;
+  try {
+    if (context) {
+      const parsed = JSON.parse(context);
+      if (parsed.location) {
+        // Try to extract ZIP from location string
+        const zipMatch = parsed.location.match(/\b\d{5}\b/);
+        if (zipMatch) zipCode = zipMatch[0];
+      }
+      // Check if bid has zip
+      if (parsed.bidData?.zip) zipCode = parsed.bidData.zip;
+    }
+  } catch (e) {
+    // Use default
+  }
+
+  // Parse context to get project info
+  let projectInfo = null;
+  try {
+    if (context) {
+      const parsed = JSON.parse(context);
+      projectInfo = {
+        title: parsed.bidTitle || parsed.projectName || "Current Project",
+        phase: parsed.stepTitle || "Estimate phase",
+        total: parsed.bidTotal || parsed.total || 0,
+        overhead: parsed.overheadPct || 12,
+        markup: parsed.markupPct || parsed.bidData?.markupPct || 18,
+      };
+    }
+  } catch (e) {
+    // Context parsing failed, use defaults
+  }
+
+  // Helper function to generate user-friendly action descriptions
+  const getActionDescription = (action: any): string | null => {
+    if (!action || !action.type) return null;
+
+    switch (action.type) {
+      case 'update_estimate_item':
+        if (action.newDescription && action.newAmount) {
+          return `Add new ${action.itemDescription || 'item'}: "${action.newDescription}" for $${action.newAmount.toLocaleString()}?`;
+        } else if (action.itemDescription && action.newAmount) {
+          return `Update "${action.itemDescription}" to $${action.newAmount.toLocaleString()}?`;
+        }
+        return `Update estimate item: ${action.itemDescription || 'item'}`;
+      
+      case 'add_change_order':
+        return `Create change order: "${action.title}" for $${action.amount.toLocaleString()}?`;
+      
+      case 'add_material':
+        return `Record material purchase: $${action.amount.toLocaleString()} from ${action.vendor}?`;
+      
+      case 'add_labor_expense':
+        return `Record labor expense: $${action.amount.toLocaleString()}?`;
+      
+      case 'add_purchase_order':
+        return `Create purchase order: $${action.amount.toLocaleString()} to ${action.vendor}?`;
+      
+      case 'update_customer_info':
+        const fields = [];
+        if (action.customerName) fields.push(`Name: ${action.customerName}`);
+        if (action.email) fields.push(`Email: ${action.email}`);
+        if (action.phone) fields.push(`Phone: ${action.phone}`);
+        if (action.address || action.city || action.state) {
+          const addressParts = [action.address, action.city, action.state, action.zip].filter(Boolean);
+          fields.push(`Address: ${addressParts.join(', ')}`);
+        }
+        if (action.company) fields.push(`Company: ${action.company}`);
+        return `Update customer information: ${fields.join(', ')}?`;
+      
+      case 'update_project_details':
+        const projectFields = [];
+        if (action.budgetRange) {
+          const budgetLabels: { [key: string]: string } = {
+            'under-10k': 'Under $10k',
+            '10k-25k': '$10k - $25k',
+            '25k-50k': '$25k - $50k',
+            '50k-100k': '$50k - $100k',
+            'over-100k': 'Over $100k',
+            'flexible': 'Flexible'
+          };
+          projectFields.push(`Budget: ${budgetLabels[action.budgetRange] || action.budgetRange}`);
+        }
+        if (action.scopeDescription) {
+          const desc = action.scopeDescription.length > 50 
+            ? action.scopeDescription.substring(0, 50) + '...' 
+            : action.scopeDescription;
+          projectFields.push(`Scope: ${desc}`);
+        }
+        if (action.startDate) {
+          const date = new Date(action.startDate + 'T00:00:00');
+          projectFields.push(`Start: ${date.toLocaleDateString()}`);
+        }
+        if (action.endDate) {
+          const date = new Date(action.endDate + 'T00:00:00');
+          projectFields.push(`End: ${date.toLocaleDateString()}`);
+        }
+        return projectFields.length > 0 
+          ? `Update project details: ${projectFields.join(', ')}?`
+          : `Update project details?`;
+      
+      case 'search_material_prices':
+        return `Search prices for ${action.material}${action.comparison ? ` (compare stores)` : ''}?`;
+      
+      case 'search_contractors':
+        return `Search for ${action.trade} contractors${action.location ? ` in ${action.location}` : ''}?`;
+      
+      case 'update_overhead_markup':
+        const parts = [];
+        if (action.insuranceOverhead !== undefined) parts.push(`Insurance: $${action.insuranceOverhead}`);
+        if (action.equipment !== undefined) parts.push(`Equipment: $${action.equipment}`);
+        if (action.facilities !== undefined) parts.push(`Facilities: $${action.facilities}`);
+        if (action.otherOverhead !== undefined) parts.push(`Other: $${action.otherOverhead}`);
+        if (action.markupPct !== undefined) parts.push(`Markup: ${action.markupPct}%`);
+        return parts.length > 0 ? `Update overhead & markup: ${parts.join(', ')}?` : `Update overhead & markup?`;
+      
+      case 'add_payment_milestone':
+        if (action.milestone) {
+          const milestone = action.milestone;
+          const details = [];
+          if (milestone.percentage) details.push(`${milestone.percentage}%`);
+          if (milestone.amount) details.push(`$${milestone.amount}`);
+          if (milestone.scheduledDate) details.push(`on ${new Date(milestone.scheduledDate + 'T00:00:00').toLocaleDateString()}`);
+          return `Add payment milestone "${milestone.name}"${details.length > 0 ? ` (${details.join(', ')})` : ''}?`;
+        }
+        return `Add payment milestone?`;
+      
+      case 'add_weekly_payment':
+        if (action.payment) {
+          const payment = action.payment;
+          const details = [];
+          if (payment.weekNumber) details.push(`Week ${payment.weekNumber}`);
+          if (payment.amount) details.push(`$${payment.amount}`);
+          return `Add weekly payment${details.length > 0 ? `: ${details.join(' - ')}` : ''}?`;
+        }
+        return `Add weekly payment?`;
+      
+      case 'set_payment_schedule_type':
+        const scheduleType = action.paymentSchedule === 'milestone-based' ? 'Milestone-Based' : 'Weekly';
+        return `Set payment schedule to ${scheduleType}?`;
+      
+      case 'set_work_schedule':
+        const workSchedule = action.workSchedule === 'weekdays' ? 'Weekdays Only' : 'Flexible';
+        return `Set work schedule to ${workSchedule}?`;
+      
+      case 'set_project_timeline':
+        const timelineParts = [];
+        if (action.startDate) timelineParts.push(`Start: ${new Date(action.startDate + 'T00:00:00').toLocaleDateString()}`);
+        if (action.durationDays) timelineParts.push(`Duration: ${action.durationDays} days`);
+        return timelineParts.length > 0 ? `Set project timeline: ${timelineParts.join(', ')}?` : `Set project timeline?`;
+
+      case 'share_contract':
+        if (action.shareMethod === 'email' && action.email) {
+          return `Share contract for ${action.projectName} via email to ${action.email}?`;
+        } else if ((action.shareMethod === 'text' || action.shareMethod === 'sms') && action.phoneNumber) {
+          return `Share contract for ${action.projectName} via text to ${action.phoneNumber}?`;
+        }
+        return `Share contract for ${action.projectName}?`;
+
+      case 'show_contract':
+        return null; // No confirmation needed, just show it
+      
+      case 'log_daily_progress':
+        return `Add daily log entry for ${action.projectName || 'project'}?`;
+      
+      case 'forecast_total_cost':
+        return null; // Informational - no confirmation needed
+      
+      case 'find_alternative_materials':
+        return null; // Informational - no confirmation needed
+      
+      case 'generate_project_proposal':
+        return `Generate proposal for ${action.projectName || 'project'}?`;
+      
+      case 'export_estimate_pdf':
+        return `Export estimate PDF for ${action.projectName || 'project'}?`;
+      
+      case 'safety_checklist':
+        return null; // Informational - no confirmation needed
+      
+      case 'recommend_next_steps':
+        return null; // Informational - no confirmation needed
+      
+      case 'generate_client_update':
+        return null; // Informational - no confirmation needed
+      
+      case 'translate_update':
+        return null; // Informational - no confirmation needed
+      
+      case 'profitability_forecast_pro':
+        return null; // Informational - no confirmation needed
+      
+      case 'ai_project_manager_mode':
+        return `Configure AI PM mode: ${action.enabled ? 'Enable' : 'Disable'} for ${action.projectName || 'all projects'}?`;
+      
+      default:
+        return `Execute: ${action.type}?`;
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+
+    // Haptic feedback on send
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    // Light-up animation
+    Animated.sequence([
+      Animated.timing(sendButtonScale, {
+        toValue: 1.2,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sendButtonScale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    
+    // Dismiss keyboard
+    Keyboard.dismiss();
+
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: input.trim(),
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, newMessage]);
+    setInput("");
+    setLoading(true);
+    setIsTyping(true);
+
+    // Scroll to bottom
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 50);
+
+    try {
+      // Smart URL detection:
+      // - Web: use localhost
+      // - All mobile (simulator/device): use Mac's LAN IP (most reliable)
+      // - You can override with EXPO_PUBLIC_AI_API_URL env variable
+      let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
+      
+      if (!AI_API_BASE) {
+        if (Platform.OS === 'web') {
+          AI_API_BASE = 'http://localhost:3001';
+        } else {
+          // For all mobile platforms (iOS/Android, simulator/device), use network IP
+          // This is more reliable than localhost which doesn't work with Expo Go
+          AI_API_BASE = 'http://192.168.0.201:3001';
+        }
+      }
+      
+      const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+      console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
+
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: newMessage.content,
+          context,
+          history: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          user_settings: {
+            ai_project_manager_mode: aiManagerEnabled,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      // Check for error response
+      if (data.error) {
+        let errorMessage = data.message || "Sorry, I couldn't generate a response.";
+        
+        // Provide helpful message for rate limit errors
+        if (data.details && data.details.includes("Rate limit")) {
+          errorMessage = "I've hit the API rate limit. Please wait about 20 seconds and try again. To avoid this, you can add a payment method to your OpenAI account for higher limits.";
+        } else if (data.details) {
+          errorMessage = `${data.message}\n\nDetails: ${data.details}`;
+        }
+        
+        const errorMessageObj: Message = {
+          id: Date.now().toString() + "-error",
+          role: "assistant",
+          content: errorMessage,
+          timestamp: new Date(),
+        };
+        setIsTyping(false);
+        setMessages((prev) => [...prev, errorMessageObj]);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        
+        // Smooth scroll to bottom
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+        return;
+      }
+
+      // Check if the response mentions a contract PDF or if there's a show_contract action
+      const hasContractAction = data.actions?.some((a: any) => a.type === 'show_contract');
+      
+      const assistantMessage: Message = {
+        id: Date.now().toString() + "-ai",
+        role: "assistant",
+        content: data.reply ?? "Sorry, I couldn't generate a response.",
+        timestamp: new Date(),
+        // If show_contract action exists, we'll add the PDF attachment
+        // The PDF will be generated by the action handler, so we'll add it after action execution
+      };
+
+      setIsTyping(false);
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      // Smooth scroll to bottom
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      
+      // Handle AI actions if any - but first show confirmation
+      if (data.actions && Array.isArray(data.actions) && onAction) {
+        // Deduplicate actions by creating a unique key for each action
+        const seenActions = new Set<string>();
+        const uniqueActions: any[] = [];
+        
+        data.actions.forEach((action: any) => {
+          // Create a unique key based on action type and key parameters
+          const actionKey = `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;
+          if (!seenActions.has(actionKey)) {
+            seenActions.add(actionKey);
+            uniqueActions.push(action);
+          }
+        });
+        
+        // Show confirmation for each unique action (only once)
+        uniqueActions.forEach((action: any) => {
+          const actionDescription = getActionDescription(action);
+          if (actionDescription) {
+            // Show confirmation alert
+            setTimeout(() => {
+              Alert.alert(
+                'Confirm AI Action',
+                actionDescription,
+                [
+                  {
+                    text: 'Cancel',
+                    style: 'cancel',
+                    onPress: () => {
+                      // Add a message that action was cancelled
+                      setMessages((prev) => [
+                        ...prev,
+                        {
+                          id: Date.now().toString() + '-cancelled',
+                          role: 'assistant',
+                          content: 'Action cancelled.',
+                        },
+                      ]);
+                    },
+                  },
+                  {
+                    text: 'Confirm',
+                    style: 'default',
+                    onPress: async () => {
+                      if (onAction) {
+                        const result = await onAction(action);
+                        // If show_contract action returns a PDF URI, add it to the last message
+                        if (action.type === 'show_contract' && result?.pdfUri) {
+                          setMessages((prev) => {
+                            const updated = [...prev];
+                            const lastMessage = updated[updated.length - 1];
+                            if (lastMessage && lastMessage.role === 'assistant') {
+                              lastMessage.pdfUri = result.pdfUri;
+                              lastMessage.attachment = {
+                                type: 'pdf',
+                                uri: result.pdfUri,
+                                name: `${result.projectName || 'Contract'} - Estimate.pdf`,
+                              };
+                            }
+                            return updated;
+                          });
+                        }
+                      }
+                    },
+                  },
+                ]
+              );
+            }, 100);
+          } else {
+            // No description, execute immediately (for non-destructive actions like show_contract)
+            if (onAction) {
+              (async () => {
+                const result = await onAction(action);
+                // If show_contract action returns a PDF URI, add it to the last message
+                if (action.type === 'show_contract' && result?.pdfUri) {
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    const lastMessage = updated[updated.length - 1];
+                    if (lastMessage && lastMessage.role === 'assistant') {
+                      lastMessage.pdfUri = result.pdfUri;
+                      lastMessage.attachment = {
+                        type: 'pdf',
+                        uri: result.pdfUri,
+                        name: `${result.projectName || 'Contract'} - Estimate.pdf`,
+                      };
+                    }
+                    return updated;
+                  });
+                }
+              })();
+            }
+          }
+        });
+      }
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error: any) {
+      console.error("AI error", error);
+      let errorMessage = "I ran into a connection issue talking to the AI.";
+      
+      // Provide more specific error messages
+      if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
+        errorMessage = "I can't connect to the AI backend server. Please make sure the AI backend is running on port 3000.\n\nTo start it, run:\ncd bps-ai-backend && npm run dev";
+      } else if (error?.message) {
+        errorMessage = `Connection error: ${error.message}`;
+      }
+      
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString() + "-error",
+          role: "assistant",
+          content: errorMessage,
+        },
+      ]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
+      setIsTyping(false);
+    }
+  };
+
+  const handleQuickAction = (labelOrPrompt: string) => {
+    if (labelOrPrompt === "Find Subcontractors") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setShowContractorModal(true);
+      return;
+    }
+    
+    // If it's already a full prompt (contains question mark or period), use it directly
+    if (labelOrPrompt.includes("?") || labelOrPrompt.includes(".")) {
+      setInput(labelOrPrompt);
+      return;
+    }
+    
+    // Otherwise, treat it as a label and use suggestion mapping
+    const suggestions: { [key: string]: string } = {
+      "Add Material": "Can you add material to this estimate?",
+      "Add Labor": "Can you add labor to this estimate?",
+      "Set Payment Schedule": "Can you set up a payment schedule for this project?",
+      "Show Bid Summary": "Can you show me a summary of this bid?",
+      "Check Profit": "Can you calculate the projected profit for this project?",
+      "Check project health": "Give me a project health check.",
+      "Scan for missing costs": "Scan this estimate for missing costs.",
+      "Forecast final profit": "Forecast final cost and profit.",
+    };
+    setInput(suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`);
+  };
+
+  const handleSubcontractorSelect = async (subcontractor: any) => {
+    // When a subcontractor is selected, optionally trigger AI to add them
+    // Or just show a helpful message
+    const message: Message = {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: `I found ${subcontractor.name} (${subcontractor.trade}). Would you like me to add them to your estimate? You can also ask me to add them with a specific rate or hours.`,
+    };
+    setMessages((prev) => [...prev, message]);
+    setShowContractorModal(false);
+    
+    // Auto-scroll to show the message
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    
+    // Optionally prefill input with a suggestion
+    setInput(`Add ${subcontractor.name} for ${subcontractor.trade} at $${subcontractor.rate || 'rate'}/hour`);
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  // Helper function to parse markdown and render formatted text
+  const renderFormattedText = (text: string) => {
+    // Split by lines to handle headings and lists
+    const lines = text.split('\n');
+    const elements: any[] = [];
+    
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim();
+      
+      // Headings (### or ##)
+      if (trimmedLine.startsWith('###')) {
+        const headingText = trimmedLine.replace(/^###+\s*/, '');
+        elements.push(
+          <Text key={`heading-${index}`} style={styles.messageHeading}>
+            {headingText}
+          </Text>
+        );
+      }
+      // Bold text (**text**)
+      else if (trimmedLine.includes('**')) {
+        const parts = trimmedLine.split(/(\*\*[^*]+\*\*)/g);
+        const formattedParts = parts.map((part, partIndex) => {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            const boldText = part.slice(2, -2);
+            return (
+              <Text key={`bold-${index}-${partIndex}`} style={styles.messageBold}>
+                {boldText}
+              </Text>
+            );
+          }
+          return <Text key={`text-${index}-${partIndex}`}>{part}</Text>;
+        });
+        elements.push(
+          <Text key={`line-${index}`} style={styles.messageText}>
+            {formattedParts}
+          </Text>
+        );
+      }
+      // Regular text
+      else if (trimmedLine) {
+        elements.push(
+          <Text key={`line-${index}`} style={styles.messageText}>
+            {trimmedLine}
+          </Text>
+        );
+      }
+      // Empty line for spacing
+      else if (index < lines.length - 1) {
+        elements.push(<View key={`spacer-${index}`} style={{ height: 8 }} />);
+      }
+    });
+    
+    return <View>{elements}</View>;
+  };
+
+  const formatTimestamp = (timestamp?: Date) => {
+    if (!timestamp) return "";
+    const now = new Date();
+    const msgTime = new Date(timestamp);
+    const diffInMinutes = Math.floor((now.getTime() - msgTime.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return "Just now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return msgTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const renderMessage = ({ item }: { item: Message }) => {
+    const isUser = item.role === "user";
+    return (
+      <View
+        style={[
+          styles.messageRow,
+          { justifyContent: isUser ? "flex-end" : "flex-start" },
+        ]}
+      >
+        {isUser ? (
+          <View style={styles.userMessageContainer}>
+            <View
+              style={[
+                styles.messageBubble,
+                styles.userBubble,
+              ]}
+            >
+              <Text style={styles.messageText} numberOfLines={undefined}>
+                {item.content}
+              </Text>
+            </View>
+            {item.timestamp && (
+              <Text style={styles.messageTimestamp}>{formatTimestamp(item.timestamp)}</Text>
+            )}
+            {(item.pdfUri || item.attachment) && (
+              <TouchableOpacity
+                style={styles.pdfAttachment}
+                onPress={async () => {
+                  const uri = item.pdfUri || item.attachment?.uri;
+                  if (uri) {
+                    try {
+                      const canOpen = await Linking.canOpenURL(uri);
+                      if (canOpen) {
+                        await Linking.openURL(uri);
+                      } else {
+                        Alert.alert("Error", "Unable to open PDF file.");
+                      }
+                    } catch (error) {
+                      Alert.alert("Error", "Failed to open PDF.");
+                    }
+                  }
+                }}
+              >
+                <MaterialIcons name="picture-as-pdf" size={20} color="#0d2745" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.pdfAttachmentText, { color: "#0d2745" }]}>
+                    {item.attachment?.name || "Contract PDF"}
+                  </Text>
+                  <Text style={styles.pdfAttachmentSubtext}>Tap to view</Text>
+                </View>
+                <MaterialIcons name="open-in-new" size={18} color="#0d2745" />
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <View style={styles.assistantBubbleWrapper}>
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.assistantBubbleBorder}
+            >
+              <View
+                style={[
+                  styles.messageBubble,
+                  styles.assistantBubble,
+                  !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 },
+                ]}
+              >
+                <View style={styles.assistantLabelRow}>
+                  <Ionicons name="sparkles" size={12} color={Colors.green} />
+                  <Text style={styles.assistantLabelText}>AI Assistant</Text>
+                </View>
+                {renderFormattedText(item.content)}
+                {(item.pdfUri || item.attachment) && (
+                  <View style={styles.pdfAttachmentWrapper}>
+                    <LinearGradient
+                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={styles.pdfAttachmentBorder}
+                    >
+                      <TouchableOpacity
+                        style={[styles.pdfAttachment, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                        onPress={async () => {
+                          const uri = item.pdfUri || item.attachment?.uri;
+                          if (uri) {
+                            try {
+                              const canOpen = await Linking.canOpenURL(uri);
+                              if (canOpen) {
+                                await Linking.openURL(uri);
+                              } else {
+                                Alert.alert("Error", "Unable to open PDF file.");
+                              }
+                            } catch (error) {
+                              Alert.alert("Error", "Failed to open PDF.");
+                            }
+                          }
+                        }}
+                      >
+                        <MaterialIcons name="picture-as-pdf" size={20} color="#38d39f" />
+                        <View style={{ flex: 1, marginLeft: 8 }}>
+                          <Text style={[styles.pdfAttachmentText, { color: "#38d39f" }]}>
+                            {item.attachment?.name || "Contract PDF"}
+                          </Text>
+                          <Text style={styles.pdfAttachmentSubtext}>Tap to view</Text>
+                        </View>
+                        <MaterialIcons name="open-in-new" size={18} color="#38d39f" />
+                      </TouchableOpacity>
+                    </LinearGradient>
+                  </View>
+                )}
+              </View>
+            </LinearGradient>
+            {item.timestamp && (
+              <Text style={[styles.messageTimestamp, styles.assistantTimestamp]}>
+                {formatTimestamp(item.timestamp)}
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderTypingIndicator = () => {
+    if (!isTyping) return null;
+    return (
+      <View style={styles.typingIndicatorContainer}>
+        <View style={styles.assistantBubbleWrapper}>
+          <LinearGradient
+            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.assistantBubbleBorder}
+          >
+            <View
+              style={[
+                styles.messageBubble,
+                styles.assistantBubble,
+                styles.typingBubble,
+                !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 },
+              ]}
+            >
+              <View style={styles.assistantLabelRow}>
+                <Ionicons name="sparkles" size={12} color={Colors.green} />
+                <Text style={styles.assistantLabelText}>AI Assistant</Text>
+              </View>
+              <View style={styles.typingDots}>
+                <Animated.View style={[styles.typingDot, { opacity: dotAnim1 }]} />
+                <Animated.View style={[styles.typingDot, { marginLeft: 4, opacity: dotAnim2 }]} />
+                <Animated.View style={[styles.typingDot, { marginLeft: 4, opacity: dotAnim3 }]} />
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType={Platform.OS === "ios" ? "slide" : "fade"} onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={[styles.flex, { backgroundColor: darkMode ? Colors.bg : ThemeColors.bg }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        <View style={[styles.gradient, !darkMode && { backgroundColor: ThemeColors.bg }]}>
+          <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+            {/* Header */}
+            <View style={[styles.header, !darkMode && { backgroundColor: ThemeColors.bg }]}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      console.log('🔙 Back button pressed in AIAssistantModal');
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      onClose();
+                    }}
+                    style={[styles.backButton, !darkMode && { backgroundColor: "#FFFFFF" }]}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                  </TouchableOpacity>
+                </LinearGradient>
+              </View>
+              <View style={styles.headerContent}>
+              <View style={styles.headerTitleRow}>
+                <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
+                <Text style={[styles.headerTitle, !darkMode && { color: ThemeColors.text }]}>
+                  AI Assistant
+                </Text>
+              </View>
+                {projectInfo && (
+                  <>
+                    <Text style={[styles.headerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                      {projectInfo.title} • {projectInfo.phase}
+                    </Text>
+                    <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
+                      Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup {projectInfo.markup}%
+                    </Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.headerSpacer} />
+            </View>
+
+            {/* Messages - Everything scrolls together */}
+            <FlatList
+              ref={flatListRef}
+              style={styles.messageList}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              renderItem={renderMessage}
+              contentContainerStyle={[styles.messagesContainer, { paddingBottom: 200 }]}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={true}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              onScrollBeginDrag={() => Keyboard.dismiss()}
+              maintainVisibleContentPosition={{
+                minIndexForVisible: 0,
+              }}
+              ListFooterComponent={renderTypingIndicator}
+              onContentSizeChange={() => {
+                if (flatListRef.current) {
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }
+              }}
+              ListHeaderComponent={
+                <>
+                  {/* AI Project Manager Mode card */}
+                  <View style={styles.managerCardContainer}>
+                    <LinearGradient
+                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={styles.managerCardBorder}
+                    >
+                      <View style={[styles.managerCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                    <View style={styles.managerHeaderRow}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={[styles.managerTitle, !darkMode && { color: ThemeColors.text }]}>
+                          AI Project Manager Mode
+                        </Text>
+                        <Text style={[styles.managerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                          Let AI monitor your jobs, flag risks, and suggest next steps automatically.
+                        </Text>
+                      </View>
+
+                      {aiModeLoading ? (
+                        <ActivityIndicator color={Colors.green} />
+                      ) : (
+                        <View
+                          style={[
+                            styles.managerToggleWrapper,
+                            !darkMode &&
+                              !aiManagerEnabled && {
+                                backgroundColor: ThemeColors.surface2,
+                                borderColor: ThemeColors.line,
+                              },
+                          ]}
+                        >
+                          <Switch
+                            value={aiManagerEnabled}
+                            onValueChange={toggleEnabled}
+                            thumbColor={
+                              aiManagerEnabled
+                                ? Colors.green
+                                : darkMode
+                                  ? "#f4f4f5"
+                                  : ThemeColors.sub
+                            }
+                            trackColor={{
+                              false: darkMode ? "rgba(148,163,184,0.6)" : ThemeColors.surface2,
+                              true: darkMode ? "rgba(34,197,94,0.4)" : ThemeColors.line,
+                            }}
+                            style={{ transform: [{ scale: 0.9 }] }}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {aiManagerEnabled && (
+                      <View style={styles.managerChipRow}>
+                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                            Watching costs
+                          </Text>
+                        </View>
+                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                            Tracking schedule
+                          </Text>
+                        </View>
+                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                            Protecting margin
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                      </View>
+                    </LinearGradient>
+                  </View>
+
+                  {/* Current Project Strip */}
+                  {projectInfo && (
+                    <View style={styles.projectStripContainer}>
+                      <LinearGradient
+                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.projectStripBorder}
+                      >
+                        <View style={[styles.projectStrip, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                      <View>
+                        <Text style={[styles.projectTitle, !darkMode && { color: ThemeColors.text }]}>
+                          {projectInfo.title}
+                        </Text>
+                        <Text style={[styles.projectSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                          {projectInfo.phase} • ${(projectInfo.total || 0).toLocaleString()}
+                        </Text>
+                      </View>
+
+                      <View style={styles.projectRight}>
+                        <View style={[styles.marginBadge, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                          <Text style={[styles.marginBadgeLabel, !darkMode && { color: Colors.green }]}>Margin</Text>
+                          <Text style={[styles.marginBadgeValue, !darkMode && { color: Colors.green }]}>
+                            {projectInfo.markup ? `${projectInfo.markup}%` : "—"}
+                          </Text>
+                        </View>
+
+                        {aiManagerEnabled && (
+                          <View style={styles.aiWatchingRow}>
+                            <Ionicons name="sparkles-outline" size={13} color={Colors.green} />
+                            <Text style={[styles.aiWatchingText, !darkMode && { color: Colors.green }]}>
+                              AI watching
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  )}
+                </>
+              }
+              ListEmptyComponent={
+                <View style={[styles.greetingWrapper, !darkMode && { backgroundColor: ThemeColors.bg }]}>
+                  <View style={styles.greetingIconCircleWrapper}>
+                    <LinearGradient
+                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={styles.greetingIconCircleBorder}
+                    >
+                      <View style={[styles.greetingIconCircle, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                        <Ionicons name="sparkles-outline" size={26} color={Colors.green} />
+                      </View>
+                    </LinearGradient>
+                  </View>
+
+                  <Text style={[styles.greetingTitle, !darkMode && { color: ThemeColors.text }]}>
+                    Hi! I'm your AI project manager.
+                  </Text>
+
+                  <Text style={[styles.greetingSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                    Ask me about the <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text>. I can update your estimate, set payment schedules, find subs,
+                    or protect your profit.
+                  </Text>
+
+                  {/* Primary AI actions */}
+                  <View style={styles.primaryActions}>
+                    <View style={styles.primaryButtonWrapper}>
+                      <LinearGradient
+                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.primaryButtonBorder}
+                      >
+                        <TouchableOpacity
+                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            handleQuickAction("Give me a project health check.");
+                          }}
+                        >
+                          <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
+                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
+                            Check project health
+                          </Text>
+                        </TouchableOpacity>
+                      </LinearGradient>
+                    </View>
+                    <View style={styles.primaryButtonWrapper}>
+                      <LinearGradient
+                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.primaryButtonBorder}
+                      >
+                        <TouchableOpacity
+                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            handleQuickAction("Scan this estimate for missing costs.");
+                          }}
+                        >
+                          <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
+                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
+                            Scan for missing costs
+                          </Text>
+                        </TouchableOpacity>
+                      </LinearGradient>
+                    </View>
+                    <View style={styles.primaryButtonWrapper}>
+                      <LinearGradient
+                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.primaryButtonBorder}
+                      >
+                        <TouchableOpacity
+                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            handleQuickAction("Forecast the final cost and profit for this project.");
+                          }}
+                        >
+                          <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
+                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
+                            Forecast final profit
+                          </Text>
+                        </TouchableOpacity>
+                      </LinearGradient>
+                    </View>
+                  </View>
+                </View>
+              }
+            />
+
+            {/* Input bar - Fixed at bottom */}
+            <View style={[styles.inputContainer, { 
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              paddingBottom: Math.max(insets.bottom, 20) + 16,
+              paddingTop: 16,
+              backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
+            }]}>
+              <View style={styles.inputInnerWrapper}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.inputInnerBorder}
+                >
+                  <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                    <Ionicons
+                      name="chatbox-ellipses-outline"
+                      size={18}
+                      color={Colors.sub}
+                      style={{ marginLeft: 12, marginRight: 8 }}
+                    />
+                    <TextInput
+                      style={[styles.input, !darkMode && { color: "#6B7280" }]}
+                      placeholder="Ask anything about this project…"
+                      placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
+                      value={input}
+                      onChangeText={setInput}
+                      multiline
+                      maxLength={500}
+                      textAlignVertical="center"
+                    />
+                  </View>
+                </LinearGradient>
+              </View>
+              <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.sendButtonBorder}
+                >
+                  <TouchableOpacity
+                    style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                    onPress={sendMessage}
+                    disabled={!input.trim() || loading}
+                    activeOpacity={0.7}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
+                    ) : (
+                      <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
+                    )}
+                  </TouchableOpacity>
+                </LinearGradient>
+              </Animated.View>
+            </View>
+          </SafeAreaView>
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Subcontractor Search Modal */}
+      <SubcontractorSearchModal
+        visible={showContractorModal}
+        onClose={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setShowContractorModal(false);
+        }}
+        onSelect={handleSubcontractorSelect}
+        defaultZip={zipCode}
+      />
+    </Modal>
+  );
+};
+
+export default AIAssistantModal;
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  gradient: {
+    flex: 1,
+    backgroundColor: Colors.bg,
+  },
+  safeArea: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  header: {
+    paddingTop: 20,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    alignItems: "center",
+    zIndex: 10,
+    backgroundColor: Colors.bg,
+  },
+  headerContent: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    marginLeft: 8,
+    letterSpacing: 0.2,
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+  },
+  headerSubtitle: {
+    color: Colors.sub,
+    fontSize: 13,
+    marginTop: 4,
+    fontWeight: "600",
+  },
+  headerMeta: {
+    color: Colors.sub,
+    fontSize: 12,
+    marginTop: 3,
+    opacity: 0.8,
+  },
+  backButtonWrapper: {
+    marginRight: 12,
+    zIndex: 10,
+    elevation: 10, // Android
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 19,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageList: {
+    flex: 1,
+  },
+  messagesContainer: {
+    paddingBottom: 180,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    flexGrow: 1,
+  },
+  messageRow: {
+    flexDirection: "row",
+    marginVertical: 6,
+    paddingHorizontal: 0,
+  },
+  messageBubble: {
+    maxWidth: "100%",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 18,
+    marginVertical: 2,
+    flexShrink: 1,
+  },
+  userBubble: {
+    backgroundColor: Colors.green,
+    borderBottomRightRadius: 4,
+  },
+  assistantBubbleWrapper: {
+    maxWidth: "82%",
+    marginVertical: 4,
+  },
+  assistantBubbleBorder: {
+    borderRadius: 18,
+    padding: 1,
+    overflow: "hidden",
+    borderBottomLeftRadius: 4,
+  },
+  assistantBubble: {
+    backgroundColor: "#000000",
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexShrink: 1,
+  },
+  assistantLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  assistantLabelText: {
+    color: Colors.green,
+    fontSize: 11,
+    marginLeft: 4,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  messageText: {
+    color: Colors.text,
+    fontSize: 15,
+    lineHeight: 24,
+    flexWrap: "wrap",
+    letterSpacing: 0.2,
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+  },
+  userMessageContainer: {
+    alignItems: "flex-end",
+    maxWidth: "82%",
+  },
+  messageTimestamp: {
+    fontSize: 11,
+    color: Colors.sub,
+    marginTop: 4,
+    marginHorizontal: 4,
+    fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+  },
+  assistantTimestamp: {
+    marginLeft: 0,
+  },
+  typingIndicatorContainer: {
+    marginVertical: 6,
+    paddingHorizontal: 0,
+  },
+  typingBubble: {
+    minHeight: 50,
+  },
+  typingDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  typingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.green,
+    opacity: 0.6,
+  },
+  messageHeading: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 12,
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  messageBold: {
+    color: Colors.text,
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  messageListItem: {
+    color: Colors.text,
+    fontSize: 15,
+    lineHeight: 24,
+    marginLeft: 4,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  pdfAttachmentWrapper: {
+    marginTop: 12,
+  },
+  pdfAttachmentBorder: {
+    borderRadius: 8,
+    padding: 1,
+    overflow: "hidden",
+  },
+  pdfAttachment: {
+    padding: 10,
+    backgroundColor: "#000000",
+    borderRadius: 7,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  pdfAttachmentText: {
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  pdfAttachmentSubtext: {
+    color: Colors.sub,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  quickActionsContainer: {
+    marginTop: 4,
+    marginBottom: 6,
+    paddingHorizontal: 4,
+  },
+  quickActionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    marginHorizontal: 4,
+  },
+  quickActionText: {
+    color: "#E5E7EB",
+    fontSize: 12,
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: 20,
+    backgroundColor: Colors.bg,
+    gap: 8,
+    width: "100%",
+    zIndex: 100,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  inputInnerWrapper: {
+    flex: 1,
+  },
+  inputInnerBorder: {
+    flex: 1,
+    borderRadius: 18,
+    padding: 1,
+    overflow: "hidden",
+  },
+  inputInner: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 17,
+    backgroundColor: "#000000",
+    minHeight: 44,
+    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+  },
+  input: {
+    flex: 1,
+    color: Colors.text,
+    fontSize: 15,
+    paddingRight: 8,
+    paddingVertical: 0,
+    maxHeight: 100,
+    lineHeight: 20,
+  },
+  sendButtonWrapper: {
+    marginLeft: 0,
+  },
+  sendButtonBorder: {
+    borderRadius: 22,
+    padding: 1,
+    overflow: "hidden",
+    width: 44,
+    height: 44,
+  },
+  sendButtonInner: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#000000",
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendButtonDisabled: {
+    opacity: 0.4,
+  },
+  greetingWrapper: {
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 18,
+    backgroundColor: Colors.bg,
+  },
+  greetingIconCircleWrapper: {
+    marginBottom: 12,
+  },
+  greetingIconCircleBorder: {
+    borderRadius: 32,
+    padding: 1,
+    overflow: "hidden",
+  },
+  greetingIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 31,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  greetingTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 6,
+    letterSpacing: 0.15,
+  },
+  greetingSubtitle: {
+    color: Colors.sub,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 4,
+  },
+  greetingHighlight: {
+    fontWeight: "700",
+    color: Colors.text,
+  },
+  primaryActions: {
+    marginTop: 14,
+    width: "100%",
+    gap: 10,
+  },
+  primaryButtonWrapper: {
+    width: "100%",
+  },
+  primaryButtonBorder: {
+    borderRadius: 18,
+    padding: 1,
+    overflow: "hidden",
+  },
+  primaryButton: {
+    borderRadius: 17,
+    backgroundColor: "#000000",
+    overflow: "hidden",
+  },
+  primaryButtonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#000000",
+    borderRadius: 17,
+  },
+  primaryButtonText: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  projectStripContainer: {
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  projectStripBorder: {
+    borderRadius: 18,
+    padding: 1,
+    overflow: "hidden",
+  },
+  projectStrip: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 17,
+    backgroundColor: "#000000",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  projectTitle: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.1,
+  },
+  projectSubtitle: {
+    marginTop: 2,
+    color: Colors.sub,
+    fontSize: 12,
+  },
+  projectRight: {
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  marginBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(22,163,74,0.35)",
+  },
+  marginBadgeLabel: {
+    color: "rgba(209,250,229,0.85)",
+    fontSize: 10,
+  },
+  marginBadgeValue: {
+    color: "#BBF7D0",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  aiWatchingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  aiWatchingText: {
+    color: "#BBF7D0",
+    fontSize: 11,
+  },
+  quickChipWrapper: {
+    marginHorizontal: 4,
+  },
+  quickChipBorder: {
+    borderRadius: 999,
+    padding: 1,
+    overflow: "hidden",
+  },
+  quickChip: {
+    borderRadius: 998,
+    backgroundColor: "#000000",
+    overflow: "hidden",
+  },
+  quickChipInner: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "#000000",
+    borderRadius: 998,
+  },
+  quickChipText: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  managerCardContainer: {
+    marginTop: 20,
+    marginBottom: 14,
+  },
+  managerCardBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  managerCard: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderRadius: 19,
+    backgroundColor: "#000000",
+  },
+  managerHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  managerToggleWrapper: {
+    padding: 2,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  managerTitle: {
+    color: Colors.text,
+    fontSize: 17,
+    fontWeight: "800",
+    marginBottom: 2,
+    letterSpacing: 0.15,
+  },
+  managerSubtitle: {
+    color: Colors.sub,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  managerChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 10,
+    columnGap: 8,
+    rowGap: 8,
+  },
+  managerChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(21,128,61,0.3)",
+  },
+  managerChipText: {
+    color: "#BBF7D0",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+});

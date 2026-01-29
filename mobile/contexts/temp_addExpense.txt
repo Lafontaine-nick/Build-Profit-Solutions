@@ -1,0 +1,42 @@
+  const addExpense = (expense: { id: string; category?: string; vendor?: string; amount: number; date?: string; notes?: string; receiptUri?: string | null }) => {
+    setProjectData(prev => {
+      // Find the matching budget bucket based on category
+      const updatedBuckets = prev.buckets.map(bucket => {
+        // Match by category name (case-insensitive)
+        if (expense.category && bucket.name.toLowerCase() === expense.category.toLowerCase()) {
+          return {
+            ...bucket,
+            spent: (bucket.spent || 0) + expense.amount
+          };
+        }
+        return bucket;
+      });
+
+      // If no matching category found, add to "Other" or create a new bucket
+      let finalBuckets = updatedBuckets;
+      const hasMatchingCategory = expense.category && updatedBuckets.some(bucket => 
+        bucket.name.toLowerCase() === expense.category.toLowerCase()
+      );
+
+      if (!hasMatchingCategory && expense.category) {
+        // Add to "Other" bucket if it exists, otherwise add to first bucket as fallback
+        finalBuckets = updatedBuckets.map((bucket, index) => {
+          if (bucket.name.toLowerCase() === 'other' || index === 0) {
+            return {
+              ...bucket,
+              spent: (bucket.spent || 0) + expense.amount
+            };
+          }
+          return bucket;
+        });
+      }
+
+      return {
+        ...prev,
+        expenses: [...(prev.expenses || []), expense],
+        buckets: finalBuckets,
+        spent: prev.spent + expense.amount,
+        lastUpdated: new Date().toISOString(),
+      };
+    });
+  };
