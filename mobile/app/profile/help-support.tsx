@@ -12,6 +12,8 @@ import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
+import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
 
 interface SettingsRowProps {
@@ -22,35 +24,38 @@ interface SettingsRowProps {
 }
 
 const SettingsRow = ({ iconName, icon, label, onPress }: SettingsRowProps) => {
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  
   return (
     <TouchableOpacity
-      style={styles.row}
+      style={[styles.row, { borderBottomColor: Colors.line }]}
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
       }}
       activeOpacity={0.7}
     >
-      <View style={styles.iconContainer}>
+      <View style={[styles.iconContainer, { backgroundColor: Colors.iconBg || 'rgba(67, 206, 162, 0.15)' }]}>
         {iconName ? (
           <MaterialIcons 
             name={iconName} 
             size={20} 
-            color='#43cea2' 
+            color={Colors.primary} 
           />
         ) : icon ? (
-          <Text style={styles.iconText}>
+          <Text style={[styles.iconText, { color: Colors.primary }]}>
             {icon}
           </Text>
         ) : null}
       </View>
-      <Text style={styles.rowLabel}>
+      <Text style={[styles.rowLabel, { color: Colors.text }]}>
         {label}
       </Text>
       <MaterialIcons 
         name='chevron-right' 
         size={20} 
-        color='#CFE6FF' 
+        color={Colors.sub} 
       />
     </TouchableOpacity>
   );
@@ -58,7 +63,8 @@ const SettingsRow = ({ iconName, icon, label, onPress }: SettingsRowProps) => {
 
 export default function HelpSupportScreen() {
   const router = useRouter();
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   
   // Navigation handlers - create placeholder screens or handle inline
   const handleFAQ = () => {
@@ -107,16 +113,16 @@ export default function HelpSupportScreen() {
     router.push('/legal-hub?tab=refund');
   };
 
-  // Use dashboard's dark blue gradient background with white cards
-  const theme = {
-    background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-    card: '#FFFFFF',
-    text: '#0A2540',
-    subtext: '#6C7383',
-    accent: '#43cea2',
-    border: '#D3D9E6',
-    iconBg: '#E8F5F3',
-  };
+  // Use same theme system as payment page
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   return (
     <>
@@ -124,40 +130,50 @@ export default function HelpSupportScreen() {
       <LinearGradient colors={theme.background} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           {/* Header */}
-          <View style={styles.headerContainer}>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.back();
-              }}
-              style={[
-                styles.backButtonHeader,
-                {
-                  backgroundColor: 'rgba(67, 206, 162, 0.2)',
-                  borderColor: 'rgba(67, 206, 162, 0.3)',
-                },
-              ]}
-            >
-              <MaterialIcons name='arrow-back' size={24} color='#FFFFFF' />
-            </TouchableOpacity>
-            <View style={styles.titleContainer}>
-              <Text style={styles.headerTitle}>Help & Support</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
+                  }}
+                  style={[styles.backButton, { backgroundColor: "#000000" }]}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </LinearGradient>
             </View>
-            <View style={{ width: 40 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Help & Support</Text>
+            </View>
           </View>
 
           {/* Content Card */}
-          <View style={styles.contentCard}>
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={true}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+            showsVerticalScrollIndicator={true}
+          >
+            <LinearGradient
+              colors={["#2DFFC4", "#00A6FF"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
             >
-              {/* Tutorials & Guides */}
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <MaterialIcons name='menu-book' size={22} color='#43cea2' />
-                  <Text style={styles.sectionTitle}>
+              <View style={[styles.contentCard, { backgroundColor: Colors.bg }]}>
+                <View style={styles.content}>
+                  {/* Tutorials & Guides */}
+                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
+                  <MaterialIcons name='menu-book' size={22} color={Colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
                     Tutorials & Guides
                   </Text>
                 </View>
@@ -185,10 +201,10 @@ export default function HelpSupportScreen() {
               </View>
 
               {/* Quick Help */}
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <MaterialIcons name='help-outline' size={22} color='#43cea2' />
-                  <Text style={styles.sectionTitle}>
+              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
+                  <MaterialIcons name='help-outline' size={22} color={Colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
                     Quick Help
                   </Text>
                 </View>
@@ -211,10 +227,10 @@ export default function HelpSupportScreen() {
               </View>
 
               {/* Billing Support */}
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <MaterialIcons name='payment' size={22} color='#43cea2' />
-                  <Text style={styles.sectionTitle}>
+              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
+                  <MaterialIcons name='payment' size={22} color={Colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
                     Billing Support
                   </Text>
                 </View>
@@ -232,10 +248,10 @@ export default function HelpSupportScreen() {
               </View>
 
               {/* System Status */}
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeader}>
-                  <MaterialIcons name='check-circle' size={22} color='#43cea2' />
-                  <Text style={styles.sectionTitle}>
+              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2 }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: Colors.line }]}>
+                  <MaterialIcons name='check-circle' size={22} color={Colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: Colors.text }]}>
                     System Status
                   </Text>
                 </View>
@@ -270,39 +286,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20, 40, 80, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    borderRadius: 23,
+    overflow: 'visible',
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
+  content: {
+    padding: 16,
     paddingBottom: 40,
   },
   sectionCard: {
     borderRadius: 20,
     marginBottom: 20,
-    borderWidth: 1,
+    borderWidth: 0,
     overflow: 'hidden',
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    backgroundColor: Colors.surface2,
+    borderColor: Colors.line,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -310,41 +307,38 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     marginLeft: 12,
-    color: '#FFFFFF',
   },
-  headerContainer: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
-    position: 'relative',
+    marginTop: 60,
+    marginBottom: 12,
+    marginHorizontal: 20,
   },
-  backButtonHeader: {
+  backButtonWrapper: {
+    marginRight: 12,
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   row: {
     flexDirection: 'row',
@@ -352,7 +346,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 18,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   iconContainer: {
     width: 40,
@@ -361,18 +354,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
-    backgroundColor: 'rgba(67, 206, 162, 0.15)',
   },
   iconText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#43cea2',
   },
   rowLabel: {
     flex: 1,
     fontSize: 16,
     fontWeight: '500',
-    color: '#FFFFFF',
   },
   statusRow: {
     flexDirection: 'row',
@@ -386,11 +376,9 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
   },
   statusSubtitle: {
     fontSize: 13,
-    color: '#CFE6FF',
     marginTop: 2,
   },
   statusDot: {

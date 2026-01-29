@@ -12,6 +12,9 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
+import { useMemo } from 'react';
 import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -51,6 +54,8 @@ export default function PaymentManagementModal({
   mode = 'modal',
 }: PaymentManagementModalProps) {
   const router = useRouter();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const isScreenMode = mode === 'screen';
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
@@ -105,19 +110,19 @@ export default function PaymentManagementModal({
     });
   }, []);
 
-  // Use dashboard's dark blue gradient background with white cards
-  const theme = {
-    background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-    card: '#FFFFFF',
-    text: '#0A2540',
-    subtext: '#6C7383',
-    accent: '#43cea2',
-    border: '#D3D9E6',
-    success: '#10b981',
-    warning: '#FF9800',
+  // Use same theme system as payment page
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    success: '#4ADE80',
+    warning: '#FACC15',
     error: '#ef4444',
-    iconBg: '#E8F5F3',
-  };
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   useEffect(() => {
     if (visible || isScreenMode) {
@@ -431,34 +436,56 @@ export default function PaymentManagementModal({
     );
   };
 
-  const HeaderButtonIcon = isScreenMode ? 'arrow-back' : 'close';
-
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={handleClose}
-          style={[
-            isScreenMode ? styles.backButtonCircle : styles.closeButton,
-            isScreenMode && {
-              backgroundColor: 'rgba(67, 206, 162, 0.2)',
-              borderColor: 'rgba(67, 206, 162, 0.3)',
-            },
-          ]}
-        >
-          <MaterialIcons
-            name={HeaderButtonIcon as any}
-            size={24}
-            color={isScreenMode ? '#FFFFFF' : theme.text}
-          />
-        </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: '#FFFFFF' }]}>
-            Manage Subscription
-          </Text>
+      {isScreenMode && (
+        <View style={styles.headerRow}>
+          <View style={styles.backButtonWrapper}>
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.backButtonBorder}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  handleClose();
+                }}
+                style={[styles.backButton, { backgroundColor: "#000000" }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+          <View style={styles.titleContainerCentered}>
+            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Manage</Text>
+            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Subscription</Text>
+          </View>
+          <View style={{ width: 52 }} />
         </View>
-        <View style={{ width: isScreenMode ? 40 : 24 }} />
-      </View>
+      )}
+      {!isScreenMode && (
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={handleClose}
+            style={styles.closeButton}
+          >
+            <MaterialIcons
+              name="close"
+              size={24}
+              color={theme.text}
+            />
+          </TouchableOpacity>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.title, { color: '#FFFFFF' }]}>
+              Manage Subscription
+            </Text>
+          </View>
+          <View style={{ width: 24 }} />
+        </View>
+      )}
 
         {/* Tabs */}
         <View style={styles.tabContainer}>
@@ -557,7 +584,7 @@ export default function PaymentManagementModal({
             ]}
           >
             <Text style={[styles.footerText, { color: theme.subtext }]}>
-              All plans include 30-day money-back guarantee
+              Start with a 7-day free trial
             </Text>
             <Text style={[styles.footerText, { color: theme.subtext }]}>
               Cancel anytime • No setup fees
@@ -587,6 +614,42 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 60,
+    marginBottom: 20,
+    marginHorizontal: 20,
+    paddingBottom: 8,
+    position: 'relative',
+  },
+  backButtonWrapper: {
+    marginRight: 12,
+  },
+  titleContainerCentered: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -594,14 +657,6 @@ const styles = StyleSheet.create({
     paddingTop: 100,
     paddingBottom: 20,
     position: 'relative',
-  },
-  backButtonCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   closeButton: {
     width: 24,

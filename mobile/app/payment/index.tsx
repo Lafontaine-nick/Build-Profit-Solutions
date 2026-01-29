@@ -12,12 +12,13 @@ import {
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
-import PageHeader from '@/components/PageHeader';
+import { getColors } from '@/theme/getColors';
+import { useMemo } from 'react';
 import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Haptics from 'expo-haptics';
 
 // Try to import Clerk hooks
 let useUser: any = null;
@@ -29,7 +30,8 @@ try {
 }
 
 export default function PaymentScreen() {
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [currentPlan, setCurrentPlan] = useState<{
     name: string;
     features: string[];
@@ -84,20 +86,20 @@ export default function PaymentScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // Use dashboard's dark blue gradient with teal highlights
-  const theme = {
-    background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-    card: 'rgba(67, 206, 162, 0.08)',
-    text: '#FFFFFF',
-    subtext: '#CFE6FF',
-    accent: '#43cea2',
-    border: 'rgba(255, 255, 255, 0.08)',
-    divider: 'rgba(255, 255, 255, 0.12)',
+  // Use same theme system as profile page
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    divider: Colors.line,
     success: '#4ADE80',
     warning: '#FACC15',
     error: '#F87171',
-    iconBg: 'rgba(67, 206, 162, 0.15)',
-  };
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   const handleSubscriptionPlans = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -247,16 +249,48 @@ export default function PaymentScreen() {
   return (
     <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      <PageHeader title='Payment & Billing' onBackPress={() => router.back()} />
+      {/* Header with Back Button and Title */}
+      <View style={styles.headerRow}>
+        <View style={styles.backButtonWrapper}>
+          <LinearGradient
+            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.backButtonBorder}
+          >
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              style={[styles.backButton, { backgroundColor: "#000000" }]}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Payment & Billing</Text>
+        </View>
+      </View>
 
-      <View style={styles.contentCard}>
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+      <ScrollView 
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+        showsVerticalScrollIndicator={true}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <LinearGradient
+          colors={["#2DFFC4", "#00A6FF"]}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
         >
+          <View style={[styles.contentCard, { backgroundColor: Colors.bg }]}>
+            <View style={styles.content}>
         {/* Current Plan Card */}
         <View style={[styles.currentPlanCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           {loading ? (
@@ -458,8 +492,10 @@ export default function PaymentScreen() {
             />
           </TouchableOpacity>
         </View>
-        </ScrollView>
-      </View>
+            </View>
+          </View>
+        </LinearGradient>
+      </ScrollView>
     </LinearGradient>
   );
 }
@@ -468,22 +504,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20, 40, 80, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 60,
+    marginBottom: 12,
+    marginHorizontal: 20,
   },
-  scrollContent: {
+  backButtonWrapper: {
+    marginRight: 12,
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contentCard: {
+    borderRadius: 23,
+    overflow: 'visible',
+  },
+  content: {
     padding: 16,
     paddingBottom: 40,
   },

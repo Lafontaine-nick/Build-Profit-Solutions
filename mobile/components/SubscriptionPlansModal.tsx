@@ -18,6 +18,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
+import { useMemo } from 'react';
 
 // Try to import Clerk hooks
 let useUser: any = null;
@@ -53,6 +56,8 @@ export default function SubscriptionPlansModal({
 }: SubscriptionPlansModalProps) {
   console.log('🎭 SubscriptionPlansModal rendered with visible:', visible);
   const router = useRouter();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -143,19 +148,19 @@ export default function SubscriptionPlansModal({
     }
   }, [userEmail, storedEmail]);
 
-  // Use dashboard's dark blue gradient background with white cards
-  const theme = {
-    background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-    card: '#FFFFFF',
-    text: '#0A2540',
-    subtext: '#6C7383',
-    accent: '#43cea2',
-    border: '#D3D9E6',
-    success: '#10b981',
-    warning: '#FF9800',
+  // Use same theme system as payment page
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    success: '#4ADE80',
+    warning: '#FACC15',
     error: '#ef4444',
-    iconBg: '#E8F5F3',
-  };
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   const isScreenMode = mode === 'screen';
 
@@ -354,18 +359,24 @@ export default function SubscriptionPlansModal({
   };
 
   const renderPlan = (plan: SubscriptionPlan) => (
-    <View
+    <LinearGradient
       key={plan.id}
-      style={[
-        styles.planCard,
-        {
-          backgroundColor: theme.card,
-          borderColor: plan.recommended ? theme.accent : theme.border,
-          shadowOpacity: plan.recommended ? 0.15 : 0.08,
-          shadowRadius: plan.recommended ? 14 : 12,
-        },
-      ]}
+      colors={["#2DFFC4", "#00A6FF"]}
+      start={{ x: 0.05, y: 0.15 }}
+      end={{ x: 0.95, y: 0.85 }}
+      style={{ borderRadius: 24, padding: 1, marginBottom: 20 }}
     >
+      <View
+        style={[
+          styles.planCard,
+          {
+            backgroundColor: Colors.bg,
+            borderColor: plan.recommended ? theme.accent : theme.border,
+            shadowOpacity: plan.recommended ? 0.15 : 0.08,
+            shadowRadius: plan.recommended ? 14 : 12,
+          },
+        ]}
+      >
       <View style={styles.planHeader}>
         <View style={{ flex: 1 }}>
           <View style={styles.planTitleRow}>
@@ -452,35 +463,56 @@ export default function SubscriptionPlansModal({
           </Text>
         )}
       </TouchableOpacity>
-    </View>
+      </View>
+    </LinearGradient>
   );
-
-  const HeaderButtonIcon = isScreenMode ? 'arrow-back' : 'close';
 
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={handleClose}
-          style={[
-            isScreenMode ? styles.backButtonCircle : styles.closeButton,
-            isScreenMode && {
-              backgroundColor: 'rgba(67, 206, 162, 0.2)',
-              borderColor: 'rgba(67, 206, 162, 0.3)',
-            },
-          ]}
-        >
-          <MaterialIcons
-            name={HeaderButtonIcon as any}
-            size={24}
-            color={isScreenMode ? '#FFFFFF' : theme.text}
-          />
-        </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: '#FFFFFF' }]}>Choose Your Plan</Text>
+      {isScreenMode && (
+        <View style={styles.headerRow}>
+          <View style={styles.backButtonWrapper}>
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.backButtonBorder}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  handleClose();
+                }}
+                style={[styles.backButton, { backgroundColor: "#000000" }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Choose Your Plan</Text>
+          </View>
         </View>
-        <View style={{ width: isScreenMode ? 40 : 24 }} />
-      </View>
+      )}
+      {!isScreenMode && (
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={handleClose}
+            style={styles.closeButton}
+          >
+            <MaterialIcons
+              name="close"
+              size={24}
+              color={theme.text}
+            />
+          </TouchableOpacity>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.title, { color: '#FFFFFF' }]}>Choose Your Plan</Text>
+          </View>
+          <View style={{ width: 24 }} />
+        </View>
+      )}
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[styles.subtitle, { color: theme.subtext }]}>
@@ -496,7 +528,7 @@ export default function SubscriptionPlansModal({
           ]}
         >
           <Text style={[styles.footerText, { color: theme.subtext }]}>
-            All plans include 30-day money-back guarantee
+            Start with a 7-day free trial
           </Text>
           <Text style={[styles.footerText, { color: theme.subtext }]}>
             Cancel anytime • No setup fees
@@ -527,6 +559,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 60,
+    marginBottom: 12,
+    marginHorizontal: 20,
+  },
+  backButtonWrapper: {
+    marginRight: 12,
+  },
+  screenTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -537,14 +595,6 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 8,
-  },
-  backButtonCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   titleContainer: {
     position: 'absolute',
@@ -569,10 +619,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   planCard: {
-    borderRadius: 16,
+    borderRadius: 23,
     padding: 24,
-    marginBottom: 20,
-    borderWidth: 1,
+    borderWidth: 0,
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 12,
