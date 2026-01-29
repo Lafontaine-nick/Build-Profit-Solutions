@@ -598,7 +598,7 @@ router.get('/export', authenticateToken, async (req, res) => {
 
     console.log(`📦 Exporting data for user: ${userId}`);
 
-    const exportData: any = {
+    const exportData = {
       exportedAt: new Date().toISOString(),
       user: {},
       projects: [],
