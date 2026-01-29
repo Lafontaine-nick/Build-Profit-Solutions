@@ -150,7 +150,7 @@ export default function HelpSupportScreen() {
                 </TouchableOpacity>
               </LinearGradient>
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={styles.titleContainer}>
               <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Help & Support</Text>
             </View>
           </View>
@@ -261,17 +261,19 @@ export default function HelpSupportScreen() {
                     <View style={styles.statusDot} />
                   </View>
                   <View style={styles.statusTextContainer}>
-                    <Text style={styles.statusTitle}>
+                    <Text style={[styles.statusTitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>
                       All Systems Operational
                     </Text>
-                    <Text style={styles.statusSubtitle}>
+                    <Text style={[styles.statusSubtitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>
                       Our servers and AI services are running normally.
                     </Text>
                   </View>
                 </View>
               </View>
-            </ScrollView>
-          </View>
+                </View>
+              </View>
+            </LinearGradient>
+          </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -298,8 +300,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderWidth: 0,
     overflow: 'hidden',
-    backgroundColor: Colors.surface2,
-    borderColor: Colors.line,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -309,22 +309,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     marginLeft: 12,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 60,
+    marginTop: 40,
     marginBottom: 12,
     marginHorizontal: 20,
+    position: 'relative',
   },
   backButtonWrapper: {
-    marginRight: 12,
+    zIndex: 1,
+  },
+  titleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 20,
   },
   screenTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: "800",
     letterSpacing: 0.15,
   },
@@ -362,7 +371,6 @@ const styles = StyleSheet.create({
   rowLabel: {
     flex: 1,
     fontSize: 16,
-    fontWeight: '500',
   },
   statusRow: {
     flexDirection: 'row',
@@ -375,11 +383,11 @@ const styles = StyleSheet.create({
   },
   statusTitle: {
     fontSize: 16,
-    fontWeight: '600',
   },
   statusSubtitle: {
     fontSize: 13,
     marginTop: 2,
+    opacity: 0.65,
   },
   statusDot: {
     width: 16,

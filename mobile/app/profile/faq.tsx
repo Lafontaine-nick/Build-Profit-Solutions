@@ -12,6 +12,7 @@ import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import Animated, {
   useAnimatedStyle,
@@ -148,7 +149,7 @@ const categoryLabels: Record<string, string> = {
   account: 'Account',
 };
 
-function FAQItemComponent({ item, isExpanded, onToggle }: { item: FAQItem; isExpanded: boolean; onToggle: () => void }) {
+function FAQItemComponent({ item, isExpanded, onToggle, theme }: { item: FAQItem; isExpanded: boolean; onToggle: () => void; theme: any }) {
   const height = useSharedValue(0);
   const opacity = useSharedValue(0);
 
@@ -168,21 +169,21 @@ function FAQItemComponent({ item, isExpanded, onToggle }: { item: FAQItem; isExp
   }));
 
   return (
-    <View style={styles.faqItem}>
+    <View style={[styles.faqItem, { borderBottomColor: theme.border }]}>
       <TouchableOpacity
         style={styles.faqHeader}
         onPress={onToggle}
         activeOpacity={0.7}
       >
-        <Text style={styles.faqQuestion}>{item.question}</Text>
+        <Text style={[styles.faqQuestion, { color: theme.text }]}>{item.question}</Text>
         <MaterialIcons
           name={isExpanded ? 'expand-less' : 'expand-more'}
           size={24}
-          color='#43cea2'
+          color={theme.accent}
         />
       </TouchableOpacity>
-      <Animated.View style={[styles.faqAnswerContainer, animatedStyle]}>
-        <Text style={styles.faqAnswer}>{item.answer}</Text>
+      <Animated.View style={[styles.faqAnswerContainer, animatedStyle, { borderTopColor: theme.border }]}>
+        <Text style={[styles.faqAnswer, { color: theme.subtext }]}>{item.answer}</Text>
       </Animated.View>
     </View>
   );
@@ -190,12 +191,21 @@ function FAQItemComponent({ item, isExpanded, onToggle }: { item: FAQItem; isExp
 
 export default function FAQScreen() {
   const router = useRouter();
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
-  const gradientColors = ['#0b1c38', '#1B365D', '#43cea2'] as const;
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   const filteredFAQs = useMemo(() => {
     let filtered = faqData;
@@ -236,130 +246,149 @@ export default function FAQScreen() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.gradient}
-      >
+      <LinearGradient colors={theme.background} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
           {/* Header */}
-          <View style={styles.headerContainer}>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.back();
-              }}
-              style={styles.backButtonHeader}
-            >
-              <MaterialIcons name='arrow-back' size={24} color='#FFFFFF' />
-            </TouchableOpacity>
-            <View style={styles.titleContainer}>
-              <Text style={styles.headerTitle}>Frequently Asked Questions</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
+                  }}
+                  style={[styles.backButton, { backgroundColor: "#000000" }]}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </LinearGradient>
             </View>
-            <View style={{ width: 40 }} />
+            <View style={styles.titleContainer}>
+              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                Frequently Asked Questions
+              </Text>
+            </View>
+            <View style={styles.backButtonWrapper} />
           </View>
 
           {/* Content Card */}
-          <View style={styles.contentCard}>
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={true}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+            showsVerticalScrollIndicator={true}
+          >
+            <LinearGradient
+              colors={["#2DFFC4", "#00A6FF"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
             >
-              {/* Search Bar */}
-              <View style={styles.searchContainer}>
-                <MaterialIcons name='search' size={20} color='#CFE6FF' style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder='Search FAQs...'
-                  placeholderTextColor='rgba(207, 230, 255, 0.6)'
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setSearchQuery('')}
-                    style={styles.clearButton}
-                  >
-                    <MaterialIcons name='close' size={20} color='#CFE6FF' />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Category Filter */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryContainer}
-                contentContainerStyle={styles.categoryContent}
-              >
-                {categories.map(category => (
-                  <TouchableOpacity
-                    key={category}
-                    style={[
-                      styles.categoryChip,
-                      selectedCategory === category && styles.categoryChipActive,
-                    ]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setSelectedCategory(category);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.categoryText,
-                        selectedCategory === category && styles.categoryTextActive,
-                      ]}
-                    >
-                      {categoryLabels[category]}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {/* FAQ List */}
-              <View style={styles.faqCard}>
-                {filteredFAQs.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <MaterialIcons name='help-outline' size={48} color='#A0A9B6' />
-                    <Text style={styles.emptyText}>No FAQs found</Text>
-                    <Text style={styles.emptySubtext}>
-                      Try adjusting your search or filter
-                    </Text>
-                  </View>
-                ) : (
-                  filteredFAQs.map(item => (
-                    <FAQItemComponent
-                      key={item.id}
-                      item={item}
-                      isExpanded={expandedItems.has(item.id)}
-                      onToggle={() => toggleItem(item.id)}
+              <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
+                <View style={styles.scrollContent}>
+                  {/* Search Bar */}
+                  <View style={[styles.searchContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <MaterialIcons name='search' size={20} color={theme.subtext} style={styles.searchIcon} />
+                    <TextInput
+                      style={[styles.searchInput, { color: theme.text }]}
+                      placeholder='Search FAQs...'
+                      placeholderTextColor={theme.subtext}
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
                     />
-                  ))
-                )}
-              </View>
+                    {searchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setSearchQuery('')}
+                        style={styles.clearButton}
+                      >
+                        <MaterialIcons name='close' size={20} color={theme.subtext} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
-              {/* Help Text */}
-              <View style={styles.helpCard}>
-                <MaterialIcons name='support-agent' size={24} color='#43cea2' />
-                <Text style={styles.helpTitle}>Still have questions?</Text>
-                <Text style={styles.helpText}>
-                  Can't find what you're looking for? Contact our support team for
-                  personalized assistance.
-                </Text>
-                <TouchableOpacity
-                  style={styles.helpButton}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    router.push('/profile/help-support');
-                  }}
-                >
-                  <Text style={styles.helpButtonText}>Contact Support</Text>
-                </TouchableOpacity>
+                  {/* Category Filter */}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.categoryContainer}
+                    contentContainerStyle={styles.categoryContent}
+                  >
+                    {categories.map(category => (
+                      <TouchableOpacity
+                        key={category}
+                        style={[
+                          styles.categoryChip,
+                          { backgroundColor: theme.card, borderColor: theme.border },
+                          selectedCategory === category && { backgroundColor: theme.iconBg, borderColor: theme.accent },
+                        ]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setSelectedCategory(category);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.categoryText,
+                            { color: theme.subtext },
+                            selectedCategory === category && { color: theme.text, fontWeight: '600' },
+                          ]}
+                        >
+                          {categoryLabels[category]}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* FAQ List */}
+                  <View style={styles.faqCard}>
+                    {filteredFAQs.length === 0 ? (
+                      <View style={styles.emptyState}>
+                        <MaterialIcons name='help-outline' size={48} color={theme.subtext} />
+                        <Text style={[styles.emptyText, { color: theme.text }]}>No FAQs found</Text>
+                        <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
+                          Try adjusting your search or filter
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredFAQs.map(item => (
+                        <FAQItemComponent
+                          key={item.id}
+                          item={item}
+                          isExpanded={expandedItems.has(item.id)}
+                          onToggle={() => toggleItem(item.id)}
+                          theme={theme}
+                        />
+                      ))
+                    )}
+                  </View>
+
+                  {/* Help Text */}
+                  <View style={[styles.helpCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <MaterialIcons name='support-agent' size={24} color={theme.accent} />
+                    <Text style={[styles.helpTitle, { color: theme.text }]}>Still have questions?</Text>
+                    <Text style={[styles.helpText, { color: theme.subtext }]}>
+                      Can't find what you're looking for? Contact our support team for
+                      personalized assistance.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.helpButton}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        router.push('/profile/help-support');
+                      }}
+                    >
+                      <Text style={styles.helpButtonText}>Contact Support</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-            </ScrollView>
-          </View>
+            </LinearGradient>
+          </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -373,53 +402,46 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  headerContainer: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    justifyContent: 'space-between',
+    marginTop: 40,
+    marginBottom: 12,
+    marginHorizontal: 20,
     position: 'relative',
   },
-  backButtonHeader: {
+  backButtonWrapper: {
+    width: 42,
+    zIndex: 1,
+    alignItems: 'center',
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(67, 206, 162, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.3)',
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    textAlign: 'center',
   },
   contentCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20, 40, 80, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  scrollView: {
-    flex: 1,
+    borderRadius: 23,
+    overflow: 'visible',
   },
   scrollContent: {
     padding: 20,
@@ -428,13 +450,11 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
     paddingHorizontal: 16,
     marginBottom: 16,
     height: 50,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   searchIcon: {
     marginRight: 10,
@@ -442,7 +462,6 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#FFFFFF',
   },
   clearButton: {
     padding: 4,
@@ -457,23 +476,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     marginRight: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  categoryChipActive: {
-    backgroundColor: 'rgba(67, 206, 162, 0.25)',
-    borderColor: '#43cea2',
   },
   categoryText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#CFE6FF',
-  },
-  categoryTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
   faqCard: {
     backgroundColor: 'transparent',
@@ -484,7 +492,6 @@ const styles = StyleSheet.create({
   },
   faqItem: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     paddingVertical: 16,
   },
   faqHeader: {
@@ -496,7 +503,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginRight: 12,
     lineHeight: 22,
   },
@@ -505,50 +511,45 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   faqAnswer: {
-    fontSize: 15,
-    color: '#CFE6FF',
+    fontSize: 13,
     lineHeight: 22,
+    opacity: 0.65,
   },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
-    color: '#CFE6FF',
+    fontSize: 13,
     textAlign: 'center',
+    opacity: 0.65,
   },
   helpCard: {
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.25)',
   },
   helpTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
     marginTop: 12,
     marginBottom: 8,
   },
   helpText: {
-    fontSize: 14,
-    color: '#CFE6FF',
+    fontSize: 13,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
+    opacity: 0.65,
   },
   helpButton: {
     backgroundColor: '#43cea2',

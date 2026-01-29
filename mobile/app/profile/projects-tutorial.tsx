@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 
 interface TutorialStepProps {
@@ -33,22 +34,22 @@ const TutorialStep = ({
   <View style={styles.stepContainer}>
     <View style={styles.stepRow}>
       <View style={styles.stepLeft}>
-        <View style={styles.stepNumber}>
-          <Text style={styles.stepNumberText}>
+        <View style={[styles.stepNumber, { backgroundColor: theme.iconBg }]}>
+          <Text style={[styles.stepNumberText, { color: theme.accent }]}>
             {number}
           </Text>
         </View>
         {!isLast && (
-          <View style={styles.stepConnector} />
+          <View style={[styles.stepConnector, { backgroundColor: theme.border }]} />
         )}
       </View>
-      <View style={styles.stepCard}>
+      <View style={[styles.stepCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <View style={styles.stepContent}>
           <View style={styles.stepHeader}>
-            <MaterialIcons name={icon as any} size={24} color='#43cea2' />
-            <Text style={styles.stepTitle}>{title}</Text>
+            <MaterialIcons name={icon as any} size={24} color={theme.accent} />
+            <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
           </View>
-          <Text style={styles.stepDescription}>
+          <Text style={[styles.stepDescription, { color: theme.subtext }]}>
             {description}
           </Text>
         </View>
@@ -59,27 +60,18 @@ const TutorialStep = ({
 
 export default function ProjectsTutorialScreen() {
   const router = useRouter();
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
-  const theme = darkMode
-    ? {
-        background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-        card: '#FFFFFF',
-        text: '#0A2540',
-        subtext: '#6C7383',
-        accent: '#43cea2',
-        border: '#D3D9E6',
-        iconBg: '#E8F5F3',
-      }
-    : {
-        background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-        card: '#FFFFFF',
-        text: '#0A2540',
-        subtext: '#6C7383',
-        accent: '#43cea2',
-        border: '#D3D9E6',
-        iconBg: '#E8F5F3',
-      };
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+  }), [Colors]);
 
   const steps = [
     {
@@ -132,99 +124,112 @@ export default function ProjectsTutorialScreen() {
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.back();
-              }}
-              style={[
-                styles.backButtonCircle,
-                {
-                  backgroundColor: 'rgba(67, 206, 162, 0.2)',
-                  borderColor: 'rgba(67, 206, 162, 0.3)',
-                },
-              ]}
-            >
-              <MaterialIcons name='arrow-back' size={24} color='#FFFFFF' />
-            </TouchableOpacity>
+          <View style={styles.headerRow}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
+                  }}
+                  style={[styles.backButton, { backgroundColor: "#000000" }]}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
             <View style={styles.titleContainer}>
-              <Text style={[styles.title, { color: '#FFFFFF' }]}>
+              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
                 Project Management
               </Text>
             </View>
-            <View style={{ width: 40 }} />
+            <View style={styles.backButtonWrapper} />
           </View>
 
           {/* Content Card */}
-          <View style={styles.contentCard}>
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={true}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+            showsVerticalScrollIndicator={true}
+          >
+            <LinearGradient
+              colors={["#2DFFC4", "#00A6FF"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
             >
-            {/* Welcome Section */}
-            <View style={styles.welcomeCard}>
-              <View style={styles.welcomeIcon}>
-                <MaterialIcons name='folder' size={32} color='#43cea2' />
+              <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
+                <View style={styles.scrollContent}>
+                  {/* Welcome Section */}
+                  <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
+                      <MaterialIcons name='folder' size={32} color={theme.accent} />
+                    </View>
+                    <Text style={[styles.welcomeTitle, { color: theme.text }]}>
+                      Manage Your Projects
+                    </Text>
+                    <Text style={[styles.welcomeText, { color: theme.subtext }]}>
+                      Keep track of all your projects from start to finish. Monitor progress,
+                      profitability, and timelines in one centralized location.
+                    </Text>
+                  </View>
+
+                  {/* Tutorial Steps */}
+                  <View style={styles.section}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                      Getting Started
+                    </Text>
+                    {steps.map((step, index) => (
+                      <TutorialStep
+                        key={step.number}
+                        number={step.number}
+                        title={step.title}
+                        description={step.description}
+                        icon={step.icon}
+                        theme={theme}
+                        isLast={index === steps.length - 1}
+                      />
+                    ))}
+                  </View>
+
+                  {/* Quick Tips */}
+                  <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <MaterialIcons name='lightbulb-outline' size={24} color={theme.accent} />
+                    <View style={styles.tipsContent}>
+                      <Text style={[styles.tipsTitle, { color: theme.text }]}>
+                        Pro Tips
+                      </Text>
+                      <Text style={[styles.tipsText, { color: theme.subtext }]}>
+                        • Convert estimates to projects after winning bids{'\n'}
+                        • Update project status regularly for accurate tracking{'\n'}
+                        • Use filters to focus on active projects{'\n'}
+                        • Monitor margins to ensure profitability
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* CTA Button */}
+                  <TouchableOpacity
+                    style={styles.ctaButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      router.push('/(tabs)/projects');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
+                    <Text style={styles.ctaButtonText}>Go to Projects</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Text style={styles.welcomeTitle}>
-                Manage Your Projects
-              </Text>
-              <Text style={styles.welcomeText}>
-                Keep track of all your projects from start to finish. Monitor progress,
-                profitability, and timelines in one centralized location.
-              </Text>
-            </View>
-
-            {/* Tutorial Steps */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: '#FFFFFF' }]}>
-                Getting Started
-              </Text>
-              {steps.map((step, index) => (
-                <TutorialStep
-                  key={step.number}
-                  number={step.number}
-                  title={step.title}
-                  description={step.description}
-                  icon={step.icon}
-                  theme={{}}
-                  isLast={index === steps.length - 1}
-                />
-              ))}
-            </View>
-
-            {/* Quick Tips */}
-            <View style={styles.tipsCard}>
-              <MaterialIcons name='lightbulb-outline' size={24} color='#43cea2' />
-              <View style={styles.tipsContent}>
-                <Text style={styles.tipsTitle}>
-                  Pro Tips
-                </Text>
-                <Text style={styles.tipsText}>
-                  • Convert estimates to projects after winning bids{'\n'}
-                  • Update project status regularly for accurate tracking{'\n'}
-                  • Use filters to focus on active projects{'\n'}
-                  • Monitor margins to ensure profitability
-                </Text>
-              </View>
-            </View>
-
-            {/* CTA Button */}
-            <TouchableOpacity
-              style={styles.ctaButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push('/(tabs)/projects');
-              }}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
-              <Text style={styles.ctaButtonText}>Go to Projects</Text>
-            </TouchableOpacity>
-            </ScrollView>
-          </View>
+            </LinearGradient>
+          </ScrollView>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -238,51 +243,47 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    justifyContent: 'space-between',
+    marginTop: 40,
+    marginBottom: 12,
+    marginHorizontal: 20,
     position: 'relative',
   },
-  backButtonCircle: {
+  backButtonWrapper: {
+    width: 42,
+    zIndex: 1,
+    alignItems: 'center',
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingLeft: 2,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    textAlign: 'center',
   },
   contentCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20, 40, 80, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  scrollView: {
-    flex: 1,
+    borderRadius: 23,
+    overflow: 'visible',
   },
   scrollContent: {
     padding: 20,
@@ -293,9 +294,7 @@ const styles = StyleSheet.create({
     padding: 24,
     marginBottom: 24,
     alignItems: 'center',
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.25)',
   },
   welcomeIcon: {
     width: 64,
@@ -304,29 +303,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    backgroundColor: 'rgba(67, 206, 162, 0.15)',
   },
   welcomeTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
-    color: '#FFFFFF',
   },
   welcomeText: {
     fontSize: 16,
     lineHeight: 24,
     textAlign: 'center',
-    color: '#CFE6FF',
   },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: 16,
-    color: '#FFFFFF',
   },
   stepContainer: {
     marginBottom: 8,
@@ -346,27 +341,22 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(67, 206, 162, 0.15)',
   },
   stepNumberText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#43cea2',
   },
   stepConnector: {
     width: 2,
     flex: 1,
     minHeight: 40,
     marginTop: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   stepCard: {
     flex: 1,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: 'transparent',
   },
   stepContent: {
     flex: 1,
@@ -381,12 +371,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
-    color: '#FFFFFF',
   },
   stepDescription: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#CFE6FF',
   },
   tipsCard: {
     flexDirection: 'row',
@@ -394,8 +382,6 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.25)',
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
     gap: 16,
     alignItems: 'flex-start',
   },
@@ -403,15 +389,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tipsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#FFFFFF',
   },
   tipsText: {
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 22,
-    color: '#CFE6FF',
+    opacity: 0.65,
   },
   ctaButton: {
     flexDirection: 'row',

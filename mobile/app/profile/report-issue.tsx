@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clerkAuthService } from '@/services/clerkAuth';
@@ -32,7 +33,8 @@ try {
 
 export default function ReportIssueScreen() {
   const router = useRouter();
-  const { darkMode } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
+  const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -102,16 +104,17 @@ export default function ReportIssueScreen() {
     { id: 'other', label: 'Other', icon: 'help-outline' },
   ];
 
-  const theme = {
-    background: ['#0b1c38', '#1B365D', '#43cea2'] as [string, string, string],
-    text: '#FFFFFF',
-    subtext: '#CFE6FF',
-    accent: '#43cea2',
-    border: 'rgba(67, 206, 162, 0.25)',
-    softBorder: 'rgba(255, 255, 255, 0.12)',
-    iconBg: 'rgba(67, 206, 162, 0.15)',
-    inputBg: 'rgba(255, 255, 255, 0.06)',
-  };
+  const theme = useMemo(() => ({
+    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+    card: Colors.surface2,
+    text: Colors.text,
+    subtext: Colors.sub,
+    accent: Colors.primary,
+    border: Colors.line,
+    softBorder: Colors.line,
+    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+    inputBg: Colors.surface2,
+  }), [Colors]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -208,175 +211,188 @@ export default function ReportIssueScreen() {
             style={styles.keyboardView}
           >
             {/* Header */}
-            <View style={styles.header}>
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.back();
-                }}
-                style={[
-                  styles.backButtonCircle,
-                  {
-                    backgroundColor: 'rgba(67, 206, 162, 0.2)',
-                    borderColor: 'rgba(67, 206, 162, 0.3)',
-                  },
-                ]}
-              >
-                <MaterialIcons name='arrow-back' size={24} color='#FFFFFF' />
-              </TouchableOpacity>
+            <View style={styles.headerRow}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.back();
+                    }}
+                    style={[styles.backButton, { backgroundColor: "#000000" }]}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </LinearGradient>
+              </View>
               <View style={styles.titleContainer}>
-                <Text style={[styles.title, { color: '#FFFFFF' }]}>
+                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
                   Report an Issue
                 </Text>
               </View>
-              <View style={{ width: 40 }} />
+              <View style={styles.backButtonWrapper} />
             </View>
 
-            <View style={styles.contentCard}>
-              <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps='handled'
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps='handled'
+            >
+              <LinearGradient
+                colors={["#2DFFC4", "#00A6FF"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
               >
-                {/* Issue Category Selection */}
-                <View style={styles.sectionCard}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                  Issue Category <Text style={{ color: '#ef4444' }}>*</Text>
-                </Text>
-                <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
-                  Select the type of issue you're experiencing
-                </Text>
+                <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
+                  <View style={styles.scrollContent}>
+                    {/* Issue Category Selection */}
+                    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                        Issue Category <Text style={{ color: '#ef4444' }}>*</Text>
+                      </Text>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                        Select the type of issue you're experiencing
+                      </Text>
 
-                  <View style={styles.categoryGrid}>
-                    {issueCategories.map((category) => {
-                      const isSelected = selectedCategory === category.id;
-                      return (
+                      <View style={styles.categoryGrid}>
+                        {issueCategories.map((category) => {
+                          const isSelected = selectedCategory === category.id;
+                          return (
+                            <TouchableOpacity
+                              key={category.id}
+                              style={[
+                                styles.categoryButton,
+                                {
+                                  borderColor: isSelected ? theme.accent : theme.border,
+                                  backgroundColor: isSelected
+                                    ? theme.iconBg
+                                    : theme.card,
+                                  borderWidth: isSelected ? 2 : 1,
+                                },
+                              ]}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                setSelectedCategory(category.id);
+                              }}
+                              activeOpacity={0.8}
+                            >
+                              <MaterialIcons
+                                name={category.icon as any}
+                                size={24}
+                                color={isSelected ? theme.accent : theme.subtext}
+                              />
+                              <Text
+                                style={[
+                                  styles.categoryLabel,
+                                  { color: isSelected ? theme.accent : theme.text },
+                                ]}
+                              >
+                                {category.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {/* Issue Report Form */}
+                    <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                        Issue Details
+                      </Text>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                        Provide as much detail as possible to help us resolve your issue
+                      </Text>
+
+                      <View style={styles.form}>
+                        <View style={styles.inputGroup}>
+                          <Text style={[styles.label, { color: theme.text }]}>
+                            Title <Text style={{ color: '#ef4444' }}>*</Text>
+                          </Text>
+                          <TextInput
+                            style={[
+                              styles.input,
+                              {
+                                backgroundColor: theme.inputBg,
+                                borderColor: theme.border,
+                                color: theme.text,
+                              },
+                            ]}
+                            placeholder='Brief summary of the issue'
+                            placeholderTextColor={theme.subtext}
+                            value={formData.title}
+                            onChangeText={(value) => handleInputChange('title', value)}
+                          />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                          <Text style={[styles.label, { color: theme.text }]}>
+                            Description <Text style={{ color: '#ef4444' }}>*</Text>
+                          </Text>
+                          <TextInput
+                            style={[
+                              styles.textArea,
+                              {
+                                backgroundColor: theme.inputBg,
+                                borderColor: theme.border,
+                                color: theme.text,
+                              },
+                            ]}
+                            placeholder='Describe the issue in detail...'
+                            placeholderTextColor={theme.subtext}
+                            value={formData.description}
+                            onChangeText={(value) =>
+                              handleInputChange('description', value)
+                            }
+                            multiline
+                            numberOfLines={6}
+                            textAlignVertical='top'
+                          />
+                        </View>
+
                         <TouchableOpacity
-                          key={category.id}
                           style={[
-                            styles.categoryButton,
+                            styles.submitButton,
                             {
-                              borderColor: isSelected ? theme.accent : theme.softBorder,
-                              backgroundColor: isSelected
-                                ? 'rgba(67, 206, 162, 0.18)'
-                                : 'rgba(255, 255, 255, 0.03)',
-                              borderWidth: isSelected ? 2 : 1,
+                              opacity: loading ? 0.7 : 1,
                             },
                           ]}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            setSelectedCategory(category.id);
-                          }}
+                          onPress={handleSubmit}
+                          disabled={loading}
                           activeOpacity={0.8}
                         >
-                          <MaterialIcons
-                            name={category.icon as any}
-                            size={24}
-                            color={isSelected ? theme.accent : theme.subtext}
-                          />
-                          <Text
-                            style={[
-                              styles.categoryLabel,
-                              { color: isSelected ? theme.accent : theme.text },
-                            ]}
-                          >
-                            {category.label}
-                          </Text>
+                          {loading ? (
+                            <ActivityIndicator color='#FFFFFF' />
+                          ) : (
+                            <>
+                              <MaterialIcons name='report-problem' size={20} color='#FFFFFF' />
+                              <Text style={styles.submitButtonText}>Submit Report</Text>
+                            </>
+                          )}
                         </TouchableOpacity>
-                      );
-                    })}
+                      </View>
+                    </View>
+
+                    {/* Help Info */}
+                    <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <MaterialIcons name='info-outline' size={20} color={theme.accent} />
+                      <Text style={[styles.infoText, { color: theme.subtext }]}>
+                        The more details you provide, the faster we can resolve your issue.
+                        Screenshots can be helpful too!
+                      </Text>
+                    </View>
                   </View>
                 </View>
-
-                {/* Issue Report Form */}
-                <View style={styles.sectionCard}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                  Issue Details
-                </Text>
-                <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
-                  Provide as much detail as possible to help us resolve your issue
-                </Text>
-
-                <View style={styles.form}>
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: theme.text }]}>
-                      Title <Text style={{ color: '#ef4444' }}>*</Text>
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        {
-                          backgroundColor: theme.inputBg,
-                          borderColor: theme.border,
-                          color: theme.text,
-                        },
-                      ]}
-                      placeholder='Brief summary of the issue'
-                      placeholderTextColor='rgba(255, 255, 255, 0.6)'
-                      value={formData.title}
-                      onChangeText={(value) => handleInputChange('title', value)}
-                    />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: theme.text }]}>
-                      Description <Text style={{ color: '#ef4444' }}>*</Text>
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.textArea,
-                        {
-                          backgroundColor: theme.inputBg,
-                          borderColor: theme.border,
-                          color: theme.text,
-                        },
-                      ]}
-                      placeholder='Describe the issue in detail...'
-                      placeholderTextColor='rgba(255, 255, 255, 0.6)'
-                      value={formData.description}
-                      onChangeText={(value) =>
-                        handleInputChange('description', value)
-                      }
-                      multiline
-                      numberOfLines={6}
-                      textAlignVertical='top'
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.submitButton,
-                      {
-                        opacity: loading ? 0.7 : 1,
-                      },
-                    ]}
-                    onPress={handleSubmit}
-                    disabled={loading}
-                    activeOpacity={0.8}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color='#FFFFFF' />
-                    ) : (
-                      <>
-                        <MaterialIcons name='report-problem' size={20} color='#FFFFFF' />
-                        <Text style={styles.submitButtonText}>Submit Report</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-                </View>
-
-                {/* Help Info */}
-                <View style={styles.infoCard}>
-                  <MaterialIcons name='info-outline' size={20} color={theme.accent} />
-                  <Text style={[styles.infoText, { color: theme.subtext }]}>
-                    The more details you provide, the faster we can resolve your issue.
-                    Screenshots can be helpful too!
-                  </Text>
-                </View>
-              </ScrollView>
-            </View>
+              </LinearGradient>
+            </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </LinearGradient>
@@ -394,51 +410,46 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    justifyContent: 'space-between',
+    marginTop: 40,
+    marginBottom: 12,
+    marginHorizontal: 20,
     position: 'relative',
   },
-  backButtonCircle: {
+  backButtonWrapper: {
+    width: 42,
+    zIndex: 1,
+    alignItems: 'center',
+  },
+  backButtonBorder: {
+    borderRadius: 20,
+    padding: 1,
+    overflow: "hidden",
+  },
+  backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
   },
   titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    textAlign: 'center',
   },
   contentCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20, 40, 80, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  scrollView: {
-    flex: 1,
+    borderRadius: 23,
+    overflow: 'visible',
   },
   scrollContent: {
     padding: 20,
@@ -449,18 +460,17 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: 4,
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     marginBottom: 20,
     lineHeight: 20,
+    opacity: 0.65,
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -477,7 +487,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryLabel: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -488,7 +498,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   label: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
   },
@@ -528,14 +538,13 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
     gap: 12,
   },
   infoText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 20,
+    opacity: 0.65,
   },
 });
 

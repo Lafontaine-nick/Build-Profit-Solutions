@@ -565,11 +565,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#CFE6FF',
     marginBottom: 4,
-    fontWeight: '500',
+    opacity: 0.65,
   },
   currentPlanName: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   currentPlanDetails: {
@@ -581,10 +581,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   planDetailText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#CFE6FF',
     marginLeft: 10,
-    fontWeight: '500',
+    opacity: 0.65,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -612,8 +612,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     marginLeft: 12,
   },
   settingItem: {
@@ -647,12 +647,12 @@ const styles = StyleSheet.create({
   },
   settingText: {
     fontSize: 16,
-    fontWeight: '600',
     color: '#FFFFFF',
     marginBottom: 2,
   },
   settingSubtext: {
     fontSize: 13,
     color: '#CFE6FF',
+    opacity: 0.65,
   },
 });
