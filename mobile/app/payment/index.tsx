@@ -36,6 +36,7 @@ export default function PaymentScreen() {
     name: string;
     features: string[];
   } | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,73 +144,134 @@ export default function PaymentScreen() {
       // Use stored email as final fallback
       const emailToUse = userEmail || storedEmail;
       console.log('📋 Fetching current plan, user email:', emailToUse || 'not available');
+      console.log('📋 userEmail:', userEmail, 'storedEmail:', storedEmail);
       
       if (!emailToUse) {
         console.log('⚠️ No email available, skipping subscription fetch');
         setCurrentPlan(null);
-        setError(null);
+        setError('No email found. Please ensure you are logged in.');
         setLoading(false);
         loadingCleared = true;
         return;
       }
       
-      console.log('📡 Calling stripeService.getCustomerSubscriptions...');
+      console.log('📡 Calling stripeService.getCustomerSubscriptions with email:', emailToUse);
       const subscriptions = await stripeService.getCustomerSubscriptions(emailToUse);
       console.log('📋 Subscriptions received:', subscriptions.length);
       
-      // Find active subscription (prioritize non-cancelling ones)
+      // Log all subscriptions for debugging
+      if (subscriptions.length > 0) {
+        console.log('📋 All subscriptions:');
+        subscriptions.forEach((sub: any, index: number) => {
+          console.log(`  [${index}] ID: ${sub.id}, Status: ${sub.status}, Cancel at period end: ${sub.cancel_at_period_end}, Plan ID: ${sub.plan?.id}, Plan Nickname: ${sub.plan?.nickname}`);
+        });
+      } else {
+        console.log('⚠️ No subscriptions returned from API. This could mean:');
+        console.log('  1. No Stripe customer exists for this email');
+        console.log('  2. The customer has no subscriptions');
+        console.log('  3. Backend API issue');
+      }
+      
+      // Find subscription (prioritize active/trialing, but also include past_due)
+      // A past_due subscription is still a valid subscription that needs payment
       const activeSubscription = subscriptions.find(
         (sub: any) => (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end
       ) || subscriptions.find(
         (sub: any) => sub.status === 'active' || sub.status === 'trialing'
+      ) || subscriptions.find(
+        (sub: any) => sub.status === 'past_due'
       );
 
-      console.log('📋 Active subscription found:', activeSubscription ? 'Yes' : 'No');
+      console.log('📋 Subscription found:', activeSubscription ? 'Yes' : 'No');
+      if (activeSubscription) {
+        console.log('📋 Subscription details:', {
+          id: activeSubscription.id,
+          status: activeSubscription.status,
+          cancel_at_period_end: activeSubscription.cancel_at_period_end,
+          plan_id: activeSubscription.plan?.id,
+          plan_nickname: activeSubscription.plan?.nickname,
+        });
+        // Store the subscription status for UI display
+        setSubscriptionStatus(activeSubscription.status);
+      } else {
+        setSubscriptionStatus(null);
+      }
 
       if (activeSubscription && activeSubscription.plan) {
         // Get price ID from plan.id (backend includes this)
         const priceId = activeSubscription.plan.id;
-        console.log('📋 Price ID:', priceId);
+        console.log('📋 Price ID from subscription:', priceId);
         
         if (priceId) {
           const planInfo = getPlanInfo(priceId);
           if (planInfo) {
-            console.log('📋 Plan info found:', planInfo.name);
+            console.log('✅ Plan info found:', planInfo.name);
             setCurrentPlan(planInfo);
+            // Show warning for past_due, but still display the plan
+            if (activeSubscription.status === 'past_due') {
+              setError('Your subscription payment is past due. Please update your payment method to continue service.');
+            } else {
+              setError(null);
+            }
           } else {
             // Fallback: use plan nickname from Stripe
+            console.log('⚠️ No plan mapping found for price ID:', priceId);
             console.log('📋 Using fallback plan name:', activeSubscription.plan.nickname);
             setCurrentPlan({
               name: activeSubscription.plan.nickname || 'Active Plan',
               features: ['Active subscription'],
             });
+            if (activeSubscription.status === 'past_due') {
+              setError('Your subscription payment is past due. Please update your payment method to continue service.');
+            } else {
+              setError(null);
+            }
           }
         } else {
           // No price ID, use nickname
-          console.log('📋 No price ID, using nickname');
+          console.log('⚠️ No price ID in subscription, using nickname');
           setCurrentPlan({
             name: activeSubscription.plan.nickname || 'Active Plan',
             features: ['Active subscription'],
           });
+          if (activeSubscription.status === 'past_due') {
+            setError('Your subscription payment is past due. Please update your payment method to continue service.');
+          } else {
+            setError(null);
+          }
         }
       } else {
-        // No active subscription
-        console.log('📋 No active subscription found');
+        // No subscription found
+        console.log('⚠️ No subscription found');
+        if (subscriptions.length > 0) {
+          const statuses = subscriptions.map((s: any) => s.status).join(', ');
+          console.log('📋 Available subscription statuses:', statuses);
+          // Only show error if there are subscriptions but none we can display
+          const displayableStatuses = ['active', 'trialing', 'past_due'];
+          const hasDisplayableStatus = subscriptions.some((s: any) => displayableStatuses.includes(s.status));
+          if (!hasDisplayableStatus) {
+            setError(`Found ${subscriptions.length} subscription(s), but none are active. Statuses: ${statuses}`);
+          }
+        } else {
+          setError('No subscriptions found. You may need to subscribe to a plan.');
+        }
         setCurrentPlan(null);
+        setSubscriptionStatus(null);
       }
     } catch (error: any) {
       console.error('❌ Error fetching current plan:', error);
+      console.error('❌ Error stack:', error?.stack);
       // Show error message but don't crash
       const errorMessage = error?.message || 'Failed to load subscription';
       if (errorMessage.includes('timed out') || errorMessage.includes('Network')) {
         console.error('⚠️ Network error - check backend connection');
+        setError('Connection timeout. Please check your network and ensure the backend is running.');
+      } else {
+        setError(errorMessage);
       }
       // Set plan to null on error
       setCurrentPlan(null);
-      // Set error message
-      const errorMsg = error?.message || 'Failed to load subscription';
-      setError(errorMsg);
-      console.error('❌ Error details:', errorMsg);
+      console.error('❌ Error details:', errorMessage);
     } finally {
       if (!loadingCleared) {
         console.log('✅ Clearing loading state (finally block)');
@@ -263,10 +325,10 @@ export default function PaymentScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.back();
               }}
-              style={[styles.backButton, { backgroundColor: "#000000" }]}
+              style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+              <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
             </TouchableOpacity>
           </LinearGradient>
         </View>
@@ -296,7 +358,7 @@ export default function PaymentScreen() {
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={theme.accent} />
-              <Text style={[styles.loadingText, { color: theme.subtext }]}>
+              <Text style={[styles.loadingText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                 Loading plan...
               </Text>
             </View>
@@ -310,11 +372,11 @@ export default function PaymentScreen() {
           ) : currentPlan ? (
             <>
               <View style={styles.currentPlanHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: theme.iconBg }]}>
+                <View style={[styles.iconContainer, { backgroundColor: darkMode ? theme.iconBg : 'rgba(67, 206, 162, 0.25)' }]}>
                   <MaterialIcons name='workspace-premium' size={24} color={theme.accent} />
                 </View>
                 <View style={styles.currentPlanInfo}>
-                  <Text style={[styles.currentPlanLabel, { color: theme.subtext }]}>Current Plan</Text>
+                  <Text style={[styles.currentPlanLabel, { color: darkMode ? "#FFFFFF" : "#000000" }]}>Current Plan</Text>
                   <Text style={[styles.currentPlanName, { color: theme.text }]}>{currentPlan.name}</Text>
                 </View>
               </View>
@@ -330,16 +392,16 @@ export default function PaymentScreen() {
           ) : (
             <>
               <View style={styles.currentPlanHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: theme.iconBg }]}>
-                  <MaterialIcons name='workspace-premium' size={24} color={theme.subtext} />
+                <View style={[styles.iconContainer, { backgroundColor: darkMode ? theme.iconBg : 'rgba(67, 206, 162, 0.25)' }]}>
+                  <MaterialIcons name='workspace-premium' size={24} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
                 </View>
                 <View style={styles.currentPlanInfo}>
-                  <Text style={[styles.currentPlanLabel, { color: theme.subtext }]}>Current Plan</Text>
+                  <Text style={[styles.currentPlanLabel, { color: darkMode ? "#FFFFFF" : "#000000" }]}>Current Plan</Text>
                   <Text style={[styles.currentPlanName, { color: theme.text }]}>No Active Plan</Text>
                 </View>
               </View>
               <View style={styles.currentPlanDetails}>
-                <Text style={[styles.planDetailText, { color: theme.subtext }]}>
+                <Text style={[styles.planDetailText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   Subscribe to a plan to unlock premium features
                 </Text>
               </View>
@@ -373,7 +435,7 @@ export default function PaymentScreen() {
                 <Text style={[styles.settingText, { color: theme.text }]}>
                   View Plans
                 </Text>
-                <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   Compare and upgrade your plan
                 </Text>
               </View>
@@ -382,6 +444,7 @@ export default function PaymentScreen() {
               name='chevron-right'
               size={24}
               color={theme.subtext}
+              style={{ opacity: darkMode ? 0.85 : 0.7 }}
             />
           </TouchableOpacity>
 
@@ -402,7 +465,7 @@ export default function PaymentScreen() {
                 <Text style={[styles.settingText, { color: theme.text }]}>
                   Manage Subscription
                 </Text>
-                <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   Update billing and cancel anytime
                 </Text>
               </View>
@@ -411,6 +474,7 @@ export default function PaymentScreen() {
               name='chevron-right'
               size={24}
               color={theme.subtext}
+              style={{ opacity: darkMode ? 0.85 : 0.7 }}
             />
           </TouchableOpacity>
         </View>
@@ -441,7 +505,7 @@ export default function PaymentScreen() {
                 <Text style={[styles.settingText, { color: theme.text }]}>
                   View Invoices
                 </Text>
-                <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   Download past invoices and receipts
                 </Text>
               </View>
@@ -450,6 +514,7 @@ export default function PaymentScreen() {
               name='chevron-right'
               size={24}
               color={theme.subtext}
+              style={{ opacity: darkMode ? 0.85 : 0.7 }}
             />
           </TouchableOpacity>
         </View>
@@ -480,7 +545,7 @@ export default function PaymentScreen() {
                 <Text style={[styles.settingText, { color: theme.text }]}>
                   Manage Cards
                 </Text>
-                <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                   Add, update, or remove payment methods
                 </Text>
               </View>
@@ -489,6 +554,7 @@ export default function PaymentScreen() {
               name='chevron-right'
               size={24}
               color={theme.subtext}
+              style={{ opacity: darkMode ? 0.85 : 0.7 }}
             />
           </TouchableOpacity>
         </View>
@@ -565,7 +631,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#CFE6FF',
     marginBottom: 4,
-    opacity: 0.65,
   },
   currentPlanName: {
     fontSize: 16,
@@ -584,7 +649,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#CFE6FF',
     marginLeft: 10,
-    opacity: 0.65,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -653,6 +717,5 @@ const styles = StyleSheet.create({
   settingSubtext: {
     fontSize: 13,
     color: '#CFE6FF',
-    opacity: 0.65,
   },
 });

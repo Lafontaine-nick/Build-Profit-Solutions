@@ -43,8 +43,11 @@ router.post('/dashboard-insights', authenticateTokenOptional, async (req, res) =
 
     // Get projects from request body if provided (from mobile app)
     const projectsFromRequest = req.body.projects || null;
+    
+    // Check if user wants to force refresh (bypass cache)
+    const forceRefresh = req.body.forceRefresh === true || req.query.forceRefresh === 'true';
 
-    const data = await buildAiDashboardForUser(userId, projectsFromRequest);
+    const data = await buildAiDashboardForUser(userId, projectsFromRequest, forceRefresh);
     return res.json(data);
   } catch (err) {
     console.error('Error in /api/ai/dashboard-insights:', err);

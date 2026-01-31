@@ -68,8 +68,8 @@ export default {
         // To use local backend, explicitly set: EXPO_PUBLIC_API_BASE_URL=http://192.168.0.201:3001/api
         apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || 'https://build-profit-solutions-backend.onrender.com/api',
         // Development network IP for mobile physical devices
-        // CURRENT IP: 192.168.0.142 (updated via ifconfig)
-        devApiBaseUrl: process.env.EXPO_PUBLIC_DEV_API_BASE_URL || 'http://192.168.0.142:3001',
+        // CURRENT IP: 192.168.1.115 (updated via ifconfig)
+        devApiBaseUrl: process.env.EXPO_PUBLIC_DEV_API_BASE_URL || 'http://192.168.1.115:3001',
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       isDevelopment: isDevelopment,
     },

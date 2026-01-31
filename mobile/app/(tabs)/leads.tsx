@@ -3343,7 +3343,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   profileOuter: {
     width: 54,

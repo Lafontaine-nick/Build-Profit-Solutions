@@ -610,6 +610,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           ...updates,
           // Use the properly merged projectData
           ...(finalProjectData ? { projectData: finalProjectData } : {}),
+          // Always update updatedAt when project is modified
+          updatedAt: new Date().toISOString(),
         };
 
         if (updates.actualCost != null || updates.bidPrice != null) {

@@ -282,12 +282,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
     marginBottom: 4,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   version: {
     fontSize: 13,
     textAlign: 'center',
-    opacity: 0.65,
+    opacity: 0.85,
   },
   section: {
     marginBottom: 24,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 8,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   featureItem: {
     marginBottom: 16,
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
   bulletText: {
     fontSize: 13,
     lineHeight: 20,
-    opacity: 0.65,
+    opacity: 0.85,
   },
 });
 

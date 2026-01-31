@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ProjectDataProvider,
   useProjectData,
 } from '../../contexts/ProjectDataContext';
 import { useProjectList, UnifiedProject } from '../../contexts/ProjectListContext';
-import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -16,11 +16,12 @@ import BudgetTab from '../../components/BudgetTab';
 import TimelineTabV2 from '../../components/TimelineTabV2';
 import TeamTab from '../../components/TeamTab';
 import MessagesTab from '../../components/MessagesTab';
-import BidInvitationButton from '../../components/BidInvitationButton';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
+import AIAssistantModal from '../../components/AIAssistantModal';
+import ProjectActivationFlow from '../../components/ProjectActivationFlow';
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -125,9 +126,210 @@ function ProjectDetailContent() {
   useEffect(() => {
     console.log(`🔄 Project data updated - overallProgressPct: ${contextProjectData?.overallProgressPct}`);
   }, [contextProjectData?.overallProgressPct]);
-  const { getProjectById, updateProject } = useProjectList();
+
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+  const { getProjectById, updateProject, activeProjects } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>('Overview');
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showKickoffCard, setShowKickoffCard] = useState(false);
+  const [activationChecklist, setActivationChecklist] = useState({
+    timelineConfirmed: false,
+    paymentScheduleReviewed: false,
+    teamAssigned: false,
+  });
+  const [expandedChecklistItem, setExpandedChecklistItem] = useState<string | null>(null);
+  const [showActivationCelebration, setShowActivationCelebration] = useState(false);
+  const celebrationAnim = useRef(new Animated.Value(0)).current;
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
+
+  // Load activation checklist from AsyncStorage on mount
+  useEffect(() => {
+    if (!id) return;
+    const loadChecklist = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`bps.activationChecklist.${id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setActivationChecklist(parsed);
+        }
+      } catch (error) {
+        console.error('Error loading activation checklist:', error);
+      }
+    };
+    loadChecklist();
+  }, [id]);
+
+  // Save activation checklist to AsyncStorage whenever it changes
+  useEffect(() => {
+    if (!id) return;
+    const saveChecklist = async () => {
+      try {
+        await AsyncStorage.setItem(`bps.activationChecklist.${id}`, JSON.stringify(activationChecklist));
+      } catch (error) {
+        console.error('Error saving activation checklist:', error);
+      }
+    };
+    saveChecklist();
+  }, [activationChecklist, id]);
+
+  // Check if all checklist items are complete and trigger celebration
+  useEffect(() => {
+    const allComplete = activationChecklist.timelineConfirmed && 
+                        activationChecklist.paymentScheduleReviewed && 
+                        activationChecklist.teamAssigned;
+    
+    if (allComplete && !showActivationCelebration && showKickoffCard) {
+      setShowActivationCelebration(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Animate celebration
+      celebrationAnim.setValue(0);
+      Animated.spring(celebrationAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }).start(() => {
+        // Auto-dismiss celebration after 2 seconds
+        setTimeout(() => {
+          Animated.spring(celebrationAnim, {
+            toValue: 0,
+            tension: 50,
+            friction: 7,
+            useNativeDriver: true,
+          }).start(() => {
+            setShowActivationCelebration(false);
+          });
+        }, 2000);
+      });
+    }
+  }, [activationChecklist, showActivationCelebration, showKickoffCard, celebrationAnim]);
+
+  // Auto-dismiss activation card when project becomes active
+  useEffect(() => {
+    if (!showKickoffCard || !id) return;
+
+    const checkIfProjectActive = async () => {
+      // Check if first cost was added
+      const hasExpenses = (contextProjectData?.expenses || []).length > 0;
+      const hasSpending = (contextProjectData?.spent || 0) > 0;
+      
+      // Check if first payment was logged
+      const hasPayments = (contextProjectData?.milestones || []).some(
+        (m: any) => m.status && m.status !== 'pending' && m.status !== 'scheduled'
+      );
+      
+      // Check if project status changed to in_progress
+      const status = realProjectData?.status?.toLowerCase();
+      const isInProgress = status === 'in_progress' || status === 'active';
+      
+      // Check if any milestone has progress > 0
+      const hasProgress = (contextProjectData?.milestones || []).some(
+        (m: any) => (m.progressPct || 0) > 0
+      );
+
+      // Auto-dismiss if any of these conditions are met
+      if (hasExpenses || hasSpending || hasPayments || isInProgress || hasProgress) {
+        console.log('✅ Project is active - auto-dismissing activation card', {
+          hasExpenses,
+          hasSpending,
+          hasPayments,
+          isInProgress,
+          hasProgress,
+        });
+        
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setShowKickoffCard(false);
+        
+        try {
+          await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
+          await AsyncStorage.setItem(`bps.activationAutoDismissed.${id}`, 'true');
+        } catch (error) {
+          console.error('Error saving activation card dismissal:', error);
+        }
+      }
+    };
+
+    checkIfProjectActive();
+  }, [
+    showKickoffCard,
+    contextProjectData?.expenses,
+    contextProjectData?.spent,
+    contextProjectData?.milestones,
+    realProjectData?.status,
+    id,
+  ]);
+  const [showActivationFlow, setShowActivationFlow] = useState(false);
+  
+  // Debug: Log state changes
+  useEffect(() => {
+    console.log('🔍 [STATE] showKickoffCard changed:', showKickoffCard, 'activeTab:', activeTab);
+  }, [showKickoffCard, activeTab]);
+
+  // Auto-dismiss activation card when project becomes active
+  useEffect(() => {
+    if (!showKickoffCard || !id) return;
+
+    const checkIfProjectActive = async () => {
+      // Check if first cost was added
+      const hasExpenses = (contextProjectData?.expenses || []).length > 0;
+      const hasSpending = (contextProjectData?.spent || 0) > 0;
+      
+      // Check if first payment was logged (milestone with non-pending status)
+      const milestones = contextProjectData?.milestones || [];
+      const hasPayments = milestones.some(
+        (m: any) => m.status && m.status !== 'pending' && m.status !== 'scheduled'
+      );
+      
+      // Check if project status changed to in_progress
+      const status = realProjectData?.status?.toLowerCase();
+      const isInProgress = status === 'in_progress' || status === 'active';
+      
+      // Check if any milestone has progress > 0
+      const hasProgress = milestones.some(
+        (m: any) => (m.progressPct || 0) > 0
+      );
+
+      // Auto-dismiss if any of these conditions are met
+      if (hasExpenses || hasSpending || hasPayments || isInProgress || hasProgress) {
+        console.log('✅ Project is active - auto-dismissing activation card', {
+          hasExpenses,
+          hasSpending,
+          hasPayments,
+          isInProgress,
+          hasProgress,
+        });
+        
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setShowKickoffCard(false);
+        
+        try {
+          await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
+          await AsyncStorage.setItem(`bps.activationAutoDismissed.${id}`, 'true');
+        } catch (error) {
+          console.error('Error saving activation card dismissal:', error);
+        }
+      }
+    };
+
+    checkIfProjectActive();
+  }, [
+    showKickoffCard,
+    contextProjectData?.expenses,
+    contextProjectData?.spent,
+    contextProjectData?.milestones,
+    realProjectData?.status,
+    id,
+  ]);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [showAiSuggestions, setShowAiSuggestions] = useState(false);
+  const [initialAIQuestion, setInitialAIQuestion] = useState<string | undefined>(undefined);
+  const aiSuggestionAnim = useRef(new Animated.Value(0)).current;
 
   // Get real project data from ProjectListContext
   const realProjectData = getProjectById(id as string);
@@ -175,6 +377,245 @@ function ProjectDetailContent() {
     }
   }, []);
 
+  // Check if we should show the intro card for newly activated projects
+  useEffect(() => {
+    const checkIntroCard = async () => {
+      if (!id || !realProjectData) {
+        console.log('⚠️ checkIntroCard: Missing id or realProjectData', { id, hasData: !!realProjectData });
+        return;
+      }
+      
+      const status = realProjectData.status?.toLowerCase();
+      const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
+      
+      console.log('🔍 checkIntroCard:', {
+        id,
+        status,
+        isActiveProject,
+        hasEstimateData: !!(realProjectData.estimateData || (realProjectData as any)?.estimateData),
+        updatedAt: realProjectData.updatedAt,
+        createdAt: realProjectData.createdAt,
+      });
+      
+      if (!isActiveProject) {
+        console.log('❌ Project is not active, hiding kickoff card');
+        setShowKickoffCard(false);
+        setShowAiSuggestions(false);
+        return;
+      }
+      
+      // Check if kickoff card has been shown for this project
+      const kickoffKey = `bps.kickoffShown.${id}`;
+      const suggestionsKey = `bps.aiSuggestionsShown.${id}`;
+      try {
+        const kickoffShown = await AsyncStorage.getItem(kickoffKey);
+        const suggestionsShown = await AsyncStorage.getItem(suggestionsKey);
+        
+        // Check if this project was recently activated (created or updated in last 10 minutes)
+        const updatedAt = realProjectData.updatedAt ? new Date(realProjectData.updatedAt).getTime() : 0;
+        const createdAt = realProjectData.createdAt ? new Date(realProjectData.createdAt).getTime() : 0;
+        const now = Date.now();
+        const tenMinutesAgo = now - (10 * 60 * 1000);
+        // Consider it recently activated if it was created or updated recently
+        const isRecentlyActivated = (updatedAt > tenMinutesAgo) || (createdAt > tenMinutesAgo);
+        
+        // Check if this is the first project ever activated
+        const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
+        
+        // Count how many active projects exist (excluding current one)
+        const otherActiveProjects = (activeProjects || []).filter(p => {
+          const pStatus = (p.status || '').toLowerCase();
+          const pIsActive = pStatus === 'won' || pStatus === 'in_progress' || pStatus === 'active';
+          return pIsActive && p.id !== id;
+        });
+        
+        // Check if this project was just created (has estimateData but no expenses/spending yet)
+        // This helps catch projects created from onboarding even if timestamps are slightly off
+        const hasEstimateData = !!(realProjectData.estimateData || (realProjectData as any)?.estimateData);
+        const hasNoSpending = (!realProjectData.actualCost || realProjectData.actualCost === 0) &&
+                               (!contextProjectData?.spent || contextProjectData.spent === 0);
+        const looksLikeNewProject = hasEstimateData && hasNoSpending;
+        
+        // Check if this is the first project (no other active projects exist)
+        // OR if the firstProjectActivated flag hasn't been set yet (first time ever)
+        // This ensures we show the card even if activeProjects hasn't loaded yet
+        const isFirstProject = firstProjectActivated !== 'true' || otherActiveProjects.length === 0;
+        
+        // Show kickoff card ONLY for the first project:
+        // 1. It hasn't been shown for this project yet
+        // 2. AND it's the first project (no other active projects exist OR flag hasn't been set)
+        // After the first project, this card should never show again
+        const shouldShowKickoff = kickoffShown !== 'true' && isFirstProject;
+        
+        console.log('🔍 [checkIntroCard] Kickoff card check:', {
+          id,
+          kickoffShown,
+          isFirstProject,
+          firstProjectActivated,
+          otherActiveProjectsCount: otherActiveProjects.length,
+          looksLikeNewProject,
+          hasEstimateData,
+          hasNoSpending,
+          actualCost: realProjectData.actualCost,
+          contextSpent: contextProjectData?.spent,
+          shouldShowKickoff,
+        });
+        
+        if (shouldShowKickoff) {
+          // Mark that a project has been activated (set flag before showing card)
+          await AsyncStorage.setItem('bps.firstProjectActivated', 'true');
+          setShowKickoffCard(true);
+          setShowAiSuggestions(false); // Hide AI suggestions when kickoff is showing
+          console.log('✅ Showing kickoff card for project:', {
+            id,
+            isFirstProject,
+            otherActiveProjectsCount: otherActiveProjects.length,
+            firstProjectActivated,
+            kickoffShown,
+            isRecentlyActivated,
+            looksLikeNewProject,
+            hasEstimateData,
+            hasNoSpending,
+            shouldShowKickoff,
+          });
+          return;
+        } else {
+          console.log('❌ NOT showing kickoff card. Reasons:', {
+            kickoffAlreadyShown: kickoffShown === 'true',
+            notFirstProject: !isFirstProject,
+            notNewProject: !looksLikeNewProject,
+            hasOtherProjects: otherActiveProjects.length > 0,
+            hasSpending: !hasNoSpending,
+            noEstimateData: !hasEstimateData,
+          });
+        }
+
+        // Only hide kickoff card if it was already shown
+        if (kickoffShown === 'true') {
+          setShowKickoffCard(false);
+        }
+
+        // Show AI suggestions only after kickoff has been dismissed (kickoffShown === 'true')
+        // AND only if it hasn't been shown yet
+        if (kickoffShown === 'true' && suggestionsShown !== 'true' && (isRecentlyActivated || looksLikeNewProject)) {
+          const suggestions = generateAISuggestions(realProjectData);
+          setAiSuggestions(suggestions);
+          setShowAiSuggestions(true);
+        } else {
+          setShowAiSuggestions(false);
+        }
+      } catch (error) {
+        console.error('Error checking kickoff card:', error);
+        setShowKickoffCard(false);
+        setShowAiSuggestions(false);
+      }
+    };
+    
+    checkIntroCard();
+  }, [id, realProjectData?.status, realProjectData?.updatedAt, realProjectData?.createdAt, realProjectData?.estimateData, activeProjects, contextProjectData?.spent]);
+
+  // Generate context-aware AI suggestions for newly activated projects
+  const generateAISuggestions = (project: any): string[] => {
+    const suggestions: string[] = [];
+    const projectName = project?.title || 'this project';
+    const budget = project?.bidPrice || project?.budgeted || 0;
+    
+    // Always include these core suggestions for newly activated projects
+    suggestions.push(`What should I track first on ${projectName}?`);
+    suggestions.push(`Is my labor budget realistic for ${projectName}?`);
+    
+    // Add budget-specific suggestion if budget is significant
+    if (budget > 50000) {
+      suggestions.push(`What's the biggest risk on ${projectName}?`);
+    }
+    
+    // Add timeline suggestion
+    if (project?.startDate || project?.endDate) {
+      suggestions.push(`How long should ${projectName} take based on the estimate?`);
+    } else {
+      suggestions.push(`What timeline should I set for ${projectName}?`);
+    }
+    
+    return suggestions;
+  };
+
+  useEffect(() => {
+    if (showAiSuggestions) {
+      aiSuggestionAnim.setValue(0);
+      Animated.timing(aiSuggestionAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      aiSuggestionAnim.setValue(0);
+    }
+  }, [showAiSuggestions, aiSuggestionAnim]);
+
+  const handleAISuggestion = (suggestion: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setInitialAIQuestion(suggestion);
+    setShowAIAssistant(true);
+    // The AIAssistantModal will use initialQuestion prop to auto-send
+  };
+
+  const dismissAiSuggestions = async () => {
+    if (!id) return;
+    // Animate out with iOS-style spring animation
+    Animated.spring(aiSuggestionAnim, {
+      toValue: 0,
+      tension: 50,
+      friction: 7,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowAiSuggestions(false);
+    });
+    try {
+      await AsyncStorage.setItem(`bps.aiSuggestionsShown.${id}`, 'true');
+    } catch (error) {
+      console.error('Error saving AI suggestions dismissal:', error);
+    }
+  };
+
+  const revealAiSuggestions = async () => {
+    if (!id || !realProjectData) return;
+
+    const status = realProjectData.status?.toLowerCase();
+    const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
+    if (!isActiveProject) return;
+
+    const updatedAt = realProjectData.updatedAt ? new Date(realProjectData.updatedAt).getTime() : 0;
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    const isRecentlyActivated = updatedAt > fiveMinutesAgo;
+    if (!isRecentlyActivated) return;
+
+    try {
+      const suggestionsShown = await AsyncStorage.getItem(`bps.aiSuggestionsShown.${id}`);
+      if (suggestionsShown === 'true') return;
+
+      const suggestions = generateAISuggestions(realProjectData);
+      setAiSuggestions(suggestions);
+      setShowAiSuggestions(true);
+    } catch (error) {
+      console.error('Error showing AI suggestions:', error);
+    }
+  };
+
+  const dismissKickoffCard = async () => {
+    if (!id) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowKickoffCard(false);
+    try {
+      await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
+    } catch (error) {
+      console.error('Error saving kickoff card dismissal:', error);
+    }
+
+    // After kickoff is dismissed, reveal AI suggestions as a secondary moment
+    await revealAiSuggestions();
+  };
+
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
@@ -192,12 +633,61 @@ function ProjectDetailContent() {
             )?.spent || 0
           );
         }
+        
+        // Re-check kickoff card when screen comes into focus (in case project data wasn't ready on mount)
+        if (id && realProjectData) {
+          const status = realProjectData.status?.toLowerCase();
+          const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
+          
+          if (isActiveProject && !showKickoffCard) {
+            const kickoffKey = `bps.kickoffShown.${id}`;
+            const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
+            const otherActiveProjects = (activeProjects || []).filter(p => {
+              const pStatus = (p.status || '').toLowerCase();
+              const pIsActive = pStatus === 'won' || pStatus === 'in_progress' || pStatus === 'active';
+              return pIsActive && p.id !== id;
+            });
+            const isFirstProject = firstProjectActivated !== 'true' || otherActiveProjects.length === 0;
+            const kickoffShown = await AsyncStorage.getItem(kickoffKey);
+            
+            // Check if it looks like a new project from onboarding
+            const hasEstimateData = !!(realProjectData.estimateData || (realProjectData as any)?.estimateData);
+            const hasNoSpending = (!realProjectData.actualCost || realProjectData.actualCost === 0) &&
+                                   (!contextProjectData?.spent || contextProjectData.spent === 0);
+            const looksLikeNewProject = hasEstimateData && hasNoSpending;
+            
+            // Show if it's the first project OR if it has estimateData (came from estimate)
+            // Show ONLY if it's the first project (after first project, never show again)
+            const shouldShow = kickoffShown !== 'true' && isFirstProject;
+            
+            console.log('🔍 [useFocusEffect] Kickoff card check:', {
+              id,
+              kickoffShown,
+              isFirstProject,
+              firstProjectActivated,
+              otherActiveProjectsCount: otherActiveProjects.length,
+              shouldShow,
+            });
+            
+            if (shouldShow) {
+              await AsyncStorage.setItem('bps.firstProjectActivated', 'true');
+              setShowKickoffCard(true);
+              setShowAiSuggestions(false);
+              console.log('✅ [useFocusEffect] Showing kickoff card for project:', {
+                id,
+                isFirstProject,
+                looksLikeNewProject,
+                otherActiveProjectsCount: otherActiveProjects.length,
+              });
+            }
+          }
+        }
       };
       loadOnFocus();
       return () => {
         isActive = false;
       };
-    }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData])
+    }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData, id, realProjectData, activeProjects, showKickoffCard])
   );
 
   // Recalculate budget total from estimate data
@@ -865,7 +1355,14 @@ function ProjectDetailContent() {
           const metrics = overviewMetrics;
           const project = safeProjectData;
           return (
-            <View style={[styles.card, styles.wideContainer]}>
+            <View style={styles.wideContainer}>
+              <LinearGradient
+                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.overviewBorder}
+              >
+                <View style={styles.overviewInner}>
               {/* SECTION TITLE */}
               <View style={styles.cardHeaderRow}>
                 <View>
@@ -878,12 +1375,6 @@ function ProjectDetailContent() {
 
               {/* 1. OVERVIEW SUMMARY */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
 
                   <View style={styles.cardHeaderRow}>
@@ -931,17 +1422,10 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
 
               {/* 2. PROJECT STATUS */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1014,7 +1498,6 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
 
               {/* 3. SPENDING TREND */}
@@ -1034,12 +1517,6 @@ function ProjectDetailContent() {
 
                 return (
                   <View style={styles.spendingCard}>
-                    <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.innerCardBorder}
-                    >
                     <View style={styles.spendingCardInner}>
                       <View style={styles.spendingHeaderRow}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1063,19 +1540,12 @@ function ProjectDetailContent() {
                         />
                       </View>
                     </View>
-                    </LinearGradient>
                   </View>
                 );
               })()}
 
               {/* 4. BUDGET SUMMARY */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1113,17 +1583,10 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
 
               {/* 5. TIMELINE */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1175,17 +1638,10 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
 
               {/* 6. HEALTH */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1223,17 +1679,10 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
 
               {/* 7. TEAM */}
               <View style={styles.innerCardContainer}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.innerCardBorder}
-                >
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -1249,12 +1698,25 @@ function ProjectDetailContent() {
                     <Text style={styles.teamNotAssignedText}>Not assigned</Text>
                   </View>
                 </View>
-                </LinearGradient>
               </View>
+                </View>
+              </LinearGradient>
             </View>
           );
         case 'Budget':
-          return <BudgetTab data={budgetData} />;
+          return (
+            <View style={styles.wideContainer}>
+              <View style={styles.budgetHelperText}>
+                <Text style={[styles.budgetHelperTextMain, { color: Colors.sub }]}>
+                  Budget locked from estimate
+                </Text>
+                <Text style={[styles.budgetHelperTextSub, { color: Colors.sub }]}>
+                  Changes are tracked automatically
+                </Text>
+              </View>
+              <BudgetTab data={budgetData} embedded />
+            </View>
+          );
         case 'Timeline':
           return <TimelineTabV2 project={safeProjectData as any} />;
         case 'Team':
@@ -1289,13 +1751,23 @@ function ProjectDetailContent() {
 
   const projectStatus = useMemo(() => {
     const status = safeProjectData?.status || 'In Progress';
+    const updatedAt = safeProjectData?.updatedAt ? new Date(safeProjectData.updatedAt).getTime() : 0;
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
+    const isRecentlyActivated = updatedAt > fiveMinutesAgo;
+    
     if (status === 'estimate') return 'Draft';
     if (status === 'bid_submitted') return 'Submitted';
-    if (status === 'won') return 'Active';
-    if (status === 'in_progress') return 'Active';
+    if (status === 'won' || status === 'in_progress') {
+      // Show "Just activated" for recently activated projects
+      if (isRecentlyActivated && (status === 'won' || status === 'in_progress')) {
+        return 'Just activated';
+      }
+      return 'Active';
+    }
     if (status === 'completed') return 'Completed';
     return status.charAt(0).toUpperCase() + status.slice(1);
-  }, [safeProjectData?.status]);
+  }, [safeProjectData?.status, safeProjectData?.updatedAt]);
 
   try {
     return (
@@ -1348,14 +1820,291 @@ function ProjectDetailContent() {
             </LinearGradient>
           </View>
 
-          {/* Prominent Invite Contractors Button - Only for projects $75k+ */}
-          {safeProjectData?.budgeted && safeProjectData.budgeted >= 75000 && (
-            <View style={[styles.inviteButtonContainer, styles.wideContainer]}>
-              <BidInvitationButton
-                projectTitle={String(safeProjectData.title || 'Project')}
-                projectLocation="Las Vegas, NV"
-                projectValue={Number(safeProjectData.budgeted) || 0}
-              />
+          {/* Project Kickoff Card - Actionable setup steps */}
+          {(() => {
+            console.log('🎨 [RENDER] Kickoff card render check:', {
+              showKickoffCard,
+              activeTab,
+              willRender: showKickoffCard && activeTab === 'Overview',
+            });
+            return null;
+          })()}
+          {/* Project Activation Card - Emotional anchor for newly activated projects */}
+          {showKickoffCard && activeTab === 'Overview' && (
+            <View style={[styles.activationCardContainer, styles.wideContainer]}>
+              <View style={styles.activationCard}>
+                <TouchableOpacity
+                  style={styles.activationCardClose}
+                  onPress={dismissKickoffCard}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={18} color={Colors.sub} />
+                </TouchableOpacity>
+                
+                <View style={styles.activationCardHeader}>
+                  <View style={styles.activationCardIconContainer}>
+                    <Ionicons name="rocket" size={28} color="#2DFFC4" />
+                  </View>
+                  <Text style={styles.activationCardTitle}>Project activated</Text>
+                  <Text style={styles.activationCardSubtitle}>
+                    Your estimate is now locked in. Let's get the job ready to run smoothly.
+                  </Text>
+                </View>
+                
+                {/* Tappable Activation Checklist */}
+                <View style={styles.activationChecklist}>
+                  <TouchableOpacity
+                    style={[
+                      styles.activationChecklistItem,
+                      activationChecklist.timelineConfirmed && styles.activationChecklistItemDone,
+                    ]}
+                    onPress={() => {
+                      if (expandedChecklistItem === 'timeline') {
+                        setExpandedChecklistItem(null);
+                      } else {
+                        setExpandedChecklistItem('timeline');
+                        setShowActivationFlow(true);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.activationChecklistItemLeft}>
+                      {activationChecklist.timelineConfirmed ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
+                      ) : (
+                        <Ionicons name="time-outline" size={22} color={Colors.sub} />
+                      )}
+                      <Text style={[
+                        styles.activationChecklistItemText,
+                        activationChecklist.timelineConfirmed && styles.activationChecklistItemTextDone,
+                      ]}>
+                        Timeline confirmed
+                      </Text>
+                    </View>
+                    {!activationChecklist.timelineConfirmed && (
+                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
+                    )}
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.activationChecklistItem,
+                      activationChecklist.paymentScheduleReviewed && styles.activationChecklistItemDone,
+                    ]}
+                    onPress={() => {
+                      if (expandedChecklistItem === 'payment') {
+                        setExpandedChecklistItem(null);
+                      } else {
+                        setExpandedChecklistItem('payment');
+                        setShowActivationFlow(true);
+                        // Navigate to step 2
+                        setTimeout(() => {
+                          // This will be handled by the modal
+                        }, 100);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.activationChecklistItemLeft}>
+                      {activationChecklist.paymentScheduleReviewed ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
+                      ) : (
+                        <Ionicons name="calendar-outline" size={22} color={Colors.sub} />
+                      )}
+                      <Text style={[
+                        styles.activationChecklistItemText,
+                        activationChecklist.paymentScheduleReviewed && styles.activationChecklistItemTextDone,
+                      ]}>
+                        Payment schedule reviewed
+                      </Text>
+                    </View>
+                    {!activationChecklist.paymentScheduleReviewed && (
+                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
+                    )}
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.activationChecklistItem,
+                      activationChecklist.teamAssigned && styles.activationChecklistItemDone,
+                    ]}
+                    onPress={() => {
+                      if (expandedChecklistItem === 'team') {
+                        setExpandedChecklistItem(null);
+                      } else {
+                        setExpandedChecklistItem('team');
+                        setShowActivationFlow(true);
+                        // Navigate to step 3
+                        setTimeout(() => {
+                          // This will be handled by the modal
+                        }, 100);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.activationChecklistItemLeft}>
+                      {activationChecklist.teamAssigned ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
+                      ) : (
+                        <Ionicons name="people-outline" size={22} color={Colors.sub} />
+                      )}
+                      <Text style={[
+                        styles.activationChecklistItemText,
+                        activationChecklist.teamAssigned && styles.activationChecklistItemTextDone,
+                      ]}>
+                        Team assigned
+                        <Text style={styles.activationChecklistItemOptional}> (optional)</Text>
+                      </Text>
+                    </View>
+                    {!activationChecklist.teamAssigned && (
+                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Quick Action Button */}
+                <TouchableOpacity
+                  style={styles.activationCardPrimaryButton}
+                  onPress={() => {
+                    setShowActivationFlow(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.activationCardPrimaryGradient}
+                  >
+                    <Text style={styles.activationCardPrimaryText}>
+                      {activationChecklist.timelineConfirmed && activationChecklist.paymentScheduleReviewed 
+                        ? 'View live project' 
+                        : 'Start project setup'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Post-Activation Command Center - Action-Driven Success Card */}
+          {showCommandCenter && activeTab === 'Overview' && (
+            <View style={[styles.commandCenterContainer, styles.wideContainer]}>
+              <View style={styles.commandCenterCard}>
+                <View style={styles.commandCenterHeader}>
+                  <View style={styles.commandCenterIconContainer}>
+                    <Ionicons name="rocket" size={24} color="#2DFFC4" />
+                  </View>
+                  <View style={styles.commandCenterHeaderText}>
+                    <Text style={styles.commandCenterTitle}>Project is live — here's your first move</Text>
+                    <Text style={styles.commandCenterSubtitle}>
+                      Your estimate is now the baseline. Stay ahead by logging activity early.
+                    </Text>
+                  </View>
+                </View>
+                
+                {/* 3 Primary Action Buttons */}
+                <View style={styles.commandCenterActions}>
+                  <TouchableOpacity
+                    style={styles.commandCenterActionButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setActiveTab('Budget');
+                      // Trigger expense modal - this will be handled by BudgetTab
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="receipt-outline" size={20} color="#2DFFC4" />
+                    <View style={styles.commandCenterActionTextContainer}>
+                      <Text style={styles.commandCenterActionText}>Log first expense</Text>
+                      <Text style={styles.commandCenterActionSubtext}>Materials, equipment, or deposits</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.commandCenterActionButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setActiveTab('Timeline');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="time-outline" size={20} color="#2DFFC4" />
+                    <View style={styles.commandCenterActionTextContainer}>
+                      <Text style={styles.commandCenterActionText}>Assign labor hours</Text>
+                      <Text style={styles.commandCenterActionSubtext}>Planned vs actual</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.commandCenterActionButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setActiveTab('Timeline');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="flag-outline" size={20} color="#2DFFC4" />
+                    <View style={styles.commandCenterActionTextContainer}>
+                      <Text style={styles.commandCenterActionText}>Mark first milestone</Text>
+                      <Text style={styles.commandCenterActionSubtext}>Deposit received or work started</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Activation Celebration Overlay */}
+          {showActivationCelebration && (
+            <Animated.View
+              style={[
+                styles.celebrationOverlay,
+                {
+                  opacity: celebrationAnim,
+                  transform: [
+                    {
+                      scale: celebrationAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.celebrationCard}>
+                <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
+                <Text style={styles.celebrationTitle}>Project is ready!</Text>
+                <Text style={styles.celebrationSubtitle}>
+                  All setup steps complete. Your project is ready to run smoothly.
+                </Text>
+              </View>
+            </Animated.View>
+          )}
+
+          {/* Smart First Action Suggestions */}
+          {showKickoffCard && activeTab === 'Overview' && (
+            <View style={[styles.smartSuggestionsContainer, styles.wideContainer]}>
+              <View style={styles.smartSuggestionsCard}>
+                <Ionicons name="bulb-outline" size={18} color={Colors.sub} />
+                <Text style={[styles.smartSuggestionsText, { color: Colors.sub }]}>
+                  {(() => {
+                    const projectType = (realProjectData as any)?.projectType || '';
+                    const projectName = realProjectData?.title || 'this project';
+                    
+                    if (projectType.toLowerCase().includes('kitchen')) {
+                      return `💡 Start by logging materials from your first supplier for ${projectName}`;
+                    } else if (projectType.toLowerCase().includes('bathroom')) {
+                      return `💡 Begin tracking your first expenses for ${projectName}`;
+                    } else if (projectType.toLowerCase().includes('new build') || projectType.toLowerCase().includes('custom')) {
+                      return `💡 Set your first milestone: Foundation complete for ${projectName}`;
+                    } else {
+                      return `💡 Most contractors start by logging their first expense for ${projectName}`;
+                    }
+                  })()}
+                </Text>
+              </View>
             </View>
           )}
 
@@ -1402,6 +2151,210 @@ function ProjectDetailContent() {
 
           <View style={{ height: 32 }} />
         </ScrollView>
+
+        {/* FLOATING ASK PM BADGE - Dashboard Style */}
+        <Pressable
+          style={styles.askPMFloatingWrapper}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAIAssistant(true);
+          }}
+        >
+          <LinearGradient
+            colors={showAiSuggestions 
+              ? ["#2DFFC4", "#00A6FF"] // Highlighted gradient for newly activated
+              : ["#22c55e", "#22d3ee"]} // Normal gradient
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.askPMFloating,
+              showAiSuggestions && styles.askPMFloatingHighlighted
+            ]}
+          >
+            <Ionicons
+              name="sparkles"
+              size={18}
+              color="#020617"
+            />
+            <Text style={styles.askPMFloatingText}>Ask PM</Text>
+            {showAiSuggestions && (
+              <View style={styles.askPMPulseIndicator} />
+            )}
+          </LinearGradient>
+        </Pressable>
+
+        {/* AI Suggestions Modal - iOS-style popup */}
+        <Modal
+          visible={showAiSuggestions && activeTab === 'Overview'}
+          transparent={true}
+          animationType="none"
+          onRequestClose={dismissAiSuggestions}
+        >
+          <BlurView intensity={20} tint="dark" style={styles.aiSuggestionsModalBackdrop}>
+            <TouchableOpacity
+              style={styles.aiSuggestionsModalBackdropTouchable}
+              activeOpacity={1}
+              onPress={dismissAiSuggestions}
+            />
+            <Animated.View
+              style={[
+                styles.aiSuggestionsModalContainer,
+                {
+                  opacity: aiSuggestionAnim,
+                  transform: [
+                    {
+                      scale: aiSuggestionAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.9, 1],
+                      }),
+                    },
+                    {
+                      translateY: aiSuggestionAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [50, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={[styles.aiSuggestionsCard, { backgroundColor: darkMode ? '#1E293B' : '#F1F5F9' }]}>
+                <View style={styles.aiSuggestionsHeader}>
+                  <View style={styles.aiSuggestionsHeaderLeft}>
+                    <Ionicons name="sparkles" size={20} color={darkMode ? '#94A3B8' : '#64748B'} />
+                    <Text style={[styles.aiSuggestionsTitle, { color: darkMode ? '#F1F5F9' : '#0F172A' }]} numberOfLines={1}>AI Project Manager is active</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.aiSuggestionsClose}
+                    onPress={dismissAiSuggestions}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="close" size={18} color={Colors.sub} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#94A3B8' : '#64748B' }]}>
+                  I'll flag cost, labor, or schedule drift as it happens.
+                </Text>
+                <View style={styles.aiProactiveInsight}>
+                  <Ionicons name="bulb" size={14} color={darkMode ? '#94A3B8' : '#64748B'} />
+                  <Text style={[styles.aiProactiveInsightText, { color: darkMode ? '#94A3B8' : '#64748B' }]}>
+                    Based on your estimate, labor will be your biggest risk area.
+                  </Text>
+                </View>
+                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#94A3B8' : '#64748B', marginTop: 8 }]}>
+                  Try asking:
+                </Text>
+                <View style={styles.aiSuggestionsList}>
+                  {aiSuggestions.map((suggestion, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[styles.aiSuggestionButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
+                      onPress={() => {
+                        handleAISuggestion(suggestion);
+                        dismissAiSuggestions();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chatbubble-outline" size={16} color={Colors.sub} />
+                      <Text style={[styles.aiSuggestionText, { color: Colors.text }]} numberOfLines={2}>
+                        {suggestion}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={16} color={Colors.sub} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </Animated.View>
+          </BlurView>
+        </Modal>
+
+        {/* Project Activation Flow */}
+        <ProjectActivationFlow
+          visible={showActivationFlow}
+          onComplete={(completedSteps) => {
+            setShowActivationFlow(false);
+            setActiveTab('Overview');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            // Update activation checklist based on completed steps
+            if (completedSteps) {
+              setActivationChecklist({
+                timelineConfirmed: completedSteps.timeline || false,
+                paymentScheduleReviewed: completedSteps.paymentSchedule || false,
+                teamAssigned: completedSteps.team || false,
+              });
+            }
+            
+            // Show AI suggestions card 5 seconds after project setup completes
+            setTimeout(() => {
+              const suggestions = generateAISuggestions(realProjectData);
+              setAiSuggestions(suggestions);
+              // Reset animation to 0 before showing
+              aiSuggestionAnim.setValue(0);
+              setShowAiSuggestions(true);
+              // Animate in with iOS-style spring animation
+              Animated.spring(aiSuggestionAnim, {
+                toValue: 1,
+                tension: 50,
+                friction: 7,
+                useNativeDriver: true,
+              }).start();
+            }, 5000);
+          }}
+          onSkip={() => {
+            setShowActivationFlow(false);
+            setActiveTab('Overview');
+          }}
+          initialStep={expandedChecklistItem === 'timeline' ? 1 : expandedChecklistItem === 'payment' ? 2 : expandedChecklistItem === 'team' ? 3 : 1}
+          project={{
+            id: id as string,
+            title: safeProjectData?.title || 'Project',
+            startDate: safeProjectData?.startISO,
+            endDate: safeProjectData?.endISO,
+            estimateData: realProjectData?.estimateData,
+          }}
+        />
+
+        {/* AI Assistant Modal with Project Context */}
+        <AIAssistantModal
+          visible={showAIAssistant}
+          onClose={() => {
+            setShowAIAssistant(false);
+            setInitialAIQuestion(undefined); // Reset when closing
+          }}
+          initialQuestion={initialAIQuestion}
+          context={JSON.stringify({
+            screen: 'Project Detail',
+            // Current project context - AI should assume all questions are about this project
+            currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
+            projectName: safeProjectData?.title || safeProjectData?.name || 'Current Project',
+            projectId: safeProjectData?.id,
+            bidTitle: safeProjectData?.title || safeProjectData?.name,
+            bidTotal: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
+            total: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
+            status: safeProjectData?.status,
+            location: safeProjectData?.location || '',
+            projectType: safeProjectData?.projectType || '',
+            estimatedCost: safeProjectData?.estimatedCost || 0,
+            actualCost: safeProjectData?.actualCost || safeProjectData?.spent || 0,
+            margin: safeProjectData?.margin || 0,
+            markup: safeProjectData?.markup || 0,
+            overheadPct: 12, // Default overhead
+            progress: safeProjectData?.overallProgressPct || safeProjectData?.progress || 0,
+            activeTab: activeTab,
+            // Send summary data only (not full objects) to reduce payload size
+            bucketCount: (safeProjectData?.buckets || []).length,
+            milestoneCount: (safeProjectData?.milestones || []).length,
+            expenseCount: (safeProjectData?.expenses || []).length,
+            changeOrderCount: (safeProjectData?.changeOrders || []).length,
+            startDate: safeProjectData?.startDate,
+            endDate: safeProjectData?.endDate,
+          })}
+          onAction={async (action) => {
+            // Handle AI actions if needed
+            console.log('AI Action:', action);
+          }}
+        />
       </SafeAreaView>
     );
   } catch (error) {
@@ -1489,7 +2442,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
+  },
+  overviewBorder: {
+    borderRadius: 22,
+    padding: 1,
+    marginBottom: 16,
+  },
+  overviewInner: {
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    borderRadius: 20,
+    padding: 12,
   },
   headerRow: {
     flexDirection: "row",
@@ -1568,6 +2531,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   tabContent: {
     marginTop: 0,
   },
+  tabInnerContainer: {
+    paddingHorizontal: 20,
+  },
   // Overview tab styles
   sectionHeaderRow: {
     flexDirection: "row",
@@ -1613,9 +2579,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     padding: 1,
   },
   innerCard: {
-    backgroundColor: darkMode ? "#000000" : Colors.bg,
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: darkMode ? 1 : 1,
+    borderColor: Colors.line,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -1837,9 +2805,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 12,
   },
   spendingCardInner: {
-    backgroundColor: darkMode ? "#000000" : Colors.bg,
-    borderRadius: 18,
+    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+    borderRadius: 14,
     padding: 16,
+    borderWidth: darkMode ? 1 : 1,
+    borderColor: Colors.line,
   },
   spendingHeaderRow: {
     flexDirection: "row",
@@ -1849,6 +2819,49 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   chartBox: {
     marginTop: 8,
+  },
+  // FLOATING ASK PM BADGE - Dashboard style
+  askPMFloatingWrapper: {
+    position: "absolute",
+    right: 20,
+    bottom: 70, // Lower on the page, closer to tab bar
+    zIndex: 10,
+  },
+  askPMFloating: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8, // Android shadow
+  },
+  askPMFloatingText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#020617",
+  },
+  askPMFloatingHighlighted: {
+    shadowColor: "#2DFFC4",
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
+  askPMPulseIndicator: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#2DFFC4',
+    borderWidth: 2,
+    borderColor: '#020617',
   },
   // Profile styles
   profileOuter: {
@@ -1875,5 +2888,450 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? "#e5e7eb" : "#000000",
     fontWeight: "700",
     fontSize: 16,
+  },
+  // Kickoff Card styles
+  activationCardContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  activationCard: {
+    backgroundColor: darkMode ? Colors.surface2 : '#F8FAFC',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(45, 255, 196, 0.2)',
+    shadowColor: '#2DFFC4',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  activationCardClose: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  activationCardHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+    marginTop: 8,
+  },
+  activationCardIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(45, 255, 196, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.3)',
+  },
+  activationCardTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  activationCardSubtitle: {
+    fontSize: 15,
+    color: Colors.sub,
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  activationChecklist: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  activationChecklistItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+  },
+  activationChecklistItemDone: {
+    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+    borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)',
+  },
+  activationChecklistItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  activationChecklistItemText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  activationChecklistItemTextDone: {
+    color: '#22c55e',
+  },
+  activationChecklistItemOptional: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: Colors.sub,
+  },
+  activationCardPrimaryButton: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  activationCardPrimaryGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activationCardPrimaryText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  celebrationOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  celebrationCard: {
+    backgroundColor: darkMode ? Colors.surface2 : '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.3)' : 'rgba(45, 255, 196, 0.2)',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  celebrationTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text,
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  celebrationSubtitle: {
+    fontSize: 15,
+    color: Colors.sub,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  smartSuggestionsContainer: {
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  smartSuggestionsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
+  },
+  smartSuggestionsText: {
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
+  },
+  commandCenterContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  commandCenterCard: {
+    backgroundColor: darkMode ? Colors.surface2 : '#F8FAFC',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(45, 255, 196, 0.2)',
+    shadowColor: '#2DFFC4',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  commandCenterHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+    gap: 16,
+  },
+  commandCenterIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(45, 255, 196, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.3)',
+  },
+  commandCenterHeaderText: {
+    flex: 1,
+  },
+  commandCenterTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.text,
+    marginBottom: 6,
+    letterSpacing: -0.3,
+  },
+  commandCenterSubtitle: {
+    fontSize: 14,
+    color: Colors.sub,
+    lineHeight: 20,
+  },
+  commandCenterActions: {
+    gap: 12,
+  },
+  commandCenterActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.2)' : 'rgba(45, 255, 196, 0.15)',
+    gap: 12,
+  },
+  commandCenterActionTextContainer: {
+    flex: 1,
+  },
+  commandCenterActionText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  commandCenterActionSubtext: {
+    fontSize: 13,
+    color: Colors.sub,
+    marginTop: 2,
+  },
+  aiProactiveInsight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)',
+  },
+  aiProactiveInsightText: {
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  kickoffCardContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  kickoffCard: {
+    backgroundColor: darkMode ? Colors.surface2 : '#F8FAFC',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.2)' : 'rgba(45, 255, 196, 0.15)',
+    position: 'relative',
+  },
+  kickoffCardClose: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    padding: 4,
+  },
+  kickoffCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  kickoffCardTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.text,
+    lineHeight: 28,
+  },
+  kickoffCardBody: {
+    fontSize: 15,
+    color: Colors.sub,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  kickoffCardChecklist: {
+    gap: 14,
+    marginBottom: 24,
+  },
+  kickoffCardChecklistItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  kickoffCardChecklistText: {
+    fontSize: 15,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  kickoffCardButtons: {
+    gap: 12,
+  },
+  kickoffCardPrimaryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  kickoffCardPrimaryGradient: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kickoffCardPrimaryText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+  },
+  kickoffCardSecondaryButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kickoffCardSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.sub,
+  },
+  budgetHelperText: {
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  budgetHelperTextMain: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  budgetHelperTextSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  // AI Suggestions styles
+  aiSuggestionsContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  aiSuggestionsContainerWide: {
+    marginHorizontal: 4,
+  },
+  aiSuggestionsCard: {
+    backgroundColor: darkMode ? '#1E293B' : '#F1F5F9',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  aiSuggestionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    width: '100%',
+  },
+  aiSuggestionsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
+  },
+  aiSuggestionsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+    flex: 1,
+    flexShrink: 1,
+  },
+  aiSuggestionsClose: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+  },
+  aiSuggestionsSubtitle: {
+    fontSize: 14,
+    color: darkMode ? '#94A3B8' : '#64748B',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  aiSuggestionsList: {
+    gap: 10,
+  },
+  aiSuggestionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  aiSuggestionText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // iOS-style Modal styles
+  aiSuggestionsModalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  aiSuggestionsModalBackdropTouchable: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  aiSuggestionsModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
 });

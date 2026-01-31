@@ -14,6 +14,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useUserRole } from '@/contexts/UserRoleContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
 interface SettingItem {
   id: string;
@@ -29,6 +31,7 @@ interface SettingItem {
 export default function AccountSettingsScreen() {
   const { darkMode, setDarkMode } = useTheme();
   const { userRole, clearUserRole } = useUserRole();
+  const router = useRouter();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [settings, setSettings] = useState({
     pushNotifications: true,
@@ -83,6 +86,46 @@ export default function AccountSettingsScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => console.log('Deleting account...'),
+        },
+      ]
+    );
+  };
+
+  const handleResetOnboarding = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Reset Onboarding',
+      'This will show the onboarding flow again and clear all current estimate data. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset & View',
+          onPress: async () => {
+            try {
+              // Clear onboarding flags
+              await AsyncStorage.removeItem('bps.onboardingComplete');
+              await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
+              await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
+              await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
+              await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
+              await AsyncStorage.setItem('bps.forceEstimateOnboarding', 'true');
+              
+              // Clear all bid storage keys to remove customer information and bid data
+              await AsyncStorage.removeItem('bps.currentBid.v2');
+              await AsyncStorage.removeItem('bps.currentBid');
+              await AsyncStorage.removeItem('bps.currentBid.v1');
+              
+              // Clear first estimate flags
+              await AsyncStorage.removeItem('bps.firstEstimateCreated');
+              await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
+              
+              // Navigate directly to onboarding
+              router.push('/onboarding');
+            } catch (error) {
+              console.error('Error resetting onboarding:', error);
+              Alert.alert('Error', 'Failed to reset onboarding.');
+            }
+          },
         },
       ]
     );
@@ -211,6 +254,14 @@ export default function AccountSettingsScreen() {
       type: 'button',
       onPress: handleDeleteAccount,
     },
+    {
+      id: 'reset-onboarding',
+      title: 'Reset Onboarding',
+      subtitle: 'Show onboarding flow again (dev/test)',
+      icon: 'refresh',
+      type: 'button',
+      onPress: handleResetOnboarding,
+    },
   ];
 
   const renderSettingItem = (item: SettingItem) => (
@@ -307,7 +358,7 @@ export default function AccountSettingsScreen() {
             Account
           </Text>
           {settingItems
-            .filter(item => item.id === 'export')
+            .filter(item => ['export', 'reset-onboarding'].includes(item.id))
             .map(renderSettingItem)}
         </View>
 

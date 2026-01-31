@@ -39,6 +39,9 @@ import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
+import EmptyStateCard from '../../components/EmptyStateCard';
+import CoachFlag from '../../components/CoachFlag';
+import BottomToast from '../../components/BottomToast';
 // New proposal system - this is the ONLY system used
 import { buildProposalHtml } from '../../lib/proposals/buildProposalHtml';
 import { exportProposalPdf } from '../../lib/proposals/exportPdf';
@@ -2104,7 +2107,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   );
 };
 
-const blankState = () => ({
+const blankState = (isFirstTime = false) => ({
   id: String(Date.now()),
   title: 'Untitled Bid',
   region: 'NV',
@@ -2136,11 +2139,55 @@ const blankState = () => ({
   permitCostText: '',
   zoning: 'residential',
   
-  // Materials - Detailed line items
-  materialLineItems: [],
+  // Materials - Detailed line items (with smart defaults for first-time users)
+  materialLineItems: isFirstTime ? [
+    {
+      id: String(Date.now() + 10),
+      name: '2x4x8 KD Stud',
+      description: '2x4x8 KD Stud (editable)',
+      quantity: 50,
+      unit: 'ea',
+      unitPrice: 4.15,
+      total: 207.50,
+      section: 'Framing',
+      category: 'Framing',
+    },
+    {
+      id: String(Date.now() + 11),
+      name: 'Drywall 1/2" 4x8',
+      description: 'Drywall 1/2" 4x8 (editable)',
+      quantity: 20,
+      unit: 'sheet',
+      unitPrice: 10.90,
+      total: 218.00,
+      section: 'Drywall & Paint',
+      category: 'Drywall',
+    },
+  ] : [],
   
-  // Labor - Detailed line items
-  laborLineItems: [],
+  // Labor - Detailed line items (with smart defaults for first-time users)
+  laborLineItems: isFirstTime ? [
+    {
+      id: String(Date.now() + 1),
+      name: 'Framing labor',
+      description: 'Framing labor (editable)',
+      hours: 40,
+      rate: 45,
+      total: 1800,
+      category: 'Framing',
+      section: 'Framing',
+    },
+    {
+      id: String(Date.now() + 2),
+      name: 'Electrical labor',
+      description: 'Electrical labor (editable)',
+      hours: 24,
+      rate: 55,
+      total: 1320,
+      category: 'Electrical',
+      section: 'Electrical',
+    },
+  ] : [],
   
   // Labor (calculated from line items)
   labor: 0,
@@ -2756,7 +2803,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   // same idea as Dashboard wideContainer
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   gradBorder: {
     borderRadius: 20,
@@ -2859,6 +2906,317 @@ export default function EstimateGeneratorScreen() {
   const [forceRefresh, setForceRefresh] = useState(0);
   const [savedEstimates, setSavedEstimates] = useState([]);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [isFirstTime, setIsFirstTime] = useState(false);
+  const [showCoachFlags, setShowCoachFlags] = useState(false);
+  const [showGuideRail, setShowGuideRail] = useState(false);
+  const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
+  const [hasReviewedTotal, setHasReviewedTotal] = useState(false);
+  const [guidedMode, setGuidedMode] = useState(false);
+  const [materialsAddedFlag, setMaterialsAddedFlag] = useState(false);
+  const lastCompletionRef = useRef(0);
+  const [showToast, setShowToast] = useState(false);
+  const [hasCreatedFirstEstimate, setHasCreatedFirstEstimate] = useState(false);
+  const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
+  const [isOnboardingReset, setIsOnboardingReset] = useState(false);
+  
+  // Local state for customer fields to prevent glitching during typing
+  const [localCustomerName, setLocalCustomerName] = useState('');
+  const [localCustomerEmail, setLocalCustomerEmail] = useState('');
+  const [localCustomerPhone, setLocalCustomerPhone] = useState('');
+  const [localCustomerAddress, setLocalCustomerAddress] = useState('');
+  const [localCustomerCity, setLocalCustomerCity] = useState('');
+  const [localCustomerState, setLocalCustomerState] = useState('');
+  const [localCustomerZip, setLocalCustomerZip] = useState('');
+  const [localCustomerCompany, setLocalCustomerCompany] = useState('');
+  const customerDebounceRefs = useRef({});
+  
+  // Debug useEffect to track state changes
+  useEffect(() => {
+    console.log('🔍 State update:', {
+      isFirstTime,
+      hasCreatedFirstEstimate,
+      hasSubmittedFirstEstimate,
+      isLoaded,
+      step,
+      total: calc?.total,
+    });
+  }, [isFirstTime, hasCreatedFirstEstimate, hasSubmittedFirstEstimate, isLoaded, step, calc?.total]);
+
+  // Update isFirstTime when estimates or activeProjects load (they might load after initial mount)
+  useEffect(() => {
+    if (!isLoaded) return; // Wait for initial load to complete
+    if (isOnboardingReset) return; // Keep first-time experience after reset
+    
+    // Check if there are any submitted estimates in all possible locations
+    const hasSubmittedInEstimates = Array.isArray(estimates) && estimates.some(e => {
+      const status = (e.status || '').toLowerCase();
+      return status === 'bid_submitted' || status === 'submitted' || status === 'won' || status === 'in_progress' || status === 'active';
+    });
+    const hasSubmittedInSavedEstimates = Array.isArray(savedEstimates) && savedEstimates.some(e => {
+      const status = (e.status || '').toLowerCase();
+      return status === 'bid_submitted' || status === 'submitted' || status === 'won' || status === 'in_progress' || status === 'active';
+    });
+    const hasSubmittedInProjects = Array.isArray(activeProjects) && activeProjects.some(p => {
+      const status = (p.status || '').toLowerCase();
+      return p.estimateData || status === 'in_progress' || status === 'active' || status === 'won';
+    });
+    
+    const hasAnySubmitted = hasSubmittedInEstimates || hasSubmittedInSavedEstimates || hasSubmittedInProjects;
+    
+    // If there are submitted estimates and isFirstTime is still true, set it to false
+    if (hasAnySubmitted && isFirstTime) {
+      setIsFirstTime(false);
+      // Also update the flag if it's not set
+      if (!hasSubmittedFirstEstimate) {
+        setHasSubmittedFirstEstimate(true);
+        AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true').catch(() => {});
+      }
+      console.log('✅ Found submitted estimates after load - setting isFirstTime to false');
+    }
+  }, [isLoaded, isOnboardingReset, estimates, savedEstimates, activeProjects, isFirstTime, hasSubmittedFirstEstimate]);
+
+  useEffect(() => {
+    if (step === 5) {
+      setHasReviewedMarkup(true);
+    }
+    if (step === 8) {
+      setHasReviewedTotal(true);
+    }
+  }, [step]);
+
+  useEffect(() => {
+    const persistMaterialsCart = async () => {
+      try {
+        await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(materialsCart || []));
+      } catch (error) {
+        console.warn('Failed to persist materials cart:', error);
+      }
+    };
+    persistMaterialsCart();
+  }, [materialsCart]);
+
+  useEffect(() => {
+    const hasAnyMaterials =
+      (materialsCart?.length || 0) > 0 || (bid.materialLineItems?.length || 0) > 0;
+    if (!hasAnyMaterials && materialsAddedFlag) {
+      setMaterialsAddedFlag(false);
+    }
+  }, [materialsCart?.length, bid.materialLineItems?.length, materialsAddedFlag]);
+
+  useEffect(() => {
+    if (!shouldShowGuidance) {
+      lastCompletionRef.current = completedChecklistCount;
+      return;
+    }
+    if (completedChecklistCount > lastCompletionRef.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    lastCompletionRef.current = completedChecklistCount;
+  }, [completedChecklistCount, shouldShowGuidance]);
+
+  // Sync local customer fields only on initial load or when bid ID changes
+  // This prevents overwriting user input while they're typing
+  useEffect(() => {
+    if (isLoaded && bid.id) {
+      setLocalCustomerName(bid.customerName || '');
+      setLocalCustomerEmail(bid.customerEmail || '');
+      setLocalCustomerPhone(bid.customerPhone || '');
+      setLocalCustomerAddress(bid.customerAddress || '');
+      setLocalCustomerCity(bid.customerCity || '');
+      setLocalCustomerState(bid.customerState || '');
+      setLocalCustomerZip(bid.customerZip || '');
+      setLocalCustomerCompany(bid.customerCompany || '');
+    }
+  }, [isLoaded, bid.id]); // Only sync when bid ID changes (new bid loaded)
+
+  // Check if user has any submitted estimates (either from flag or from estimates/projects list)
+  const hasAnySubmittedEstimates = useMemo(() => {
+    if (isOnboardingReset) return false;
+    if (hasSubmittedFirstEstimate) return true;
+    // Also check if there are any submitted estimates in the list (with safety check)
+    const hasSubmittedInEstimates = Array.isArray(estimates) && estimates.some(e => {
+      const status = (e.status || '').toLowerCase();
+      return status === 'bid_submitted' || status === 'submitted' || status === 'won' || status === 'in_progress' || status === 'active';
+    });
+    // Also check activeProjects for projects that came from submitted bids (with safety check)
+    const hasSubmittedInProjects = Array.isArray(activeProjects) && activeProjects.some(p => {
+      const status = (p.status || '').toLowerCase();
+      // Check if project has estimateData, meaning it came from a submitted bid
+      return p.estimateData || status === 'in_progress' || status === 'active' || status === 'won';
+    });
+    return hasSubmittedInEstimates || hasSubmittedInProjects;
+  }, [hasSubmittedFirstEstimate, estimates, activeProjects]);
+
+  // ============================================
+  // WALKTHROUGH VISIBILITY LOGIC
+  // ============================================
+  
+  // TESTING MODE: Only show when reset onboarding was explicitly triggered
+  const shouldShowGuidance = showCoachFlags && isOnboardingReset;
+  
+  // LIVE IMPLEMENTATION (uncomment when ready for production):
+  // Show walkthrough for:
+  // 1. New users (first app install) who haven't submitted their first estimate
+  // 2. Users creating their very first estimate (hasn't been created/submitted yet)
+  // After first estimate is submitted, walkthrough should never show again
+  // 
+  // const shouldShowGuidance = showCoachFlags && 
+  //   isFirstTime && 
+  //   !hasCreatedFirstEstimate && 
+  //   !hasSubmittedFirstEstimate && 
+  //   !hasAnySubmittedEstimates;
+  const hasClientInfo = Boolean(bid.customerName || bid.clientName);
+  const hasJobInfo = Boolean(bid.title && bid.title !== 'Untitled Bid');
+  const hasLabor = (bid.laborLineItems?.length || 0) > 0;
+  const hasMaterialInputs =
+    Array.isArray(materialNeedQty) ? false : Object.values(materialNeedQty || {}).some((v) => Number(v) > 0);
+  
+  // Comprehensive materials check - must be useMemo to react to state changes
+  // Calculate totals inside useMemo to ensure reactivity
+  const hasMaterials = useMemo(() => {
+    // Calculate totals inside useMemo so they update when materialsCart changes
+    const materialsCartTotal = Array.isArray(materialsCart)
+      ? materialsCart.reduce((sum, item) => {
+          const total = Number(item.total);
+          if (!Number.isNaN(total) && total > 0) return sum + total;
+          const qty = Number(item.quantity || item.qty || 0);
+          const unit = Number(item.unitPrice || item.cost || 0);
+          return sum + qty * unit;
+        }, 0)
+      : 0;
+    
+    const materialsLineItemsTotal = (bid.materialLineItems || []).reduce((sum, item) => {
+      const total = Number(item.total);
+      if (!Number.isNaN(total) && total > 0) return sum + total;
+      const qty = Number(item.quantity || item.qty || 0);
+      const unit = Number(item.unitPrice || item.cost || 0);
+      return sum + qty * unit;
+    }, 0);
+    
+    // Check if there are any manual materials
+    const cartHasManual = Array.isArray(materialsCart) && materialsCart.some(item => item.isManual === true);
+    const lineItemsHasManual = Array.isArray(bid.materialLineItems) && 
+      bid.materialLineItems.some(item => item.isManual === true || item.source === 'manual');
+    const hasManual = cartHasManual || lineItemsHasManual;
+    
+    const cartHasItems = (materialsCart?.length || 0) > 0;
+    const lineItemsHasItems = (bid.materialLineItems?.length || 0) > 0;
+    const hasCartTotal = materialsCartTotal > 0;
+    const hasLineItemsTotal = materialsLineItemsTotal > 0;
+    const hasInputs = hasMaterialInputs;
+    
+    const result = cartHasItems ||
+      lineItemsHasItems ||
+      hasCartTotal ||
+      hasLineItemsTotal ||
+      materialsAddedFlag ||
+      hasInputs ||
+      hasManual;
+    
+    return result;
+  }, [
+    materialsCart, // Full array to detect all changes including manual entries
+    bid.materialLineItems, // Full array to detect all changes
+    materialsAddedFlag,
+    hasMaterialInputs,
+  ]);
+  
+  // Calculate totals separately for display purposes (used elsewhere in the code)
+  const materialsCartTotal = Array.isArray(materialsCart)
+    ? materialsCart.reduce((sum, item) => {
+        const total = Number(item.total);
+        if (!Number.isNaN(total) && total > 0) return sum + total;
+        const qty = Number(item.quantity || item.qty || 0);
+        const unit = Number(item.unitPrice || item.cost || 0);
+        return sum + qty * unit;
+      }, 0)
+    : 0;
+  const materialsLineItemsTotal = (bid.materialLineItems || []).reduce((sum, item) => {
+    const total = Number(item.total);
+    if (!Number.isNaN(total) && total > 0) return sum + total;
+    const qty = Number(item.quantity || item.qty || 0);
+    const unit = Number(item.unitPrice || item.cost || 0);
+    return sum + qty * unit;
+  }, 0);
+  const hasPaymentSchedule = useMemo(() => {
+    const milestones = Array.isArray(bid.paymentMilestones) ? bid.paymentMilestones : [];
+    const weeklyPayments = Array.isArray(bid.weeklyPayments) ? bid.weeklyPayments : [];
+    const hasMilestoneAmount = milestones.some(
+      (m) => (m.paymentAmount || m.amount || 0) > 0 || (m.percentage || 0) > 0
+    );
+    const hasWeeklyAmount = weeklyPayments.some(
+      (w) => (w.amount || 0) > 0 || (w.percentage || 0) > 0
+    );
+
+    if (bid.paymentSchedule === 'weekly') return hasWeeklyAmount;
+    if (bid.paymentSchedule === 'hybrid') return hasMilestoneAmount || hasWeeklyAmount;
+    return hasMilestoneAmount;
+  }, [bid.paymentSchedule, bid.paymentMilestones, bid.weeklyPayments]);
+  const markupPct = Number(bid.markupPct) || 0;
+  const markupLow = markupPct > 0 && markupPct < 18;
+  const readinessState = !hasClientInfo && !hasJobInfo && !hasLabor && !hasMaterials
+    ? 'empty'
+    : hasClientInfo && hasJobInfo && hasLabor && hasMaterials && hasReviewedMarkup && hasPaymentSchedule && hasReviewedTotal
+      ? 'ready'
+      : 'partial';
+
+  const handleReadinessCTA = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!hasClientInfo || !hasJobInfo) {
+      setStep(1);
+      setActiveNavButton('next');
+      return;
+    }
+    if (!hasMaterials) {
+      setStep(3);
+      setActiveNavButton('next');
+      return;
+    }
+    if (!hasReviewedMarkup) {
+      setStep(5);
+      setActiveNavButton('next');
+      return;
+    }
+    if (!hasPaymentSchedule) {
+      setStep(7);
+      setActiveNavButton('next');
+      return;
+    }
+    if (!hasReviewedTotal) {
+      setStep(8);
+      setActiveNavButton('next');
+      return;
+    }
+    setStep(8);
+    setActiveNavButton('next');
+  };
+
+  const nextStepLabel = !hasClientInfo || !hasJobInfo
+    ? 'Add client info'
+    : !hasMaterials
+      ? 'Add materials'
+      : !hasLabor
+        ? 'Add labor'
+        : !hasReviewedMarkup
+          ? 'Review markup'
+        : !hasPaymentSchedule
+          ? 'Set payment schedule'
+          : !hasReviewedTotal
+            ? 'Review total'
+            : 'Submit bid';
+
+  const completedChecklistCount =
+    (hasClientInfo && hasJobInfo ? 1 : 0) +
+    (hasMaterials ? 1 : 0) +
+    (hasLabor ? 1 : 0) +
+    (hasReviewedMarkup ? 1 : 0) +
+    (hasPaymentSchedule ? 1 : 0) +
+    (hasReviewedTotal ? 1 : 0);
+  const checklistTotal = 6;
+  const setupProgressPct = Math.round((completedChecklistCount / checklistTotal) * 100);
+
+  const guidedSteps = [1, 2, 3, 4, 5];
+  const guidedStepIndex = guidedSteps.indexOf(step) >= 0 ? guidedSteps.indexOf(step) + 1 : 1;
   
   // Local state for markup percentage input to prevent glitching while typing
   const [markupPctText, setMarkupPctText] = useState('');
@@ -2871,6 +3229,63 @@ export default function EstimateGeneratorScreen() {
   useEffect(() => {
     loadSavedEstimates();
   }, []);
+
+  // Check if we should show empty state (first-time user with no estimates)
+  useEffect(() => {
+    const checkEmptyState = async () => {
+      try {
+        // First check if this is a first-time user from onboarding - don't override if flag is set
+        const isFirstTimeFlag = await AsyncStorage.getItem('bps.isFirstTimeEstimate');
+        if (isFirstTimeFlag === 'true') {
+          console.log('📝 Onboarding flag still set - keeping isFirstTime true');
+          setIsFirstTime(true);
+          return; // Don't check other conditions if onboarding flag is set
+        }
+        
+        const hasEstimates = estimates.length > 0 || savedEstimates.length > 0;
+        const hasCurrentBid = bid.title && bid.title !== 'Untitled Bid' && (bid.customerName || bid.materialLineItems?.length > 0 || bid.laborLineItems?.length > 0);
+        const isEmpty = !hasEstimates && !hasCurrentBid;
+        
+        console.log('🔍 checkEmptyState:', {
+          hasEstimates,
+          hasCurrentBid,
+          isEmpty,
+          hasCreatedFirstEstimate,
+        });
+        
+        if (isEmpty && !hasCreatedFirstEstimate) {
+          setIsFirstTime(true);
+        } else if (hasEstimates || hasCurrentBid) {
+          setIsFirstTime(false);
+        }
+      } catch (error) {
+        console.error('Error checking empty state:', error);
+      }
+    };
+    if (isLoaded) {
+      checkEmptyState();
+    }
+  }, [estimates.length, savedEstimates.length, bid.title, bid.customerName, bid.materialLineItems?.length, bid.laborLineItems?.length, isLoaded, hasCreatedFirstEstimate]);
+
+  // Check if we should show the estimate tutorial (from onboarding)
+  useFocusEffect(
+    useCallback(() => {
+      const checkTutorial = async () => {
+        try {
+          const showTutorial = await AsyncStorage.getItem('bps.showEstimateTutorial');
+          if (showTutorial === 'true') {
+            // Clear the flag
+            await AsyncStorage.removeItem('bps.showEstimateTutorial');
+            // Navigate to tutorial
+            router.push('/profile/estimate-tutorial');
+          }
+        } catch (error) {
+          console.error('Error checking tutorial flag:', error);
+        }
+      };
+      checkTutorial();
+    }, [router])
+  );
 
   // Sync markup percentage text with bid state (only when not focused to prevent glitching)
   useEffect(() => {
@@ -2949,9 +3364,67 @@ export default function EstimateGeneratorScreen() {
         const estimates = JSON.parse(saved);
         setSavedEstimates(estimates);
         console.log(`📋 Loaded ${estimates.length} saved estimates`);
+        
+        // Check if this is first time (no saved estimates and no estimates in project list)
+        const isFirstTimeUser = estimates.length === 0 && (estimates.length === 0 || (estimates.length === 0 && !bid.title || bid.title === 'Untitled Bid'));
+        setIsFirstTime(isFirstTimeUser);
+      } else {
+        // No saved estimates at all - first time user
+        setIsFirstTime(true);
+      }
+      
+      // Also check if user has created their first estimate
+      const firstEstimateCreated = await AsyncStorage.getItem('bps.firstEstimateCreated');
+      const firstEstimateSubmitted = await AsyncStorage.getItem('bps.firstEstimateSubmitted');
+      const isFirstTimeFlag = await AsyncStorage.getItem('bps.isFirstTimeEstimate');
+      const resetFlag = await AsyncStorage.getItem('bps.forceEstimateOnboarding');
+      
+      // Check if there are any submitted estimates in the list (more reliable than just the flag)
+      // Check both estimates list and activeProjects (since submitted bids can be in either)
+      const hasSubmittedInEstimates = Array.isArray(estimates) && estimates.some(e => {
+        const status = (e.status || '').toLowerCase();
+        return status === 'bid_submitted' || status === 'submitted' || status === 'won' || status === 'in_progress' || status === 'active';
+      });
+      const hasSubmittedInProjects = Array.isArray(activeProjects) && activeProjects.some(p => {
+        const status = (p.status || '').toLowerCase();
+        // Check if project has estimateData, meaning it came from a submitted bid
+        return p.estimateData || status === 'in_progress' || status === 'active' || status === 'won';
+      });
+      const hasSubmittedInList = hasSubmittedInEstimates || hasSubmittedInProjects;
+      
+      // If onboarding flag is set, ignore firstEstimateCreated
+      if (resetFlag === 'true') {
+        setIsOnboardingReset(true);
+        setIsFirstTime(true);
+        setHasCreatedFirstEstimate(false);
+        setHasSubmittedFirstEstimate(false);
+        console.log('📝 Reset onboarding requested - showing first estimate flow');
+      } else {
+        // NOT a reset - don't show walkthrough
+        // Walkthrough ONLY shows when "Reset onboarding" is clicked
+        setIsOnboardingReset(false);
+        setHasCreatedFirstEstimate(firstEstimateCreated === 'true');
+        setIsOnboardingReset(false);
+        // Set submitted flag if either the flag is set OR there are submitted estimates in the list
+        const hasSubmitted = firstEstimateSubmitted === 'true' || hasSubmittedInList;
+        setHasSubmittedFirstEstimate(hasSubmitted);
+        
+        // If we found submitted estimates but the flag wasn't set, save it for persistence
+        if (hasSubmittedInList && firstEstimateSubmitted !== 'true') {
+          await AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true');
+          console.log('✅ Found submitted estimates in list - setting firstEstimateSubmitted flag');
+        }
+        
+        // CRITICAL: If there are submitted estimates, set isFirstTime to false
+        // This ensures the guidance card doesn't show even if savedEstimates is empty
+        if (hasSubmittedInList) {
+          setIsFirstTime(false);
+          console.log('✅ Found submitted estimates - setting isFirstTime to false');
+        }
       }
     } catch (error) {
       console.error('Error loading saved estimates:', error);
+      setIsFirstTime(true); // Default to first time on error
     }
   };
 
@@ -2972,6 +3445,25 @@ export default function EstimateGeneratorScreen() {
       setSavedEstimates(updatedEstimates);
       
       await AsyncStorage.setItem('savedEstimates', JSON.stringify(updatedEstimates));
+      
+      // Check if this is the first estimate created
+      const isFirstEstimate = !hasCreatedFirstEstimate && savedEstimates.length === 0;
+        if (isFirstEstimate) {
+        await AsyncStorage.setItem('bps.firstEstimateCreated', 'true');
+        await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
+        await AsyncStorage.removeItem('bps.forceEstimateOnboarding');
+        await AsyncStorage.removeItem('bps.showEstimateGuideRail');
+          await AsyncStorage.removeItem('bps.showEstimateCoachFlags');
+        setHasCreatedFirstEstimate(true);
+        setIsFirstTime(false);
+        setIsOnboardingReset(false);
+          setShowCoachFlags(false);
+        setShowGuideRail(false);
+        // Show toast after a short delay
+        setTimeout(() => {
+          setShowToast(true);
+        }, 500);
+      }
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('✅ Estimate Saved', `"${estimateData.title}" has been saved for recovery.`);
@@ -3301,7 +3793,29 @@ export default function EstimateGeneratorScreen() {
           }
           
           // If it's a blank/untitled bid, try to find the Haim bid in other storage keys
-          if (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '') {
+          // BUT: Skip this if it's a new bid (don't restore old data for new bids)
+          const isNewBid =
+            parsed._isNewBid ||
+            (parsed._createdAt && Date.now() - parsed._createdAt < 5000) ||
+            isCreatingNewBidRef.current;
+          
+          // CRITICAL: Don't restore old bid data if this is a new bid
+          // This prevents customer info from old bids appearing in new bids
+          if (isNewBid) {
+            console.log('🆕 This is a new bid - skipping Haim bid restore to prevent old data from appearing');
+            // Ensure customer fields are cleared even if they somehow got into the parsed data
+            parsed.customerName = '';
+            parsed.customerEmail = '';
+            parsed.customerPhone = '';
+            parsed.customerAddress = '';
+            parsed.customerCity = '';
+            parsed.customerState = '';
+            parsed.customerZip = '';
+            parsed.customerCompany = '';
+            parsed.customerNotes = '';
+            parsed.clientName = '';
+            parsed.clientEmail = '';
+          } else if (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '') {
             console.log('🔍 Current bid is blank, searching for Haim bid...');
             
             // Try different possible storage keys
@@ -3500,19 +4014,98 @@ export default function EstimateGeneratorScreen() {
       }
     };
     
-    // Load bid first, then load materials/rentals based on bid source
-    loadBid().then(() => {
-      console.log('📱 Estimate generator mounted, bid loaded');
-      loadProfile();
-      loadMaterials();
-      loadRentals();
+    // Check if user came from onboarding first - MUST happen before loadBid
+    // 
+    // TESTING MODE: Only shows walkthrough when resetFlag is explicitly set
+    // 
+    // LIVE IMPLEMENTATION (for production):
+    // - For new users: isFirstTimeFlag will be set by onboarding flow
+    // - Show walkthrough for first estimate only (before first submission)
+    // - After first estimate submitted, never show again
+    // - No need for resetFlag check in live mode
+    const checkOnboardingFirst = async () => {
+      try {
+        const isFirstTimeFlag = await AsyncStorage.getItem('bps.isFirstTimeEstimate');
+        const resetFlag = await AsyncStorage.getItem('bps.forceEstimateOnboarding'); // TESTING ONLY
+        const firstEstimateSubmitted = await AsyncStorage.getItem('bps.firstEstimateSubmitted');
+        const savedEstimatesRaw = await AsyncStorage.getItem('savedEstimates');
+        const savedEstimatesList = savedEstimatesRaw ? JSON.parse(savedEstimatesRaw) : [];
+        const hasAnySavedEstimates = Array.isArray(savedEstimatesList) && savedEstimatesList.length > 0;
+        const hasSubmittedSavedEstimate =
+          Array.isArray(savedEstimatesList) &&
+          savedEstimatesList.some((e) => {
+            const status = (e?.status || e?.data?.status || '').toLowerCase();
+            return (
+              status === 'bid_submitted' ||
+              status === 'submitted' ||
+              status === 'won' ||
+              status === 'in_progress' ||
+              status === 'active'
+            );
+          });
+        const coachFlagsEnabled = await AsyncStorage.getItem('bps.showEstimateCoachFlags');
+        const guideRailEnabled = await AsyncStorage.getItem('bps.showEstimateGuideRail');
+        const guideRailDismissed = await AsyncStorage.getItem('bps.dismissEstimateGuideRail');
+        
+        // CRITICAL: Only set showCoachFlags if resetFlag is explicitly set (testing mode)
+        // Don't set it from AsyncStorage alone - it must be paired with isOnboardingReset
+        if (resetFlag === 'true') {
+          // Explicit reset request: show onboarding walkthrough
+          setIsOnboardingReset(true);
+          setIsFirstTime(true);
+          setShowCoachFlags(true); // Only set to true when reset flag is set
+          setShowGuideRail(guideRailEnabled === 'true' && guideRailDismissed !== 'true');
+        } else if (
+          isFirstTimeFlag === 'true' &&
+          (firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates)
+        ) {
+          // Ignore onboarding reset if user has already submitted a bid or has saved estimates
+          await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+          setIsOnboardingReset(false);
+          setShowCoachFlags(false);
+          setShowGuideRail(false);
+        } else {
+          // NOT a reset - hide walkthrough completely
+          // Walkthrough ONLY shows when "Reset onboarding" is clicked (no first-time user logic)
+          setIsOnboardingReset(false);
+          setShowCoachFlags(false);
+          setShowGuideRail(false);
+          
+          // Clear all onboarding flags in AsyncStorage to prevent showing on next app open
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+          
+          // If user has already submitted a bid or has saved estimates, clear first-time flag too
+          if (firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates) {
+            await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking onboarding flag:', error);
+      }
       
-      // Clear initial load flag after everything is loaded
-      setTimeout(() => {
-        isInitialLoadRef.current = false;
-        console.log('✅ Initial load complete - all data loaded');
-      }, 1500);
-    });
+      // Normal flow: Load bid first, then load materials/rentals based on bid source
+      loadBid().then(() => {
+        console.log('📱 Estimate generator mounted, bid loaded');
+        loadProfile();
+        loadMaterials();
+        loadRentals();
+        
+        // Clear initial load flag after everything is loaded
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+          console.log('✅ Initial load complete - all data loaded');
+        }, 1500);
+      });
+    };
+    
+    checkOnboardingFirst();
   }, []);
 
   // Reload bid when screen comes into focus (in case it was just saved from lead detail modal)
@@ -3522,9 +4115,50 @@ export default function EstimateGeneratorScreen() {
       console.log('📱 Estimate generator focused - checking for updated bid data');
       const reloadBid = async () => {
         try {
+          // Don't reload if we're currently creating a new bid
+          if (isCreatingNewBidRef.current) {
+            console.log('🆕 Creating new bid - skipping bid reload on focus');
+            return;
+          }
+          
+          // Don't reload if this is a first-time user from onboarding
+          const isFirstTimeFlag = await AsyncStorage.getItem('bps.isFirstTimeEstimate');
+          if (isFirstTimeFlag === 'true') {
+            console.log('📝 First-time user - skipping bid reload on focus');
+            return;
+          }
+          
           const saved = await AsyncStorage.getItem(BID_STORAGE_KEY);
           if (saved) {
             const parsed = JSON.parse(saved);
+            
+            // CRITICAL: Don't reload old customer data if this is a new bid
+            const isNewBid = parsed._isNewBid || 
+                            (parsed._createdAt && Date.now() - parsed._createdAt < 10000) ||
+                            isCreatingNewBidRef.current;
+            
+            if (isNewBid) {
+              console.log('🆕 New bid detected in reloadBid - skipping customer data restore');
+              // Ensure customer fields are cleared even if they somehow got into storage
+              if (parsed.customerName || parsed.customerEmail || parsed.customerPhone) {
+                parsed.customerName = '';
+                parsed.customerEmail = '';
+                parsed.customerPhone = '';
+                parsed.customerAddress = '';
+                parsed.customerCity = '';
+                parsed.customerState = '';
+                parsed.customerZip = '';
+                parsed.customerCompany = '';
+                parsed.customerNotes = '';
+                parsed.clientName = '';
+                parsed.clientEmail = '';
+                // Save the cleared bid back to storage
+                await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
+                setBid(parsed);
+              }
+              return;
+            }
+            
             // Check if this is a new bid from a lead (has leadId and leadSource)
             const isFromLead = parsed.leadId && parsed.leadSource === 'qualified_lead';
             
@@ -3539,14 +4173,33 @@ export default function EstimateGeneratorScreen() {
                 zip: parsed.customerZip || '(empty)'
               });
               setBid(parsed);
-            } else if (parsed.customerName && !bid.customerName && parsed.customerName !== bid.customerName) {
+            } else if (!isNewBid && parsed.customerName && !bid.customerName && parsed.customerName !== bid.customerName) {
               // Only reload if bid has no customer name and parsed has one (from external source)
-              // Don't reload if user is currently typing
+              // Don't reload if user is currently typing or if it's a new bid
+              // CRITICAL: Don't restore old customer data for new bids
               console.log(`✅ Customer info found in storage, reloading bid:`, {
                 name: parsed.customerName,
                 email: parsed.customerEmail,
                 phone: parsed.customerPhone
               });
+              setBid(parsed);
+            }
+            
+            // CRITICAL: If it's a new bid but has customer data in storage, clear it
+            if (isNewBid && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
+              console.log('🧹 Clearing customer data from new bid in storage');
+              parsed.customerName = '';
+              parsed.customerEmail = '';
+              parsed.customerPhone = '';
+              parsed.customerAddress = '';
+              parsed.customerCity = '';
+              parsed.customerState = '';
+              parsed.customerZip = '';
+              parsed.customerCompany = '';
+              parsed.customerNotes = '';
+              parsed.clientName = '';
+              parsed.clientEmail = '';
+              await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
               setBid(parsed);
             }
             
@@ -3583,7 +4236,9 @@ export default function EstimateGeneratorScreen() {
             
             // CRITICAL: Restore materials from bid.materialLineItems if materialsCart is empty
             // This prevents materials from being lost when the app reopens
-            if (!isFromLead && parsed.materialLineItems && Array.isArray(parsed.materialLineItems) && parsed.materialLineItems.length > 0) {
+            // Skip restoration if this is a new bid (has _isNewBid flag or was created recently)
+            // Note: isNewBid is already declared above, reuse it
+            if (!isFromLead && !isNewBid && parsed.materialLineItems && Array.isArray(parsed.materialLineItems) && parsed.materialLineItems.length > 0) {
               const savedMaterials = await AsyncStorage.getItem('bps.materialsCart');
               const currentMaterials = savedMaterials ? JSON.parse(savedMaterials) : [];
               
@@ -3622,8 +4277,9 @@ export default function EstimateGeneratorScreen() {
                   }));
                   await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(updatedMaterials));
                   setMaterialsCart(updatedMaterials);
-                } else if ((!currentMaterials || currentMaterials.length === 0) && parsed.materialLineItems.length > 0) {
+                } else if ((!currentMaterials || currentMaterials.length === 0) && parsed.materialLineItems.length > 0 && !isNewBid) {
                   // Only restore if materialsCart is empty but bid has materialLineItems
+                  // Skip restoration for new bids
                   const restoredMaterials = parsed.materialLineItems.map(item => ({
                     id: item.id || String(Date.now()),
                     name: item.name || item.description || 'Material',
@@ -3715,6 +4371,7 @@ export default function EstimateGeneratorScreen() {
         scope: item.scope || activeScope,
         sku: item.sku || '',
         source: item.isManual ? 'manual' : 'catalog',
+        isManual: item.isManual || false, // Preserve isManual flag for hasMaterials check
       }));
 
       const currentSerialized = JSON.stringify(prev.materialLineItems || []);
@@ -3736,6 +4393,7 @@ export default function EstimateGeneratorScreen() {
   const isInitialLoadRef = useRef(true);
   const initialLoadTimeoutRef = useRef(null);
   const lastAIMaterialUpdateRef = useRef(0); // Track when AI last updated materials
+  const isCreatingNewBidRef = useRef(false); // Track when we're creating a new bid to prevent restoration
 
   const normalizeStatus = React.useCallback((status) => {
     return (status || '')
@@ -4151,6 +4809,7 @@ export default function EstimateGeneratorScreen() {
         scope: item.scope || activeScope,
         sku: item.sku || '',
         source: item.isManual ? 'manual' : 'catalog',
+        isManual: item.isManual || false, // Preserve isManual flag for hasMaterials check
       }));
 
       const currentSerialized = JSON.stringify(prev.materialLineItems || []);
@@ -5498,16 +6157,41 @@ export default function EstimateGeneratorScreen() {
                 }
               }
               
-              Alert.alert('✅ Bid Submitted!', 'Your bid is now being tracked as pending and will appear in Dashboard and Projects.');
               console.log(`📤 Submitted bid: ${bid.title} ($${bidPrice.toLocaleString()})`);
               
-              // If this came from a lead, navigate back to leads screen to see the updated stage
+              // Mark first estimate as submitted if this is the first one
+              // 
+              // LIVE IMPLEMENTATION: This logic works for both testing and production.
+              // After first estimate is submitted:
+              // - Set firstEstimateSubmitted flag (persists across app restarts)
+              // - Clear onboarding flags so walkthrough never shows again
+              // - Hide walkthrough immediately
+              // - Future "New Bid" actions will keep walkthrough hidden
+              // CRITICAL: When bid is submitted, clear walkthrough flags
+              // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
+              await AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true');
+              await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
+              await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+              await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+              await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+              await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+              setIsOnboardingReset(false);
+              setShowCoachFlags(false);
+              setShowGuideRail(false);
+              if (!hasSubmittedFirstEstimate) {
+                setHasSubmittedFirstEstimate(true);
+                console.log('✅ First estimate submitted - hiding walkthrough cards');
+              }
+              
+              // Navigate to Projects → Submitted tab with fromSubmit flag
+              console.log('🔄 Navigating to Projects → Submitted tab');
+              setTimeout(() => {
+                router.push('/(tabs)/projects?tab=submitted&fromSubmit=true');
+              }, 300);
+              
+              // If this came from a lead, also update lead stage
               if (bid.leadId && bid.leadSource === 'qualified_lead') {
-                console.log('🔄 Navigating back to leads screen to show updated stage');
-                // Small delay to ensure backend update completes
-                setTimeout(() => {
-                  router.push('/(tabs)/leads');
-                }, 500);
+                console.log('🔄 Lead stage will be updated in background');
               }
             } catch (error) {
               console.error('❌ Error submitting bid:', error);
@@ -5520,7 +6204,154 @@ export default function EstimateGeneratorScreen() {
   };
 
   // Mark bid as won (converts to project)
-  const handleMarkAsWon = () => {
+  const handleMarkAsWon = async () => {
+    const performMarkAsWon = async () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // First, ensure the bid/estimate is saved to the projects list
+      // Check if it already exists
+      const allProjects = [...activeProjects, ...estimates];
+      console.log(`🔍 Checking for bid ${bid.id} in ${allProjects.length} projects`);
+      console.log(`🔍 Available project IDs:`, allProjects.map(p => `${p.id} (${p.status})`));
+      
+      const existingProject = allProjects.find(p => p.id === bid.id);
+      
+      if (!existingProject) {
+        console.log(`📝 Bid ${bid.id} not found in projects, saving it first...`);
+        // Save the estimate with 'in_progress' status directly (since we're marking it as won)
+        const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+        const estimatedCost = Number(calc?.subtotal) || 0;
+        const bidPrice = Number(calc?.grandTotal) || 0;
+        const margin = Number(calc?.marginPercent) || 0;
+        const markup = Number(bid.markupPct) || 0;
+        
+        const estimateData = {
+          id: bid.id,
+          title: bid.title || 'Untitled Bid',
+          status: 'won', // Set status to 'won' so it shows as "Active" in projects
+          estimatedCost,
+          bidPrice,
+          actualCost: 0,
+          margin,
+          markup,
+          location,
+          city: bid.customerCity,
+          state: bid.customerState,
+          zip: bid.customerZip,
+          startDate: bid.startDate || new Date().toISOString().split('T')[0],
+          endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          progress: 0,
+          client: bid.customerName || bid.clientName || 'Unknown Client',
+          clientEmail: bid.customerEmail || bid.clientEmail,
+          clientPhone: bid.customerPhone,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          estimateData: bid,
+        };
+        
+        console.log(`💾 Saving bid as active project with status 'won':`, {
+          id: estimateData.id,
+          title: estimateData.title,
+          status: estimateData.status,
+          bidPrice: estimateData.bidPrice
+        });
+        addEstimate(estimateData);
+        console.log(`✅ Bid saved! It should now appear in Projects tab with 'Active' status.`);
+      } else {
+        // Bid exists, convert it to won (Active)
+        console.log(`🔄 Converting existing bid ${bid.id} from status '${existingProject.status}' to 'won'`);
+        // Update the project status to 'won' so it shows as "Active"
+        updateProject(bid.id, { status: 'won' });
+        
+        // Verify the update happened
+        setTimeout(() => {
+          const updatedProjects = [...activeProjects, ...estimates];
+          const updated = updatedProjects.find(p => p.id === bid.id);
+          if (updated) {
+            console.log(`✅ Verified: Bid ${bid.id} now has status '${updated.status}' (should display as 'Active')`);
+          } else {
+            console.log(`⚠️ Warning: Could not find bid ${bid.id} after conversion`);
+          }
+        }, 500);
+      }
+      
+      // Update lead stage to "won" if this bid came from a qualified lead
+      if (bid.leadId && bid.leadSource === 'qualified_lead') {
+        try {
+          const leadId = bid.leadId;
+          console.log(`🔄 Updating lead ${leadId} stage to won after marking bid as won`);
+          
+          // Track that bid was won
+          const { trackBidWon } = await import('../../services/engagementTracking');
+          await trackBidWon(leadId);
+          
+          // Update backend lead (including MOCK- leads which are backend-managed)
+          try {
+            await unifiedLeadService.updateLeadStage(leadId, 'won');
+            console.log(`✅ Updated backend lead ${leadId} stage to won`);
+            
+            // Also update AsyncStorage as backup
+            const leadsData = await AsyncStorage.getItem('leadsData');
+            if (leadsData) {
+              const leads = JSON.parse(leadsData);
+              const existingIndex = leads.findIndex((l) => l.id === leadId);
+              if (existingIndex >= 0) {
+                leads[existingIndex] = {
+                  ...leads[existingIndex],
+                  stage: 'won',
+                  updatedAt: new Date().toISOString()
+                };
+                await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
+                console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
+              }
+            }
+          } catch (updateError) {
+            // If backend update fails (e.g., 404 for frontend-only leads), update AsyncStorage only
+            console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
+            const leadsData = await AsyncStorage.getItem('leadsData');
+            if (leadsData) {
+              const leads = JSON.parse(leadsData);
+              const updatedLeads = leads.map((l) => 
+                l.id === leadId ? { ...l, stage: 'won', updatedAt: new Date().toISOString() } : l
+              );
+              await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+              console.log(`✅ Updated frontend lead ${leadId} stage to won in AsyncStorage`);
+            }
+          }
+        } catch (leadUpdateError) {
+          console.warn('⚠️ Failed to update lead stage after marking bid as won:', leadUpdateError);
+          // Don't block the action if lead update fails
+        }
+      }
+      
+      Alert.alert(
+        '🎉 Congratulations!',
+        `${bid.title} is now an active project! View it in the Projects tab.`,
+        [{ text: 'OK' }]
+      );
+      console.log(`🎉 Won bid converted to project: ${bid.title}`);
+    };
+
+    const seenInterstitial = await AsyncStorage.getItem('bps.seenEstimateToProjectInterstitial');
+    if (seenInterstitial !== 'true') {
+      Alert.alert(
+        'This estimate becomes your project',
+        'Budgets, labor, and profit will now be tracked in real time.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Start project tracking',
+            style: 'default',
+            onPress: async () => {
+              await AsyncStorage.setItem('bps.seenEstimateToProjectInterstitial', 'true');
+              await performMarkAsWon();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       '🎉 Mark Bid as Won?',
       'This will convert your bid into an active project.',
@@ -5530,132 +6361,9 @@ export default function EstimateGeneratorScreen() {
           text: 'Mark as Won',
           style: 'default',
           onPress: async () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            
-            // First, ensure the bid/estimate is saved to the projects list
-            // Check if it already exists
-            const allProjects = [...activeProjects, ...estimates];
-            console.log(`🔍 Checking for bid ${bid.id} in ${allProjects.length} projects`);
-            console.log(`🔍 Available project IDs:`, allProjects.map(p => `${p.id} (${p.status})`));
-            
-            const existingProject = allProjects.find(p => p.id === bid.id);
-            
-            if (!existingProject) {
-              console.log(`📝 Bid ${bid.id} not found in projects, saving it first...`);
-              // Save the estimate with 'in_progress' status directly (since we're marking it as won)
-              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
-              const estimatedCost = Number(calc?.subtotal) || 0;
-              const bidPrice = Number(calc?.grandTotal) || 0;
-              const margin = Number(calc?.marginPercent) || 0;
-              const markup = Number(bid.markupPct) || 0;
-              
-              const estimateData = {
-                id: bid.id,
-                title: bid.title || 'Untitled Bid',
-                status: 'won', // Set status to 'won' so it shows as "Active" in projects
-                estimatedCost,
-                bidPrice,
-                actualCost: 0,
-                margin,
-                markup,
-                location,
-                city: bid.customerCity,
-                state: bid.customerState,
-                zip: bid.customerZip,
-                startDate: bid.startDate || new Date().toISOString().split('T')[0],
-                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                progress: 0,
-                client: bid.customerName || bid.clientName || 'Unknown Client',
-                clientEmail: bid.customerEmail || bid.clientEmail,
-                clientPhone: bid.customerPhone,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                estimateData: bid,
-              };
-              
-              console.log(`💾 Saving bid as active project with status 'won':`, {
-                id: estimateData.id,
-                title: estimateData.title,
-                status: estimateData.status,
-                bidPrice: estimateData.bidPrice
-              });
-              addEstimate(estimateData);
-              console.log(`✅ Bid saved! It should now appear in Projects tab with 'Active' status.`);
-            } else {
-              // Bid exists, convert it to won (Active)
-              console.log(`🔄 Converting existing bid ${bid.id} from status '${existingProject.status}' to 'won'`);
-              // Update the project status to 'won' so it shows as "Active"
-              updateProject(bid.id, { status: 'won' });
-              
-              // Verify the update happened
-              setTimeout(() => {
-                const updatedProjects = [...activeProjects, ...estimates];
-                const updated = updatedProjects.find(p => p.id === bid.id);
-                if (updated) {
-                  console.log(`✅ Verified: Bid ${bid.id} now has status '${updated.status}' (should display as 'Active')`);
-                } else {
-                  console.log(`⚠️ Warning: Could not find bid ${bid.id} after conversion`);
-                }
-              }, 500);
-            }
-            
-            // Update lead stage to "won" if this bid came from a qualified lead
-            if (bid.leadId && bid.leadSource === 'qualified_lead') {
-              try {
-                const leadId = bid.leadId;
-                console.log(`🔄 Updating lead ${leadId} stage to won after marking bid as won`);
-                
-                // Track that bid was won
-                const { trackBidWon } = await import('../../services/engagementTracking');
-                await trackBidWon(leadId);
-                
-                // Update backend lead (including MOCK- leads which are backend-managed)
-                try {
-                  await unifiedLeadService.updateLeadStage(leadId, 'won');
-                  console.log(`✅ Updated backend lead ${leadId} stage to won`);
-                  
-                  // Also update AsyncStorage as backup
-                  const leadsData = await AsyncStorage.getItem('leadsData');
-                  if (leadsData) {
-                    const leads = JSON.parse(leadsData);
-                    const existingIndex = leads.findIndex((l) => l.id === leadId);
-                    if (existingIndex >= 0) {
-                      leads[existingIndex] = {
-                        ...leads[existingIndex],
-                        stage: 'won',
-                        updatedAt: new Date().toISOString()
-                      };
-                      await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
-                      console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
-                    }
-                  }
-                } catch (updateError) {
-                  // If backend update fails (e.g., 404 for frontend-only leads), update AsyncStorage only
-                  console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
-                  const leadsData = await AsyncStorage.getItem('leadsData');
-                  if (leadsData) {
-                    const leads = JSON.parse(leadsData);
-                    const updatedLeads = leads.map((l) => 
-                      l.id === leadId ? { ...l, stage: 'won', updatedAt: new Date().toISOString() } : l
-                    );
-                    await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
-                    console.log(`✅ Updated frontend lead ${leadId} stage to won in AsyncStorage`);
-                  }
-                }
-              } catch (leadUpdateError) {
-                console.warn('⚠️ Failed to update lead stage after marking bid as won:', leadUpdateError);
-                // Don't block the action if lead update fails
-              }
-            }
-            
-            Alert.alert(
-              '🎉 Congratulations!',
-              `${bid.title} is now an active project! View it in the Projects tab.`,
-              [{ text: 'OK' }]
-            );
-            console.log(`🎉 Won bid converted to project: ${bid.title}`);
-          }
-        }
+            await performMarkAsWon();
+          },
+        },
       ]
     );
   };
@@ -5726,6 +6434,7 @@ export default function EstimateGeneratorScreen() {
     };
     
     setMaterialsCart(prev => [...prev, row]);
+    setMaterialsAddedFlag(true);
     Alert.alert('Added', `${item.name} added to ${section}`);
   };
   
@@ -5870,6 +6579,7 @@ export default function EstimateGeneratorScreen() {
           total: newQuantity * updated[existingIndex].unitPrice
         };
         
+        setMaterialsAddedFlag(true);
         Alert.alert('Updated!', `Quantity increased to ${newQuantity}`);
         return updated;
       } else {
@@ -5891,6 +6601,7 @@ export default function EstimateGeneratorScreen() {
           store: skuItem.store,
         };
         
+        setMaterialsAddedFlag(true);
         Alert.alert('Added!', `${skuItem.title} added to ${autoSection}`);
         return [...prev, row];
       }
@@ -5931,7 +6642,39 @@ export default function EstimateGeneratorScreen() {
               isManual: true,
             };
             
-            setMaterialsCart(prev => [...prev, row]);
+            // CRITICAL: Update both states synchronously using functional updates
+            // This ensures React batches them together and useMemo recalculates after both
+            setMaterialsCart(prev => {
+              const updated = [...prev, row];
+              return updated;
+            });
+            
+            // Update bid.materialLineItems using functional update to get latest state
+            setBid((prevBid) => {
+              const existingLineItems = prevBid.materialLineItems || [];
+              const newLineItem = {
+                id: row.id,
+                name: row.name,
+                description: row.name,
+                quantity: row.quantity,
+                unit: row.section || 'unit',
+                unitPrice: row.unitPrice,
+                total: row.total,
+                vendor: row.vendorId || '',
+                section: row.section || '',
+                scope: row.scope || activeScope,
+                sku: row.sku || '',
+                source: 'manual',
+                isManual: true, // Preserve isManual flag
+              };
+              const updatedLineItems = [...existingLineItems, newLineItem];
+              return {
+                ...prevBid,
+                materialLineItems: updatedLineItems,
+              };
+            });
+            
+            setMaterialsAddedFlag(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
 
@@ -6085,34 +6828,94 @@ export default function EstimateGeneratorScreen() {
       {
         text: 'New Bid',
         onPress: async () => {
+          // Set flag to prevent useFocusEffect from restoring old data
+          isCreatingNewBidRef.current = true;
+          
           await backupCurrentEstimateSilently();
+          
+          // CRITICAL: When "New bid" is clicked, clear walkthrough flags
+          // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
+          // After creating a new bid, walkthrough should be hidden
+          setIsOnboardingReset(false);
+          setShowGuideRail(false);
+          setShowCoachFlags(false);
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+          
+          // Clear all AsyncStorage keys related to the bid
           try {
+            // Clear materials and rentals first
+            await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
+            await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
             await AsyncStorage.multiRemove([
-              'bps.materialsCart',
-              'bps.rentalCart',
               'manualMaterialEntry',
               'manualLaborEntry',
+              BID_STORAGE_KEY, // Clear the current bid storage
+              'bps.currentBid',
+              'bps.currentBid.v1',
+              'bps.haimBid',
+              'bps.backupBid',
             ]);
           } catch (error) {
-            console.warn('Failed to clear previous bid carts:', error);
+            console.warn('Failed to clear previous bid data:', error);
           }
 
-          const nextBid = blankState();
+          // Create a completely blank bid (not first time, so no default items)
+          const nextBid = {
+            ...blankState(false),
+            // Ensure all calculation-related fields are cleared
+            previousTotal: undefined,
+            materialLineItems: [],
+            laborLineItems: [],
+            paymentMilestones: [],
+            weeklyPayments: [],
+            // Clear all customer/client info
+            customerName: '',
+            customerEmail: '',
+            customerPhone: '',
+            customerAddress: '',
+            customerCity: '',
+            customerState: '',
+            customerZip: '',
+            customerCompany: '',
+            customerNotes: '',
+            clientName: '',
+            clientEmail: '',
+            // Clear title
+            title: 'Untitled Bid',
+            // Add a flag to indicate this is a fresh new bid
+            _isNewBid: true,
+            _createdAt: Date.now(),
+          };
+          
           lastSavedBidRef.current = null;
           pendingSaveRef.current = null;
 
+          // Reset all state variables immediately
           setMaterialsCart([]);
           setRentalCart([]);
           setBid(nextBid);
-          setStep(1);
+          setStep(0); // Reset to summary step
           setActiveScope('kitchen');
+          setHasReviewedMarkup(false);
+          setHasReviewedTotal(false);
+          setMaterialsAddedFlag(false);
+          setActiveNavButton(null); // Clear active nav button
 
+          // Save the blank bid to storage
           try {
             await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
             console.log('🆕 Started new bid and saved blank state to storage');
           } catch (error) {
             console.warn('Failed to save new blank bid to storage:', error);
           }
+          
+          // Reset the flag after a delay to allow the new bid to be set
+          setTimeout(() => {
+            isCreatingNewBidRef.current = false;
+          }, 2000);
         },
       },
     ]);
@@ -6171,7 +6974,7 @@ export default function EstimateGeneratorScreen() {
               <View style={{
                 backgroundColor: darkMode ? '#000000' : Colors.bg,
                 borderRadius: 18,
-                padding: 20,
+                padding: 12,
                 borderWidth: darkMode ? 0 : 1,
                 borderColor: darkMode ? 'transparent' : Colors.line,
               }}>
@@ -6481,7 +7284,7 @@ export default function EstimateGeneratorScreen() {
       case 1: {
         return (
           <View style={[s.wideContainer, { marginTop: 16 }]}>
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+            <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name="person" size={20} color="#2DFFC4" />
@@ -6495,35 +7298,51 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Customer Name *</Text>
                 <TextInput
-                  key="customerName"
                   style={s.input}
                   placeholder="Enter customer name"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerName || ''}
+                  value={localCustomerName}
                   onChangeText={(text) => {
+                    setLocalCustomerName(text);
+                    // Clear any pending debounced update
+                    if (customerDebounceRefs.current.customerName) {
+                      clearTimeout(customerDebounceRefs.current.customerName);
+                    }
+                    // Update bid immediately (no debounce for better UX)
                     setBid(prev => ({ ...prev, customerName: text }));
                   }}
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    // Ensure value is saved when done is pressed
+                    setBid(prev => ({ ...prev, customerName: localCustomerName }));
+                  }}
                   blurOnSubmit={true}
+                  autoCorrect={false}
+                  autoCapitalize="words"
+                  editable={true}
+                  selectTextOnFocus={false}
                 />
               </View>
               
               <View style={s.inputGroup}>
                 <Text style={s.label}>Email</Text>
                 <TextInput
-                  key="customerEmail"
                   style={s.input}
                   placeholder="customer@example.com"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerEmail || ''}
+                  value={localCustomerEmail}
                   onChangeText={(text) => {
+                    setLocalCustomerEmail(text);
                     setBid(prev => ({ ...prev, customerEmail: text }));
+                  }}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerEmail: localCustomerEmail }));
                   }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
                 />
               </View>
@@ -6531,17 +7350,20 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Phone</Text>
                 <TextInput
-                  key="customerPhone"
                   style={s.input}
                   placeholder="(555) 123-4567"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerPhone || ''}
+                  value={localCustomerPhone}
                   onChangeText={(text) => {
+                    setLocalCustomerPhone(text);
                     setBid(prev => ({ ...prev, customerPhone: text }));
+                  }}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerPhone: localCustomerPhone }));
                   }}
                   keyboardType="phone-pad"
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
                 />
               </View>
@@ -6549,16 +7371,19 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Address</Text>
                 <TextInput
-                  key="customerAddress"
                   style={s.input}
                   placeholder="Street address"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerAddress || ''}
+                  value={localCustomerAddress}
                   onChangeText={(text) => {
+                    setLocalCustomerAddress(text);
                     setBid(prev => ({ ...prev, customerAddress: text }));
                   }}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerAddress: localCustomerAddress }));
+                  }}
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
                 />
               </View>
@@ -6567,16 +7392,19 @@ export default function EstimateGeneratorScreen() {
                 <View style={[s.inputGroup, { width: '48%' }]}>
                   <Text style={s.label}>City</Text>
                   <TextInput
-                    key="customerCity"
                     style={s.input}
                     placeholder="City"
                     placeholderTextColor={Colors.sub}
-                    value={bid.customerCity || ''}
+                    value={localCustomerCity}
                     onChangeText={(text) => {
+                      setLocalCustomerCity(text);
                       setBid(prev => ({ ...prev, customerCity: text }));
                     }}
+                    onSubmitEditing={() => {
+                      Keyboard.dismiss();
+                      setBid(prev => ({ ...prev, customerCity: localCustomerCity }));
+                    }}
                     returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit={true}
                   />
                 </View>
@@ -6584,18 +7412,21 @@ export default function EstimateGeneratorScreen() {
                 <View style={[s.inputGroup, { width: '48%' }]}>
                   <Text style={s.label}>State</Text>
                   <TextInput
-                    key="customerState"
                     style={s.input}
                     placeholder="State"
                     placeholderTextColor={Colors.sub}
-                    value={bid.customerState || ''}
+                    value={localCustomerState}
                     onChangeText={(text) => {
+                      setLocalCustomerState(text);
                       setBid(prev => ({ ...prev, customerState: text }));
+                    }}
+                    onSubmitEditing={() => {
+                      Keyboard.dismiss();
+                      setBid(prev => ({ ...prev, customerState: localCustomerState }));
                     }}
                     maxLength={2}
                     autoCapitalize="characters"
                     returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit={true}
                   />
                 </View>
@@ -6604,17 +7435,20 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>ZIP Code</Text>
                 <TextInput
-                  key="customerZip"
                   style={s.input}
                   placeholder="12345"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerZip || ''}
+                  value={localCustomerZip}
                   onChangeText={(text) => {
+                    setLocalCustomerZip(text);
                     setBid(prev => ({ ...prev, customerZip: text }));
+                  }}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerZip: localCustomerZip }));
                   }}
                   keyboardType="numeric"
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
                 />
               </View>
@@ -6622,16 +7456,19 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Company (Optional)</Text>
                 <TextInput
-                  key="customerCompany"
                   style={[s.input, { color: Colors.text }]}
                   placeholder="Company name"
                   placeholderTextColor={Colors.sub}
-                  value={bid.customerCompany || ''}
+                  value={localCustomerCompany}
                   onChangeText={(text) => {
+                    setLocalCustomerCompany(text);
                     setBid(prev => ({ ...prev, customerCompany: text }));
                   }}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerCompany: localCustomerCompany }));
+                  }}
                   returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
                 />
               </View>
@@ -6662,7 +7499,7 @@ export default function EstimateGeneratorScreen() {
       case 2: {
         return (
           <View style={[s.wideContainer, { marginTop: 16 }]}>
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+            <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name="information-circle" size={20} color="#2DFFC4" />
@@ -6806,7 +7643,7 @@ export default function EstimateGeneratorScreen() {
           <>
             <View style={[s.wideContainer, { marginTop: 16 }]}>
                 {/* Header */}
-                <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+                <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                     <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                       <Ionicons name="cube-outline" size={20} color="#2DFFC4" />
@@ -6877,7 +7714,7 @@ export default function EstimateGeneratorScreen() {
                 
                 {/* Materials Cart Summary */}
                 <View style={{ marginTop: 16 }}>
-                  <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+                  <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                     <TouchableOpacity
                       onPress={() => setIsCartExpanded(!isCartExpanded)}
                       style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isCartExpanded ? 16 : 0 }}
@@ -7453,7 +8290,7 @@ export default function EstimateGeneratorScreen() {
           <>
             <View style={[s.wideContainer, { marginTop: 16 }]}>
               {/* Header */}
-              <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+              <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                     <Ionicons name="people-outline" size={20} color="#2DFFC4" />
@@ -7517,7 +8354,7 @@ export default function EstimateGeneratorScreen() {
               
               {/* Labor Cart Summary */}
               <View style={{ marginTop: 16 }}>
-                <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+                <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                   <TouchableOpacity
                     onPress={() => setIsLaborCartExpanded(!isLaborCartExpanded)}
                     style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isLaborCartExpanded ? 16 : 0 }}
@@ -8024,7 +8861,7 @@ export default function EstimateGeneratorScreen() {
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={[s.wideContainer, { marginTop: 16 }]}>
-              <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+              <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                     <Ionicons name="calculator-outline" size={20} color="#2DFFC4" />
@@ -8494,7 +9331,7 @@ export default function EstimateGeneratorScreen() {
       case 6: {
         return (
           <View style={[s.wideContainer, { marginTop: 16 }]}>
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+            <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name="analytics-outline" size={20} color="#2DFFC4" />
@@ -8763,7 +9600,7 @@ export default function EstimateGeneratorScreen() {
               </Text>
             </GlassBorderCard>
             
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+            <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                   <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
@@ -11590,7 +12427,7 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <View style={[s.wideContainer, { marginTop: 16 }]}>
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg>
+            <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <MaterialIcons name="description" size={22} color="#2DFFC4" />
@@ -11976,13 +12813,22 @@ export default function EstimateGeneratorScreen() {
         >
         {/* Header */}
         <View style={{ marginBottom: 10 }}>
+          {guidedMode && shouldShowGuidance && (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{ color: '#9ca3af', fontSize: 12, fontWeight: '600' }}>
+                Guided Setup ({guidedStepIndex} of 5)
+              </Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
           <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={{ color: Colors.text, fontSize: 34, fontWeight: '900', letterSpacing: -0.3 }}>
-              Bid Builder
+              Estimates
             </Text>
             <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 6 }}>
-              Build, review, and submit your bid
+              {isFirstTime && (!bid.title || bid.title === 'Untitled Bid') && estimates.length === 0 && savedEstimates.length === 0
+                ? 'Create your first estimate to get started.'
+                : 'Build, review, and submit your bid'}
             </Text>
           </View>
 
@@ -12004,39 +12850,7 @@ export default function EstimateGeneratorScreen() {
                 alignItems: 'center',
                 gap: 8,
               }}
-              onPress={async () => {
-                // Haptic feedback for button press
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                
-                // Save current bid automatically
-                await backupCurrentEstimateSilently();
-                
-                // Clear bid fields and reset refs
-                const nextBid = blankState();
-                
-                // Reset refs to prevent glitching
-                lastSavedBidRef.current = null;
-                if (pendingSaveRef.current) {
-                  clearTimeout(pendingSaveRef.current);
-                  pendingSaveRef.current = null;
-                }
-                
-                // Clear state
-                setMaterialsCart([]);
-                setRentalCart([]);
-                setBid(nextBid);
-                setStep(0); // Start at Bid Summary (step 0)
-                setActiveNavButton('summary');
-                
-                // Save blank state to AsyncStorage to prevent conflicts
-                try {
-                  await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
-                  await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
-                  await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
-                } catch (error) {
-                  console.warn('Failed to save new blank bid to storage:', error);
-                }
-              }}
+              onPress={createNewBid}
             >
               <Text style={{ color: darkMode ? Colors.text : '#000000', fontSize: 16, fontWeight: '800' }}>+ New</Text>
             </TouchableOpacity>
@@ -12186,6 +13000,55 @@ export default function EstimateGeneratorScreen() {
           </BlurView>
         </View>
       </View>
+
+        {/* First-run Guide Rail (inline, skippable) */}
+        {shouldShowGuidance && showGuideRail && (
+          <View style={{ marginBottom: 16 }}>
+            <LinearGradient
+              colors={['rgba(34, 197, 94, 0.12)', 'rgba(34, 211, 238, 0.12)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ borderRadius: 16, padding: 1 }}
+            >
+              <View style={{ backgroundColor: '#0b0f14', borderRadius: 15, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+                <Text style={{ color: '#f9fafb', fontSize: 16, fontWeight: '700', marginBottom: 6 }}>
+                  👋 Welcome to your first estimate
+                </Text>
+                <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                  We’ll walk you through this step by step. Start by adding client and job details — then materials and labor.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+                      setShowGuideRail(false);
+                      setGuidedMode(true);
+                      setStep(1);
+                      setActiveNavButton('next');
+                    }}
+                    style={{ backgroundColor: '#22c55e', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 }}
+                  >
+                    <Text style={{ color: '#000000', fontSize: 13, fontWeight: '700' }}>Start guided setup</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+                      setShowGuideRail(false);
+                      setGuidedMode(false);
+                    }}
+                    style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+                  >
+                    <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        )}
       
       {/* Step Section Card with Icons */}
       <View style={[s.wideContainer, { marginTop: 12 }]}>
@@ -12308,9 +13171,269 @@ export default function EstimateGeneratorScreen() {
       </View>
       
         {/* Step Content */}
-        {renderStepContent()}
+        {(() => {
+          // Check if we should show empty state
+          const hasNoEstimates = estimates.length === 0 && savedEstimates.length === 0;
+          const hasEmptyBid = (!bid.title || bid.title === 'Untitled Bid') && 
+                              (!bid.customerName || bid.customerName === '') && 
+                              (!bid.materialLineItems || bid.materialLineItems.length === 0) && 
+                              (!bid.laborLineItems || bid.laborLineItems.length === 0) && 
+                              materialsCart.length === 0 &&
+                              (!calc?.total || calc.total === 0);
+          const shouldShowEmpty = isFirstTime && isLoaded && hasNoEstimates && hasEmptyBid;
+          
+          console.log('🔍 Empty state check:', {
+            isFirstTime,
+            isLoaded,
+            hasNoEstimates,
+            hasEmptyBid,
+            shouldShowEmpty,
+            bidTitle: bid.title,
+            customerName: bid.customerName,
+            materialCount: bid.materialLineItems?.length || 0,
+            laborCount: bid.laborLineItems?.length || 0,
+            materialsCartCount: materialsCart.length,
+            total: calc?.total,
+          });
+          
+          return shouldShowEmpty;
+        })() ? (
+          <EmptyStateCard
+            onPress={async () => {
+              // If we're coming from onboarding, keep everything empty ($0 total)
+              const nextBid = blankState(!showCoachFlags);
+              // Convert materialLineItems to materialsCart format
+              if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
+                const defaultMaterials = nextBid.materialLineItems.map(item => ({
+                  id: item.id,
+                  name: item.name,
+                  description: item.description || item.name,
+                  qty: item.quantity,
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  unitPrice: item.unitPrice,
+                  cost: item.unitPrice,
+                  total: item.total,
+                  section: item.section || 'General Materials',
+                  scope: activeScope,
+                }));
+                setMaterialsCart(defaultMaterials);
+                await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(defaultMaterials));
+              }
+              setBid(nextBid);
+              setStep(1);
+              setActiveNavButton('next');
+              // Keep isFirstTime true so coach flags can show
+              // setIsFirstTime(false); // Don't set to false here - let flags show
+              try {
+                await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+              } catch (error) {
+                console.warn('Failed to save new bid:', error);
+              }
+            }}
+            subtitle="Create your first estimate to get started."
+          />
+        ) : (
+          <>
+            {/* Estimate Readiness Panel (first-run only, above breakdown) */}
+            {shouldShowGuidance && step === 0 && (
+              <View style={{ marginTop: 10, marginBottom: 16 }}>
+                {/* Next Step Chip */}
+                <View style={{ marginBottom: 10 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={handleReadinessCTA}
+                    style={{
+                      alignSelf: 'flex-start',
+                      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                      borderColor: 'rgba(34, 197, 94, 0.4)',
+                      borderWidth: 1,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 999,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <MaterialIcons name="arrow-forward" size={14} color="#22c55e" />
+                    <Text style={{ color: '#d1fae5', fontSize: 12, fontWeight: '600' }}>Next step: {nextStepLabel}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Progress Meter */}
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                    Guided setup — {setupProgressPct}% complete
+                  </Text>
+                  <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999 }}>
+                    <View
+                      style={{
+                        height: 6,
+                        width: `${setupProgressPct}%`,
+                        backgroundColor: '#22c55e',
+                        borderRadius: 999,
+                      }}
+                    />
+                  </View>
+                </View>
+
+                <View style={{ backgroundColor: '#0b0f14', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <Text style={{ color: '#f9fafb', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                    {readinessState === 'ready' ? 'Estimate looks solid' : readinessState === 'partial' ? 'Estimate in progress' : 'Estimate not ready yet'}
+                  </Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                    {completedChecklistCount === 0
+                      ? 'Just getting started'
+                      : completedChecklistCount === 2
+                        ? 'Halfway there'
+                        : completedChecklistCount === 3
+                          ? 'Almost ready to send'
+                          : completedChecklistCount === 4
+                            ? 'Ready to submit'
+                            : 'You’re 1 step away from a complete estimate.'}
+                  </Text>
+                  <Text style={{ color: '#9ca3af', fontSize: 12, marginBottom: 10 }}>
+                    Complete the steps below to finish your estimate.
+                  </Text>
+                  <View style={{ gap: 6, marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasClientInfo && hasJobInfo ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasClientInfo && hasJobInfo ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add client & job info</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasMaterials ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasMaterials ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add materials</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasLabor ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasLabor ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add labor</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasReviewedMarkup ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedMarkup ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Review markup</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasPaymentSchedule ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasPaymentSchedule ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Payment schedule</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name={hasReviewedTotal ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedTotal ? '#22c55e' : '#64748b'} />
+                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Review total</Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
+                    Most contractors use 18–25% markup. You can change this anytime.
+                    {markupLow ? ' Your current markup is below typical range.' : ''}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        // If all steps are complete, submit the bid; otherwise navigate to next step
+                        const allComplete = hasClientInfo && hasJobInfo && hasMaterials && hasLabor && hasReviewedMarkup && hasPaymentSchedule && hasReviewedTotal;
+                        if (allComplete) {
+                          handleSubmitBid();
+                        } else {
+                          handleReadinessCTA();
+                        }
+                      }}
+                      activeOpacity={0.85}
+                      style={{ backgroundColor: '#22c55e', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 }}
+                    >
+                      <Text style={{ color: '#000000', fontSize: 13, fontWeight: '700' }}>
+                        {!hasClientInfo || !hasJobInfo ? 'Add client info' : !hasMaterials ? 'Add materials' : !hasLabor ? 'Add labor' : !hasReviewedMarkup ? 'Review markup' : !hasPaymentSchedule ? 'Set payment schedule' : !hasReviewedTotal ? 'Review total' : 'Submit bid'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setStep(3);
+                        setActiveNavButton('next');
+                      }}
+                      activeOpacity={0.85}
+                      style={{ paddingVertical: 10, paddingHorizontal: 8 }}
+                    >
+                      <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: '600' }}>
+                        {(!hasClientInfo || !hasJobInfo) ? 'Add materials' : 'Skip for now'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+            {renderStepContent()}
+            {/* Coach Flags - Only show one at a time, positioned after content */}
+            {(() => {
+              const shouldShowFlags = showCoachFlags && isFirstTime && !hasCreatedFirstEstimate;
+              console.log('🏁 Coach flags check:', {
+                showCoachFlags,
+                isFirstTime,
+                hasCreatedFirstEstimate,
+                shouldShowFlags,
+                step,
+                total: calc?.total,
+                step0Empty: step === 0 && (!calc?.total || calc.total === 0),
+                step3: step === 3,
+                step0WithTotal: step === 0 && calc?.total > 0,
+              });
+              return shouldShowFlags;
+            })() && (
+              <>
+                {/* Flag 1: Show on step 0 (Summary) when total is 0 or empty */}
+                {step === 0 && (!calc?.total || calc.total === 0) && (
+                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
+                    <CoachFlag
+                      id="start-here"
+                      label="Start here"
+                      text="Every project begins with an estimate."
+                      position="bottom"
+                      delay={600}
+                    />
+                  </View>
+                )}
+                {/* Flag 2: Show on step 3 (Materials) to guide adding materials */}
+                {step === 3 && (
+                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
+                    <CoachFlag
+                      id="tip-materials"
+                      label="Tip"
+                      text="Add labor and materials first — profit updates automatically."
+                      position="bottom"
+                      delay={600}
+                    />
+                  </View>
+                )}
+                {/* Flag 3: Show on step 0 (Summary) when total > 0 to show profit tracking */}
+                {step === 0 && calc?.total > 0 && (
+                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
+                    <CoachFlag
+                      id="profit-check"
+                      label="Profit Check"
+                      text="Your margin updates live as you build the estimate."
+                      position="bottom"
+                      delay={600}
+                    />
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        )}
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* Bottom Toast for first estimate */}
+      <BottomToast
+        visible={showToast}
+        message="Estimate created"
+        actionLabel="Convert to Project"
+        onAction={() => {
+          // Navigate to convert estimate to project
+          router.push(`/project-detail/${bid.id}`);
+        }}
+        onDismiss={() => setShowToast(false)}
+        duration={6000}
+      />
       
       {/* Modals */}
       <LineItemModal
@@ -12318,11 +13441,60 @@ export default function EstimateGeneratorScreen() {
         onClose={() => setMaterialModal({ visible: false, item: null })}
         item={materialModal.item}
         onSave={(item) => {
+          const itemId = materialModal.item?.id || Date.now().toString();
+          const normalizedItem = {
+            ...item,
+            id: itemId,
+            isManual: true,
+            source: 'manual',
+            quantity: Number(item.quantity) || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+            total:
+              Number(item.total) ||
+              (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
+          };
+
           if (materialModal.item) {
-            setMaterialsCart(prev => prev.map(m => m.id === materialModal.item.id ? item : m));
+            setMaterialsCart(prev => prev.map(m => (m.id === itemId ? normalizedItem : m)));
           } else {
-            setMaterialsCart(prev => [...prev, { ...item, id: Date.now().toString() }]);
+            setMaterialsCart(prev => [...prev, normalizedItem]);
           }
+
+          setMaterialsAddedFlag(true);
+
+          // Ensure bid.materialLineItems is updated even if sync effect is skipped
+          setBid((prev) => {
+            const nextLineItem = {
+              id: normalizedItem.id,
+              name: normalizedItem.name || 'Material',
+              description: normalizedItem.description || normalizedItem.name || 'Material',
+              quantity: Number(normalizedItem.quantity) || 1,
+              unit: normalizedItem.unit || 'lot',
+              unitPrice: Number(normalizedItem.unitPrice) || 0,
+              total:
+                Number(normalizedItem.total) ||
+                (Number(normalizedItem.quantity) || 1) * (Number(normalizedItem.unitPrice) || 0),
+              vendor: normalizedItem.vendor || normalizedItem.vendorId || '',
+              section: normalizedItem.section || normalizedItem.category || '',
+              scope: normalizedItem.scope || activeScope,
+              sku: normalizedItem.sku || '',
+              source: 'manual',
+              isManual: true,
+            };
+
+            const existing = prev.materialLineItems || [];
+            const index = existing.findIndex((li) => li.id === nextLineItem.id);
+            const updated =
+              index >= 0
+                ? existing.map((li) => (li.id === nextLineItem.id ? nextLineItem : li))
+                : [...existing, nextLineItem];
+
+            return {
+              ...prev,
+              materialLineItems: updated,
+            };
+          });
+
           setMaterialModal({ visible: false, item: null });
         }}
         title="Material"

@@ -171,6 +171,10 @@ const DashboardScreen: React.FC = () => {
   const [aiData, setAiData] = useState<AiDashboardResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  
+  // Debounce refs for project changes
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastProjectsHashRef = useRef<string>('');
 
   const user = {
     name: "Nick Lafontaine",
@@ -178,44 +182,56 @@ const DashboardScreen: React.FC = () => {
   };
 
 
-  // Fetch AI insights when AI PM Mode is enabled
-  // Also refresh when projects change (e.g., when a project is deleted)
-  useEffect(() => {
-    if (!aiPmMode) {
+  // Compute projects hash for change detection
+  const computeProjectsHash = useCallback(() => {
+    const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
+    const allProjects = [...activeProjects, ...estimates]
+      .filter(p => {
+        if (!p || !p.id) return false;
+        const status = (p.status || '').toString().toLowerCase();
+        return validStatuses.includes(status);
+      })
+      .map(p => ({
+        id: String(p.id),
+        status: p.status,
+        bidPrice: p.bidPrice || 0,
+        estimatedCost: p.estimatedCost || 0,
+        actualCost: p.actualCost || 0,
+        margin: p.margin || 0,
+        updatedAt: p.updatedAt,
+      }));
+    
+    // Simple hash: sort by id and stringify
+    const sorted = allProjects.sort((a, b) => a.id.localeCompare(b.id));
+    return JSON.stringify(sorted);
+  }, [activeProjects, estimates]);
+
+  // Fetch AI insights function (reusable for manual refresh)
+  const fetchAiData = useCallback(async (forceRefresh = false) => {
+    if (!aiPmMode && !forceRefresh) {
       setAiData(null);
       setAiError(null);
       return;
     }
 
-    // Clear old AI data when projects change to force fresh fetch
-    // This ensures deleted projects don't linger in insights
-    setAiData(null);
-    setAiError(null);
+    try {
+      setAiLoading(true);
+      setAiError(null);
 
-    let cancelled = false;
+      // Get userId from Clerk auth
+      const authState = clerkAuthService.getAuthState();
+      const userId = authState.user?.id || authState.user?.email || 'unknown';
 
-    const fetchAiData = async () => {
-      try {
-        setAiLoading(true);
-        setAiError(null);
-
-        // Get userId from Clerk auth
-        const authState = clerkAuthService.getAuthState();
-        const userId = authState.user?.id || authState.user?.email || 'unknown';
-
-        // Get all projects from context to send to AI
-        // Only include projects that are active, submitted, or in-progress (exclude drafts, deleted, lost)
-        const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
-        const allProjects = [...activeProjects, ...estimates]
-          .filter(p => {
-            if (!p || !p.id) return false;
-            const status = (p.status || '').toString().toLowerCase();
-            // Only include projects with valid statuses (active, submitted, in-progress)
-            // Exclude: 'draft', 'estimate', 'lost'
-            return validStatuses.includes(status);
-          })
-          .map((p) => ({
-          id: String(p.id), // Ensure ID is always a string for consistency
+      // Get all projects from context to send to AI
+      const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
+      const allProjects = [...activeProjects, ...estimates]
+        .filter(p => {
+          if (!p || !p.id) return false;
+          const status = (p.status || '').toString().toLowerCase();
+          return validStatuses.includes(status);
+        })
+        .map((p) => ({
+          id: String(p.id),
           userId: userId,
           name: p.title,
           title: p.title,
@@ -242,185 +258,209 @@ const DashboardScreen: React.FC = () => {
           permitFeesIncluded: Boolean(p.estimateData?.permitFeesIncluded || p.projectData?.permitFeesIncluded),
         }));
 
-        const response = await apiService.post<AiDashboardResponse>(
-          "/api/ai/dashboard-insights",
-          { userId, projects: allProjects }
-        );
+      const response = await apiService.post<AiDashboardResponse>(
+        "/api/ai/dashboard-insights",
+        { userId, projects: allProjects, forceRefresh }
+      );
 
-        if (!cancelled) {
-          // Convert project IDs to strings for consistent comparison
-          // Only include projects with valid statuses (active, submitted, in-progress)
-          const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
-          const currentProjects = [...activeProjects, ...estimates].filter(p => {
-            const status = (p.status || '').toString().toLowerCase();
-            return validStatuses.includes(status);
-          });
-          const currentProjectIds = new Set(
-            currentProjects.map(p => String(p.id))
-          );
-          const currentProjectNames = new Set(
-            currentProjects.map(p => String(p.title || p.name || '').toLowerCase().trim())
-          );
+      // Convert project IDs to strings for consistent comparison
+      // Reuse validStatuses from above (line 226)
+      const currentProjects = [...activeProjects, ...estimates].filter(p => {
+        const status = (p.status || '').toString().toLowerCase();
+        return validStatuses.includes(status);
+      });
+      const currentProjectIds = new Set(
+        currentProjects.map(p => String(p.id))
+      );
+      const currentProjectNames = new Set(
+        currentProjects.map(p => String(p.title || p.name || '').toLowerCase().trim())
+      );
+      
+      // Aggressively filter out insights for deleted projects before storing
+      const filteredData = {
+        ...response.data,
+        insights: (response.data.insights || []).filter((insight: any) => {
+          if (insight.projectId) {
+            const insightProjectId = String(insight.projectId);
+            if (!currentProjectIds.has(insightProjectId)) {
+              return false;
+            }
+          }
           
-          // Aggressively filter out insights for deleted projects before storing
-          const filteredData = {
-            ...response.data,
-            insights: (response.data.insights || []).filter((insight: any) => {
-              // First check: Filter by projectId if it exists
-              if (insight.projectId) {
-                const insightProjectId = String(insight.projectId);
-                if (!currentProjectIds.has(insightProjectId)) {
-                  // Project ID doesn't exist - filter it out
-                  return false;
-                }
-              }
-              
-              // Second check: Filter by name in title/body (catches cases where projectId is missing or wrong)
-              const insightText = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
-              
-              // Specifically filter out "josh" mentions
-              if (insightText.includes('josh')) {
-                return false;
-              }
-              
-              // Check if insight mentions any project name - if it mentions a name not in current projects, filter it out
-              // This is a safety check for any deleted project names
-              for (const proj of currentProjects) {
-                const projName = String(proj.title || proj.name || '').toLowerCase().trim();
-                if (projName && insightText.includes(projName)) {
-                  // Mentions a current project - keep it
-                  return true;
-                }
-              }
-              
-              // If insight has projectId that matches, keep it
-              if (insight.projectId && currentProjectIds.has(String(insight.projectId))) {
-                return true;
-              }
-              
-              // If no projectId and doesn't mention any projects, keep general insights
-              if (!insight.projectId && !insightText.match(/\b(josh|remodel|project|estimate)\b/i)) {
-                return true;
-              }
-              
-              // Default: filter out if we're unsure
+          const insightText = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
+          
+          if (insightText.includes('josh')) {
+            return false;
+          }
+          
+          for (const proj of currentProjects) {
+            const projName = String(proj.title || proj.name || '').toLowerCase().trim();
+            if (projName && insightText.includes(projName)) {
+              return true;
+            }
+          }
+          
+          if (insight.projectId && currentProjectIds.has(String(insight.projectId))) {
+            return true;
+          }
+          
+          if (!insight.projectId && !insightText.match(/\b(josh|remodel|project|estimate)\b/i)) {
+            return true;
+          }
+          
+          return false;
+        }),
+        nextSteps: (response.data.nextSteps || []).filter((step: any) => {
+          if (step.projectId) {
+            const stepProjectId = String(step.projectId);
+            if (!currentProjectIds.has(stepProjectId)) {
               return false;
-            }),
-            nextSteps: (response.data.nextSteps || []).filter((step: any) => {
-              // First check: Filter by projectId if it exists
-              if (step.projectId) {
-                const stepProjectId = String(step.projectId);
-                if (!currentProjectIds.has(stepProjectId)) {
-                  // Project ID doesn't exist - filter it out
-                  return false;
-                }
-              }
-              
-              // Second check: Filter by name in label (catches cases where projectId is missing or wrong)
-              const stepText = String(step.label || '').toLowerCase();
-              
-              // Specifically filter out "josh" mentions
-              if (stepText.includes('josh')) {
-                return false;
-              }
-              
-              // If step has projectId that matches, keep it
-              if (step.projectId && currentProjectIds.has(String(step.projectId))) {
-                return true;
-              }
-              
-              // If no projectId and doesn't mention josh, keep general next steps
-              if (!step.projectId && !stepText.includes('josh')) {
-                return true;
-              }
-              
-              // Default: filter out if we're unsure
-              return false;
-            }),
-          };
-          setAiData(filteredData);
+            }
+          }
+          
+          const stepText = String(step.label || '').toLowerCase();
+          
+          if (stepText.includes('josh')) {
+            return false;
+          }
+          
+          if (step.projectId && currentProjectIds.has(String(step.projectId))) {
+            return true;
+          }
+          
+          if (!step.projectId && !stepText.includes('josh')) {
+            return true;
+          }
+          
+          return false;
+        }),
+      };
+      setAiData(filteredData);
+    } catch (err: any) {
+      // Check for route not found first
+      const isRouteNotFound = 
+        err.message?.includes("Route") && err.message?.includes("not found") ||
+        err.message?.includes("Endpoint not found") ||
+        err.status === 404 ||
+        err.isNotFound;
+
+      if (isRouteNotFound) {
+        if (__DEV__) {
+          console.log("ℹ️  AI dashboard endpoint not available, skipping AI insights");
         }
-      } catch (err: any) {
-        if (!cancelled) {
-          // Check for route not found first - this is expected if endpoint doesn't exist
-          const isRouteNotFound = 
-            err.message?.includes("Route") && err.message?.includes("not found") ||
-            err.message?.includes("Endpoint not found") ||
-            err.status === 404 ||
-            err.isNotFound;
+        setAiData(null);
+        setAiError(null);
+        return;
+      }
 
-          if (isRouteNotFound) {
-            // Endpoint doesn't exist - silently fail without showing error
-            if (__DEV__) {
-              console.log("ℹ️  AI dashboard endpoint not available, skipping AI insights");
-            }
-            setAiData(null);
-            setAiError(null);
-            return;
-          }
+      // Check for network errors
+      const isNetworkError = 
+        err.message?.includes("Network request failed") || 
+        err.message?.includes("Failed to fetch") ||
+        err.message?.includes("NetworkError") ||
+        err.message?.includes("Cannot connect to backend") ||
+        err.isNetworkError ||
+        (err.name === "TypeError" && err.message?.includes("Network"));
 
-          // Check for network errors - don't show as critical errors
-          const isNetworkError = 
-            err.message?.includes("Network request failed") || 
-            err.message?.includes("Failed to fetch") ||
-            err.message?.includes("NetworkError") ||
-            err.message?.includes("Cannot connect to backend") ||
-            err.isNetworkError ||
-            (err.name === "TypeError" && err.message?.includes("Network"));
-
-          if (isNetworkError) {
-            // Network error - log but don't show to user
-            if (__DEV__) {
-              console.warn("⚠️  Cannot connect to backend for AI insights:", err.message);
-            }
-            setAiData(null);
-            setAiError(null);
-            return;
-          }
-
-          // For other errors, log appropriately
-          if (__DEV__) {
-            console.warn("⚠️  AI dashboard fetch error:", err.message || err);
-          }
-
-          // Only set error for unexpected errors
-          let errorMessage = "Could not load AI insights";
-          if (err.message) {
-            if (err.message.includes("OpenAI API key") || err.message.includes("AI service unavailable")) {
-              errorMessage = "AI service not configured. Please set up OpenAI API key.";
-            } else if (err.message.includes("status: 500")) {
-              errorMessage = "Server error. Please try again later.";
-            } else if (err.message.includes("status: 401") || err.message.includes("status: 403")) {
-              errorMessage = "Authentication error. Please sign in again.";
-            } else {
-              // For other errors, don't show to user - just log
-              setAiError(null);
-              return;
-            }
-          }
-          setAiError(errorMessage);
+      if (isNetworkError) {
+        if (__DEV__) {
+          console.warn("⚠️  Cannot connect to backend for AI insights:", err.message);
         }
-      } finally {
-        if (!cancelled) {
-          setAiLoading(false);
+        setAiData(null);
+        setAiError(null);
+        return;
+      }
+
+      // For other errors, log appropriately
+      if (__DEV__) {
+        console.warn("⚠️  AI dashboard fetch error:", err.message || err);
+      }
+
+      let errorMessage = "Could not load AI insights";
+      if (err.message) {
+        if (err.message.includes("OpenAI API key") || err.message.includes("AI service unavailable")) {
+          errorMessage = "AI service not configured. Please set up OpenAI API key.";
+        } else if (err.message.includes("status: 500")) {
+          errorMessage = "Server error. Please try again later.";
+        } else if (err.message.includes("status: 401") || err.message.includes("status: 403")) {
+          errorMessage = "Authentication error. Please sign in again.";
+        } else {
+          setAiError(null);
+          return;
         }
       }
+      setAiError(errorMessage);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiPmMode, activeProjects, estimates]);
+
+  // Debounced effect: only fetch when projects actually change (after 10 second debounce)
+  useEffect(() => {
+    if (!aiPmMode) {
+      setAiData(null);
+      setAiError(null);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Compute current projects hash
+    const currentHash = computeProjectsHash();
+    
+    // If hash hasn't changed, don't refetch
+    if (currentHash === lastProjectsHashRef.current && aiData !== null) {
+      return;
+    }
+
+    // Clear any existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Debounce: wait 10 seconds after last project change before fetching
+    debounceTimerRef.current = setTimeout(() => {
+      lastProjectsHashRef.current = currentHash;
+      fetchAiData(false);
+    }, 10000); // 10 seconds debounce
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
+  }, [aiPmMode, activeProjects, estimates, computeProjectsHash, fetchAiData, aiData]);
 
-    fetchAiData();
+  // Initial fetch when AI PM mode is toggled ON (no debounce)
+  useEffect(() => {
+    if (aiPmMode && !aiData && !aiLoading) {
+      const currentHash = computeProjectsHash();
+      lastProjectsHashRef.current = currentHash;
+      fetchAiData(false);
+    }
+  }, [aiPmMode]); // Only depend on aiPmMode for initial fetch
 
-    // Refresh every 5 minutes when AI PM Mode is on
+  // Periodic refresh: every 5 minutes, but only refresh rule-based checks
+  // (AI layer is cached, so we don't need to call OpenAI every 5 min)
+  useEffect(() => {
+    if (!aiPmMode) return;
+
     const interval = setInterval(() => {
-      if (aiPmMode && !cancelled) {
-        fetchAiData();
+      // Only refresh if we have data (don't spam on initial load)
+      if (aiData) {
+        fetchAiData(false); // This will use cache if hash hasn't changed
       }
     }, 5 * 60 * 1000); // 5 minutes
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [aiPmMode, activeProjects, estimates]); // Re-fetch when projects change
+    return () => clearInterval(interval);
+  }, [aiPmMode, aiData, fetchAiData]);
+
+  // Manual refresh function (bypasses cache)
+  const handleManualRefresh = useCallback(() => {
+    fetchAiData(true); // Force refresh
+  }, [fetchAiData]);
 
   // Filter AI insights and next steps to exclude deleted projects and invalid statuses
   const filteredInsights = useMemo(() => {
@@ -627,10 +667,14 @@ const DashboardScreen: React.FC = () => {
               const dotColor = aiPmMode 
                 ? "#22c55e" 
                 : (isDark ? "#4b5563" : "#94A3B8");
-              const lastUpdatedText =
-                aiPmMode && aiData?.lastUpdated
-                  ? ` · Updated ${new Date(aiData.lastUpdated).toLocaleTimeString()}`
-                  : "";
+              // Format timestamps
+              const ruleBasedTime = aiData?.ruleBasedUpdatedAt 
+                ? new Date(aiData.ruleBasedUpdatedAt).toLocaleTimeString()
+                : null;
+              const aiTime = aiData?.aiUpdatedAt 
+                ? new Date(aiData.aiUpdatedAt).toLocaleTimeString()
+                : null;
+              
               return (
                 <View style={styles.aiStatusRow}>
                   <View
@@ -640,8 +684,30 @@ const DashboardScreen: React.FC = () => {
                     ]}
                   />
                   <Text style={[styles.aiStatusText, { color: aiStatusColor }]}>
-                    {aiStatusText}{lastUpdatedText}
+                    {aiStatusText}
                   </Text>
+                  {aiPmMode && aiData && (
+                    <View style={styles.aiTimestampContainer}>
+                      {ruleBasedTime && (
+                        <Text style={styles.aiTimestampText}>
+                          Data: {ruleBasedTime}
+                        </Text>
+                      )}
+                      {aiTime && (
+                        <Text style={styles.aiTimestampText}>
+                          AI: {aiTime}
+                        </Text>
+                      )}
+                      {!aiLoading && (
+                        <Pressable 
+                          onPress={handleManualRefresh}
+                          style={styles.refreshButton}
+                        >
+                          <Ionicons name="refresh" size={14} color={aiStatusColor} />
+                        </Pressable>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })()}
@@ -1104,9 +1170,15 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             )}
 
             {!aiError && !aiPmMode && (
-              <Text style={styles.aiPanelPausedText}>
-                AI PM Mode is off. Turn it back on to resume live monitoring.
-              </Text>
+              <View style={styles.aiEmptyState}>
+                <Ionicons name="sparkles-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
+                <Text style={styles.aiEmptyStateTitle}>
+                  Turn on AI PM Mode
+                </Text>
+                <Text style={styles.aiPanelPausedText}>
+                  Get your daily brief with smart insights and next steps
+                </Text>
+              </View>
             )}
 
             {!aiError && aiPmMode && aiLoading && (
@@ -1246,7 +1318,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               <View style={{
                 backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
                 borderRadius: 18,
-                padding: 16,
+                padding: 12,
               }}>
                 <View style={styles.cardHeaderRow}>
                   <View>
@@ -1545,9 +1617,15 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               ))}
 
             {!aiPmMode && (
-              <Text style={styles.aiPanelPausedText}>
-                Turn AI PM Mode back on to get smart next steps.
-              </Text>
+              <View style={styles.aiEmptyState}>
+                <Ionicons name="checkmark-circle-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
+                <Text style={styles.aiEmptyStateTitle}>
+                  Turn on AI PM Mode
+                </Text>
+                <Text style={styles.aiPanelPausedText}>
+                  Get personalized next steps based on your projects
+                </Text>
+              </View>
             )}
 
             {aiPmMode && !aiLoading && (aiData?.nextSteps ?? []).length === 0 && (
@@ -1626,6 +1704,33 @@ const getStyles = (Colors: any) => StyleSheet.create({
   aiStatusText: {
     fontSize: 12,
     color: "#6ee7b7", // Will be overridden inline, but keep as fallback
+  },
+  aiTimestampContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 8,
+    gap: 8,
+  },
+  aiTimestampText: {
+    fontSize: 10,
+    color: Colors.sub,
+    opacity: 0.7,
+  },
+  refreshButton: {
+    padding: 4,
+    marginLeft: 4,
+  },
+  aiEmptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  aiEmptyStateTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.text,
+    marginBottom: 8,
   },
   profileOuter: {
     width: 54,
@@ -1716,7 +1821,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   allProjectsContainer: {
     marginBottom: 16,
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     paddingTop: 8,
   },
   analyticsCardWide: {
@@ -1989,7 +2094,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   projectSummaryCard: {
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderRadius: 14,
     backgroundColor: Colors.bg === '#000000' ? Colors.surface2 : Colors.surface2,
     borderWidth: Colors.bg === '#000000' ? 1 : 0,
@@ -2185,7 +2290,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   // WIDE CONTAINER (matches allProjectsContainer)
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
 
   // SECTION HEADERS
@@ -2331,7 +2436,8 @@ const getStyles = (Colors: any) => StyleSheet.create({
   aiFloatingWrapper: {
     position: "absolute",
     right: 20,
-    bottom: 88, // sits above bottom nav
+    bottom: 100, // Raised above tab bar with more spacing
+    zIndex: 10,
   },
   aiFloating: {
     flexDirection: "row",
@@ -2340,9 +2446,10 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     shadowColor: "#22c55e",
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8, // Android shadow
   },
   aiFloatingText: {
     marginLeft: 8,

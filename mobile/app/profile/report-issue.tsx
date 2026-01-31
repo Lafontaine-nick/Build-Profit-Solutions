@@ -224,10 +224,10 @@ export default function ReportIssueScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       router.back();
                     }}
-                    style={[styles.backButton, { backgroundColor: "#000000" }]}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
                   </TouchableOpacity>
                 </LinearGradient>
               </View>
@@ -258,7 +258,7 @@ export default function ReportIssueScreen() {
                       <Text style={[styles.sectionTitle, { color: theme.text }]}>
                         Issue Category <Text style={{ color: '#ef4444' }}>*</Text>
                       </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         Select the type of issue you're experiencing
                       </Text>
 
@@ -274,7 +274,9 @@ export default function ReportIssueScreen() {
                                   borderColor: isSelected ? theme.accent : theme.border,
                                   backgroundColor: isSelected
                                     ? theme.iconBg
-                                    : theme.card,
+                                    : darkMode
+                                    ? theme.card
+                                    : 'rgba(0, 0, 0, 0.08)',
                                   borderWidth: isSelected ? 2 : 1,
                                 },
                               ]}
@@ -288,6 +290,7 @@ export default function ReportIssueScreen() {
                                 name={category.icon as any}
                                 size={24}
                                 color={isSelected ? theme.accent : theme.subtext}
+                                style={{ opacity: !isSelected ? (darkMode ? 0.85 : 0.85) : 1 }}
                               />
                               <Text
                                 style={[
@@ -308,7 +311,7 @@ export default function ReportIssueScreen() {
                       <Text style={[styles.sectionTitle, { color: theme.text }]}>
                         Issue Details
                       </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         Provide as much detail as possible to help us resolve your issue
                       </Text>
 
@@ -321,8 +324,8 @@ export default function ReportIssueScreen() {
                             style={[
                               styles.input,
                               {
-                                backgroundColor: theme.inputBg,
-                                borderColor: theme.border,
+                                backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                                borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                                 color: theme.text,
                               },
                             ]}
@@ -341,8 +344,8 @@ export default function ReportIssueScreen() {
                             style={[
                               styles.textArea,
                               {
-                                backgroundColor: theme.inputBg,
-                                borderColor: theme.border,
+                                backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                                borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                                 color: theme.text,
                               },
                             ]}
@@ -384,7 +387,7 @@ export default function ReportIssueScreen() {
                     {/* Help Info */}
                     <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                       <MaterialIcons name='info-outline' size={20} color={theme.accent} />
-                      <Text style={[styles.infoText, { color: theme.subtext }]}>
+                      <Text style={[styles.infoText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         The more details you provide, the faster we can resolve your issue.
                         Screenshots can be helpful too!
                       </Text>
@@ -470,7 +473,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 20,
     lineHeight: 20,
-    opacity: 0.65,
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -544,7 +546,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
-    opacity: 0.65,
   },
 });
 

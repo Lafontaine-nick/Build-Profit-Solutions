@@ -20,7 +20,9 @@ export interface AiNextStep {
 export interface AiDashboardResponse {
   insights: AiInsight[];
   nextSteps: AiNextStep[];
-  lastUpdated: string;       // ISO timestamp
+  ruleBasedUpdatedAt: string;  // ISO timestamp - rule-based checks (always fresh)
+  aiUpdatedAt: string | null;  // ISO timestamp - AI insights (cached, may be null)
+  lastUpdated: string;          // ISO timestamp - overall (most recent)
 }
 
 export interface DashboardMetrics {

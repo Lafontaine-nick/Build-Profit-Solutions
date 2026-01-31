@@ -167,10 +167,11 @@ export default function SpendingTrendChart({
           borderRadius: 18,
           paddingVertical: 10,
           paddingRight: 10,
-          paddingLeft: 0,
+          paddingLeft: 10,
           borderWidth: 1,
           borderColor: chartBorder,
           position: "relative",
+          overflow: "hidden",
         }}
       >
     <LineChart

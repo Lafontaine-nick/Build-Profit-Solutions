@@ -94,10 +94,10 @@ export default function LegalHubScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   router.back();
                 }}
-                style={[styles.backButton, { backgroundColor: "#000000" }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
               </TouchableOpacity>
             </LinearGradient>
           </View>
@@ -114,8 +114,7 @@ export default function LegalHubScreen() {
           <TouchableOpacity
             style={[
               styles.tab,
-              { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border },
-              activeTab === 'terms' && { borderColor: theme.accent }
+              { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
             ]}
             onPress={() => handleTabChange('terms')}
           >
@@ -126,8 +125,7 @@ export default function LegalHubScreen() {
           <TouchableOpacity
             style={[
               styles.tab,
-              { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border },
-              activeTab === 'privacy' && { borderColor: theme.accent }
+              { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
             ]}
             onPress={() => handleTabChange('privacy')}
           >
@@ -138,8 +136,7 @@ export default function LegalHubScreen() {
           <TouchableOpacity
             style={[
               styles.tab,
-              { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border },
-              activeTab === 'refund' && { borderColor: theme.accent }
+              { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
             ]}
             onPress={() => handleTabChange('refund')}
           >
@@ -150,8 +147,7 @@ export default function LegalHubScreen() {
           <TouchableOpacity
             style={[
               styles.tab,
-              { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border },
-              activeTab === 'attrib' && { borderColor: theme.accent }
+              { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
             ]}
             onPress={() => handleTabChange('attrib')}
           >
@@ -1014,7 +1010,7 @@ const styles = StyleSheet.create({
   },
   sectionSubtitle: {
     fontSize: 13,
-    opacity: 0.65,
+    opacity: 0.85,
     lineHeight: 20,
   },
   sectionCard: {
@@ -1047,7 +1043,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 12,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   bulletList: {
     marginVertical: 8,
@@ -1067,7 +1063,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   noticeBox: {
     backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -1106,7 +1102,7 @@ const styles = StyleSheet.create({
   },
   attrCardSubtitle: {
     fontSize: 13,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   exampleCard: {
     backgroundColor: 'rgba(27, 54, 93, 0.6)',
@@ -1124,7 +1120,7 @@ const styles = StyleSheet.create({
   exampleText: {
     fontSize: 13,
     lineHeight: 20,
-    opacity: 0.65,
+    opacity: 0.85,
   },
   exampleLink: {
     textDecorationLine: 'underline',

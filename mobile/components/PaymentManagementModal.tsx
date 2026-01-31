@@ -452,10 +452,10 @@ export default function PaymentManagementModal({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   handleClose();
                 }}
-                style={[styles.backButton, { backgroundColor: "#000000" }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
               </TouchableOpacity>
             </LinearGradient>
           </View>

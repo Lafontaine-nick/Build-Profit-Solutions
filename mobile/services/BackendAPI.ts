@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API Configuration
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.0.201:3001/api';
+  process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.115:3001/api';
 const API_TIMEOUT = 10000; // 10 seconds
 
 // Types

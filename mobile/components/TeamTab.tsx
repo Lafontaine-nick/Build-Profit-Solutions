@@ -1325,61 +1325,62 @@ export default function TeamTab() {
   return (
     <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
       <View style={[styles.outerCard, styles.teamContainerWide, !darkMode && { backgroundColor: Colors.bg }]}>
-        {/* Header */}
-        <View style={styles.teamHeaderRow}>
-          <View style={{ flex: 1 }}>
-            <View style={styles.teamHeaderTopRow}>
-              <Text style={[styles.teamHeaderTitle, { color: Colors.text }]}>Team Details</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginLeft: 12 }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowNotifyModal(true);
-                  }}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.headerIconBtn,
-                    { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
-                  ]}
-                >
-                  <MaterialIcons name="campaign" size={20} color="#22c55e" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowAddModal(true);
-                  }}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.headerIconBtn,
-                    { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
-                  ]}
-                >
-                  <MaterialIcons name="person-add" size={20} color="#22c55e" />
-                </TouchableOpacity>
+        {/* Outer green-to-blue border wrapping Team Details header, Team card, and Search card */}
+        <LinearGradient
+          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={styles.overviewBorder}
+        >
+          <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+            {/* Header */}
+            <View style={styles.teamHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.teamHeaderTopRow}>
+                  <Text style={[styles.teamHeaderTitle, { color: Colors.text }]}>Team Details</Text>
+                  <View style={{ flexDirection: "row", gap: 8, marginLeft: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setShowNotifyModal(true);
+                      }}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.headerIconBtn,
+                        { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
+                      ]}
+                    >
+                      <MaterialIcons name="campaign" size={20} color="#22c55e" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setShowAddModal(true);
+                      }}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.headerIconBtn,
+                        { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
+                      ]}
+                    >
+                      <MaterialIcons name="person-add" size={20} color="#22c55e" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <Text style={[styles.teamHeaderSubtitle, { color: Colors.sub }]}>
+                  Manage your team members and assignments
+                </Text>
               </View>
             </View>
-            <Text style={[styles.teamHeaderSubtitle, { color: Colors.sub }]}>
-              Manage your team members and assignments
-            </Text>
-          </View>
-        </View>
 
-        {/* Team Stats Section */}
-        <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-          <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.sectionCardBorder}
-          >
-          <View
-            style={[
-              styles.sectionCard,
-              { borderWidth: 0, borderRadius: 18 },
-              { backgroundColor: darkMode ? "#000000" : Colors.bg },
-            ]}
-          >
+            {/* Team Stats Section */}
+            <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+              <View
+                style={[
+                  styles.sectionCard,
+                  { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
+                ]}
+              >
               <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
                 <MaterialIcons name='people' size={22} color='#22c55e' />
               <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>Team</Text>
@@ -1443,18 +1444,11 @@ export default function TeamTab() {
                 </View>
               </View>
             </View>
-          </LinearGradient>
-        </View>
+            </View>
 
-        {/* Search & Filters Section - iOS Refined */}
-        <View style={styles.filterCardContainer}>
-          <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.filterCardBorder}
-          >
-            <View style={[styles.filterCard, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line, borderWidth: 1 }]}>
+            {/* Search & Filters Section - iOS Refined */}
+            <View style={styles.filterCardContainer}>
+              <View style={[styles.filterCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
             {/* Search Bar - iOS Style */}
             <View
               style={[
@@ -1587,9 +1581,10 @@ export default function TeamTab() {
                 ))}
               </ScrollView>
             )}
+              </View>
             </View>
+          </View>
           </LinearGradient>
-        </View>
 
         {/* Team List Section */}
         <View style={styles.teamListContainer}>
@@ -1667,11 +1662,19 @@ const styles = StyleSheet.create({
   },
   teamContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
-    paddingHorizontal: 8, // Match dashboard wideContainer pattern
+    paddingHorizontal: 4, // Match dashboard wideContainer pattern
     paddingVertical: 18,
     paddingBottom: 18,
   },
-
+  overviewBorder: {
+    borderRadius: 20,
+    padding: 1,
+    marginBottom: 16,
+  },
+  overviewInner: {
+    borderRadius: 18,
+    padding: 12,
+  },
   teamHeaderRow: {
     marginBottom: 14,
   },
@@ -1705,14 +1708,6 @@ const styles = StyleSheet.create({
 
   sectionCardContainer: {
     marginTop: 12,
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    marginBottom: 0,
   },
   sectionCardBorder: {
     borderRadius: 20,
@@ -1720,10 +1715,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   sectionCard: {
-    borderRadius: 19,
-    padding: 16,
-    paddingBottom: 16,
-    backgroundColor: "#000000",
+    padding: 12,
+    paddingBottom: 12,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -1763,13 +1756,6 @@ const styles = StyleSheet.create({
   // Filter Card - iOS Grade
   filterCardContainer: {
     marginTop: 12,
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
   },
   filterCardBorder: {
     borderRadius: 20,
@@ -1777,9 +1763,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   filterCard: {
-    padding: 16,
-    borderRadius: 19,
-    backgroundColor: "#000000",
+    padding: 12,
   },
 
   // Search - iOS Style

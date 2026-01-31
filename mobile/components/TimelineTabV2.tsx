@@ -55,9 +55,9 @@ function statusLabel(status?: string) {
 }
 
 function statusPillStyle(status?: string) {
-  if (status === "completed") return { bg: "rgba(34, 197, 94, 0.25)", text: "#22c55e", border: "rgba(34, 211, 238, 0.3)" };
-  if (status === "in_progress") return { bg: "rgba(34, 211, 238, 0.15)", text: "#22d3ee", border: "rgba(34, 197, 94, 0.3)" };
-  return { bg: "rgba(180,195,215,0.18)", text: "rgba(234,241,247,0.75)", border: "rgba(34, 197, 94, 0.2)" };
+  if (status === "completed") return { bg: "rgba(34, 197, 94, 0.25)", text: "#22c55e", border: "#22c55e" };
+  if (status === "in_progress") return { bg: "rgba(34, 211, 238, 0.15)", text: "#22d3ee", border: "#22c55e" };
+  return { bg: "rgba(180,195,215,0.18)", text: "rgba(234,241,247,0.75)", border: "rgba(148, 163, 184, 0.4)" };
 }
 
 /* -------------------- Milestone Card (matches app design) -------------------- */
@@ -82,18 +82,12 @@ function MilestoneCardV2({
 
   return (
     <View style={styles.milestoneCardContainer}>
-      <LinearGradient
-        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={styles.milestoneCardBorder}
-      >
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => onPress(item)}
           style={[
             styles.mCard,
-            !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line },
+            { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
           ]}
         >
           {/* Header Row - Title and Amount */}
@@ -145,15 +139,11 @@ function MilestoneCardV2({
           <View
             style={[
               styles.mProgressContainer,
-              isPending && styles.mProgressPendingBorder,
-              isPending && !darkMode && { borderColor: Colors.line },
-              isPending && darkMode && { borderColor: "rgba(34, 197, 94, 0.25)" },
             ]}
           >
             <ProgressBar value={pct} />
           </View>
         </TouchableOpacity>
-      </LinearGradient>
     </View>
   );
 }
@@ -163,9 +153,10 @@ function MilestoneCardV2({
 interface TimelineTabProps {
   project: any;
   theme?: "dark" | "light";
+  embedded?: boolean;
 }
 
-export default function TimelineTabV2({ project }: TimelineTabProps) {
+export default function TimelineTabV2({ project, embedded = false }: TimelineTabProps) {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -602,14 +593,27 @@ export default function TimelineTabV2({ project }: TimelineTabProps) {
 
   if (!isLoaded) {
     return (
-      <View style={[styles.container, styles.center, !darkMode && { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          styles.container,
+          embedded && styles.containerEmbedded,
+          styles.center,
+          !darkMode && { backgroundColor: Colors.bg },
+        ]}
+      >
         <Text style={[styles.loadingText, !darkMode && { color: Colors.text }]}>Loading timeline...</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
+    <View
+      style={[
+        styles.container,
+        embedded && styles.containerEmbedded,
+        !darkMode && { backgroundColor: Colors.bg },
+      ]}
+    >
       <ScrollView 
         style={styles.scrollContent} 
         showsVerticalScrollIndicator={true}
@@ -629,28 +633,37 @@ export default function TimelineTabV2({ project }: TimelineTabProps) {
         }
       >
         {/* Wide Container - matches Budget and Overview pages */}
-        <View style={[styles.outerCard, styles.timelineContainerWide, !darkMode && { backgroundColor: Colors.bg }]}>
-          {/* Timeline Details Header */}
-          <View style={styles.timelineHeaderRow}>
-            <View>
-              <Text style={[styles.timelineHeaderTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
-                Timeline Details
-              </Text>
-              <Text style={[styles.timelineHeaderSubtitle, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
-                Track milestones and project progress
-              </Text>
-            </View>
-          </View>
+        <View
+          style={[
+            styles.outerCard,
+            styles.timelineContainerWide,
+            embedded && styles.timelineContainerEmbedded,
+            !darkMode && { backgroundColor: Colors.bg },
+          ]}
+        >
+          {/* Outer green-to-blue border wrapping Timeline Details header, Overall Progress, and Upcoming cards */}
+          <LinearGradient
+            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.overviewBorder}
+          >
+            <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+              {/* Timeline Details Header */}
+              <View style={styles.timelineHeaderRow}>
+                <View>
+                  <Text style={[styles.timelineHeaderTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
+                    Timeline Details
+                  </Text>
+                  <Text style={[styles.timelineHeaderSubtitle, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                    Track milestones and project progress
+                  </Text>
+                </View>
+              </View>
 
-          {/* Overall Progress Section */}
-          <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
-            <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.sectionCardBorder}
-            >
-              <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
+              {/* Overall Progress Section */}
+              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
                 <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
                   <MaterialIcons name="schedule" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
@@ -664,18 +677,11 @@ export default function TimelineTabV2({ project }: TimelineTabProps) {
                   <ProgressBar value={overall} />
                 </View>
               </View>
-            </LinearGradient>
-          </View>
+            </View>
 
-          {/* Upcoming Milestones Section */}
-          <View style={styles.sectionCardContainer}>
-            <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.sectionCardBorder}
-            >
-              <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
+            {/* Upcoming Milestones Section */}
+            <View style={styles.sectionCardContainer}>
+              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
                 <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
                   <MaterialIcons name="event" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
@@ -702,33 +708,116 @@ export default function TimelineTabV2({ project }: TimelineTabProps) {
                   )}
                 </View>
               </View>
-            </LinearGradient>
-          </View>
+            </View>
+            </View>
+          </LinearGradient>
 
           {/* All Milestones Section */}
-          <View style={styles.milestonesSection}>
-            <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
-              <MaterialIcons name="list" size={22} color="#22c55e" />
-              <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                All Milestones
-              </Text>
-            </View>
-            <View style={styles.milestonesList}>
-              {milestones.length > 0 ? (
-                milestones.map((item) => (
-                  <MilestoneCardV2
-                    key={item.id}
-                    item={item}
-                    dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
-                    onPress={onOpenMilestone}
-                  />
-                ))
-              ) : (
-                <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
-                  No milestones yet. Add one to get started!
-                </Text>
-              )}
-            </View>
+          <View style={{ marginTop: 12 }}>
+            {/* Outer green-to-blue border wrapping All Milestones header and all milestone cards */}
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.overviewBorder}
+            >
+              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+                <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                  <MaterialIcons name="list" size={22} color="#22c55e" />
+                  <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
+                    All Milestones
+                  </Text>
+                </View>
+                <View style={styles.milestonesList}>
+                  {milestones.length > 0 ? (
+                    milestones.map((item) => (
+                      <MilestoneCardV2
+                        key={item.id}
+                        item={item}
+                        dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
+                        onPress={onOpenMilestone}
+                      />
+                    ))
+                  ) : (
+                    <View style={styles.emptyTimelineContainer}>
+                      <Text style={[styles.emptyTimelineTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
+                        Project hasn't started yet
+                      </Text>
+                      <Text style={[styles.emptyTimelineSubtitle, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                        Progress will begin once work starts or a milestone is marked complete.
+                      </Text>
+                      <View style={styles.starterButtonsContainer}>
+                        <TouchableOpacity
+                          style={[styles.starterButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
+                          onPress={() => {
+                            // Create a demo phase milestone
+                            const newMilestone: Milestone = {
+                              id: `demo-${Date.now()}`,
+                              title: 'Demo Phase',
+                              plannedDate: new Date().toISOString().split('T')[0],
+                              progressPct: 0,
+                              status: 'pending',
+                              amount: 0,
+                            };
+                            onOpenMilestone(newMilestone);
+                          }}
+                        >
+                          <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text }]}>Add demo phase</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.starterButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
+                          onPress={() => {
+                            const newMilestone: Milestone = {
+                              id: `rough-${Date.now()}`,
+                              title: 'Rough-in Phase',
+                              plannedDate: new Date().toISOString().split('T')[0],
+                              progressPct: 0,
+                              status: 'pending',
+                              amount: 0,
+                            };
+                            onOpenMilestone(newMilestone);
+                          }}
+                        >
+                          <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text }]}>Add rough-in phase</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.starterButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
+                          onPress={() => {
+                            const newMilestone: Milestone = {
+                              id: `finish-${Date.now()}`,
+                              title: 'Finish Phase',
+                              plannedDate: new Date().toISOString().split('T')[0],
+                              progressPct: 0,
+                              status: 'pending',
+                              amount: 0,
+                            };
+                            onOpenMilestone(newMilestone);
+                          }}
+                        >
+                          <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text }]}>Add finish phase</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.starterButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
+                          onPress={() => {
+                            const newMilestone: Milestone = {
+                              id: `custom-${Date.now()}`,
+                              title: 'Custom Milestone',
+                              plannedDate: new Date().toISOString().split('T')[0],
+                              progressPct: 0,
+                              status: 'pending',
+                              amount: 0,
+                            };
+                            onOpenMilestone(newMilestone);
+                          }}
+                        >
+                          <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text }]}>Add custom milestone</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </LinearGradient>
           </View>
         </View>
       </ScrollView>
@@ -761,6 +850,9 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: -20, // Extend beyond parent ScrollView padding
   },
+  containerEmbedded: {
+    marginHorizontal: 0,
+  },
   scrollContent: { 
     flex: 1,
   },
@@ -774,8 +866,20 @@ const styles = StyleSheet.create({
   },
   timelineContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
-    paddingHorizontal: 8, // Match dashboard wideContainer pattern
+    paddingHorizontal: 4, // Match dashboard wideContainer pattern
     paddingVertical: 18,
+  },
+  timelineContainerEmbedded: {
+    paddingHorizontal: 0,
+  },
+  overviewBorder: {
+    borderRadius: 20,
+    padding: 1,
+    marginBottom: 16,
+  },
+  overviewInner: {
+    borderRadius: 18,
+    padding: 12,
   },
   timelineHeaderRow: {
     flexDirection: "row",
@@ -801,9 +905,8 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   sectionCard: {
-    borderRadius: 19,
-    padding: 16,
-    backgroundColor: "#000000",
+    borderRadius: 14,
+    padding: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -872,9 +975,7 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   mCard: {
-    borderRadius: 19,
-    padding: 20,
-    backgroundColor: "#000000",
+    padding: 16,
   },
   mHeaderRow: {
     flexDirection: "row",
@@ -904,7 +1005,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "rgba(34, 197, 94, 0.18)",
     borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.3)",
+    borderColor: "#22c55e",
   },
   amountText: { 
     color: "#22c55e", 
@@ -947,11 +1048,52 @@ const styles = StyleSheet.create({
   },
   mProgressContainer: {
     marginTop: 16,
+    borderWidth: 1,
+    borderRadius: 999,
+    padding: 2,
+    borderColor: "rgba(148, 163, 184, 0.3)",
   },
   mProgressPendingBorder: {
     borderWidth: 1,
     borderRadius: 999,
     padding: 2,
+  },
+  emptyText: {
+    color: COLORS.subtext,
+    fontSize: 14,
+    textAlign: "center",
+    paddingVertical: 24,
+  },
+  emptyTimelineContainer: {
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  emptyTimelineTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyTimelineSubtitle: {
+    fontSize: 14,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  starterButtonsContainer: {
+    width: '100%',
+    gap: 12,
+  },
+  starterButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  starterButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 
 });

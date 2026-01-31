@@ -687,7 +687,7 @@ const EnhancedLeadCard = ({
     borderColor: Colors.line,
     borderWidth: darkMode ? 1 : 1,
     borderRadius: 14,
-    padding: 16,
+    padding: 12,
   };
   
   // Debug logging for campaign leads - ALWAYS log PROJECT_BASED leads
@@ -3257,7 +3257,7 @@ export default function EnhancedLeadsPage({
             console.log('💼 Campaign created:', campaign);
             
             // Get API base URL from config
-            const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.0.201:3001/api';
+            const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
             
             // Post each service in the campaign as a project lead
             // This makes the campaign appear in the marketplace for other contractors
@@ -3414,7 +3414,7 @@ export default function EnhancedLeadsPage({
               console.log('✏️ Campaign updated:', updatedCampaign);
               
               // Get API base URL from config
-              const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.0.201:3001/api';
+              const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
               const campaignProjectId = `CAMPAIGN-${updatedCampaign.id}`;
               
               // First, delete existing leads for this campaign to prevent duplicates
@@ -3584,7 +3584,7 @@ const styles = StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20, // Extend beyond ScrollView padding (matches dashboard, projects, landing)
-    paddingHorizontal: 8, // Add padding back inside (matches dashboard, projects, landing)
+    paddingHorizontal: 4, // Add padding back inside (matches dashboard, projects, landing)
   },
   gradientBorder: {
     borderRadius: 24, // Matches estimate generator
@@ -3640,7 +3640,7 @@ const styles = StyleSheet.create({
   sectionCard: {
     backgroundColor: '#000000', // Fully opaque dark background to cover gradient (matches estimate generator)
     borderRadius: 22, // 24 - 2 = 22 to show 1px border on each side (matches estimate generator)
-    padding: 16,
+    padding: 12,
     borderWidth: 0, // Remove border since gradient provides it
     shadowColor: '#000',
     shadowOpacity: 0.08,
@@ -5905,7 +5905,7 @@ const styles = StyleSheet.create({
   campaignPerformanceCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 16,
-    padding: 20,
+    padding: 12,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',

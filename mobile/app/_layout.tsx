@@ -43,31 +43,65 @@ function AuthGateWithClerk() {
   // IMPORTANT: All hooks must be declared BEFORE any conditional returns
   // Check if profile setup is needed
   const [needsProfileSetup, setNeedsProfileSetup] = useState<boolean | null>(null);
+  // Check if onboarding is needed
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  // Timeout for Clerk loading
+  const [clerkTimeout, setClerkTimeout] = useState(false);
 
   // Initialize notification service
   useEffect(() => {
     notificationService.initialize();
   }, []);
 
+  // Add timeout for Clerk loading (prevent infinite loading)
+  useEffect(() => {
+    if (!isLoaded) {
+      const timeout = setTimeout(() => {
+        console.warn('Clerk loading timeout - proceeding anyway');
+        setClerkTimeout(true);
+      }, 10000); // 10 second timeout for Clerk
+      
+      return () => clearTimeout(timeout);
+    } else {
+      setClerkTimeout(false);
+    }
+  }, [isLoaded]);
+
   // Check profile completeness (only when authenticated)
   useEffect(() => {
     const checkProfileCompleteness = async () => {
+      // Add timeout to prevent hanging
+      const timeoutId = setTimeout(() => {
+        console.warn('Profile check timeout - defaulting to Clerk name check only');
+        setNeedsProfileSetup(!(user?.firstName && user?.lastName));
+      }, 3000); // 3 second timeout
+
       try {
         // Check Clerk user data
         const hasClerkName = !!(user.firstName && user.lastName);
         
-        // Check contractor profile in AsyncStorage
+        // Check contractor profile in AsyncStorage with timeout
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const contractorProfileData = await AsyncStorage.getItem('bps.contractorProfile');
+        const contractorProfileData = await Promise.race([
+          AsyncStorage.getItem('bps.contractorProfile'),
+          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 2000))
+        ]);
+        
+        clearTimeout(timeoutId);
+        
         let hasContractorProfile = false;
         let hasName = false;
         let hasCompany = false;
 
         if (contractorProfileData) {
-          const profile = JSON.parse(contractorProfileData);
-          hasName = !!(profile.name && profile.name.trim());
-          hasCompany = !!(profile.company && profile.company.trim());
-          hasContractorProfile = hasName && hasCompany;
+          try {
+            const profile = JSON.parse(contractorProfileData);
+            hasName = !!(profile.name && profile.name.trim());
+            hasCompany = !!(profile.company && profile.company.trim());
+            hasContractorProfile = hasName && hasCompany;
+          } catch (parseError) {
+            console.warn('Error parsing contractor profile:', parseError);
+          }
         }
 
         // Show profile setup if:
@@ -89,6 +123,7 @@ function AuthGateWithClerk() {
         
         setNeedsProfileSetup(needsSetup);
       } catch (error) {
+        clearTimeout(timeoutId);
         console.error('Error checking profile completeness:', error);
         // If there's an error, only check Clerk name
         setNeedsProfileSetup(!(user.firstName && user.lastName));
@@ -103,16 +138,65 @@ function AuthGateWithClerk() {
     }
   }, [isSignedIn, user, user?.firstName, user?.lastName]);
 
+  // Check onboarding status (only when authenticated, profile complete, and role is set)
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      // Add timeout to prevent hanging
+      const timeoutId = setTimeout(() => {
+        console.warn('Onboarding check timeout - defaulting to show onboarding');
+        setNeedsOnboarding(true);
+      }, 2000); // 2 second timeout
+
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const onboardingComplete = await Promise.race([
+          AsyncStorage.getItem('bps.onboardingComplete'),
+          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500))
+        ]);
+        
+        clearTimeout(timeoutId);
+        setNeedsOnboarding(onboardingComplete !== 'true');
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('Error checking onboarding status:', error);
+        // Default to showing onboarding if check fails
+        setNeedsOnboarding(true);
+      }
+    };
+
+    // Only check onboarding if user is signed in, profile is complete, and role is set
+    if (isSignedIn && user && needsProfileSetup === false && userRole) {
+      checkOnboardingStatus();
+    } else {
+      setNeedsOnboarding(null);
+    }
+  }, [isSignedIn, user, needsProfileSetup, userRole]);
+
   // Debug logging
   console.log('AuthGate - isLoaded:', isLoaded, 'isSignedIn:', isSignedIn, 'user:', !!user, 'userId:', user?.id);
 
   // Show loading while Clerk is initializing and restoring session
   // This is critical - we must wait for Clerk to check SecureStore for existing session
-  if (!isLoaded) {
+  // But add timeout to prevent infinite loading
+  if (!isLoaded && !clerkTimeout) {
     console.log('AuthGate - Clerk is loading, waiting for session restoration...');
     return <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
+  }
+  
+  // If Clerk timed out, proceed anyway (might be network issue)
+  if (!isLoaded && clerkTimeout) {
+    console.warn('AuthGate - Clerk loading timed out, showing auth screens anyway');
+    return (
+      <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+        <Stack.Screen name="index" />
+        <Stack.Screen name="auth" />
+        <Stack.Screen name="auth/login" />
+        <Stack.Screen name="auth/signup" />
+        <Stack.Screen name="auth/forgot-password" />
+      </Stack>
+    );
   }
 
   // Show login/signup if not authenticated (only after Clerk has fully loaded)
@@ -162,6 +246,22 @@ function AuthGateWithClerk() {
     </Stack>;
   }
 
+  // Check onboarding status (wait for check to complete)
+  if (needsOnboarding === null) {
+    console.log('AuthGate - Checking onboarding status...');
+    return <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="loading" />
+    </Stack>;
+  }
+
+  // Show onboarding if needed
+  if (needsOnboarding === true) {
+    console.log('AuthGate - Showing onboarding');
+    return <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="onboarding" />
+    </Stack>;
+  }
+
   // User is fully authenticated and set up
   console.log('AuthGate - Showing main app');
   return <Stack screenOptions={{ headerShown: false }} />;
@@ -170,6 +270,7 @@ function AuthGateWithClerk() {
 function AuthGateWithoutClerk() {
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [needsOnboarding, setNeedsOnboarding] = React.useState<boolean | null>(null);
 
   // Initialize notification service
   useEffect(() => {
@@ -196,6 +297,27 @@ function AuthGateWithoutClerk() {
     return unsubscribe;
   }, []);
 
+  // Check onboarding status (only when authenticated)
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const onboardingComplete = await AsyncStorage.getItem('bps.onboardingComplete');
+        setNeedsOnboarding(onboardingComplete !== 'true');
+      } catch (error) {
+        console.error('Error checking onboarding status:', error);
+        // Default to showing onboarding if check fails
+        setNeedsOnboarding(true);
+      }
+    };
+
+    if (isAuthenticated) {
+      checkOnboardingStatus();
+    } else {
+      setNeedsOnboarding(null);
+    }
+  }, [isAuthenticated]);
+
   // Show loading while checking auth state
   if (isLoading || isAuthenticated === null) {
     console.log('AuthGate - Checking authentication state...');
@@ -215,6 +337,26 @@ function AuthGateWithoutClerk() {
         <Stack.Screen name="auth" />
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/signup" />
+      </Stack>
+    );
+  }
+
+  // Check onboarding status (wait for check to complete)
+  if (needsOnboarding === null) {
+    console.log('AuthGate - Checking onboarding status...');
+    return (
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="loading" />
+      </Stack>
+    );
+  }
+
+  // Show onboarding if needed
+  if (needsOnboarding === true) {
+    console.log('AuthGate - Showing onboarding');
+    return (
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="onboarding" />
       </Stack>
     );
   }

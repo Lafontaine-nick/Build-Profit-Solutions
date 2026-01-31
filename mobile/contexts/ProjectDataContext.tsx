@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ProjectOverview } from '../components/OverviewScreen';
 import { useProjectList } from './ProjectListContext';
+import { pmEventTracker } from '@/hooks/usePMEventReactions';
 
 export type PurchaseOrder = {
   id: string;
@@ -380,6 +381,28 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   }, [projectData, isLoaded]);
 
   const updateBudget = (budgeted: number, spent: number) => {
+    // Calculate margin impact
+    const prevBudgeted = projectData.budgeted || 0;
+    const prevSpent = projectData.spent || 0;
+    const prevMargin = prevBudgeted > 0 ? ((prevBudgeted - prevSpent) / prevBudgeted) * 100 : 0;
+    const newMargin = budgeted > 0 ? ((budgeted - spent) / budgeted) * 100 : 0;
+    const marginImpact = newMargin - prevMargin;
+
+    // Emit PM event for cost edit
+    if (Math.abs(budgeted - prevBudgeted) > 100 || Math.abs(marginImpact) > 1) {
+      pmEventTracker.emit({
+        type: 'cost_edit',
+        projectId: projectId,
+        projectName: projectData?.title,
+        data: {
+          previousValue: prevBudgeted,
+          newValue: budgeted,
+          marginImpact,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
     applyProjectDataUpdate(prev => ({
       ...prev,
       budgeted,
@@ -395,6 +418,32 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     endDate: string,
     progress: number
   ) => {
+    // Calculate schedule impact
+    const prevStart = projectData.startISO;
+    const prevEnd = projectData.endISO;
+    const prevDuration = prevStart && prevEnd
+      ? (new Date(prevEnd).getTime() - new Date(prevStart).getTime()) / (1000 * 60 * 60 * 24)
+      : 0;
+    const newDuration = startDate && endDate
+      ? (new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
+      : 0;
+    const scheduleImpact = newDuration - prevDuration;
+
+    // Emit PM event for schedule change
+    if (Math.abs(scheduleImpact) > 1) {
+      pmEventTracker.emit({
+        type: 'schedule_change',
+        projectId: projectId,
+        projectName: projectData?.title,
+        data: {
+          previousValue: { startDate: prevStart, endDate: prevEnd },
+          newValue: { startDate, endDate },
+          scheduleImpact,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
     applyProjectDataUpdate(prev => ({
       ...prev,
       startISO: startDate,
@@ -430,6 +479,20 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   };
 
   const updateStatus = (status: string) => {
+    // Emit PM event for phase transition
+    if (projectData.status !== status) {
+      pmEventTracker.emit({
+        type: 'phase_transition',
+        projectId: projectId,
+        projectName: projectData?.title,
+        data: {
+          previousValue: projectData.status,
+          newValue: status,
+        },
+        timestamp: Date.now(),
+      });
+    }
+
     applyProjectDataUpdate(prev => ({
       ...prev,
       status,
@@ -446,6 +509,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     notes?: string;
     receiptUri?: string | null;
   }) => {
+    // Emit PM event for expense added
+    pmEventTracker.emit({
+      type: 'expense_added',
+      projectId: projectId,
+      projectName: projectData?.title,
+      data: {
+        amount: expense.amount,
+        category: expense.category,
+        vendor: expense.vendor,
+      },
+      timestamp: Date.now(),
+    });
+
     applyProjectDataUpdate(prev => {
       // Find the matching budget bucket based on category
       // Match flexibly: "Materials/Equipment" matches "Materials" or "Materials/Equipment"
@@ -742,6 +818,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     laborAmount?: number;
     status?: string;
   }) => {
+    // Emit PM event for change order added
+    pmEventTracker.emit({
+      type: 'change_order_added',
+      projectId: projectId,
+      projectName: projectData?.title,
+      data: {
+        amount: changeOrder.amount,
+        title: changeOrder.title,
+        approved: changeOrder.approved,
+      },
+      timestamp: Date.now(),
+    });
+
     applyProjectDataUpdate(prev => {
       // Check if this is an update (change order with this ID already exists)
       const existingIndex = (prev.changeOrders || []).findIndex(co => co.id === changeOrder.id);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons } from "@expo/vector-icons";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { COLORS } from "../src/theme/colors";
 import MilestoneCard from "./timeline/MilestoneCard";
@@ -291,6 +291,10 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
     );
   }
 
+  // Check if project hasn't started (no milestones with progress > 0)
+  const projectStarted = milestones.some(m => m.progressPct > 0);
+  const hasNoMilestones = milestones.length === 0;
+
   return (
     <View style={styles.container}>
       <ScrollView 
@@ -300,6 +304,44 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
       >
         {/* Wide Container - matches Budget and Overview pages */}
         <View style={[styles.outerCard, styles.timelineContainerWide]}>
+          {/* Baseline Locked Indicator */}
+          <View style={[styles.baselineIndicator, { 
+            backgroundColor: COLORS.surface2, 
+            borderColor: COLORS.line 
+          }]}>
+            <Ionicons name="lock-closed" size={14} color={COLORS.subtext} />
+            <Text style={[styles.baselineIndicatorText, { color: COLORS.subtext }]}>
+              Baseline from estimate
+            </Text>
+          </View>
+
+          {/* Zero-State Timeline Callout */}
+          {(!projectStarted || hasNoMilestones) && (
+            <View style={[styles.zeroStateCallout, { 
+              backgroundColor: COLORS.surface2, 
+              borderColor: COLORS.line 
+            }]}>
+              <Ionicons name="time-outline" size={24} color={COLORS.green} />
+              <Text style={[styles.zeroStateTitle, { color: COLORS.text }]}>
+                Project hasn't started yet
+              </Text>
+              <Text style={[styles.zeroStateSubtitle, { color: COLORS.subtext }]}>
+                Once work begins, progress and payments will update automatically.
+              </Text>
+              <TouchableOpacity
+                style={[styles.zeroStateButton, { 
+                  backgroundColor: COLORS.green + '20',
+                  borderColor: COLORS.green + '40'
+                }]}
+                onPress={handleAddMilestone}
+              >
+                <Text style={[styles.zeroStateButtonText, { color: COLORS.green }]}>
+                  Mark project started
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Timeline Details Header */}
           <View style={styles.timelineHeaderRow}>
             <View>
@@ -566,5 +608,52 @@ const styles = StyleSheet.create({
     color: COLORS.text, 
     fontWeight: "700", 
     textAlign: "center" 
+  },
+  zeroStateCallout: {
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  zeroStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  zeroStateSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  zeroStateButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  zeroStateButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  baselineIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
+  },
+  baselineIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

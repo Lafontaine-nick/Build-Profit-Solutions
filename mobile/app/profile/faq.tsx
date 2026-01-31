@@ -149,7 +149,7 @@ const categoryLabels: Record<string, string> = {
   account: 'Account',
 };
 
-function FAQItemComponent({ item, isExpanded, onToggle, theme }: { item: FAQItem; isExpanded: boolean; onToggle: () => void; theme: any }) {
+function FAQItemComponent({ item, isExpanded, onToggle, theme, darkMode }: { item: FAQItem; isExpanded: boolean; onToggle: () => void; theme: any; darkMode: boolean }) {
   const height = useSharedValue(0);
   const opacity = useSharedValue(0);
 
@@ -183,7 +183,7 @@ function FAQItemComponent({ item, isExpanded, onToggle, theme }: { item: FAQItem
         />
       </TouchableOpacity>
       <Animated.View style={[styles.faqAnswerContainer, animatedStyle, { borderTopColor: theme.border }]}>
-        <Text style={[styles.faqAnswer, { color: theme.subtext }]}>{item.answer}</Text>
+        <Text style={[styles.faqAnswer, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>{item.answer}</Text>
       </Animated.View>
     </View>
   );
@@ -262,10 +262,10 @@ export default function FAQScreen() {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     router.back();
                   }}
-                  style={[styles.backButton, { backgroundColor: "#000000" }]}
+                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
                 </TouchableOpacity>
               </LinearGradient>
             </View>
@@ -293,7 +293,7 @@ export default function FAQScreen() {
                 <View style={styles.scrollContent}>
                   {/* Search Bar */}
                   <View style={[styles.searchContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <MaterialIcons name='search' size={20} color={theme.subtext} style={styles.searchIcon} />
+                    <MaterialIcons name='search' size={20} color={theme.subtext} style={[styles.searchIcon, { opacity: darkMode ? 0.85 : 1 }]} />
                     <TextInput
                       style={[styles.searchInput, { color: theme.text }]}
                       placeholder='Search FAQs...'
@@ -306,7 +306,7 @@ export default function FAQScreen() {
                         onPress={() => setSearchQuery('')}
                         style={styles.clearButton}
                       >
-                        <MaterialIcons name='close' size={20} color={theme.subtext} />
+                        <MaterialIcons name='close' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 1 }} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -334,8 +334,8 @@ export default function FAQScreen() {
                         <Text
                           style={[
                             styles.categoryText,
-                            { color: theme.subtext },
-                            selectedCategory === category && { color: theme.text, fontWeight: '600' },
+                            { color: theme.subtext, opacity: (selectedCategory !== category && darkMode) ? 0.85 : 1 },
+                            selectedCategory === category && { color: theme.text, fontWeight: '600', opacity: 1 },
                           ]}
                         >
                           {categoryLabels[category]}
@@ -348,9 +348,9 @@ export default function FAQScreen() {
                   <View style={styles.faqCard}>
                     {filteredFAQs.length === 0 ? (
                       <View style={styles.emptyState}>
-                        <MaterialIcons name='help-outline' size={48} color={theme.subtext} />
+                        <MaterialIcons name='help-outline' size={48} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 1 }} />
                         <Text style={[styles.emptyText, { color: theme.text }]}>No FAQs found</Text>
-                        <Text style={[styles.emptySubtext, { color: theme.subtext }]}>
+                        <Text style={[styles.emptySubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                           Try adjusting your search or filter
                         </Text>
                       </View>
@@ -362,6 +362,7 @@ export default function FAQScreen() {
                           isExpanded={expandedItems.has(item.id)}
                           onToggle={() => toggleItem(item.id)}
                           theme={theme}
+                          darkMode={darkMode}
                         />
                       ))
                     )}
@@ -371,7 +372,7 @@ export default function FAQScreen() {
                   <View style={[styles.helpCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <MaterialIcons name='support-agent' size={24} color={theme.accent} />
                     <Text style={[styles.helpTitle, { color: theme.text }]}>Still have questions?</Text>
-                    <Text style={[styles.helpText, { color: theme.subtext }]}>
+                    <Text style={[styles.helpText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                       Can't find what you're looking for? Contact our support team for
                       personalized assistance.
                     </Text>
@@ -515,7 +516,6 @@ const styles = StyleSheet.create({
   faqAnswer: {
     fontSize: 13,
     lineHeight: 22,
-    opacity: 0.65,
   },
   emptyState: {
     alignItems: 'center',
@@ -530,7 +530,6 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 13,
     textAlign: 'center',
-    opacity: 0.65,
   },
   helpCard: {
     borderRadius: 12,
@@ -549,7 +548,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
-    opacity: 0.65,
   },
   helpButton: {
     backgroundColor: '#43cea2',

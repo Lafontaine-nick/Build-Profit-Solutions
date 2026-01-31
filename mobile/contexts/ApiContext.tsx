@@ -112,13 +112,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
       setError(null);
 
       // First test connectivity (with timeout to avoid hanging)
-      const isConnected = await apiService.testConnection();
+      const isConnected = await Promise.race([
+        apiService.testConnection(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000))
+      ]);
       if (!isConnected) {
         // Backend not reachable - this is OK, app can work offline
         if (__DEV__) {
           console.log('ℹ️  Backend not reachable, app will work in offline mode');
         }
         setIsAuthenticated(false);
+        setIsLoading(false);
         return;
       }
 

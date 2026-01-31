@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -182,9 +182,11 @@ const demo: BudgetData = {
 export default function BudgetTab({
   data = demo,
   onRefetch,
+  embedded = false,
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
+  embedded?: boolean;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -564,34 +566,111 @@ export default function BudgetTab({
         accent: '#1976d2',
       };
 
+  const hasExpenses = (projectData?.expenses || []).length > 0;
+  const totalSpent = actual;
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, embedded && styles.containerEmbedded]}>
       <ScrollView 
         style={styles.scrollContent} 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 120 }}
       >
-        {/* Wide Container - matches Overview page */}
-        <View style={[styles.outerCard, styles.budgetContainerWide, !darkMode && { backgroundColor: Colors.bg }]}>
-          {/* Budget Details Header */}
-          <View style={styles.budgetHeaderRow}>
-            <View>
-              <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Details</Text>
-              <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
-                Summary of your budget status & spending
-              </Text>
-            </View>
+        {/* Empty State Helper - Early Phase */}
+        {!hasExpenses && totalSpent === 0 && (
+          <View style={[styles.emptyStateCard, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+            <MaterialIcons name="info-outline" size={24} color={Colors.sub} />
+            <Text style={[styles.emptyStateTitle, { color: Colors.text }]}>No expenses yet</Text>
+            <Text style={[styles.emptyStateText, { color: Colors.sub }]}>
+              Once materials or labor are added, we'll track spending and alert you if anything drifts.
+            </Text>
           </View>
+        )}
 
-          {/* Totals Card */}
-          <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
-            <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.sectionCardBorder}
-            >
-            <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
+        {/* Wide Container - matches Overview page */}
+        <View
+          style={[
+            styles.outerCard,
+            styles.budgetContainerWide,
+            embedded && styles.budgetContainerEmbedded,
+            !darkMode && { backgroundColor: Colors.bg },
+          ]}
+        >
+          {/* Outer green-to-blue border wrapping Budget Details header and Budget Totals card */}
+          <LinearGradient
+            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.overviewBorder}
+          >
+            <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+              {/* Baseline Locked Indicator */}
+              <View style={[styles.baselineIndicator, { 
+                backgroundColor: Colors.surface2, 
+                borderColor: Colors.line 
+              }]}>
+                <Ionicons name="lock-closed" size={14} color={Colors.sub} />
+                <Text style={[styles.baselineIndicatorText, { color: Colors.sub }]}>
+                  Baseline from estimate
+                </Text>
+              </View>
+
+              {/* Zero-State Budget Callout - Enhanced with Quick Add */}
+              {actual === 0 && (projectData?.expenses || []).length === 0 && (
+                <View style={[styles.zeroStateCallout, { 
+                  backgroundColor: Colors.surface2, 
+                  borderColor: Colors.line 
+                }]}>
+                  <Ionicons name="wallet-outline" size={24} color="#22c55e" />
+                  <Text style={[styles.zeroStateTitle, { color: theme.text }]}>
+                    No costs logged yet
+                  </Text>
+                  <Text style={[styles.zeroStateSubtitle, { color: theme.subtext }]}>
+                    Most contractors log their first expense within 24 hours.
+                  </Text>
+                  
+                  {/* Quick Add Tooltip */}
+                  <View style={[styles.quickAddTooltip, { backgroundColor: Colors.surface2 }]}>
+                    <Ionicons name="information-circle-outline" size={14} color={theme.subtext} />
+                    <Text style={[styles.quickAddTooltipText, { color: theme.subtext }]}>
+                      Start with your first receipt or invoice
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.zeroStateButtons}>
+                    <TouchableOpacity
+                      style={[styles.zeroStatePrimaryButton, { 
+                        backgroundColor: '#22c55e' + '20',
+                        borderColor: '#22c55e' + '40'
+                      }]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setShowExpenseModal(true);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="add-circle" size={18} color="#22c55e" style={{ marginRight: 6 }} />
+                      <Text style={[styles.zeroStatePrimaryButtonText, { color: '#22c55e' }]}>
+                        Quick Add Expense
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Budget Details Header */}
+              <View style={styles.budgetHeaderRow}>
+                <View>
+                  <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Details</Text>
+                  <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                    Summary of your budget status & spending
+                  </Text>
+                </View>
+              </View>
+
+              {/* Totals Card */}
+              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
           <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
             <MaterialIcons name='account-balance-wallet' size={22} color='#22c55e' />
             <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 12 }]}>
@@ -645,9 +724,10 @@ export default function BudgetTab({
             </Text>
           </View>
           </View>
+                </View>
+              </View>
             </View>
-            </LinearGradient>
-          </View>
+          </LinearGradient>
 
           {/* Tabs */}
           <View style={styles.tabContainer}>
@@ -671,44 +751,58 @@ export default function BudgetTab({
 
           {tab === 'lines' && (
             <View style={{ marginTop: 12 }}>
-            {stableBuckets.map((item, index) => {
-                const budgetValue = Number(item.budget ?? 0);
-                const spent = Number(item.spent ?? 0);
-                const spentPercent = Math.min(100, (spent / Math.max(budgetValue, 1)) * 100);
-                const isOverBudget = spent > budgetValue;
-                const itemName = String(item.name || 'Unknown');
-                const categoryIconName = itemName.toLowerCase().includes('labor') ? 'engineering' : 
-                                    itemName.toLowerCase().includes('materials') || itemName.toLowerCase().includes('equipment') ? 'construction' :
-                                    itemName.toLowerCase().includes('subs') ? 'people' : 'inventory';
-                
-                return (
-                  <View key={item.stableId || item.id || `budget-item-${index}`} style={styles.budgetCardContainer}>
-                    <LinearGradient
-                      colors={isOverBudget ? ["rgba(239, 68, 68, 0.8)", "rgba(245, 158, 11, 0.8)"] : ["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.sectionCardBorder}
-                    >
-                    <View style={[styles.budgetCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
+              {/* Outer green-to-blue border wrapping all budget category cards */}
+              <LinearGradient
+                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.overviewBorder}
+              >
+                <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+                  {/* Header for Budget Categories */}
+                  <View style={styles.budgetHeaderRow}>
+                    <View>
+                      <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Categories</Text>
+                      <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                        Track spending by category
+                      </Text>
+                    </View>
+                  </View>
+
+                  {stableBuckets.map((item, index) => {
+                    const budgetValue = Number(item.budget ?? 0);
+                    const spent = Number(item.spent ?? 0);
+                    const spentPercent = Math.min(100, (spent / Math.max(budgetValue, 1)) * 100);
+                    const isOverBudget = spent > budgetValue;
+                    const itemName = String(item.name || 'Unknown');
+                    const categoryIconName = itemName.toLowerCase().includes('labor') ? 'engineering' : 
+                                        itemName.toLowerCase().includes('materials') || itemName.toLowerCase().includes('equipment') ? 'construction' :
+                                        itemName.toLowerCase().includes('subs') ? 'people' : 'inventory';
+                    
+                    return (
+                      <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
+                        <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
                       <Pressable
                         onPress={() => setSelectedCategory(itemName)}
                         style={{ flex: 1 }}
                       >
                         {/* Header with Category and Icon */}
-                        <View style={styles.budgetCardHeader}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <MaterialIcons name={categoryIconName as any} size={22} color="#22c55e" />
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.budgetCardTitle, { color: theme.text }]}>
+                        <View style={[styles.budgetCardHeader, { justifyContent: 'center', position: 'relative', width: '100%' }]}>
+                          <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                            <View style={{ alignItems: 'center', marginBottom: 4 }}>
+                              <MaterialIcons name={categoryIconName as any} size={22} color="#22c55e" />
+                            </View>
+                            <View style={{ alignItems: 'center' }}>
+                              <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
                                 {itemName}
                               </Text>
-                              <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2 }}>
+                              <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
                                 Tap to view transactions →
                               </Text>
                             </View>
                           </View>
                           {isOverBudget && (
-                            <View style={[styles.warningBadge, { backgroundColor: theme.accent }]}>
+                            <View style={[styles.warningBadge, { backgroundColor: theme.accent, position: 'absolute', right: 0 }]}>
                               <Text style={styles.warningBadgeText}>Over Budget</Text>
                             </View>
                           )}
@@ -771,11 +865,12 @@ export default function BudgetTab({
                           </View>
                         </View>
                       </Pressable>
-                    </View>
-                    </LinearGradient>
-                  </View>
-                );
-              })}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </LinearGradient>
             </View>
         )}
 
@@ -806,13 +901,13 @@ export default function BudgetTab({
                     >
                       {/* Header with Category and Icon */}
                       <View style={styles.budgetCardHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
                           <MaterialIcons name="receipt-long" size={22} color="#22c55e" />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.budgetCardTitle, { color: theme.text }]}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
                               Purchase Orders
                             </Text>
-                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2 }}>
+                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
                               Tap to view transactions →
                             </Text>
                           </View>
@@ -1889,6 +1984,9 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: -20, // Extend beyond parent ScrollView padding
   },
+  containerEmbedded: {
+    marginHorizontal: 0,
+  },
   scrollContent: { padding: 0 },
   outerCard: {
     backgroundColor: "#000000",
@@ -1896,8 +1994,20 @@ const styles = StyleSheet.create({
   },
   budgetContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
-    paddingHorizontal: 8, // Match dashboard wideContainer pattern
+    paddingHorizontal: 4, // Match dashboard wideContainer pattern
     paddingVertical: 18,
+  },
+  budgetContainerEmbedded: {
+    paddingHorizontal: 0,
+  },
+  overviewBorder: {
+    borderRadius: 20,
+    padding: 1,
+    marginBottom: 16,
+  },
+  overviewInner: {
+    borderRadius: 18,
+    padding: 12,
   },
   budgetHeaderRow: {
     flexDirection: "row",
@@ -1924,9 +2034,8 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   sectionCard: {
-    backgroundColor: "#000000",
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 14,
+    padding: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1994,8 +2103,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   budgetCard: {
-    backgroundColor: "#000000",
-    borderRadius: 18,
     padding: 16,
   },
   budgetCardHeader: {
@@ -2663,6 +2770,94 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 15,
     fontWeight: '600',
+  },
+  emptyStateCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  zeroStateCallout: {
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  zeroStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  zeroStateSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  zeroStateButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  zeroStatePrimaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+  },
+  zeroStatePrimaryButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  quickAddTooltip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  quickAddTooltipText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  baselineIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
+  },
+  baselineIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 4,
   },
   modalSaveButton: {
     flex: 1,

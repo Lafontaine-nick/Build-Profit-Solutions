@@ -1174,7 +1174,7 @@ export default function ProfileScreen() {
               ]}
             />
           </View>
-          <Text style={[styles.profileCompletionHint, { color: theme.subtext }]}>
+          <Text style={[styles.profileCompletionHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
             Complete your profile to get better lead matches
           </Text>
         </View>
@@ -1232,10 +1232,10 @@ export default function ProfileScreen() {
             <Text style={[styles.userName, { color: theme.text }]}>
               {user.name}
             </Text>
-            <Text style={[styles.userRole, { color: theme.subtext }]}>
+            <Text style={[styles.userRole, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               {user.role}
             </Text>
-            <Text style={[styles.userCompany, { color: theme.subtext }]}>
+            <Text style={[styles.userCompany, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               {user.company}
             </Text>
           <View style={styles.ratingContainer}>
@@ -1243,13 +1243,13 @@ export default function ProfileScreen() {
             <Text style={[styles.ratingText, { color: theme.text }]}>
               {user.averageRating}
             </Text>
-            <Text style={[styles.reviewCount, { color: theme.subtext }]}>
+            <Text style={[styles.reviewCount, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               ({user.reviewCount} reviews)
             </Text>
           </View>
           <View style={styles.memberSinceContainer}>
-            <MaterialIcons name='event' size={14} color={theme.subtext} />
-            <Text style={[styles.memberSinceText, { color: theme.subtext }]}>
+            <MaterialIcons name='event' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
+            <Text style={[styles.memberSinceText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               Member since{' '}
               {new Date(user.joinDate).toLocaleDateString('en-US', {
                 month: 'short',
@@ -1373,7 +1373,7 @@ export default function ProfileScreen() {
                   Add Company Bio
                 </Text>
               </TouchableOpacity>
-              <Text style={[styles.bioHint, { color: theme.subtext }]}>
+              <Text style={[styles.bioHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                 Profiles with bios get 27% more inquiries
               </Text>
             </View>
@@ -1461,7 +1461,7 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 )}
                 {item.caption && (
-                  <Text style={[styles.portfolioCaption, { color: theme.subtext }]} numberOfLines={2}>
+                  <Text style={[styles.portfolioCaption, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]} numberOfLines={2}>
                     {item.caption}
                   </Text>
                 )}
@@ -1476,7 +1476,7 @@ export default function ProfileScreen() {
             <Text style={[styles.emptyPortfolioTitle, { color: theme.text }]}>
               Add your first project
             </Text>
-            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext }]}>
+            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               Before & after photos work best
             </Text>
             <TouchableOpacity
@@ -1593,8 +1593,8 @@ export default function ProfileScreen() {
 
             {/* Privacy Hint */}
             <View style={styles.privacyHint}>
-              <MaterialIcons name='lock' size={14} color={theme.subtext} />
-              <Text style={[styles.privacyHintText, { color: theme.subtext }]}>
+              <MaterialIcons name='lock' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
+              <Text style={[styles.privacyHintText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                 Your contact details are only shared after a lead match.
               </Text>
             </View>
@@ -1640,7 +1640,7 @@ export default function ProfileScreen() {
               <View style={[styles.certificationIconContainer, { backgroundColor: 'rgba(156, 163, 175, 0.15)' }]}>
                 <MaterialIcons name='verified' size={18} color='#9CA3AF' />
               </View>
-              <Text style={[styles.certificationText, { color: theme.subtext }]}>
+              <Text style={[styles.certificationText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                 No licenses added
               </Text>
             </View>
@@ -1824,6 +1824,7 @@ export default function ProfileScreen() {
                 <Text style={[styles.insuranceText, { 
                   color: covered ? theme.text : theme.subtext,
                   fontWeight: covered ? '500' : '400',
+                  opacity: (!covered && !darkMode) ? 0.85 : 1,
                 }]}>
                   {type
                     .replace(/([A-Z])/g, ' $1')
@@ -1865,7 +1866,7 @@ export default function ProfileScreen() {
               {text}
             </Text>
           </View>
-          {rightComponent || (showChevron && <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: 0.5 }} />)}
+          {rightComponent || (showChevron && <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />)}
         </TouchableOpacity>
       );
     };
@@ -1892,7 +1893,7 @@ export default function ProfileScreen() {
       return (
         <View key={title} style={[styles.settingsGroupContainer, isFirst && { marginTop: 0 }]}>
           {title && (
-            <Text style={[styles.settingsGroupTitle, { color: theme.subtext }]}>
+            <Text style={[styles.settingsGroupTitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
               {title.toUpperCase()}
             </Text>
           )}
@@ -1922,7 +1923,7 @@ export default function ProfileScreen() {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <MaterialIcons name='search' size={20} color={theme.subtext} />
+            <MaterialIcons name='search' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
             <TextInput
               style={[styles.searchInput, { color: theme.text }]}
               placeholder="Search settings"
@@ -1943,7 +1944,7 @@ export default function ProfileScreen() {
                 }}
                 style={styles.searchClearButton}
               >
-                <MaterialIcons name='close' size={18} color={theme.subtext} />
+                <MaterialIcons name='close' size={18} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
               </TouchableOpacity>
             )}
           </View>
@@ -1955,6 +1956,44 @@ export default function ProfileScreen() {
             {renderSettingItem('change-password', 'lock', 'Change Password', () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               handleChangePassword();
+            })}
+            {renderSettingItem('reset-onboarding', 'refresh', 'Reset Onboarding', async () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert(
+                'Reset Onboarding',
+                'This will show the onboarding flow again and clear all current estimate data. Continue?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Reset & View',
+                    onPress: async () => {
+                      try {
+                        // Clear onboarding flags
+                        await AsyncStorage.removeItem('bps.onboardingComplete');
+                        await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
+                        await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
+                        await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
+                        await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
+                        await AsyncStorage.setItem('bps.forceEstimateOnboarding', 'true');
+                        
+                        // Clear all bid storage keys to remove customer information and bid data
+                        await AsyncStorage.removeItem('bps.currentBid.v2');
+                        await AsyncStorage.removeItem('bps.currentBid');
+                        await AsyncStorage.removeItem('bps.currentBid.v1');
+                        
+                        // Clear first estimate flags
+                        await AsyncStorage.removeItem('bps.firstEstimateCreated');
+                        await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
+                        
+                        router.push('/onboarding');
+                      } catch (error) {
+                        console.error('Error resetting onboarding:', error);
+                        Alert.alert('Error', 'Failed to reset onboarding.');
+                      }
+                    },
+                  },
+                ]
+              );
             })}
           </>
         ), true)}
@@ -1992,7 +2031,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={{ flex: 1, maxWidth: '62%' }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Push Notifications</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                       Leads, updates, reminders
                     </Text>
                   </View>
@@ -2137,10 +2176,10 @@ export default function ProfileScreen() {
                   <Text style={[styles.settingText, { color: theme.text }]}>{t('profile.language')}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.settingText, { color: theme.subtext, fontSize: 14 }]}>
+                  <Text style={[styles.settingText, { color: theme.subtext, fontSize: 14, opacity: darkMode ? 0.85 : 0.85 }]}>
                     {getLanguageLabel(selectedLanguage)}
                   </Text>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: 0.5 }} />
+                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
                 </View>
               </TouchableOpacity>
             )}
@@ -2165,11 +2204,11 @@ export default function ProfileScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Payment Methods</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                       Payouts & client payments
                     </Text>
                   </View>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: 0.5 }} />
+                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
                 </View>
               </TouchableOpacity>
             </View>
@@ -2207,12 +2246,12 @@ export default function ProfileScreen() {
                 </View>
                 <View style={{ flex: 1, maxWidth: '70%' }}>
                   <Text style={[styles.settingText, { color: theme.text }]}>About</Text>
-                  <Text style={[styles.settingSubtext, { color: theme.subtext }]}>
+                  <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                     {`Version ${Constants.expoConfig?.version || '1.0.0'}`}
                   </Text>
                 </View>
               </View>
-              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: 0.5 }} />
+              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
             </TouchableOpacity>
           </>
         ))}
@@ -2823,7 +2862,7 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext }]}>
+                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                     Current Password
                   </Text>
                   <View style={[styles.passwordInputContainer, { 
@@ -2850,13 +2889,14 @@ export default function ProfileScreen() {
                         name={showCurrentPassword ? 'visibility' : 'visibility-off'}
                         size={20}
                         color={theme.subtext}
+                        style={{ opacity: darkMode ? 1 : 0.85 }}
                       />
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext }]}>
+                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                     New Password
                   </Text>
                   <View style={[styles.passwordInputContainer, { 
@@ -2883,16 +2923,17 @@ export default function ProfileScreen() {
                         name={showNewPassword ? 'visibility' : 'visibility-off'}
                         size={20}
                         color={theme.subtext}
+                        style={{ opacity: darkMode ? 1 : 0.85 }}
                       />
                     </TouchableOpacity>
                   </View>
-                  <Text style={[styles.passwordHelperText, { color: theme.subtext }]}>
+                  <Text style={[styles.passwordHelperText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                     Must be at least 8 characters
                   </Text>
                 </View>
 
                 <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext }]}>
+                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                     Confirm New Password
                   </Text>
                   <View style={[styles.passwordInputContainer, { 
@@ -2919,6 +2960,7 @@ export default function ProfileScreen() {
                         name={showConfirmPassword ? 'visibility' : 'visibility-off'}
                         size={20}
                         color={theme.subtext}
+                        style={{ opacity: darkMode ? 1 : 0.85 }}
                       />
                     </TouchableOpacity>
                   </View>
@@ -4138,7 +4180,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 4,
     marginLeft: 4,
     paddingHorizontal: 4,
-    opacity: 0.7,
     textTransform: 'uppercase',
   },
   settingsGroup: {
@@ -4175,7 +4216,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   settingSubtext: {
     fontSize: 13,
     marginTop: 2,
-    opacity: 0.65,
   },
   switchWrapper: {
     marginTop: 6,

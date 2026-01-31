@@ -108,7 +108,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       try {
         // Try multiple API endpoints
         const API_ENDPOINTS = [
-          'http://192.168.0.201:3001/api',
+          'http://192.168.1.115:3001/api',
           'http://localhost:3001/api',
           'http://127.0.0.1:3001/api'
         ];
@@ -1257,7 +1257,7 @@ const getStyles = (palette) => StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
     padding: 14,
-    backgroundColor: palette.card,
+    backgroundColor: palette.chip,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: palette.divider,

@@ -27,6 +27,8 @@ import { Switch, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
 
 const Colors = {
   bg: "#000000",
@@ -72,6 +74,8 @@ type Props = {
   onAction?: (action: { type: string; [key: string]: any }) => Promise<any> | void;
   // Optional ZIP code for contractor search
   defaultZip?: string;
+  // Optional initial question to send automatically
+  initialQuestion?: string;
 };
 
 const QUICK_ACTIONS = [
@@ -83,7 +87,7 @@ const QUICK_ACTIONS = [
   "Find Subcontractors",
 ];
 
-const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction, defaultZip = '89011' }) => {
+const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction, defaultZip = '89011', initialQuestion }) => {
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
@@ -94,29 +98,124 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const { enabled: aiManagerEnabled, loading: aiModeLoading, toggleEnabled } = useAIManagerMode();
-  const [hasProactiveCheck, setHasProactiveCheck] = useState(false);
   const insets = useSafeAreaInsets();
   const dotAnim1 = useRef(new Animated.Value(0.4)).current;
   const dotAnim2 = useRef(new Animated.Value(0.4)).current;
   const dotAnim3 = useRef(new Animated.Value(0.4)).current;
   const sendButtonScale = useRef(new Animated.Value(1)).current;
 
-  // Proactive monitoring: When AI PM mode is enabled and modal opens, trigger a health check
+  // Auto-send initial question if provided
+  const initialQuestionSentRef = useRef(false);
+  
   useEffect(() => {
-    if (visible && aiManagerEnabled && !hasProactiveCheck && messages.length === 0 && projectInfo) {
-      setHasProactiveCheck(true);
-      
-      // Auto-trigger health check by setting input and triggering send
+    if (visible && initialQuestion && messages.length === 0 && !loading && !initialQuestionSentRef.current) {
+      initialQuestionSentRef.current = true;
+      // Set input and auto-send after a brief delay
       setTimeout(() => {
-        handleQuickAction("Give me a project health check.");
+        setInput(initialQuestion);
+        // Trigger send after input is set
+        setTimeout(() => {
+          // Manually trigger send by calling sendMessage logic
+          if (initialQuestion.trim()) {
+            const userMsg: Message = {
+              id: Date.now().toString(),
+              role: 'user',
+              content: initialQuestion.trim(),
+              timestamp: new Date(),
+            };
+            setMessages([userMsg]);
+            setInput("");
+            setLoading(true);
+            setIsTyping(true);
+            
+            // Trigger API call (extracted from sendMessage)
+            (async () => {
+              try {
+                let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
+                if (!AI_API_BASE) {
+                  if (Platform.OS === 'web') {
+                    AI_API_BASE = 'http://localhost:3001';
+                  } else {
+                    AI_API_BASE = 'http://192.168.1.115:3001';
+                  }
+                }
+                const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+                
+                // Create AbortController for timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                
+                const response = await fetch(API_URL, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    message: initialQuestion.trim(),
+                    context,
+                    history: [],
+                    user_settings: {
+                      ai_project_manager_mode: aiManagerEnabled,
+                    },
+                  }),
+                  signal: controller.signal,
+                });
+                
+                clearTimeout(timeoutId);
+                const data = await response.json();
+                if (data.error) {
+                  const errorMsg: Message = {
+                    id: Date.now().toString() + "-error",
+                    role: "assistant",
+                    content: data.message || "Sorry, I couldn't generate a response.",
+                    timestamp: new Date(),
+                  };
+                  setMessages((prev) => [...prev, errorMsg]);
+                  setIsTyping(false);
+                  setLoading(false);
+                } else {
+                  const aiMsg: Message = {
+                    id: Date.now().toString(),
+                    role: "assistant",
+                    content: data.reply || data.response || data.message || "I'm here to help!",
+                    timestamp: new Date(),
+                  };
+                  setMessages((prev) => [...prev, aiMsg]);
+                  setIsTyping(false);
+                  setLoading(false);
+                }
+              } catch (error: any) {
+                // Handle timeout/abort errors
+                if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+                  const timeoutMsg: Message = {
+                    id: Date.now().toString() + "-timeout",
+                    role: "assistant",
+                    content: "The request took too long. Please try again or check your connection.",
+                    timestamp: new Date(),
+                  };
+                  setMessages((prev) => [...prev, timeoutMsg]);
+                } else {
+                  const errorMsg: Message = {
+                    id: Date.now().toString() + "-error",
+                    role: "assistant",
+                    content: "Sorry, I encountered an error. Please try again.",
+                    timestamp: new Date(),
+                  };
+                  setMessages((prev) => [...prev, errorMsg]);
+                }
+                setIsTyping(false);
+                setLoading(false);
+              }
+            })();
+          }
+        }, 300);
       }, 500);
     }
     
-    // Reset proactive check when modal closes
+    // Reset when modal closes
     if (!visible) {
-      setHasProactiveCheck(false);
+      initialQuestionSentRef.current = false;
     }
-  }, [visible, aiManagerEnabled, hasProactiveCheck, messages.length, projectInfo]);
+  }, [visible, initialQuestion, messages.length, loading, context, aiManagerEnabled]);
+
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -201,6 +300,59 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   } catch (e) {
     // Context parsing failed, use defaults
   }
+
+  // Hash-based caching for health summaries
+  const computeProjectHash = (projectData: any): string => {
+    // Create a hash from key project metrics that affect health
+    const hashData = {
+      projectId: projectData?.projectId || projectData?.id,
+      bidTotal: projectData?.bidTotal || projectData?.total || 0,
+      estimatedCost: projectData?.estimatedCost || 0,
+      actualCost: projectData?.actualCost || projectData?.spent || 0,
+      margin: projectData?.margin || 0,
+      markup: projectData?.markup || 0,
+      progress: projectData?.progress || projectData?.overallProgressPct || 0,
+      status: projectData?.status,
+      bucketCount: projectData?.bucketCount || projectData?.buckets?.length || 0,
+      milestoneCount: projectData?.milestoneCount || projectData?.milestones?.length || 0,
+      expenseCount: projectData?.expenseCount || projectData?.expenses?.length || 0,
+      changeOrderCount: projectData?.changeOrderCount || projectData?.changeOrders?.length || 0,
+    };
+    // Simple hash function (for production, consider using crypto)
+    return JSON.stringify(hashData);
+  };
+
+  const getCachedHealthSummary = async (projectHash: string): Promise<string | null> => {
+    try {
+      const cacheKey = `ai_pm_health_${projectHash}`;
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        const { summary, timestamp } = JSON.parse(cached);
+        const TTL = 6 * 60 * 60 * 1000; // 6 hours
+        if (Date.now() - timestamp < TTL) {
+          return summary;
+        }
+        // Cache expired, remove it
+        await AsyncStorage.removeItem(cacheKey);
+      }
+      return null;
+    } catch (e) {
+      console.warn('Error reading health summary cache:', e);
+      return null;
+    }
+  };
+
+  const setCachedHealthSummary = async (projectHash: string, summary: string) => {
+    try {
+      const cacheKey = `ai_pm_health_${projectHash}`;
+      await AsyncStorage.setItem(cacheKey, JSON.stringify({
+        summary,
+        timestamp: Date.now(),
+      }));
+    } catch (e) {
+      console.warn('Error caching health summary:', e);
+    }
+  };
 
   // Helper function to generate user-friendly action descriptions
   const getActionDescription = (action: any): string | null => {
@@ -419,15 +571,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       if (!AI_API_BASE) {
         if (Platform.OS === 'web') {
           AI_API_BASE = 'http://localhost:3001';
-        } else {
-          // For all mobile platforms (iOS/Android, simulator/device), use network IP
-          // This is more reliable than localhost which doesn't work with Expo Go
-          AI_API_BASE = 'http://192.168.0.201:3001';
-        }
+                  } else {
+                    // For all mobile platforms (iOS/Android, simulator/device), use network IP
+                    // This is more reliable than localhost which doesn't work with Expo Go
+                    AI_API_BASE = 'http://192.168.1.115:3001';
+                  }
       }
       
       const API_URL = `${AI_API_BASE}/api/ai-assistant`;
       console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
       const response = await fetch(API_URL, {
         method: "POST",
@@ -443,9 +599,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             ai_project_manager_mode: aiManagerEnabled,
           },
         }),
+        signal: controller.signal,
       });
 
       const data = await response.json();
+      clearTimeout(timeoutId);
 
       // Check for error response
       if (data.error) {
@@ -486,6 +644,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         // If show_contract action exists, we'll add the PDF attachment
         // The PDF will be generated by the action handler, so we'll add it after action execution
       };
+
+      // Cache health check responses
+      const isHealthCheck = newMessage.content.toLowerCase().includes('health check') || 
+                           newMessage.content.toLowerCase().includes('project health');
+      if (isHealthCheck && assistantMessage.content && context) {
+        try {
+          const parsed = JSON.parse(context);
+          const projectHash = computeProjectHash(parsed);
+          setCachedHealthSummary(projectHash, assistantMessage.content);
+        } catch (e) {
+          // Ignore caching errors
+        }
+      }
 
       setIsTyping(false);
       setMessages((prev) => [...prev, assistantMessage]);
@@ -624,24 +795,176 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       return;
     }
     
-    // If it's already a full prompt (contains question mark or period), use it directly
-    if (labelOrPrompt.includes("?") || labelOrPrompt.includes(".")) {
-      setInput(labelOrPrompt);
-      return;
+    // Determine the actual message to send
+    let messageToSend = labelOrPrompt;
+    
+    // If it's not already a full prompt, use suggestion mapping
+    if (!labelOrPrompt.includes("?") && !labelOrPrompt.includes(".")) {
+      const suggestions: { [key: string]: string } = {
+        "Add Material": "Can you add material to this estimate?",
+        "Add Labor": "Can you add labor to this estimate?",
+        "Set Payment Schedule": "Can you set up a payment schedule for this project?",
+        "Show Bid Summary": "Can you show me a summary of this bid?",
+        "Check Profit": "Can you calculate the projected profit for this project?",
+        "Check project health": "Give me a project health check.",
+        "Scan for missing costs": "Scan this estimate for missing costs.",
+        "Forecast final profit": "Forecast the final cost and profit for this project.",
+      };
+      messageToSend = suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`;
     }
     
-    // Otherwise, treat it as a label and use suggestion mapping
-    const suggestions: { [key: string]: string } = {
-      "Add Material": "Can you add material to this estimate?",
-      "Add Labor": "Can you add labor to this estimate?",
-      "Set Payment Schedule": "Can you set up a payment schedule for this project?",
-      "Show Bid Summary": "Can you show me a summary of this bid?",
-      "Check Profit": "Can you calculate the projected profit for this project?",
-      "Check project health": "Give me a project health check.",
-      "Scan for missing costs": "Scan this estimate for missing costs.",
-      "Forecast final profit": "Forecast final cost and profit.",
-    };
-    setInput(suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`);
+    // Set input and auto-send after a brief delay
+    setInput(messageToSend);
+    setTimeout(() => {
+      // Trigger send by calling sendMessage logic directly
+      if (messageToSend.trim() && !loading) {
+        // Haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        // Dismiss keyboard
+        Keyboard.dismiss();
+        
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          role: "user",
+          content: messageToSend.trim(),
+          timestamp: new Date(),
+        };
+        
+        setMessages((prev) => [...prev, newMessage]);
+        setInput("");
+        setLoading(true);
+        setIsTyping(true);
+        
+        // Scroll to bottom
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 50);
+        
+        // Make API call
+        (async () => {
+          try {
+            let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
+            if (!AI_API_BASE) {
+              if (Platform.OS === 'web') {
+                AI_API_BASE = 'http://localhost:3001';
+              } else {
+                AI_API_BASE = 'http://192.168.1.62:3001';
+              }
+            }
+            const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+            
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            const response = await fetch(API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: messageToSend.trim(),
+                context,
+                history: messages.map((m) => ({
+                  role: m.role,
+                  content: m.content,
+                })),
+                user_settings: {
+                  ai_project_manager_mode: aiManagerEnabled,
+                },
+              }),
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            
+            if (data.error) {
+              let errorMessage = data.message || "Sorry, I couldn't generate a response.";
+              if (data.details && data.details.includes("Rate limit")) {
+                errorMessage = "I've hit the API rate limit. Please wait about 20 seconds and try again.";
+              }
+              const errorMsg: Message = {
+                id: Date.now().toString() + "-error",
+                role: "assistant",
+                content: errorMessage,
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, errorMsg]);
+              setIsTyping(false);
+              setLoading(false);
+            } else {
+              const assistantMessage: Message = {
+                id: Date.now().toString() + "-ai",
+                role: "assistant",
+                content: data.reply ?? "Sorry, I couldn't generate a response.",
+                timestamp: new Date(),
+              };
+              
+              setIsTyping(false);
+              setMessages((prev) => [...prev, assistantMessage]);
+              
+              // Smooth scroll to bottom
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }, 100);
+              
+              // Handle AI actions if any
+              if (data.actions && Array.isArray(data.actions) && onAction) {
+                const seenActions = new Set<string>();
+                const uniqueActions: any[] = [];
+                
+                data.actions.forEach((action: any) => {
+                  const actionKey = `${action.type}-${JSON.stringify(action.params || {})}`;
+                  if (!seenActions.has(actionKey)) {
+                    seenActions.add(actionKey);
+                    uniqueActions.push(action);
+                  }
+                });
+                
+                uniqueActions.forEach((action) => {
+                  const confirmationMessage = getActionDescription(action);
+                  if (confirmationMessage) {
+                    Alert.alert("Confirm Action", confirmationMessage, [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Confirm",
+                        onPress: () => {
+                          onAction(action);
+                        },
+                      },
+                    ]);
+                  } else {
+                    onAction(action);
+                  }
+                });
+              }
+              
+              setLoading(false);
+            }
+          } catch (error: any) {
+            if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+              const timeoutMsg: Message = {
+                id: Date.now().toString() + "-timeout",
+                role: "assistant",
+                content: "The request took too long. Please try again or check your connection.",
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, timeoutMsg]);
+            } else {
+              const errorMsg: Message = {
+                id: Date.now().toString() + "-error",
+                role: "assistant",
+                content: "Sorry, I encountered an error. Please try again.",
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, errorMsg]);
+            }
+            setIsTyping(false);
+            setLoading(false);
+          }
+        })();
+      }
+    }, 100);
   };
 
   const handleSubcontractorSelect = async (subcontractor: any) => {
@@ -1026,23 +1349,28 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     </View>
 
                     {aiManagerEnabled && (
-                      <View style={styles.managerChipRow}>
-                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                            Watching costs
-                          </Text>
+                      <>
+                        <View style={styles.managerChipRow}>
+                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                              Watching costs
+                            </Text>
+                          </View>
+                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                              Tracking schedule
+                            </Text>
+                          </View>
+                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
+                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                              Protecting margin
+                            </Text>
+                          </View>
                         </View>
-                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                            Tracking schedule
-                          </Text>
-                        </View>
-                        <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                          <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                            Protecting margin
-                          </Text>
-                        </View>
-                      </View>
+                        <Text style={[styles.managerMicrocopy, !darkMode && { color: ThemeColors.sub }]}>
+                          Runs checks when you open the assistant or update the project.
+                        </Text>
+                      </>
                     )}
                       </View>
                     </LinearGradient>
@@ -1765,5 +2093,12 @@ const styles = StyleSheet.create({
     color: "#BBF7D0",
     fontSize: 12,
     fontWeight: "600",
+  },
+  managerMicrocopy: {
+    color: "rgba(148, 163, 184, 0.7)",
+    fontSize: 11,
+    marginTop: 8,
+    paddingHorizontal: 4,
+    lineHeight: 15,
   },
 });

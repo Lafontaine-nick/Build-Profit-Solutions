@@ -157,10 +157,10 @@ export default function ContactSupportScreen() {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       router.back();
                     }}
-                    style={[styles.backButton, { backgroundColor: "#000000" }]}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
                   </TouchableOpacity>
                 </LinearGradient>
               </View>
@@ -191,7 +191,7 @@ export default function ContactSupportScreen() {
                       <Text style={[styles.sectionTitle, { color: theme.text }]}>
                         Quick Contact
                       </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         Reach us directly via email or phone
                       </Text>
 
@@ -207,11 +207,11 @@ export default function ContactSupportScreen() {
                           <Text style={[styles.quickContactLabel, { color: theme.text }]}>
                             Email Support
                           </Text>
-                          <Text style={[styles.quickContactValue, { color: theme.subtext }]}>
+                          <Text style={[styles.quickContactValue, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                             support@buildprofitsolutions.com
                           </Text>
                         </View>
-                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} />
+                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.7 }} />
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -226,11 +226,11 @@ export default function ContactSupportScreen() {
                           <Text style={[styles.quickContactLabel, { color: theme.text }]}>
                             Phone Support
                           </Text>
-                          <Text style={[styles.quickContactValue, { color: theme.subtext }]}>
+                          <Text style={[styles.quickContactValue, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                             (702) 861-8618
                           </Text>
                         </View>
-                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} />
+                        <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.7 }} />
                       </TouchableOpacity>
                     </View>
 
@@ -239,7 +239,7 @@ export default function ContactSupportScreen() {
                       <Text style={[styles.sectionTitle, { color: theme.text }]}>
                         Send us a Message
                       </Text>
-                      <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                      <Text style={[styles.sectionSubtitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         Fill out the form below and we'll get back to you soon
                       </Text>
 
@@ -252,8 +252,8 @@ export default function ContactSupportScreen() {
                           style={[
                             styles.input,
                             {
-                              backgroundColor: theme.inputBg,
-                              borderColor: theme.border,
+                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                               color: theme.text,
                             },
                           ]}
@@ -273,8 +273,8 @@ export default function ContactSupportScreen() {
                           style={[
                             styles.input,
                             {
-                              backgroundColor: theme.inputBg,
-                              borderColor: theme.border,
+                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                               color: theme.text,
                             },
                           ]}
@@ -296,8 +296,8 @@ export default function ContactSupportScreen() {
                           style={[
                             styles.input,
                             {
-                              backgroundColor: theme.inputBg,
-                              borderColor: theme.border,
+                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                               color: theme.text,
                             },
                           ]}
@@ -316,8 +316,8 @@ export default function ContactSupportScreen() {
                           style={[
                             styles.textArea,
                             {
-                              backgroundColor: theme.inputBg,
-                              borderColor: theme.border,
+                              backgroundColor: darkMode ? theme.inputBg : 'rgba(0, 0, 0, 0.08)',
+                              borderColor: darkMode ? theme.border : 'rgba(0, 0, 0, 0.15)',
                               color: theme.text,
                             },
                           ]}
@@ -357,7 +357,7 @@ export default function ContactSupportScreen() {
                     {/* Response Time Info */}
                     <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                       <MaterialIcons name='info-outline' size={20} color={theme.accent} />
-                      <Text style={[styles.infoText, { color: theme.subtext }]}>
+                      <Text style={[styles.infoText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                         We typically respond within 24 hours during business days
                       </Text>
                     </View>
@@ -442,7 +442,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 20,
     lineHeight: 20,
-    opacity: 0.65,
   },
   quickContactRow: {
     flexDirection: 'row',
@@ -468,7 +467,6 @@ const styles = StyleSheet.create({
   },
   quickContactValue: {
     fontSize: 13,
-    opacity: 0.65,
   },
   form: {
     marginTop: 8,
@@ -523,7 +521,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
-    opacity: 0.65,
   },
 });
 

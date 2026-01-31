@@ -2,6 +2,7 @@ const OpenAI = require('openai');
 const { loadProjects } = require('./leadStorage');
 const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 
 // Initialize OpenAI client - check for valid key (not placeholder)
 const openaiApiKey = process.env.OPENAI_API_KEY || '';
@@ -15,6 +16,100 @@ const hasValidOpenAiKey = openaiApiKey &&
 const openai = hasValidOpenAiKey
   ? new OpenAI({ apiKey: openaiApiKey })
   : null;
+
+// ---------- HASH-BASED CACHE FOR AI INSIGHTS ---------- //
+// In-memory cache: userId -> { hash, aiInsights, aiNextSteps, cachedAt, ttl }
+const aiCache = new Map();
+
+// TTL: 6 hours (21600000 ms) - refresh AI insights every 6 hours even if data unchanged
+const AI_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+/**
+ * Compute a compact hash of the AI input snapshot
+ * Only includes fields that should trigger AI refresh when changed
+ */
+function computeAiSnapshotHash(summary, projectsForModel, baseInsights, baseNextSteps, materialStats) {
+  // Create compact AI summary (only what AI needs, not full project objects)
+  const aiSummary = {
+    projectCount: summary.projectCount,
+    totals: summary.totals,
+    statusBreakdown: summary.statusBreakdown,
+    // Compact project summaries for AI (not full objects)
+    projects: projectsForModel.map(p => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      bidPrice: p.bidPrice,
+      estimatedCost: p.estimatedCost,
+      actualCost: p.actualCost,
+      marginPct: p.marginPct,
+      markupPct: p.markupPct,
+      profit: p.profit,
+      budgetVariance: p.budgetVariance,
+      receiptsCoveragePct: p.receiptsCoveragePct,
+      hasReceiptsAttached: p.hasReceiptsAttached,
+      hasPermitLineItem: p.hasPermitLineItem,
+      hasPermitFeesFlag: p.hasPermitFeesFlag,
+      progressPct: p.progressPct,
+      projectType: p.projectType,
+      location: p.location,
+      // Days in current status (for AI context)
+      daysInStatus: p.updatedAt ? Math.floor((Date.now() - new Date(p.updatedAt).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+      highValueFlag: p.bidPrice >= 20000,
+    })),
+    // Rule-based findings (AI should complement, not duplicate)
+    baseInsightCount: baseInsights.length,
+    baseNextStepCount: baseNextSteps.length,
+    // Material trends (only significant ones)
+    materialTrends: materialStats
+      .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5)
+      .map(m => ({
+        projectId: m.projectId,
+        lineItemName: m.lineItemName,
+        changePct30d: m.changePct30d,
+      })),
+  };
+
+  const snapshotString = JSON.stringify(aiSummary);
+  return crypto.createHash('sha256').update(snapshotString).digest('hex');
+}
+
+/**
+ * Get cached AI insights if available and not expired
+ */
+function getCachedAiInsights(userId, snapshotHash) {
+  const cached = aiCache.get(userId);
+  if (!cached) return null;
+
+  const now = Date.now();
+  const isExpired = (now - cached.cachedAt) > AI_CACHE_TTL_MS;
+  const hashMatches = cached.hash === snapshotHash;
+
+  if (isExpired || !hashMatches) {
+    // Cache expired or data changed - invalidate
+    aiCache.delete(userId);
+    return null;
+  }
+
+  return {
+    insights: cached.aiInsights,
+    nextSteps: cached.aiNextSteps,
+    cachedAt: cached.cachedAt,
+  };
+}
+
+/**
+ * Store AI insights in cache
+ */
+function setCachedAiInsights(userId, snapshotHash, aiInsights, aiNextSteps) {
+  aiCache.set(userId, {
+    hash: snapshotHash,
+    aiInsights,
+    aiNextSteps,
+    cachedAt: Date.now(),
+    ttl: AI_CACHE_TTL_MS,
+  });
+}
 
 /**
  * Load material prices from JSON storage
@@ -110,8 +205,11 @@ async function getMaterialStatsForUser(userId, projectsForModel) {
 
 /**
  * Build AI dashboard data for a specific user
+ * @param {string} userId - User ID
+ * @param {Array|null} projectsFromRequest - Projects from mobile app (optional)
+ * @param {boolean} forceRefresh - Force refresh AI insights (bypass cache)
  */
-async function buildAiDashboardForUser(userId, projectsFromRequest = null) {
+async function buildAiDashboardForUser(userId, projectsFromRequest = null, forceRefresh = false) {
   // 1) Load project data - prefer projects from request, fallback to storage
   let projectsRaw = [];
   if (projectsFromRequest && Array.isArray(projectsFromRequest) && projectsFromRequest.length > 0) {
@@ -390,6 +488,9 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null) {
     }
   }
 
+  // ---------- Record rule-based timestamp (always fresh) ---------- //
+  const ruleBasedUpdatedAt = new Date().toISOString();
+
   // ---------- If no OpenAI key, return rule-based only ---------- //
 
   if (!openai) {
@@ -399,40 +500,108 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null) {
     return {
       insights: baseInsights,
       nextSteps: baseNextSteps,
-      lastUpdated: new Date().toISOString(),
+      ruleBasedUpdatedAt,
+      aiUpdatedAt: null,
+      lastUpdated: ruleBasedUpdatedAt,
     };
   }
 
-  // ---------- Call OpenAI for extra AI insights ---------- //
+  // ---------- HASH-BASED CACHING FOR AI INSIGHTS ---------- //
 
-  const payload = {
+  // Compute snapshot hash for cache lookup
+  const snapshotHash = computeAiSnapshotHash(
     summary,
-    projects: projectsForModel,
+    projectsForModel,
     baseInsights,
     baseNextSteps,
-    materials: materialStats,
-  };
+    materialStats
+  );
 
-  let rawContent = '{}';
+  // Check cache first (unless force refresh)
+  let cached = null;
+  if (!forceRefresh) {
+    cached = getCachedAiInsights(userId, snapshotHash);
+  } else {
+    // Force refresh - clear cache for this user
+    aiCache.delete(userId);
+    console.log(`[AI Dashboard] Force refresh requested for userId: ${userId}`);
+  }
 
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content: `You are an AI project manager for a construction estimating & job-costing platform.
+  let aiInsights = [];
+  let aiNextSteps = [];
+  let aiUpdatedAt = null;
+
+  if (cached) {
+    // Cache hit - use cached AI insights
+    console.log(`[AI Dashboard] Cache hit for userId: ${userId}`);
+    aiInsights = cached.insights || [];
+    aiNextSteps = cached.nextSteps || [];
+    aiUpdatedAt = new Date(cached.cachedAt).toISOString();
+  } else {
+    // Cache miss - call OpenAI with compact payload
+    console.log(`[AI Dashboard] Cache miss - calling OpenAI for userId: ${userId}`);
+
+    // Create compact AI summary payload (not full project objects)
+    const aiSummary = {
+      projectCount: summary.projectCount,
+      totals: summary.totals,
+      statusBreakdown: summary.statusBreakdown,
+      projects: projectsForModel.map(p => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        bidPrice: p.bidPrice,
+        estimatedCost: p.estimatedCost,
+        actualCost: p.actualCost,
+        marginPct: p.marginPct,
+        markupPct: p.markupPct,
+        profit: p.profit,
+        budgetVariance: p.budgetVariance,
+        receiptsCoveragePct: p.receiptsCoveragePct,
+        hasReceiptsAttached: p.hasReceiptsAttached,
+        hasPermitLineItem: p.hasPermitLineItem,
+        hasPermitFeesFlag: p.hasPermitFeesFlag,
+        progressPct: p.progressPct,
+        projectType: p.projectType,
+        location: p.location,
+        daysInStatus: p.updatedAt ? Math.floor((Date.now() - new Date(p.updatedAt).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+        highValueFlag: p.bidPrice >= 20000,
+      })),
+      baseInsightCount: baseInsights.length,
+      baseNextStepCount: baseNextSteps.length,
+      materialTrends: materialStats
+        .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5)
+        .map(m => ({
+          projectId: m.projectId,
+          lineItemName: m.lineItemName,
+          changePct30d: m.changePct30d,
+        })),
+    };
+
+    const payload = {
+      summary: aiSummary,
+      baseInsights,
+      baseNextSteps,
+      materials: materialStats
+        .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5),
+    };
+
+    let rawContent = '{}';
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an AI project manager for a construction estimating & job-costing platform.
 
 You receive:
-- "summary": roll-up stats across all projects.
-- "projects": normalized project data with fields like:
-  status, bidPrice, estimatedCost, actualCost, marginPct, markupPct,
-  profit, budgetVariance, receiptsCoveragePct, hasReceiptsAttached,
-  hasPermitLineItem, hasPermitFeesFlag, progressPct, projectType, location.
+- "summary": roll-up stats and compact project summaries with key metrics.
 - "baseInsights" and "baseNextSteps": rule-based findings already detected.
-- "materials": materialStats with price change data per project line item.
+- "materials": materialStats with significant price changes (5%+).
 
 Your job:
 1) Add 2–5 additional high-value "insights" that build on top of the base ones.
@@ -475,42 +644,56 @@ Return ONLY JSON in this shape:
   "lastUpdated": "ISO timestamp string"
 }
 `.trim(),
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-    });
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(payload),
+          },
+        ],
+      });
 
-    rawContent = completion.choices[0].message.content || '{}';
-  } catch (err) {
-    console.error('[AI Dashboard] OpenAI chat error:', err);
-    // fail soft: return rule-based only
-    return {
-      insights: baseInsights,
-      nextSteps: baseNextSteps,
-      lastUpdated: new Date().toISOString(),
-    };
+      rawContent = completion.choices[0].message.content || '{}';
+    } catch (err) {
+      console.error('[AI Dashboard] OpenAI chat error:', err);
+      // fail soft: return rule-based only
+      return {
+        insights: baseInsights,
+        nextSteps: baseNextSteps,
+        ruleBasedUpdatedAt,
+        aiUpdatedAt: null,
+        lastUpdated: ruleBasedUpdatedAt,
+      };
+    }
+
+    let parsed = {};
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch (err) {
+      console.error('[AI Dashboard] Failed to parse AI JSON:', err, 'raw=', rawContent);
+    }
+
+    aiInsights = Array.isArray(parsed.insights) ? parsed.insights : [];
+    aiNextSteps = Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [];
+    aiUpdatedAt = new Date().toISOString();
+
+    // Store in cache
+    setCachedAiInsights(userId, snapshotHash, aiInsights, aiNextSteps);
   }
 
-  let parsed = {};
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch (err) {
-    console.error('[AI Dashboard] Failed to parse AI JSON:', err, 'raw=', rawContent);
-  }
+  // ---------- Combine rule-based + AI insights ---------- //
 
   const result = {
     insights: [
       ...baseInsights,
-      ...(Array.isArray(parsed.insights) ? parsed.insights : []),
+      ...aiInsights,
     ],
     nextSteps: [
       ...baseNextSteps,
-      ...(Array.isArray(parsed.nextSteps) ? parsed.nextSteps : []),
+      ...aiNextSteps,
     ],
-    lastUpdated: parsed.lastUpdated || new Date().toISOString(),
+    ruleBasedUpdatedAt,
+    aiUpdatedAt,
+    lastUpdated: aiUpdatedAt || ruleBasedUpdatedAt,
   };
 
   return result;

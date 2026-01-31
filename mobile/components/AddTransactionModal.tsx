@@ -30,9 +30,8 @@ type Props = {
 
 export default function AddTransactionModal({ visible, categoryName, onClose, onSave }: Props) {
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const darkMode = theme.bg === '#000000';
   
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
@@ -297,7 +296,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                   style={[styles.backBtn, { backgroundColor: Colors.bg }]}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color="#000000" />
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
                 </TouchableOpacity>
               </LinearGradient>
             </View>

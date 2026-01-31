@@ -41,7 +41,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   navigation,
   onSave,
 }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   
@@ -99,7 +99,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 onPress={() => navigation?.goBack?.()}
                 style={styles.headerIconButton}
               >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
               </Pressable>
 
               <View style={styles.headerTitleRow}>

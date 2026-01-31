@@ -53,18 +53,38 @@ export const UserRoleProvider: React.FC<UserRoleProviderProps> = ({
   // Load user role from storage on mount
   useEffect(() => {
     const loadUserRole = async () => {
+      // Add timeout to prevent hanging
+      const timeoutId = setTimeout(() => {
+        console.warn('UserRole loading timeout - proceeding without role');
+        setIsLoading(false);
+      }, 2000); // 2 second timeout
+
       try {
-        const storedRole = await safeAsyncStorage.getItem('userRole');
-        const storedData = await safeAsyncStorage.getItem('userRoleData');
+        const storedRole = await Promise.race([
+          safeAsyncStorage.getItem('userRole'),
+          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500))
+        ]);
+        
+        const storedData = await Promise.race([
+          safeAsyncStorage.getItem('userRoleData'),
+          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500))
+        ]);
+
+        clearTimeout(timeoutId);
 
         if (storedRole) {
           setUserRoleState(storedRole as UserRole);
         }
 
         if (storedData) {
-          setUserRoleDataState(JSON.parse(storedData));
+          try {
+            setUserRoleDataState(JSON.parse(storedData));
+          } catch (parseError) {
+            console.warn('Error parsing user role data:', parseError);
+          }
         }
       } catch (error) {
+        clearTimeout(timeoutId);
         console.warn('Error loading user role:', error);
       } finally {
         setIsLoading(false);

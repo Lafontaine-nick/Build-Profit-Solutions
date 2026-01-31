@@ -1637,7 +1637,7 @@ const styles = StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20, // Cancel out parent ScrollView padding (matches Lead Sources and My Leads cards exactly)
-    paddingHorizontal: 8, // Add padding back inside (matches Lead Sources and My Leads cards exactly)
+    paddingHorizontal: 4, // Add padding back inside (matches projects page width)
   },
   campaignGradientBorder: {
     borderRadius: 24,
@@ -1648,7 +1648,7 @@ const styles = StyleSheet.create({
   campaignGradientContent: {
     backgroundColor: '#000000',
     borderRadius: 23,
-    padding: 20, // Match lead details page padding
+    padding: 12, // Match lead details page padding
   },
   keyMetricsGradientBorder: {
     borderRadius: 20,
@@ -1659,7 +1659,7 @@ const styles = StyleSheet.create({
   keyMetricsGradientContent: {
     backgroundColor: '#000000',
     borderRadius: 18,
-    padding: 20,
+    padding: 12,
   },
   performanceSnapshotRow: {
     paddingRight: 8,
@@ -1668,7 +1668,7 @@ const styles = StyleSheet.create({
   performanceSnapshotCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     minWidth: 120,
     alignItems: 'center',
     borderWidth: 1,
@@ -1963,7 +1963,7 @@ const styles = StyleSheet.create({
   structuredInsightCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 14,
-    padding: 16,
+    padding: 12,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
@@ -2016,7 +2016,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    padding: 16,
+    padding: 12,
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
@@ -2265,7 +2265,7 @@ const styles = StyleSheet.create({
   todaysFocusGradientContent: {
     backgroundColor: '#000000',
     borderRadius: 23,
-    padding: 20,
+    padding: 12,
   },
   todaysFocusHeader: {
     flexDirection: 'row',
@@ -2337,7 +2337,7 @@ const styles = StyleSheet.create({
   aiCoachCard: {
     backgroundColor: 'rgba(67, 206, 162, 0.1)',
     borderRadius: 16,
-    padding: 16,
+    padding: 12,
     marginHorizontal: 20,
     marginBottom: 20,
     borderWidth: 2,
@@ -2385,7 +2385,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',

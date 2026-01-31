@@ -33,7 +33,7 @@ import { clerkAuthService } from '@/services/clerkAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.0.201:3001/api';
+const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
 
 // Enhanced subcontractor data with campaign information
 const MOCK_SUBCONTRACTORS = [

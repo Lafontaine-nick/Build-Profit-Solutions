@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   SafeAreaView,
   Alert,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
@@ -103,16 +104,35 @@ export default function ProjectsScreen() {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
-  const { activeProjects, estimates, deleteProject } = useProjectList();
+  const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
+  const params = useLocalSearchParams();
+  const [activeTab, setActiveTab] = useState<'active' | 'submitted'>(
+    params.tab === 'submitted' ? 'submitted' : 'active'
+  );
+  const [showSubmitBanner, setShowSubmitBanner] = useState(false);
+
+  // Update tab if route param changes
+  useEffect(() => {
+    if (params.tab === 'submitted') {
+      setActiveTab('submitted');
+      // Show confirmation banner when arriving from submit bid
+      if (params.fromSubmit === 'true') {
+        setShowSubmitBanner(true);
+        setTimeout(() => {
+          setShowSubmitBanner(false);
+        }, 3000);
+      }
+    }
+  }, [params.tab, params.fromSubmit]);
 
   const user = {
     name: 'Nick Lafontaine',
     initials: 'NL',
   };
 
-  // Transform projects data - only show submitted and above (hide draft/estimate)
-  const projects = useMemo(() => {
+  // Transform projects data - separate submitted and active
+  const allProjects = useMemo(() => {
     return [...activeProjects, ...estimates]
       .filter((p) => {
         const status = (p.status || 'draft').toString().toLowerCase();
@@ -158,13 +178,28 @@ export default function ProjectsScreen() {
             : `Due ${new Date(p.endDate).toISOString().split('T')[0]}`
           : 'No due date',
         rawProject: p,
+        rawStatus: status,
       };
     });
   }, [activeProjects, estimates]);
 
+  // Filter projects by active tab
+  const projects = useMemo(() => {
+    if (activeTab === 'submitted') {
+      return allProjects.filter(p => p.status === 'Submitted' || p.rawStatus === 'bid_submitted' || p.rawStatus === 'submitted');
+    } else {
+      return allProjects.filter(p => p.status === 'Active' || p.status === 'Completed' || p.rawStatus === 'won' || p.rawStatus === 'in_progress' || p.rawStatus === 'active' || p.rawStatus === 'completed');
+    }
+  }, [allProjects, activeTab]);
+
   const handleProjectPress = (project: any) => {
     router.push(`/project-detail/${project.id}`);
   };
+
+  const [markAsWonModalVisible, setMarkAsWonModalVisible] = useState(false);
+  const [selectedProjectForWon, setSelectedProjectForWon] = useState<any>(null);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+  const [successProjectName, setSuccessProjectName] = useState('');
 
   const handleDeleteProject = async (project: any, e: any) => {
     // Stop event propagation so it doesn't trigger the card press
@@ -197,6 +232,46 @@ export default function ProjectsScreen() {
     );
   };
 
+  const handleMarkAsWon = (project: any, e: any) => {
+    e?.stopPropagation();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedProjectForWon(project);
+    setMarkAsWonModalVisible(true);
+  };
+
+  const confirmMarkAsWon = async () => {
+    if (!selectedProjectForWon) return;
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setMarkAsWonModalVisible(false);
+    
+    try {
+      // Convert the submitted bid to active project
+      convertBidToProject(selectedProjectForWon.id);
+      
+      // Show success banner
+      setSuccessProjectName(selectedProjectForWon.name);
+      setShowSuccessBanner(true);
+      
+      // Auto-dismiss banner after 2 seconds
+      setTimeout(() => {
+        setShowSuccessBanner(false);
+      }, 2000);
+      
+      // Switch to Active tab and scroll to show the new project
+      setTimeout(() => {
+        setActiveTab('active');
+        // The project will now appear in the Active tab
+      }, 500);
+      
+    } catch (error) {
+      console.error('Error marking project as won:', error);
+      Alert.alert('Error', 'Failed to mark project as won');
+    }
+    
+    setSelectedProjectForWon(null);
+  };
+
   return (
     <SafeAreaView style={styles.root}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
@@ -209,7 +284,7 @@ export default function ProjectsScreen() {
           <View>
             <Text style={styles.screenTitle}>{t('projects.allProjects')}</Text>
             <Text style={styles.screenSubtitle}>
-              {projects.length} {t('dashboard.total')} · {t('projects.latestActivity')}
+              {projects.length} {activeTab === 'submitted' ? 'submitted' : 'active'} {projects.length === 1 ? 'project' : 'projects'}
             </Text>
           </View>
 
@@ -227,6 +302,32 @@ export default function ProjectsScreen() {
           </LinearGradient>
         </View>
 
+        {/* TABS */}
+        <View style={[styles.tabsContainer, styles.wideContainer]}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'active' && styles.tabActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab('active');
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
+              Active
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'submitted' && styles.tabActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab('submitted');
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === 'submitted' && styles.tabTextActive]}>
+              Submitted
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ALL PROJECTS CARD */}
         <View style={styles.wideContainer}>
           <LinearGradient
@@ -242,7 +343,7 @@ export default function ProjectsScreen() {
             <View style={{
               backgroundColor: darkMode ? Colors.card : Colors.bg,
               borderRadius: 18,
-              padding: 16,
+              padding: 12,
             }}>
               <View style={styles.cardHeaderRow}>
                 <View>
@@ -326,6 +427,15 @@ export default function ProjectsScreen() {
                               </Text>
                             </View>
                           )}
+                        </View>
+                      )}
+                      {/* Waiting for client decision - only for submitted projects */}
+                      {project.status === 'Submitted' && (
+                        <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="time-outline" size={12} color={darkMode ? "#94a3b8" : "#64748b"} />
+                          <Text style={{ color: darkMode ? "#94a3b8" : "#64748b", fontSize: 12, fontStyle: 'italic' }}>
+                            Waiting for client decision
+                          </Text>
                         </View>
                       )}
                     </View>
@@ -420,6 +530,24 @@ export default function ProjectsScreen() {
                   </View>
 
                   <Text style={styles.progressLabel}>Progress</Text>
+                  
+                  {/* Mark as Won button for submitted projects */}
+                  {project.status === 'Submitted' && (
+                    <TouchableOpacity
+                      style={styles.markAsWonButton}
+                      onPress={(e) => handleMarkAsWon(project, e)}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#2DFFC4', '#00A6FF']}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.markAsWonGradient}
+                      >
+                        <Text style={styles.markAsWonText}>Mark as Won</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  )}
                         </View>
                 </View>
               </Pressable>
@@ -433,6 +561,76 @@ export default function ProjectsScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Submit Bid Confirmation Banner */}
+      {showSubmitBanner && (
+        <View style={styles.submitBanner}>
+          <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+          <Text style={styles.submitBannerText}>
+            ✅ Bid submitted{'\n'}
+            We'll keep this estimate ready to turn into a project.
+          </Text>
+        </View>
+      )}
+
+      {/* Success Banner */}
+      {showSuccessBanner && (
+        <View style={styles.successBanner}>
+          <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+          <Text style={styles.successBannerText}>
+            🏁 Project activated{'\n'}
+            {successProjectName} is now a live project.
+          </Text>
+        </View>
+      )}
+
+      {/* Mark as Won Confirmation Modal (Bottom Sheet) */}
+      <Modal
+        visible={markAsWonModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMarkAsWonModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setMarkAsWonModalVisible(false)}
+        >
+          <Pressable
+            style={styles.bottomSheet}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.bottomSheetHandle} />
+            <Text style={styles.bottomSheetTitle}>Mark project as won?</Text>
+            <Text style={styles.bottomSheetBody}>
+              This will convert your estimate into an active project and begin tracking costs, labor, and profit.
+            </Text>
+            <View style={styles.bottomSheetButtons}>
+              <TouchableOpacity
+                style={styles.bottomSheetCancelButton}
+                onPress={() => {
+                  setMarkAsWonModalVisible(false);
+                  setSelectedProjectForWon(null);
+                }}
+              >
+                <Text style={styles.bottomSheetCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomSheetConfirmButton}
+                onPress={confirmMarkAsWon}
+              >
+                <LinearGradient
+                  colors={['#2DFFC4', '#00A6FF']}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.bottomSheetConfirmGradient}
+                >
+                  <Text style={styles.bottomSheetConfirmText}>Mark as won</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -449,7 +647,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   wideContainer: {
     marginHorizontal: -20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   headerRow: {
     flexDirection: 'row',
@@ -513,7 +711,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   projectCardInner: {
     backgroundColor: Colors.surface2, // Same grey as dashboard project cards
     borderRadius: 14,
-    padding: 16,
+    padding: 12,
     borderWidth: darkMode ? 1 : 0,
     borderColor: Colors.line,
   },
@@ -667,5 +865,184 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: Colors.text,
     fontWeight: '700',
     fontSize: 16,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  tabActive: {
+    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.15)' : 'rgba(45, 255, 196, 0.1)',
+    borderWidth: 2,
+    borderColor: darkMode ? '#2DFFC4' : '#0EA5E9',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: darkMode ? Colors.sub : '#64748B',
+  },
+  tabTextActive: {
+    color: darkMode ? '#2DFFC4' : '#0EA5E9',
+    fontWeight: '700',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: darkMode ? '#2DFFC4' : '#0EA5E9',
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+  },
+  markAsWonButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  markAsWonGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markAsWonText: {
+    color: '#000',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  submitBanner: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: darkMode ? '#1e293b' : '#f1f5f9',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  submitBannerText: {
+    flex: 1,
+    color: darkMode ? Colors.text : Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  successBanner: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: darkMode ? '#1e293b' : '#f1f5f9',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+  },
+  successBannerText: {
+    flex: 1,
+    color: darkMode ? Colors.text : Colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheet: {
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+    maxHeight: '50%',
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: darkMode ? Colors.sub : '#cbd5e1',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  bottomSheetTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  bottomSheetBody: {
+    fontSize: 16,
+    color: Colors.sub,
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  bottomSheetButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  bottomSheetCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: darkMode ? Colors.surface2 : '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomSheetCancelText: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  bottomSheetConfirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  bottomSheetConfirmGradient: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomSheetConfirmText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
