@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "npx expo start",
-    "dev": "npx expo start --tunnel",
+    "start": "EXPO_NO_DOCTOR=1 npx expo start",
+    "dev": "EXPO_NO_DOCTOR=1 npx expo start --tunnel",
     "dev:lan": "bash start-lan.sh",
-    "dev:clear": "pkill -f 'expo start' 2>/dev/null || true; sleep 1; npx expo start --clear",
-    "dev:web": "npx expo start --web",
-    "dev:tunnel": "pkill -f 'expo start' 2>/dev/null || true; sleep 1; npx expo start --tunnel --clear",
-    "dev:reset": "pkill -f 'expo start' 2>/dev/null || true; rm -rf .expo .expo-shared node_modules/.cache .metro-cache 2>/dev/null || true; sleep 1; npx expo start --clear",
+    "dev:clear": "pkill -f 'expo start' 2>/dev/null || true; sleep 1; EXPO_NO_DOCTOR=1 npx expo start --clear",
+    "dev:web": "EXPO_NO_DOCTOR=1 npx expo start --web",
+    "dev:tunnel": "pkill -f 'expo start' 2>/dev/null || true; sleep 1; EXPO_NO_DOCTOR=1 npx expo start --tunnel --clear",
+    "dev:reset": "pkill -f 'expo start' 2>/dev/null || true; rm -rf .expo .expo-shared node_modules/.cache .metro-cache 2>/dev/null || true; sleep 1; EXPO_NO_DOCTOR=1 npx expo start --clear",
     "clear": "./clear-cache.sh",
     "check:hot-reload": "node scripts/check-hot-reload.js",
     "reload": "node scripts/force-reload.js",
@@ -18,9 +18,9 @@
     "type-check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "jest",
-    "android": "npx expo start --android",
-    "ios": "npx expo start --ios",
-    "web": "npx expo start --web"
+    "android": "EXPO_NO_DOCTOR=1 npx expo start --android",
+    "ios": "EXPO_NO_DOCTOR=1 npx expo start --ios",
+    "web": "EXPO_NO_DOCTOR=1 npx expo start --web"
   },
   "dependencies": {
     "@clerk/clerk-expo": "^1.2.0",

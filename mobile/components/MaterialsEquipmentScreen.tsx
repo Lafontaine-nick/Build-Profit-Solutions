@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,24 +8,19 @@ import {
   ScrollView,
   Pressable,
   Animated,
+  TextInput,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { useProjectData } from "@/contexts/ProjectDataContext";
+import AddTransactionModal from "./AddTransactionModal";
+import * as Haptics from "expo-haptics";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
-// TODO: replace with your real data source
-const MOCK_TRANSACTIONS = [
-  {
-    id: "1",
-    vendor: "Unknown",
-    category: "Materials/Equipment - Material expenses",
-    amount: 1000,
-    dateLabel: "Dec 1, 2025",
-  },
-];
 
 interface MaterialsEquipmentScreenProps {
   navigation: any;
@@ -36,12 +31,96 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const transactions = MOCK_TRANSACTIONS; // plug in your real array here
+  const { projectData, addExpense, updateExpense } = useProjectData();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  
+  // Get materials/equipment expenses from project data
+  const transactions = useMemo(() => {
+    if (!projectData?.expenses) return [];
+    
+    // Filter for materials/equipment expenses
+    let filtered = projectData.expenses
+      .filter((exp: any) => {
+        const category = (exp.category || '').toLowerCase();
+        return category.includes('material') || 
+               category.includes('equipment') ||
+               category.includes('materials/equipment');
+      })
+      .map((exp: any) => ({
+        id: exp.id,
+        vendor: exp.vendor || 'Unknown',
+        category: exp.category || 'Materials/Equipment',
+        amount: exp.amount || 0,
+        dateLabel: exp.date 
+          ? new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'No date',
+        date: exp.date,
+        notes: exp.notes,
+        receiptUri: exp.receiptUri,
+      }));
+    
+    // Apply search filter if active
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((tx: any) => 
+        tx.vendor.toLowerCase().includes(query) ||
+        tx.category.toLowerCase().includes(query) ||
+        (tx.notes && tx.notes.toLowerCase().includes(query))
+      );
+    }
+    
+    // Sort by date (most recent first)
+    return filtered.sort((a: any, b: any) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
+    });
+  }, [projectData?.expenses, searchQuery]);
 
   const totalSpent = useMemo(
     () => transactions.reduce((sum, t) => sum + t.amount, 0),
     [transactions]
   );
+
+  const handleAddTransaction = (transaction: {
+    id: string;
+    vendor: string;
+    amount: number;
+    description: string;
+    po?: string;
+    date: string;
+    receiptUri?: string;
+    isPlanned?: boolean;
+    projectPhase?: string;
+    scope?: string;
+    priceReasonableness?: 'normal' | 'high' | 'outlier';
+  }) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    addExpense({
+      id: transaction.id,
+      vendor: transaction.vendor,
+      amount: transaction.amount,
+      category: 'Materials/Equipment',
+      date: transaction.date,
+      notes: transaction.description,
+      receiptUri: transaction.receiptUri || null,
+    });
+    
+    setShowAddModal(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const handleEditTransaction = (transaction: any) => {
+    // For now, show an alert. Can be enhanced to open edit modal later
+    Alert.alert(
+      'Edit Transaction',
+      `Edit functionality coming soon!\n\nVendor: ${transaction.vendor}\nAmount: $${transaction.amount.toFixed(2)}`,
+      [{ text: 'OK' }]
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.safeArea, !darkMode && { backgroundColor: Colors.bg }]}>
@@ -132,7 +211,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               pressed && { transform: [{ scale: 0.97 }] },
             ]}
             onPress={() => {
-              // hook to your "Add Materials/Equipment" flow
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowAddModal(true);
             }}
           >
             <LinearGradient
@@ -154,7 +234,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               <Pressable
                 style={[styles.iconChip, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}
                 onPress={() => {
-                  // optional: open search
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowSearch(!showSearch);
+                  if (showSearch) {
+                    setSearchQuery("");
+                  }
                 }}
               >
                 <Feather name="search" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
@@ -162,7 +246,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               <Pressable
                 style={[styles.iconChip, { marginLeft: 8 }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}
                 onPress={() => {
-                  // optional: open filter/sort
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  // Filter/sort functionality can be added later
                 }}
               >
                 <Feather name="sliders" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
@@ -170,31 +255,65 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             </View>
           </View>
 
+          {/* SEARCH BAR */}
+          {showSearch && (
+            <View style={[styles.searchContainer, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+              <Feather name="search" size={16} color={darkMode ? "#94a3b8" : Colors.sub} style={{ marginRight: 8 }} />
+              <TextInput
+                style={[styles.searchInput, { color: Colors.text }]}
+                placeholder="Search transactions..."
+                placeholderTextColor={Colors.sub}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus
+              />
+              {searchQuery.length > 0 && (
+                <Pressable
+                  onPress={() => setSearchQuery("")}
+                  style={styles.searchClear}
+                >
+                  <Feather name="x" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {/* TRANSACTION LIST / EMPTY STATE */}
           {transactions.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={[styles.emptyIconBubble, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <MaterialCommunityIcons
-                  name="clipboard-list-outline"
+                  name="bricks"
                   size={28}
                   color={BRAND_GREEN}
                 />
               </View>
-              <Text style={[styles.emptyTitle, { color: Colors.text }]}>No materials logged yet</Text>
+              <Text style={[styles.emptyTitle, { color: Colors.text }]}>No transactions yet</Text>
               <Text style={[styles.emptySubtitle, { color: Colors.sub }]}>
-                Add your first material or equipment expense to start tracking
-                project costs in real time.
+                Expenses will appear here as they're added.
               </Text>
             </View>
           ) : (
             <View style={styles.listContainer}>
               {transactions.map((tx) => (
-                <TransactionCard key={tx.id} transaction={tx} />
+                <TransactionCard 
+                  key={tx.id} 
+                  transaction={tx}
+                  onPress={() => handleEditTransaction(tx)}
+                />
               ))}
             </View>
           )}
         </ScrollView>
       </View>
+
+      {/* Add Transaction Modal */}
+      <AddTransactionModal
+        visible={showAddModal}
+        categoryName="Materials/Equipment"
+        onClose={() => setShowAddModal(false)}
+        onSave={handleAddTransaction}
+      />
     </SafeAreaView>
   );
 };
@@ -205,10 +324,14 @@ interface Transaction {
   category: string;
   amount: number;
   dateLabel: string;
+  date?: string;
+  notes?: string;
+  receiptUri?: string | null;
 }
 
-const TransactionCard: React.FC<{ transaction: Transaction }> = ({
+const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void }> = ({
   transaction,
+  onPress,
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -238,7 +361,8 @@ const TransactionCard: React.FC<{ transaction: Transaction }> = ({
         onPressIn={pressIn}
         onPressOut={pressOut}
         onPress={() => {
-          // navigate to edit flow
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onPress?.();
         }}
         style={styles.txPressable}
       >
@@ -523,6 +647,28 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     fontWeight: "500",
+  },
+
+  /* SEARCH */
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.3)",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "500",
+    paddingVertical: 0,
+  },
+  searchClear: {
+    padding: 4,
   },
 
   /* LIST */

@@ -71,11 +71,23 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
       <TouchableOpacity
         style={[styles.socialButton, loading && styles.socialButtonDisabled]}
         onPress={() => {
-          console.log('OAuthButtons - Google button pressed:', {
+          console.log('🔵 OAuthButtons - Google button pressed:', {
             hasGoogleOAuth: !!oauthResult.googleOAuth,
             hasClerkSetActive: !!oauthResult.clerkSetActive,
+            loading: loading,
+            googleOAuthType: typeof oauthResult.googleOAuth,
+            googleOAuthKeys: oauthResult.googleOAuth ? Object.keys(oauthResult.googleOAuth) : [],
           });
-          onGooglePress(oauthResult.googleOAuth, oauthResult.clerkSetActive);
+          try {
+            if (!oauthResult.googleOAuth) {
+              console.error('❌ Google OAuth handler is null/undefined when button pressed');
+              return;
+            }
+            console.log('✅ Calling onGooglePress handler...');
+            onGooglePress(oauthResult.googleOAuth, oauthResult.clerkSetActive);
+          } catch (error) {
+            console.error('❌ Error in Google button onPress:', error);
+          }
         }}
         disabled={loading}
       >

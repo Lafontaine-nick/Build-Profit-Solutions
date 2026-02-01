@@ -19,4 +19,5 @@ echo "🚀 Starting Expo with LAN mode..."
 echo "💡 If connection fails, try: npm run dev:tunnel"
 echo "💡 Fast Refresh is enabled - edits will appear automatically"
 cd "$(dirname "$0")"
-npx expo start --lan
+# Skip dependency validation to avoid fetch errors
+EXPO_NO_DOCTOR=1 npx expo start --lan

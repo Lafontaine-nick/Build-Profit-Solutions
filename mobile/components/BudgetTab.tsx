@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -201,6 +201,7 @@ export default function BudgetTab({
   const [newChangeOrder, setNewChangeOrder] = useState({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
 
+  const router = useRouter();
   const { projectData: contextProjectData, addExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
   
   // Debug: Log change orders when they change
@@ -645,7 +646,16 @@ export default function BudgetTab({
                       }]}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setShowExpenseModal(true);
+                        // Navigate to materials and equipment page
+                        const projectId = contextProjectData?.id || data?.projectId;
+                        if (projectId) {
+                          router.push({
+                            pathname: '/materials-equipment',
+                            params: { projectId }
+                          });
+                        } else {
+                          router.push('/materials-equipment');
+                        }
                       }}
                       activeOpacity={0.8}
                     >

@@ -140,26 +140,28 @@ const AuthScreen: React.FC = () => {
 
   // OAuth handlers - receive OAuth objects from OAuthButtons component
   const handleGoogleSignIn = async (googleOAuthHandler: any, clerkSetActiveHandler: any) => {
-    console.log('handleGoogleSignIn called with:', {
-      hasGoogleOAuthHandler: !!googleOAuthHandler,
-      hasClerkSetActiveHandler: !!clerkSetActiveHandler,
-      hasClerkInstance: !!clerkInstance,
-      googleOAuthHandlerType: typeof googleOAuthHandler,
-      clerkSetActiveHandlerType: typeof clerkSetActiveHandler,
-    });
-
-    // Check if OAuth handler is valid
-    if (!googleOAuthHandler) {
-      console.error('OAuth handler missing:', {
-        googleOAuthHandler: googleOAuthHandler,
+    try {
+      console.log('🔵 handleGoogleSignIn called with:', {
+        hasGoogleOAuthHandler: !!googleOAuthHandler,
+        hasClerkSetActiveHandler: !!clerkSetActiveHandler,
+        hasClerkInstance: !!clerkInstance,
+        googleOAuthHandlerType: typeof googleOAuthHandler,
+        clerkSetActiveHandlerType: typeof clerkSetActiveHandler,
+        googleOAuthHandlerKeys: googleOAuthHandler ? Object.keys(googleOAuthHandler) : [],
       });
-      Alert.alert(
-        'OAuth Not Configured',
-        'Google Sign-In requires Clerk to be set up with OAuth providers.\n\nTo enable:\n1. Enable Google OAuth in Clerk dashboard\n2. Add your Google Client ID and Secret\n3. Make sure redirect URI matches: https://nearby-collie-1.clerk.accounts.dev/v1/oauth_callback\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
+
+      // Check if OAuth handler is valid
+      if (!googleOAuthHandler) {
+        console.error('❌ OAuth handler missing:', {
+          googleOAuthHandler: googleOAuthHandler,
+        });
+        Alert.alert(
+          'OAuth Not Configured',
+          'Google Sign-In requires Clerk to be set up with OAuth providers.\n\nTo enable:\n1. Enable Google OAuth in Clerk dashboard\n2. Add your Google Client ID and Secret\n3. Make sure redirect URI matches: https://nearby-collie-1.clerk.accounts.dev/v1/oauth_callback\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
 
     // Get setActive from handler, clerk instance, or try to get it from useClerk
     const setActive = clerkSetActiveHandler || clerkInstance?.setActive;
@@ -179,7 +181,11 @@ const AuthScreen: React.FC = () => {
 
     // Check if startOAuthFlow method exists
     if (typeof googleOAuthHandler.startOAuthFlow !== 'function') {
-      console.error('startOAuthFlow method missing from googleOAuthHandler:', googleOAuthHandler);
+      console.error('❌ startOAuthFlow method missing from googleOAuthHandler:', {
+        googleOAuthHandler,
+        type: typeof googleOAuthHandler,
+        keys: Object.keys(googleOAuthHandler || {}),
+      });
       Alert.alert(
         'OAuth Not Configured',
         'Google Sign-In requires Clerk to be set up with OAuth providers.\n\nTo enable:\n1. Enable Google OAuth in Clerk dashboard\n2. Add your Google Client ID and Secret\n3. Make sure redirect URI matches: https://nearby-collie-1.clerk.accounts.dev/v1/oauth_callback\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.',
@@ -188,6 +194,7 @@ const AuthScreen: React.FC = () => {
       return;
     }
 
+    console.log('✅ All checks passed, starting OAuth flow...');
     setLoading(true);
     try {
       console.log('Starting Google OAuth flow...');
@@ -223,7 +230,16 @@ const AuthScreen: React.FC = () => {
       if (hasNoSessionData && (!result || Object.keys(result).length === 0 || 
           (result.createdSessionId === "" && !result.signIn && !result.signUp))) {
         console.log('OAuth flow cancelled or incomplete - no session data');
-        // Don't show error for cancellation - user likely closed the browser
+        console.log('Result details:', JSON.stringify(result, null, 2));
+        
+        // Check if this might be a network error (empty result after network failure)
+        // If we got here, it means startOAuthFlow didn't throw, but returned empty
+        // This could be a network issue that Clerk handled silently
+        Alert.alert(
+          'Sign-In Failed',
+          'Google sign-in could not complete. This is usually caused by:\n\n1. ❌ No internet connection\n2. ❌ Network connectivity issues\n3. ❌ Firewall/VPN blocking Clerk servers\n\nPlease check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
         return;
       }
       
@@ -287,10 +303,13 @@ const AuthScreen: React.FC = () => {
         throw new Error('No session created from OAuth flow');
       }
     } catch (error: any) {
+      console.error('❌ Error in handleGoogleSignIn:', error);
+      
       // Don't show error if user cancelled
       const errorMessage = error?.message || String(error) || '';
       if (errorMessage.includes('cancel') || errorMessage.includes('dismiss') || errorMessage.includes('user_cancelled') || errorMessage.includes('cancelled')) {
         console.log('User cancelled Google sign-in');
+        setLoading(false);
         return;
       }
       
@@ -378,10 +397,12 @@ const AuthScreen: React.FC = () => {
       let userFriendlyMessage = 'Google sign-in failed. Please try again or use email and password.';
       
       // Check for various error types
-      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('_fetch') || errorMessage.includes('ECONNREFUSED');
+      const isNetworkError = errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('_fetch') || errorMessage.includes('ECONNREFUSED') || errorMessage.includes('Network request failed');
       const isConfigError = errorCode === 'configuration_error' || errorStatus === 400 || errorStatus === 401 || errorStatus === 403;
       
-      if (isNetworkError || isConfigError) {
+      if (isNetworkError) {
+        userFriendlyMessage = 'Network Connection Error\n\nThe app cannot reach Clerk\'s servers. This usually means:\n\n1. ❌ No internet connection\n   → Check your Wi-Fi or cellular data\n\n2. ❌ Firewall/VPN blocking\n   → Try disabling VPN or firewall\n   → Try a different network\n\n3. ❌ Network restrictions\n   → Some networks block certain domains\n   → Try using cellular data instead of Wi-Fi\n\n4. ❌ Device/Emulator network issue\n   → Restart your device\n   → If using emulator, check network settings\n\nPlease check your internet connection and try again.';
+      } else if (isConfigError) {
         userFriendlyMessage = 'Google Sign-In is not properly configured.\n\nTo fix:\n1. Go to Clerk Dashboard → User & Authentication → Social Connections\n2. Click "Configure" next to Google\n3. Make sure Google OAuth is enabled and credentials are set\n4. Verify redirect URI in Google Console: https://accounts.clerk.dev/v1/oauth_callback\n5. Save and try again\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.';
       } else if (errorCode || errorStatus) {
         userFriendlyMessage = `Google sign-in error: ${errorCode || errorStatus}\n\n${clerkErrorMessage || errorMessage}\n\nPlease check your Clerk dashboard configuration.`;
@@ -393,6 +414,15 @@ const AuthScreen: React.FC = () => {
           [{ text: 'OK' }]
         );
     } finally {
+      setLoading(false);
+    }
+    } catch (outerError: any) {
+      // Catch any errors that happen in the initial checks
+      console.error('❌ Outer error in handleGoogleSignIn (before OAuth flow):', outerError);
+      Alert.alert(
+        'Google Sign-In Error',
+        `An unexpected error occurred: ${outerError?.message || String(outerError)}\n\nPlease check the console for more details.`
+      );
       setLoading(false);
     }
   };
