@@ -65,7 +65,11 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
 
   // Load milestones on mount
   useEffect(() => {
-    if (!project?.id) return;
+    if (!project?.id) {
+      setMilestones([]);
+      setIsLoaded(true);
+      return;
+    }
 
     const loadMilestones = async () => {
       try {
@@ -114,7 +118,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
 
   // Save milestones whenever they change
   useEffect(() => {
-    if (!isLoaded || !project?.id || milestones.length === 0) return;
+    if (!isLoaded || !project?.id) return;
 
     const saveMilestones = async () => {
       try {
@@ -248,6 +252,10 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
   };
 
   const handleSyncWithEstimate = () => {
+    if (!project?.id) {
+      Alert.alert("⚠️ Missing Project", "Please open a project to sync milestones.");
+      return;
+    }
     const projectFromList = getProjectById?.(project.id);
     const paymentMilestones = 
       project.milestones || 
@@ -306,8 +314,8 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
         <View style={[styles.outerCard, styles.timelineContainerWide]}>
           {/* Baseline Locked Indicator */}
           <View style={[styles.baselineIndicator, { 
-            backgroundColor: COLORS.surface2, 
-            borderColor: COLORS.line 
+            backgroundColor: COLORS.card, 
+            borderColor: COLORS.border 
           }]}>
             <Ionicons name="lock-closed" size={14} color={COLORS.subtext} />
             <Text style={[styles.baselineIndicatorText, { color: COLORS.subtext }]}>
@@ -318,8 +326,8 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
           {/* Zero-State Timeline Callout */}
           {(!projectStarted || hasNoMilestones) && (
             <View style={[styles.zeroStateCallout, { 
-              backgroundColor: COLORS.surface2, 
-              borderColor: COLORS.line 
+              backgroundColor: COLORS.card, 
+              borderColor: COLORS.border 
             }]}>
               <Ionicons name="time-outline" size={24} color={COLORS.green} />
               <Text style={[styles.zeroStateTitle, { color: COLORS.text }]}>
@@ -448,6 +456,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
                 )}
                 <AITimelineInsights milestones={milestones} />
               </View>
+            </View>
             </LinearGradient>
           </View>
         </View>
@@ -632,7 +641,7 @@ const styles = StyleSheet.create({
   zeroStateButton: {
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1.5,
   },
   zeroStateButtonText: {
@@ -642,10 +651,10 @@ const styles = StyleSheet.create({
   baselineIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 16,
     alignSelf: 'flex-start',

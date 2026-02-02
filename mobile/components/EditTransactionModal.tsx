@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, SafeAreaView, StatusBar } from "react-native";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -107,7 +107,9 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.backBtnWrapper}>
@@ -145,7 +147,8 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
           {/* Form */}
           <ScrollView 
             ref={scrollViewRef}
-            style={styles.form} 
+            style={styles.form}
+            contentContainerStyle={{ paddingBottom: 100 }}
             showsVerticalScrollIndicator={false} 
             keyboardShouldPersistTaps="handled"
           >
@@ -229,23 +232,51 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
 
           {/* Actions */}
           <View style={styles.actions}>
-            <TouchableOpacity 
-              onPress={handleDelete} 
-              style={[styles.button, styles.deleteButton]}
-            >
-              <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => {
-                Keyboard.dismiss();
-                handleSave();
-              }} 
-              style={[styles.button, styles.saveButton]}
-            >
-              <Text style={styles.saveButtonText}>✓ Save</Text>
-            </TouchableOpacity>
+            <View style={styles.deleteButtonWrapper}>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.deleteButtonBorder}
+              >
+                <TouchableOpacity 
+                  onPress={handleDelete} 
+                  style={styles.deleteButton}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.deleteButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
+            <View style={styles.saveButtonWrapper}>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.saveButtonBorder}
+              >
+                <TouchableOpacity 
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleSave();
+                  }} 
+                  style={styles.saveButton}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={["#22c55e", "#22d3ee"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.saveButtonGradient}
+                  >
+                    <Text style={styles.saveButtonText}>✓ Save</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
           </View>
-      </View>
+        </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -256,9 +287,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.7)",
     justifyContent: "flex-end",
   },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
   container: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: "#000000",
     paddingBottom: 20,
   },
   header: {
@@ -266,8 +301,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     paddingTop: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(34, 197, 94, 0.25)',
   },
   backBtnWrapper: {
     marginRight: 12,
@@ -341,7 +374,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.3)",
+    borderColor: "#6B7280", // Grey border
   },
   amountInputContainer: {
     flexDirection: "row",
@@ -370,39 +403,69 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   actions: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: "row",
-    padding: 20,
-    paddingTop: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
     gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#000000",
   },
-  button: {
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: "center",
+  deleteButtonWrapper: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  deleteButtonBorder: {
+    borderRadius: 12,
+    padding: 1.5,
   },
   deleteButton: {
-    flex: 0.45,
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    borderWidth: 1,
-    borderColor: '#ef4444',
+    paddingVertical: 14,
+    borderRadius: 10.5,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
   },
   deleteButtonText: {
-    color: "#ef4444",
-    fontSize: 16,
-    fontWeight: "700",
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  saveButtonWrapper: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  saveButtonBorder: {
+    borderRadius: 12,
+    padding: 1.5,
   },
   saveButton: {
-    flex: 1,
-    backgroundColor: "#22c55e",
+    borderRadius: 10.5,
+    width: "100%",
+    overflow: "hidden",
+  },
+  saveButtonGradient: {
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 4,
   },
   saveButtonText: {
-    color: "white",
-    fontSize: 18,
+    color: "#FFFFFF",
+    fontSize: 15,
     fontWeight: "700",
+    letterSpacing: 0.3,
   },
 }); 

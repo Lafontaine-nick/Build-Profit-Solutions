@@ -625,6 +625,7 @@ export default function MessagesTab({ onNavigateToTab, onClose }: MessagesTabPro
             )}
           </View>
         </View>
+        </View>
 
       {/* Composer */}
       <View style={styles.composerContainer}>
@@ -667,8 +668,8 @@ export default function MessagesTab({ onNavigateToTab, onClose }: MessagesTabPro
           </TouchableOpacity>
         </View>
       </View>
-    </View>
     </KeyboardAvoidingView>
+    </View>
   );
 }
 

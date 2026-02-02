@@ -25,6 +25,7 @@ interface FAQItem {
   question: string;
   answer: string;
   category: 'general' | 'billing' | 'technical' | 'features' | 'account';
+  bestFor?: string; // Contextual cue for when this is relevant
 }
 
 const faqData: FAQItem[] = [
@@ -55,8 +56,9 @@ const faqData: FAQItem[] = [
     id: '4',
     question: 'How does lead scoring work?',
     answer:
-      'Our AI analyzes lead data including project type, budget, location, and timeline to generate a Perfect Fit score. This score helps you prioritize leads that best match your business profile and preferences.',
+      'Our AI analyzes lead data including project type, budget, location, and timeline to generate a Perfect Fit score. This score helps you prioritize leads that best match your business profile and preferences. AI recommendations, not automatic changes—you decide which leads to pursue.',
     category: 'features',
+    bestFor: 'Prioritizing new leads',
   },
   {
     id: '5',
@@ -64,20 +66,46 @@ const faqData: FAQItem[] = [
     answer:
       'Yes! The Estimate Generator includes integrated materials pricing from major retailers. You can search for materials, add them to your estimate, and automatically calculate costs with current pricing.',
     category: 'features',
+    bestFor: 'Creating accurate estimates',
   },
   {
     id: '6',
     question: 'What AI features are available?',
     answer:
-      'Build Profit Solutions includes AI-powered lead scoring, budget forecasting, expense validation, predictive analytics, and automated contract generation to help you make smarter business decisions.',
+      'Build Profit Solutions includes AI-powered lead scoring, budget forecasting, expense validation, predictive analytics, and automated contract generation to help you make smarter business decisions. AI assists—you\'re always in control. Nothing is submitted without your review, and all AI recommendations require your approval before any changes are made.',
     category: 'features',
+  },
+  // Behavioral FAQs
+  {
+    id: '6a',
+    question: 'What happens after I submit a bid?',
+    answer:
+      'After you submit a bid, it\'s sent to your client for review. You can track the status in your Leads tab. If the client accepts, you can mark it as "Won" and it will automatically convert to an active project with budget tracking enabled. You\'ll be able to monitor expenses, timeline, and progress all in one place.',
+    category: 'features',
+    bestFor: 'Understanding the estimate-to-project flow',
+  },
+  {
+    id: '6b',
+    question: 'What happens if I win a project?',
+    answer:
+      'When you mark a bid as "Won", it becomes an active project. Your estimate budget is locked in as the baseline, and you can start tracking actual expenses against it. The project moves to your Projects tab where you can manage timeline, payments, team assignments, and monitor budget health in real time.',
+    category: 'features',
+    bestFor: 'New projects and budget tracking',
+  },
+  {
+    id: '6c',
+    question: 'Can I edit an estimate after submitting?',
+    answer:
+      'Yes, you can edit estimates after submitting. Changes are tracked automatically, and you can send updated versions to your client. If the project has already been marked as "Won", edits will be reflected as change orders that you can approve or adjust.',
+    category: 'features',
+    bestFor: 'Making updates to submitted bids',
   },
   // Billing
   {
     id: '7',
     question: 'What are the subscription plans?',
     answer:
-      'We offer three subscription plans: Basic ($25/month), Professional ($49/month), and Business ($79/month). Each plan includes different features and limits. You can upgrade or downgrade at any time.',
+      'You can upgrade, downgrade, or cancel anytime—no contracts. We offer three subscription plans: Basic ($25/month), Professional ($49/month), and Business ($79/month). Each plan includes different features and limits, and you can change your plan at any time from your Profile settings.',
     category: 'billing',
   },
   {
@@ -115,6 +143,7 @@ const faqData: FAQItem[] = [
     answer:
       'Data syncs automatically when you have an internet connection. You can manually refresh by pulling down on most screens. The app also works offline and will sync when connection is restored.',
     category: 'technical',
+    bestFor: 'Working offline or switching devices',
   },
   {
     id: '13',
@@ -122,6 +151,7 @@ const faqData: FAQItem[] = [
     answer:
       'Yes, you can export your leads, projects, and estimates from the relevant sections. Look for the export or share button in each section to download your data as PDF or CSV.',
     category: 'technical',
+    bestFor: 'Accountants, reports, client sharing',
   },
   // Account
   {
@@ -183,7 +213,12 @@ function FAQItemComponent({ item, isExpanded, onToggle, theme, darkMode }: { ite
         />
       </TouchableOpacity>
       <Animated.View style={[styles.faqAnswerContainer, animatedStyle, { borderTopColor: theme.border }]}>
-        <Text style={[styles.faqAnswer, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>{item.answer}</Text>
+        {item.bestFor && (
+          <Text style={[styles.bestForText, { color: theme.accent, opacity: 0.8 }]}>
+            Best for: {item.bestFor}
+          </Text>
+        )}
+        <Text style={[styles.faqAnswer, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }, item.bestFor && { marginTop: 8 }]}>{item.answer}</Text>
       </Animated.View>
     </View>
   );
@@ -516,6 +551,13 @@ const styles = StyleSheet.create({
   faqAnswer: {
     fontSize: 13,
     lineHeight: 22,
+  },
+  bestForText: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   emptyState: {
     alignItems: 'center',

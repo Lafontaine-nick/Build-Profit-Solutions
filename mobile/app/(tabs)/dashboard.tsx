@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   Animated,
   Dimensions,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -760,6 +761,7 @@ const DashboardScreen: React.FC = () => {
             projects={projects}
             onProjectPress={handleProjectPress}
             onViewAllPress={() => router.push("/(tabs)/projects")}
+            onCreateEstimate={() => router.push("/(tabs)/estimate-generator")}
             aiPmMode={aiPmMode}
             aiData={aiData}
             aiLoading={aiLoading}
@@ -1040,9 +1042,10 @@ const InsightItem = ({
   title: string;
   body: string;
 }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const [showTooltip, setShowTooltip] = useState(false);
   
   const iconMap: Record<typeof type, keyof typeof Ionicons.glyphMap> = {
     alert: "warning",
@@ -1055,15 +1058,63 @@ const InsightItem = ({
     info: "#22d3ee",
   };
 
+  // Transform body text to use less certain language
+  const transformedBody = useMemo(() => {
+    // Replace "This could indicate potential issues..." with less certain language
+    if (body.toLowerCase().includes("could indicate") && body.toLowerCase().includes("potential issues")) {
+      return body.replace(
+        /This could indicate potential issues[^.]*/gi,
+        "Once the project begins, this may indicate potential issues if costs aren't tracked."
+      );
+    }
+    // Also catch variations like "This could indicate..." or "could indicate potential..."
+    if (body.toLowerCase().includes("could indicate")) {
+      return body.replace(
+        /(This\s+)?could indicate[^.]*potential issues[^.]*/gi,
+        "Once the project begins, this may indicate potential issues if costs aren't tracked."
+      );
+    }
+    return body;
+  }, [body]);
+
   return (
     <View style={styles.insightRow}>
       <View style={[styles.insightIconCircle, { borderColor: colorMap[type] }]}>
         <Ionicons name={iconMap[type]} size={16} color={colorMap[type]} />
-                    </View>
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.insightTitle}>{title}</Text>
-        <Text style={styles.insightBody}>{body}</Text>
-                  </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.insightTitle}>{title}</Text>
+          <Pressable
+            onPress={() => setShowTooltip(!showTooltip)}
+            style={{ padding: 4 }}
+          >
+            <Ionicons 
+              name="information-circle-outline" 
+              size={14} 
+              color={darkMode ? "#9ca3af" : "#6b7280"} 
+            />
+          </Pressable>
+        </View>
+        {showTooltip && (
+          <View style={{
+            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+            borderRadius: 8,
+            padding: 8,
+            marginTop: 4,
+            marginBottom: 4,
+          }}>
+            <Text style={{
+              color: darkMode ? '#d1d5db' : '#374151',
+              fontSize: 11,
+              lineHeight: 16,
+            }}>
+              Insights improve as real costs are added.
+            </Text>
+          </View>
+        )}
+        <Text style={styles.insightBody}>{transformedBody}</Text>
+      </View>
     </View>
   );
 };
@@ -1080,6 +1131,7 @@ interface OverviewSectionProps {
   projects: any[];
   onProjectPress: (project: any) => void;
   onViewAllPress: () => void;
+  onCreateEstimate: () => void;
   aiPmMode: boolean;
   aiData: AiDashboardResponse | null;
   aiLoading: boolean;
@@ -1093,6 +1145,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   projects,
   onProjectPress,
   onViewAllPress,
+  onCreateEstimate,
   aiPmMode,
   aiData,
   aiLoading,
@@ -1334,11 +1387,27 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
                 {projects.length === 0 ? (
                   <View style={styles.emptyState}>
-                    <Ionicons name="folder-outline" size={48} color="#7C8BA0" />
-                    <Text style={styles.emptyStateText}>{t('dashboard.noProjects')}</Text>
+                    <View style={styles.emptyStateIconCircle}>
+                      <Ionicons name="document-text-outline" size={32} color="#22c55e" />
+                    </View>
+                    <Text style={styles.emptyStateText}>No projects yet</Text>
                     <Text style={styles.emptyStateSubtext}>
-                      {t('dashboard.createFirstProject')}
+                      Create your first estimate to get started
                     </Text>
+                    <Pressable
+                      onPress={onCreateEstimate}
+                      style={styles.emptyStateCTA}
+                    >
+                      <LinearGradient
+                        colors={["#22c55e", "#22d3ee"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.emptyStateCTAGradient}
+                      >
+                        <Ionicons name="add" size={18} color="#020617" />
+                        <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
+                      </LinearGradient>
+                    </Pressable>
                   </View>
                 ) : (
                   <View style={{ marginTop: 12 }}>
@@ -2218,17 +2287,45 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 32,
     marginTop: 16,
   },
+  emptyStateIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
   emptyStateText: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 18,
+    fontWeight: "700",
     color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
     marginTop: 12,
   },
   emptyStateSubtext: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.bg === '#000000' ? "#8DA0B8" : Colors.sub,
-    marginTop: 4,
+    marginTop: 6,
     textAlign: "center",
+    maxWidth: 240,
+  },
+  emptyStateCTA: {
+    marginTop: 20,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  emptyStateCTAGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  emptyStateCTAText: {
+    color: "#020617",
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   // ENHANCED METRIC CARDS
@@ -2428,7 +2525,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   nextStepChipText: {
     fontSize: 10,
-    color: "#4ade80",
+    color: Colors.bg === '#000000' ? "#4ade80" : "#374151",
     fontWeight: "600",
   },
 

@@ -72,7 +72,8 @@ interface ProjectDataContextType {
   updateTeam: (
     pmAssigned: boolean,
     pmName?: string,
-    crewCount?: number
+    crewCount?: number,
+    crewMembers?: string[]
   ) => void;
   addMessage: (message: string, sender: string) => void;
   updateStatus: (status: string) => void;
@@ -456,15 +457,17 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   const updateTeam = (
     pmAssigned: boolean,
     pmName?: string,
-    crewCount?: number
+    crewCount?: number,
+    crewMembers?: string[]
   ) => {
     applyProjectDataUpdate(prev => ({
       ...prev,
       team: {
         pmAssigned,
         pmName: pmName || prev.team.pmName,
+        crewMembers: crewMembers !== undefined ? crewMembers : (prev.team as any)?.crewMembers || [],
       },
-      crewCount: crewCount || prev.crewCount,
+      crewCount: crewCount !== undefined ? crewCount : (crewMembers?.length || prev.crewCount),
       lastUpdated: new Date().toISOString(),
     }));
   };

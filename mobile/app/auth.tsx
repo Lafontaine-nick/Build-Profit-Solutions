@@ -303,7 +303,21 @@ const AuthScreen: React.FC = () => {
         throw new Error('No session created from OAuth flow');
       }
     } catch (error: any) {
-      console.error('❌ Error in handleGoogleSignIn:', error);
+      // Log full error details for debugging
+      console.error('❌ Error in handleGoogleSignIn:', {
+        error,
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack,
+        toString: String(error),
+        errorType: typeof error,
+        errorKeys: error ? Object.keys(error) : [],
+        // Extract status from error string if present
+        statusFromString: error?.toString?.()?.match(/Status: (\d+)/)?.[1],
+        // Try to get nested error info
+        nestedError: error?.error,
+        nestedErrorKeys: error?.error ? Object.keys(error.error) : [],
+      });
       
       // Don't show error if user cancelled
       const errorMessage = error?.message || String(error) || '';
@@ -314,10 +328,10 @@ const AuthScreen: React.FC = () => {
       }
       
       // Extract error details - try multiple ways to get error info
-      const errorCode = error?.error?.errors?.[0]?.code || error?.code;
-      const errorStatus = error?.error?.status || error?.status;
-      const clerkErrorMessage = error?.error?.errors?.[0]?.message || error?.message || '';
-      const errorResponse = error?.response || error?.data;
+      const errorCode = error?.error?.errors?.[0]?.code || error?.code || error?.error?.code;
+      const errorStatus = error?.error?.status || error?.status || error?.statusCode || (error?.toString?.()?.match(/Status: (\d+)/)?.[1] ? parseInt(error.toString().match(/Status: (\d+)/)?.[1] || '0') : null);
+      const clerkErrorMessage = error?.error?.errors?.[0]?.message || error?.message || error?.error?.message || '';
+      const errorResponse = error?.response || error?.data || error?.error;
       
       // Try to extract error code from serialized error string
       let extractedErrorCode = errorCode;
@@ -403,7 +417,12 @@ const AuthScreen: React.FC = () => {
       if (isNetworkError) {
         userFriendlyMessage = 'Network Connection Error\n\nThe app cannot reach Clerk\'s servers. This usually means:\n\n1. ❌ No internet connection\n   → Check your Wi-Fi or cellular data\n\n2. ❌ Firewall/VPN blocking\n   → Try disabling VPN or firewall\n   → Try a different network\n\n3. ❌ Network restrictions\n   → Some networks block certain domains\n   → Try using cellular data instead of Wi-Fi\n\n4. ❌ Device/Emulator network issue\n   → Restart your device\n   → If using emulator, check network settings\n\nPlease check your internet connection and try again.';
       } else if (isConfigError) {
-        userFriendlyMessage = 'Google Sign-In is not properly configured.\n\nTo fix:\n1. Go to Clerk Dashboard → User & Authentication → Social Connections\n2. Click "Configure" next to Google\n3. Make sure Google OAuth is enabled and credentials are set\n4. Verify redirect URI in Google Console: https://accounts.clerk.dev/v1/oauth_callback\n5. Save and try again\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.';
+        // More specific message for 400 errors
+        if (errorStatus === 400) {
+          userFriendlyMessage = 'Google Sign-In Configuration Error (400)\n\nThis usually means:\n\n1. ❌ Google OAuth not enabled in Clerk\n   → Go to Clerk Dashboard → Social Connections → Enable Google\n\n2. ❌ Missing or invalid Google credentials\n   → Add Google Client ID and Secret in Clerk Dashboard\n   → Verify credentials in Google Cloud Console\n\n3. ❌ Redirect URI mismatch\n   → Google Console: https://accounts.clerk.dev/v1/oauth_callback\n   → Or your instance: https://[your-instance].clerk.accounts.dev/v1/oauth_callback\n\n4. ❌ Invalid OAuth request format\n   → Check Clerk dashboard for any error messages\n   → Verify OAuth settings are saved correctly\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.';
+        } else {
+          userFriendlyMessage = 'Google Sign-In is not properly configured.\n\nTo fix:\n1. Go to Clerk Dashboard → User & Authentication → Social Connections\n2. Click "Configure" next to Google\n3. Make sure Google OAuth is enabled and credentials are set\n4. Verify redirect URI in Google Console: https://accounts.clerk.dev/v1/oauth_callback\n5. Save and try again\n\nSee GOOGLE_OAUTH_SETUP.md for detailed instructions.';
+        }
       } else if (errorCode || errorStatus) {
         userFriendlyMessage = `Google sign-in error: ${errorCode || errorStatus}\n\n${clerkErrorMessage || errorMessage}\n\nPlease check your Clerk dashboard configuration.`;
       }

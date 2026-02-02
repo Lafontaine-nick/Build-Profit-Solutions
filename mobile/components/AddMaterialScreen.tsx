@@ -10,6 +10,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -20,6 +21,9 @@ import {
 } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { useProjectData } from "@/contexts/ProjectDataContext";
+import * as Haptics from "expo-haptics";
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -41,9 +45,13 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   navigation,
   onSave,
 }) => {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const projectId = params.projectId as string;
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const { addExpense } = useProjectData();
   
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
@@ -62,30 +70,55 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const handleSave = () => {
     // basic validation
     if (!vendor.trim() || !numericAmount) {
-      // you can replace with your toast/snackbar
-      console.log("Vendor and amount are required.");
+      Alert.alert('Required Fields', 'Vendor and amount are required.');
       return;
     }
 
-    const payload = {
-      vendor: vendor.trim(),
-      amount: numericAmount,
-      scope: scope.trim(),
-      description: description.trim(),
-      poNumber: poNumber.trim(),
-    };
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    if (onSave) {
-      onSave(payload);
+    // Save to project data using ProjectDataContext
+    try {
+      addExpense({
+        id: Date.now().toString(),
+        vendor: vendor.trim(),
+        amount: numericAmount,
+        category: 'Materials/Equipment',
+        date: new Date().toISOString(),
+        notes: description.trim() || undefined,
+      });
+
+      // Also call the onSave callback if provided
+      if (onSave) {
+        onSave({
+          vendor: vendor.trim(),
+          amount: numericAmount,
+          scope: scope.trim(),
+          description: description.trim(),
+          poNumber: poNumber.trim(),
+        });
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Navigate back to Budget tab on project detail page
+      if (projectId) {
+        router.push({
+          pathname: `/project-detail/[id]`,
+          params: { id: projectId, activeTab: 'Budget', backToProjects: '1' }
+        });
+      } else {
+        // Fallback to go back if no projectId
+        navigation?.goBack?.();
+      }
+    } catch (error) {
+      console.error('Error saving expense:', error);
+      Alert.alert('Error', 'Failed to save expense. Please try again.');
     }
-
-    // navigate back or to success state
-    navigation?.goBack?.();
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
       <View style={styles.container}>
         <KeyboardAvoidingView
@@ -302,11 +335,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 const getStyles = (Colors: any) => StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.bg,
+    backgroundColor: "#000000",
   },
   container: {
     flex: 1,
-    backgroundColor: Colors.bg,
+    backgroundColor: "#000000",
   },
   content: {
     flex: 1,
@@ -394,7 +427,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: Colors.surface2,
     borderWidth: 1,
-    borderColor: Colors.line,
+    borderColor: "#6B7280", // Grey border
   },
   textAreaWrapper: {
     borderRadius: 12,
@@ -402,7 +435,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: Colors.surface2,
     borderWidth: 1,
-    borderColor: Colors.line,
+    borderColor: "#6B7280", // Grey border
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -465,25 +498,26 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     borderTopWidth: 1,
     borderTopColor: Colors.line,
-    backgroundColor: Colors.bg,
+    backgroundColor: "#000000",
   },
   cancelButton: {
     flex: 1,
-    marginRight: 10,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.line,
+    borderColor: "#22c55e", // Light green border
     backgroundColor: Colors.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
   saveButton: {
     flex: 1,
-    marginLeft: 10,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#22d3ee", // Light blue border
     overflow: "hidden",
   },
   saveButtonGradient: {

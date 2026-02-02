@@ -19,6 +19,7 @@ import {
   FlatList,
   Keyboard,
   TouchableWithoutFeedback,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -2872,6 +2873,76 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
 });
 
+// Final Step Guidance Card Component with pulse animation
+const FinalStepGuidanceCard = ({ onNavigateToSummary, Colors }) => {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, []);
+  
+  return (
+    <View style={{
+      marginTop: 20,
+      padding: 16,
+      borderRadius: 16,
+      backgroundColor: 'rgba(45, 255, 196, 0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(45, 255, 196, 0.25)',
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+        <MaterialIcons name="check-circle" size={20} color="#2DFFC4" />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>
+            Ready to submit your bid!
+          </Text>
+          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+            Go to Summary to review your complete estimate and submit it to your client.
+          </Text>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <TouchableOpacity
+              onPress={onNavigateToSummary}
+              activeOpacity={0.8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 10,
+                paddingHorizontal: 16,
+                borderRadius: 10,
+                backgroundColor: 'rgba(45, 255, 196, 0.15)',
+                borderWidth: 1,
+                borderColor: 'rgba(45, 255, 196, 0.4)',
+              }}
+            >
+              <MaterialIcons name="summarize" size={16} color="#2DFFC4" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '700' }}>
+                Go to Summary
+              </Text>
+              <Ionicons name="arrow-forward" size={16} color="#2DFFC4" style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 export default function EstimateGeneratorScreen() {
   // Require authentication to access this screen
   useRequireAuth();
@@ -2981,8 +3052,12 @@ export default function EstimateGeneratorScreen() {
     }
     if (step === 8) {
       setHasReviewedTotal(true);
+      // Auto-highlight Summary button for first-time users on final step
+      if (shouldShowGuidance) {
+        setActiveNavButton('summary');
+      }
     }
-  }, [step]);
+  }, [step, shouldShowGuidance]);
 
   useEffect(() => {
     const persistMaterialsCart = async () => {
@@ -3159,12 +3234,20 @@ export default function EstimateGeneratorScreen() {
     : hasClientInfo && hasJobInfo && hasLabor && hasMaterials && hasReviewedMarkup && hasPaymentSchedule && hasReviewedTotal
       ? 'ready'
       : 'partial';
+  const isEstimateReady = readinessState === 'ready';
+  const isFirstTimeFlow = isFirstTime || shouldShowGuidance;
+  const shouldGateAdvanced = isFirstTimeFlow && !isEstimateReady;
 
-  const handleReadinessCTA = () => {
+  const handleReadinessCTA = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!hasClientInfo || !hasJobInfo) {
       setStep(1);
       setActiveNavButton('next');
+      // Dismiss welcome card when navigating to step 1
+      if (showGuideRail) {
+        await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+        setShowGuideRail(false);
+      }
       return;
     }
     if (!hasMaterials) {
@@ -3688,7 +3771,9 @@ export default function EstimateGeneratorScreen() {
   const [milestoneModal, setMilestoneModal] = useState({ visible: false, item: null });
   const [weeklyPaymentModal, setWeeklyPaymentModal] = useState({ visible: false, item: null });
   const [scoreExplanationExpanded, setScoreExplanationExpanded] = useState(false);
+  // For first-time users, collapse health score by default
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
+  const [paymentTimelineExpanded, setPaymentTimelineExpanded] = useState(false);
   
   // Enhanced materials state
   const [activeScope, setActiveScope] = useState('kitchen');
@@ -4047,44 +4132,36 @@ export default function EstimateGeneratorScreen() {
         const guideRailEnabled = await AsyncStorage.getItem('bps.showEstimateGuideRail');
         const guideRailDismissed = await AsyncStorage.getItem('bps.dismissEstimateGuideRail');
         
-        // CRITICAL: Only set showCoachFlags if resetFlag is explicitly set (testing mode)
-        // Don't set it from AsyncStorage alone - it must be paired with isOnboardingReset
+        // Determine if user has already created/submitted estimates
+        const hasExistingWork = firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates;
+        
         if (resetFlag === 'true') {
           // Explicit reset request: show onboarding walkthrough
           setIsOnboardingReset(true);
           setIsFirstTime(true);
-          setShowCoachFlags(true); // Only set to true when reset flag is set
+          setShowCoachFlags(true);
           setShowGuideRail(guideRailEnabled === 'true' && guideRailDismissed !== 'true');
-        } else if (
-          isFirstTimeFlag === 'true' &&
-          (firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates)
-        ) {
-          // Ignore onboarding reset if user has already submitted a bid or has saved estimates
+        } else if (hasExistingWork) {
+          // User has already created/submitted estimates - don't show guidance
           await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
           await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
           await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
           await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+          await AsyncStorage.removeItem('bps.forceEstimateOnboarding');
           setIsOnboardingReset(false);
           setShowCoachFlags(false);
           setShowGuideRail(false);
         } else {
-          // NOT a reset - hide walkthrough completely
-          // Walkthrough ONLY shows when "Reset onboarding" is clicked (no first-time user logic)
+          // NEW USER: No estimates yet - show guidance for first-time experience
+          // This helps new users understand the estimate flow
           setIsOnboardingReset(false);
-          setShowCoachFlags(false);
-          setShowGuideRail(false);
+          setIsFirstTime(true);
+          setShowCoachFlags(true); // Enable coach flags for new users
+          setShowGuideRail(guideRailDismissed !== 'true'); // Show guide rail unless dismissed
           
-          // Clear all onboarding flags in AsyncStorage to prevent showing on next app open
-          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
-          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
-          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
-          
-          // If user has already submitted a bid or has saved estimates, clear first-time flag too
-          if (firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates) {
-            await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
-          }
+          // Save flags so they persist
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
         }
       } catch (error) {
         console.error('Error checking onboarding flag:', error);
@@ -9341,12 +9418,50 @@ export default function EstimateGeneratorScreen() {
                   <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Project outcome scenarios</Text>
                 </View>
               </View>
-              <ProjectAnalysis
-                bid={bid}
-                calc={calc}
-                materialsCart={materialsCart}
-                laborLineItems={bid.laborLineItems || []}
-              />
+              {shouldGateAdvanced ? (
+                <View style={{
+                  borderRadius: 16,
+                  padding: 16,
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.12)',
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <MaterialIcons name="lock" size={18} color={Colors.sub} />
+                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                      Project Analysis
+                    </Text>
+                  </View>
+                  <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                    Complete your estimate to unlock outcome scenarios and risk modeling.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={handleReadinessCTA}
+                    activeOpacity={0.8}
+                    style={{
+                      marginTop: 12,
+                      alignSelf: 'flex-start',
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: 'rgba(45, 255, 196, 0.4)',
+                      backgroundColor: 'rgba(45, 255, 196, 0.08)',
+                    }}
+                  >
+                    <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                      Finish setup to unlock
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <ProjectAnalysis
+                  bid={bid}
+                  calc={calc}
+                  materialsCart={materialsCart}
+                  laborLineItems={bid.laborLineItems || []}
+                />
+              )}
             </GlassBorderCard>
             
             {/* Legal Disclaimer - Outside the card */}
@@ -9717,101 +9832,125 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
               
-              {/* Payment Timeline Preview */}
+              {/* Payment Timeline Preview - Collapsible for first-time users */}
               {timeline.length > 0 && (
                 <View style={{ marginTop: 20, marginBottom: 20 }}>
-                  <View style={{ marginBottom: 8 }}>
-                    <Text style={[s.label, { marginBottom: 4, fontSize: 13, letterSpacing: 0.5, textTransform: 'uppercase' }]}>Payment Timeline</Text>
-                    <Text style={{ color: Colors.sub, fontSize: 10, opacity: 0.8, fontStyle: 'italic' }}>
-                      Shows when payments are received — not cost timing.
-                    </Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      {timeline.map((item, index) => {
-                        const isFinal = item.type === 'final';
-                        const isDeposit = item.type === 'deposit';
-                        const lightTimelineStyle = !darkMode
-                          ? { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }
-                          : {};
-                        // Final payment: outlined style (not filled) - dark mode only
-                        const finalStyle = (isFinal && darkMode) ? {
-                          backgroundColor: 'transparent',
-                          borderWidth: 2,
-                          borderColor: 'rgba(45, 255, 196, 0.5)',
-                          borderStyle: 'dashed',
-                        } : {};
-                        // Deposit: green glow - dark mode only
-                        const depositStyle = isDeposit ? {
-                          backgroundColor: 'rgba(56, 211, 159, 0.15)',
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (shouldShowGuidance) {
+                        setPaymentTimelineExpanded(!paymentTimelineExpanded);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                    activeOpacity={shouldShowGuidance ? 0.7 : 1}
+                    style={{ marginBottom: 8 }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.label, { marginBottom: 4, fontSize: 13, letterSpacing: 0.5, textTransform: 'uppercase' }]}>Payment Timeline</Text>
+                        <Text style={{ color: Colors.sub, fontSize: 10, opacity: 0.8, fontStyle: 'italic' }}>
+                          Shows when payments are received — not cost timing.
+                        </Text>
+                      </View>
+                      {shouldShowGuidance && (
+                        <MaterialIcons
+                          name={paymentTimelineExpanded ? 'expand-less' : 'expand-more'}
+                          size={20}
+                          color={Colors.sub}
+                        />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  {(!shouldShowGuidance || paymentTimelineExpanded) && (
+                    <>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {timeline.map((item, index) => {
+                            const isFinal = item.type === 'final';
+                            const isDeposit = item.type === 'deposit';
+                            const lightTimelineStyle = !darkMode
+                              ? { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }
+                              : {};
+                            // Final payment: outlined style (not filled) - dark mode only
+                            const finalStyle = (isFinal && darkMode) ? {
+                              backgroundColor: 'transparent',
+                              borderWidth: 2,
+                              borderColor: 'rgba(45, 255, 196, 0.5)',
+                              borderStyle: 'dashed',
+                            } : {};
+                            // Deposit: green glow - dark mode only
+                            const depositStyle = isDeposit ? {
+                              backgroundColor: 'rgba(56, 211, 159, 0.15)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(56, 211, 159, 0.3)',
+                            } : {};
+                            // Progress: subtle - dark mode only
+                            const progressStyle = (!isFinal && !isDeposit && darkMode) ? {
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(255, 255, 255, 0.1)',
+                            } : {};
+                            
+                            return (
+                              <View
+                                key={index}
+                                style={[
+                                  {
+                                    minWidth: 100,
+                                    padding: 10,
+                                    borderRadius: 12,
+                                  },
+                                  lightTimelineStyle,
+                                  finalStyle,
+                                  depositStyle,
+                                  progressStyle,
+                                ]}
+                              >
+                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 4, fontWeight: '600' }} numberOfLines={1}>
+                                  {item.label}
+                                </Text>
+                                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>
+                                  {item.pct.toFixed(1)}%
+                                </Text>
+                                <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                  {money(item.amount)}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                      
+                      {/* AI Cash-Flow Insight */}
+                      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: 'rgba(34, 211, 238, 0.08)', borderWidth: 1, borderColor: 'rgba(34, 211, 238, 0.15)' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                          <Ionicons name="bulb-outline" size={16} color="#22d3ee" style={{ marginRight: 8, marginTop: 2 }} />
+                          <Text style={{ color: Colors.text, fontSize: 12, flex: 1, lineHeight: 18 }}>
+                            {getCashFlowInsight()}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      {/* Payment Risk Indicator */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 20,
+                          backgroundColor: riskLabels[paymentRisk].color + '20',
                           borderWidth: 1,
-                          borderColor: 'rgba(56, 211, 159, 0.3)',
-                        } : {};
-                        // Progress: subtle - dark mode only
-                        const progressStyle = (!isFinal && !isDeposit && darkMode) ? {
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          borderWidth: 1,
-                          borderColor: 'rgba(255, 255, 255, 0.1)',
-                        } : {};
-                        
-                        return (
-                          <View
-                            key={index}
-                            style={[
-                              {
-                                minWidth: 100,
-                                padding: 10,
-                                borderRadius: 12,
-                              },
-                              lightTimelineStyle,
-                              finalStyle,
-                              depositStyle,
-                              progressStyle,
-                            ]}
-                          >
-                            <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 4, fontWeight: '600' }} numberOfLines={1}>
-                              {item.label}
-                            </Text>
-                            <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>
-                              {item.pct.toFixed(1)}%
-                            </Text>
-                            <Text style={{ color: Colors.sub, fontSize: 11 }}>
-                              {money(item.amount)}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                  
-                  {/* AI Cash-Flow Insight */}
-                  <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: 'rgba(34, 211, 238, 0.08)', borderWidth: 1, borderColor: 'rgba(34, 211, 238, 0.15)' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <Ionicons name="bulb-outline" size={16} color="#22d3ee" style={{ marginRight: 8, marginTop: 2 }} />
-                      <Text style={{ color: Colors.text, fontSize: 12, flex: 1, lineHeight: 18 }}>
-                        {getCashFlowInsight()}
-                      </Text>
-                    </View>
-                  </View>
-                  
-                  {/* Payment Risk Indicator */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
-                    <View style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 20,
-                      backgroundColor: riskLabels[paymentRisk].color + '20',
-                      borderWidth: 1,
-                      borderColor: riskLabels[paymentRisk].color + '40',
-                    }}>
-                      <Text style={{ fontSize: 12, marginRight: 6 }}>{riskLabels[paymentRisk].emoji}</Text>
-                      <Text style={{ color: riskLabels[paymentRisk].color, fontSize: 12, fontWeight: '600' }}>
-                        {riskLabels[paymentRisk].label}
-                      </Text>
-                    </View>
-                  </View>
+                          borderColor: riskLabels[paymentRisk].color + '40',
+                        }}>
+                          <Text style={{ fontSize: 12, marginRight: 6 }}>{riskLabels[paymentRisk].emoji}</Text>
+                          <Text style={{ color: riskLabels[paymentRisk].color, fontSize: 12, fontWeight: '600' }}>
+                            {riskLabels[paymentRisk].label}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
                 </View>
               )}
               
@@ -12438,6 +12577,71 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
               
+              {shouldGateAdvanced ? (
+                <>
+                  <View style={{
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                    borderWidth: 2,
+                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                    borderRadius: 20,
+                    padding: 20,
+                    marginBottom: 20,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <MaterialIcons name="lock" size={18} color={Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                        Health score & insights
+                      </Text>
+                    </View>
+                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                      Complete your estimate to unlock health score, AI insights, and recommendations.
+                    </Text>
+                    <TouchableOpacity
+                      onPress={handleReadinessCTA}
+                      activeOpacity={0.8}
+                      style={{
+                        marginTop: 12,
+                        alignSelf: 'flex-start',
+                        paddingVertical: 8,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: 'rgba(45, 255, 196, 0.4)',
+                        backgroundColor: 'rgba(45, 255, 196, 0.08)',
+                      }}
+                    >
+                      <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                        Finish setup to unlock
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {/* Navigation guidance for first-time users when gated */}
+                  {shouldShowGuidance && (
+                    <View style={{
+                      marginBottom: 20,
+                      padding: 16,
+                      borderRadius: 16,
+                      backgroundColor: 'rgba(45, 255, 196, 0.08)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(45, 255, 196, 0.25)',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                        <MaterialIcons name="info" size={20} color="#2DFFC4" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 4 }}>
+                            Almost there!
+                          </Text>
+                          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                            Complete the remaining steps, then go to Summary to review and submit your bid.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
               {/* 1. Upgraded Health Score Diagnostic Card */}
               <View style={{
                 backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
@@ -12468,7 +12672,8 @@ export default function EstimateGeneratorScreen() {
                 <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 14, marginBottom: 4 }}>
                   {aiLevel === 'good' ? 'Ready to send' : aiLevel === 'warn' ? 'Moderate risk — optimizable' : 'Needs attention'}
                 </Text>
-                {projectedProfit10Pct > 0 && (
+                {/* Hide advanced math for first-time users */}
+                {projectedProfit10Pct > 0 && !shouldShowGuidance && (
                   <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, opacity: darkMode ? 0.7 : 1, marginBottom: 8, textAlign: 'center' }}>
                     If costs rise 10%, projected profit: {money(projectedProfit10Pct)} ({projectedProfitPct10Pct.toFixed(1)}%)
                   </Text>
@@ -12528,8 +12733,8 @@ export default function EstimateGeneratorScreen() {
                   </View>
                 )}
                 
-                {/* Diagnostic Reason Chips */}
-                {diagnosticReasons.length > 0 && (
+                {/* Diagnostic Reason Chips - Hide for first-time users unless expanded */}
+                {diagnosticReasons.length > 0 && (!shouldShowGuidance || healthScoreBreakdownExpanded) && (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: 8 }}>
                     {diagnosticReasons.map((reason, index) => (
                       <View
@@ -12608,6 +12813,8 @@ export default function EstimateGeneratorScreen() {
                   </View>
                 </View>
               )}
+              </>
+              )}
               
               {/* 3. Bid Snapshot Card */}
               <View style={{
@@ -12622,78 +12829,96 @@ export default function EstimateGeneratorScreen() {
                   <MaterialIcons name="receipt" size={18} color={Colors.sub} style={{ marginRight: 8 }} />
                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Bid Snapshot</Text>
                 </View>
-                <View style={{ gap: 10 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Total Bid:</Text>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{money(calc?.total || 0)}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Estimated Net Profit:</Text>
-                    <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
+                {shouldGateAdvanced ? (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 12 }}>
+                      Estimated Profit
+                    </Text>
+                    <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 22, fontWeight: '800' }}>
                       {money(netProfit)} ({netProfitPct.toFixed(1)}%)
                     </Text>
+                    <Text style={{ color: Colors.sub, fontSize: 12 }}>
+                      You&apos;re protected against ~{costOverrunCushion.toFixed(1)}% cost overruns.
+                    </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Payment Structure:</Text>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{paymentScheduleType}</Text>
-                  </View>
+                ) : (
+                  <View style={{ gap: 10 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Total Bid:</Text>
+                      <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{money(calc?.total || 0)}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Estimated Net Profit:</Text>
+                      <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
+                        {money(netProfit)} ({netProfitPct.toFixed(1)}%)
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Payment Structure:</Text>
+                      <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{paymentScheduleType}</Text>
+                    </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Duration:</Text>
                     <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{durationText}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Cost Overrun Cushion:</Text>
-                    <Text style={{ color: costOverrunCushion >= 10 ? '#38d39f' : costOverrunCushion >= 5 ? '#ffcc66' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
-                      ~{costOverrunCushion.toFixed(1)}%
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              
-              {/* Optional: What affects this score? (Collapsible) */}
-              <TouchableOpacity
-                onPress={() => {
-                  setScoreExplanationExpanded(!scoreExplanationExpanded);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                style={{
-                  marginBottom: 20,
-                  paddingVertical: 12,
-                  paddingHorizontal: 16,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                    What affects this score?
-                  </Text>
-                  <MaterialIcons
-                    name={scoreExplanationExpanded ? 'expand-less' : 'expand-more'}
-                    size={18}
-                    color={Colors.sub}
-                  />
-                </View>
-                {scoreExplanationExpanded && (
-                  <View style={{ marginTop: 12, gap: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Margin strength</Text>
+                  {/* Hide advanced math for first-time users */}
+                  {!shouldShowGuidance && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Cost Overrun Cushion:</Text>
+                      <Text style={{ color: costOverrunCushion >= 10 ? '#38d39f' : costOverrunCushion >= 5 ? '#ffcc66' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
+                        ~{costOverrunCushion.toFixed(1)}%
+                      </Text>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Payment timing</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Cost volatility</Text>
-                    </View>
+                  )}
                   </View>
                 )}
-              </TouchableOpacity>
+              </View>
+              
+              {!shouldGateAdvanced && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setScoreExplanationExpanded(!scoreExplanationExpanded);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    marginBottom: 20,
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12, fontWeight: '600' }}>
+                      What affects this score?
+                    </Text>
+                    <MaterialIcons
+                      name={scoreExplanationExpanded ? 'expand-less' : 'expand-more'}
+                      size={18}
+                      color={Colors.sub}
+                    />
+                  </View>
+                  {scoreExplanationExpanded && (
+                    <View style={{ marginTop: 12, gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Margin strength</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Payment timing</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
+                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Cost volatility</Text>
+                      </View>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
               
               {/* 5. Pre-Flight Checklist */}
               {checklistItems.length > 0 && (
@@ -12736,17 +12961,35 @@ export default function EstimateGeneratorScreen() {
               
               {/* 4. Generate Contract CTA with Framing */}
               <View style={{ marginBottom: 16 }}>
-                <Text style={{
-                  color: Colors.sub,
-                  fontSize: 12,
-                  marginBottom: 8,
-                  textAlign: 'center',
-                  fontWeight: '600',
-                }}>
-                  Ready to generate client-facing contract
-                </Text>
+                {allChecklistItemsComplete ? (
+                  <View style={{ alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Pricing validated</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Payments balanced</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Margin protected</Text>
+                  </View>
+                ) : shouldGateAdvanced ? (
+                  <Text style={{
+                    color: Colors.sub,
+                    fontSize: 12,
+                    marginBottom: 8,
+                    textAlign: 'center',
+                    fontWeight: '600',
+                  }}>
+                    Complete setup to generate a client-facing contract
+                  </Text>
+                ) : (
+                  <Text style={{
+                    color: Colors.sub,
+                    fontSize: 12,
+                    marginBottom: 8,
+                    textAlign: 'center',
+                    fontWeight: '600',
+                  }}>
+                    Ready to generate client-facing contract
+                  </Text>
+                )}
                 <TouchableOpacity
-                  onPress={generateContract}
+                  onPress={shouldGateAdvanced ? handleReadinessCTA : generateContract}
                   activeOpacity={0.8}
                 >
                   <LinearGradient
@@ -12764,7 +13007,7 @@ export default function EstimateGeneratorScreen() {
                   >
                     <MaterialIcons name="description" size={20} color="#fff" />
                     <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                      Generate Contract PDF
+                      {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate Contract PDF'}
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -12788,6 +13031,18 @@ export default function EstimateGeneratorScreen() {
                   </Text>
                 </View>
               </View>
+              
+              {/* Navigation guidance for first-time users */}
+              {shouldShowGuidance && allChecklistItemsComplete && !shouldGateAdvanced && (
+                <FinalStepGuidanceCard 
+                  onNavigateToSummary={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setStep(0);
+                    setActiveNavButton('summary');
+                  }}
+                  Colors={Colors}
+                />
+              )}
             </GlassBorderCard>
           </View>
         );
@@ -12965,9 +13220,14 @@ export default function EstimateGeneratorScreen() {
                     <TouchableOpacity
                       activeOpacity={0.85}
                       style={s.navNextInner}
-                      onPress={() => {
+                      onPress={async () => {
                         setStep(step + 1);
                         setActiveNavButton('next');
+                        // Dismiss welcome card when clicking Next
+                        if (showGuideRail) {
+                          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+                          setShowGuideRail(false);
+                        }
                       }}
                     >
                       <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '600' }}>Next</Text>
@@ -12978,7 +13238,12 @@ export default function EstimateGeneratorScreen() {
                   <TouchableOpacity
                     activeOpacity={0.85}
                     style={s.navNextWrap}
-                    onPress={() => {
+                    onPress={async () => {
+                      // Dismiss welcome card when clicking Next (regardless of destination)
+                      if (showGuideRail) {
+                        await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+                        setShowGuideRail(false);
+                      }
                       if (step === 0) {
                         // From Bid Summary (step 0), go to Customer Information (step 1)
                         setStep(1);
@@ -13079,6 +13344,58 @@ export default function EstimateGeneratorScreen() {
               </Text>
             </View>
           </View>
+          {isFirstTimeFlow && (
+            <View style={{
+              alignSelf: 'center',
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              borderRadius: 12,
+              backgroundColor: 'rgba(45, 255, 196, 0.08)',
+              borderWidth: 1,
+              borderColor: 'rgba(45, 255, 196, 0.25)',
+              marginBottom: 10,
+            }}>
+              {(() => {
+                // Get current step info - step 0 is Summary, steps 1-8 are the actual steps
+                const currentStepNumber = step === 0 ? 0 : step;
+                const currentStepInfo = step === 0 ? null : STEPS.find(s => s.id === step);
+                const totalSteps = STEPS.length; // 8 steps
+                const stepsRemaining = step === 0 ? totalSteps : totalSteps - currentStepNumber + 1;
+                
+                // Get step title - use the actual step title, not nextStepLabel
+                const stepTitle = step === 0 
+                  ? 'BID SUMMARY' 
+                  : currentStepInfo 
+                    ? currentStepInfo.title.toUpperCase().replace(' & ', ' & ').replace('/', ' / ')
+                    : nextStepLabel.toUpperCase();
+                
+                // For step 0 (Summary), show it as a preview step
+                if (step === 0) {
+                  return (
+                    <>
+                      <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                        REVIEW YOUR ESTIMATE
+                      </Text>
+                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                        You&apos;re doing great. {totalSteps} steps to complete.
+                      </Text>
+                    </>
+                  );
+                }
+                
+                return (
+                  <>
+                    <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                      STEP {currentStepNumber} OF {totalSteps} — {stepTitle}
+                    </Text>
+                    <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                      You&apos;re doing great. {Math.max(0, stepsRemaining - 1)} steps left.
+                    </Text>
+                  </>
+                );
+              })()}
+            </View>
+          )}
           
           {/* Step Icons Row */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 4 }}>
@@ -13128,7 +13445,15 @@ export default function EstimateGeneratorScreen() {
             {STEPS.map((stepItem) => (
               <TouchableOpacity
                 key={stepItem.id}
-                onPress={() => setStep(stepItem.id)}
+                onPress={async () => {
+                  setStep(stepItem.id);
+                  // Dismiss welcome card if user manually clicks any step
+                  if (showGuideRail) {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+                    setShowGuideRail(false);
+                  }
+                }}
                 style={{
                   alignItems: 'center',
                   marginHorizontal: 6,
@@ -13257,13 +13582,13 @@ export default function EstimateGeneratorScreen() {
                     }}
                   >
                     <MaterialIcons name="arrow-forward" size={14} color="#22c55e" />
-                    <Text style={{ color: '#d1fae5', fontSize: 12, fontWeight: '600' }}>Next step: {nextStepLabel}</Text>
+                    <Text style={{ color: darkMode ? '#d1fae5' : '#374151', fontSize: 12, fontWeight: '600' }}>Next step: {nextStepLabel}</Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Progress Meter */}
                 <View style={{ marginBottom: 12 }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                  <Text style={{ color: darkMode ? '#94a3b8' : '#374151', fontSize: 12, marginBottom: 6 }}>
                     Guided setup — {setupProgressPct}% complete
                   </Text>
                   <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999 }}>
@@ -13278,11 +13603,11 @@ export default function EstimateGeneratorScreen() {
                   </View>
                 </View>
 
-                <View style={{ backgroundColor: '#0b0f14', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-                  <Text style={{ color: '#f9fafb', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                <View style={{ backgroundColor: darkMode ? '#0b0f14' : Colors.surface2, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.line }}>
+                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
                     {readinessState === 'ready' ? 'Estimate looks solid' : readinessState === 'partial' ? 'Estimate in progress' : 'Estimate not ready yet'}
                   </Text>
-                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 6 }}>
                     {completedChecklistCount === 0
                       ? 'Just getting started'
                       : completedChecklistCount === 2
@@ -13291,38 +13616,38 @@ export default function EstimateGeneratorScreen() {
                           ? 'Almost ready to send'
                           : completedChecklistCount === 4
                             ? 'Ready to submit'
-                            : 'You’re 1 step away from a complete estimate.'}
+                            : "You're 1 step away from a complete estimate."}
                   </Text>
-                  <Text style={{ color: '#9ca3af', fontSize: 12, marginBottom: 10 }}>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 10 }}>
                     Complete the steps below to finish your estimate.
                   </Text>
                   <View style={{ gap: 6, marginBottom: 12 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasClientInfo && hasJobInfo ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasClientInfo && hasJobInfo ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add client & job info</Text>
+                      <MaterialIcons name={hasClientInfo && hasJobInfo ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasClientInfo && hasJobInfo ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add client & job info</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasMaterials ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasMaterials ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add materials</Text>
+                      <MaterialIcons name={hasMaterials ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasMaterials ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add materials</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasLabor ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasLabor ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Add labor</Text>
+                      <MaterialIcons name={hasLabor ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasLabor ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Add labor</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasReviewedMarkup ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedMarkup ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Review markup</Text>
+                      <MaterialIcons name={hasReviewedMarkup ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedMarkup ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: darkMode ? Colors.text : '#374151', fontSize: 13 }}>Review markup</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasPaymentSchedule ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasPaymentSchedule ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Payment schedule</Text>
+                      <MaterialIcons name={hasPaymentSchedule ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasPaymentSchedule ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Payment schedule</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name={hasReviewedTotal ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedTotal ? '#22c55e' : '#64748b'} />
-                      <Text style={{ color: '#e2e8f0', fontSize: 13 }}>Review total</Text>
+                      <MaterialIcons name={hasReviewedTotal ? 'check-circle' : 'radio-button-unchecked'} size={16} color={hasReviewedTotal ? '#22c55e' : Colors.sub} />
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Review total</Text>
                     </View>
                   </View>
-                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 10 }}>
                     Most contractors use 18–25% markup. You can change this anytime.
                     {markupLow ? ' Your current markup is below typical range.' : ''}
                   </Text>
@@ -13353,7 +13678,7 @@ export default function EstimateGeneratorScreen() {
                       activeOpacity={0.85}
                       style={{ paddingVertical: 10, paddingHorizontal: 8 }}
                     >
-                      <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: '600' }}>
+                      <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>
                         {(!hasClientInfo || !hasJobInfo) ? 'Add materials' : 'Skip for now'}
                       </Text>
                     </TouchableOpacity>

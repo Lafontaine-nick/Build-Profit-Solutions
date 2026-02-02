@@ -17,6 +17,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import AddTransactionModal from "./AddTransactionModal";
+import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 const BRAND_GREEN = "#22c55e";
@@ -29,6 +30,7 @@ interface MaterialsEquipmentScreenProps {
 const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   navigation,
 }) => {
+  const router = useRouter();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { projectData, addExpense, updateExpense } = useProjectData();
@@ -212,7 +214,17 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setShowAddModal(true);
+              // Navigate to Add Materials & Equipment page (the form with vendor, amount, receipt, budget status, project phase)
+              const projectId = projectData?.id;
+              if (projectId) {
+                router.push({
+                  pathname: '/add-materials-equipment',
+                  params: { projectId }
+                });
+              } else {
+                // Fallback to modal if no project ID
+                setShowAddModal(true);
+              }
             }}
           >
             <LinearGradient

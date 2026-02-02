@@ -180,7 +180,7 @@ function AuthGateWithClerk() {
   // But add timeout to prevent infinite loading
   if (!isLoaded && !clerkTimeout) {
     console.log('AuthGate - Clerk is loading, waiting for session restoration...');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
@@ -189,7 +189,7 @@ function AuthGateWithClerk() {
   if (!isLoaded && clerkTimeout) {
     console.warn('AuthGate - Clerk loading timed out, showing auth screens anyway');
     return (
-      <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
         <Stack.Screen name="auth" />
         <Stack.Screen name="auth/login" />
@@ -204,7 +204,7 @@ function AuthGateWithClerk() {
   if (!isSignedIn || !user) {
     console.log('AuthGate - No active session found after Clerk loaded, showing landing + auth screens');
     return (
-      <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
         <Stack.Screen name="auth" />
         <Stack.Screen name="auth/login" />
@@ -217,7 +217,7 @@ function AuthGateWithClerk() {
   // Show profile setup if needed (wait for check to complete)
   if (needsProfileSetup === true) {
     console.log('AuthGate - Showing profile setup (missing profile information)');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="auth/profile-setup" />
     </Stack>;
   }
@@ -225,7 +225,7 @@ function AuthGateWithClerk() {
   // Don't proceed until profile check is complete (only show loading if we're checking)
   if (needsProfileSetup === null) {
     console.log('AuthGate - Checking profile completeness...');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
@@ -233,7 +233,7 @@ function AuthGateWithClerk() {
   // Show loading while user role is loading
   if (isLoading) {
     console.log('AuthGate - Showing loading for user role');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
@@ -241,7 +241,7 @@ function AuthGateWithClerk() {
   // Show role selection if no role is set
   if (!userRole) {
     console.log('AuthGate - Showing role selection');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="role-selection" />
     </Stack>;
   }
@@ -249,7 +249,7 @@ function AuthGateWithClerk() {
   // Check onboarding status (wait for check to complete)
   if (needsOnboarding === null) {
     console.log('AuthGate - Checking onboarding status...');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
@@ -257,14 +257,14 @@ function AuthGateWithClerk() {
   // Show onboarding if needed
   if (needsOnboarding === true) {
     console.log('AuthGate - Showing onboarding');
-    return <Stack screenOptions={{ headerShown: false }}>
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="onboarding" />
     </Stack>;
   }
 
   // User is fully authenticated and set up
   console.log('AuthGate - Showing main app');
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />;
 }
 
 function AuthGateWithoutClerk() {
@@ -322,7 +322,7 @@ function AuthGateWithoutClerk() {
   if (isLoading || isAuthenticated === null) {
     console.log('AuthGate - Checking authentication state...');
     return (
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
       </Stack>
     );
@@ -332,7 +332,7 @@ function AuthGateWithoutClerk() {
   if (!isAuthenticated) {
     console.log('AuthGate - User not authenticated, showing auth screen');
     return (
-      <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
         <Stack.Screen name="auth" />
         <Stack.Screen name="auth/login" />
@@ -345,7 +345,7 @@ function AuthGateWithoutClerk() {
   if (needsOnboarding === null) {
     console.log('AuthGate - Checking onboarding status...');
     return (
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
       </Stack>
     );
@@ -355,7 +355,7 @@ function AuthGateWithoutClerk() {
   if (needsOnboarding === true) {
     console.log('AuthGate - Showing onboarding');
     return (
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="onboarding" />
       </Stack>
     );
@@ -364,7 +364,7 @@ function AuthGateWithoutClerk() {
   // User is authenticated, show main app (all routes including tabs)
   console.log('AuthGate - User authenticated, showing main app');
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       {/* All routes are accessible when authenticated */}
     </Stack>
   );

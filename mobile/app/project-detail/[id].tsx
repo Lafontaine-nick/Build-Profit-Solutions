@@ -88,7 +88,10 @@ const CircularProgress = ({
 
 function ProjectDetailContent() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const id = params.id as string;
+  const initialTab = (params.activeTab as TabKey) || 'Overview';
+  const backToProjects = params.backToProjects === '1';
   const { projectData: contextProjectData, reloadFromStorage } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -133,7 +136,15 @@ function ProjectDetailContent() {
     }
   }, []);
   const { getProjectById, updateProject, activeProjects } = useProjectList();
-  const [activeTab, setActiveTab] = useState<TabKey>('Overview');
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  
+  // Update activeTab when params change
+  useEffect(() => {
+    if (params.activeTab && params.activeTab !== activeTab) {
+      setActiveTab(params.activeTab as TabKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.activeTab]);
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [showKickoffCard, setShowKickoffCard] = useState(false);
@@ -142,6 +153,9 @@ function ProjectDetailContent() {
     paymentScheduleReviewed: false,
     teamAssigned: false,
   });
+  const allChecklistComplete = activationChecklist.timelineConfirmed && 
+    activationChecklist.paymentScheduleReviewed && 
+    activationChecklist.teamAssigned;
   const [expandedChecklistItem, setExpandedChecklistItem] = useState<string | null>(null);
   const [showActivationCelebration, setShowActivationCelebration] = useState(false);
   const celebrationAnim = useRef(new Animated.Value(0)).current;
@@ -177,38 +191,20 @@ function ProjectDetailContent() {
     saveChecklist();
   }, [activationChecklist, id]);
 
-  // Check if all checklist items are complete and trigger celebration
+  // Disabled celebration overlay to prevent glitching - activation card provides sufficient feedback
+  // Check if all checklist items are complete (for reference only)
   useEffect(() => {
     const allComplete = activationChecklist.timelineConfirmed && 
                         activationChecklist.paymentScheduleReviewed && 
                         activationChecklist.teamAssigned;
     
-    if (allComplete && !showActivationCelebration && showKickoffCard) {
-      setShowActivationCelebration(true);
+    // Celebration overlay disabled to prevent UI conflicts
+    // The activation card already provides visual feedback
+    if (allComplete && !showActivationFlow) {
+      // Just provide haptic feedback, no overlay
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Animate celebration
-      celebrationAnim.setValue(0);
-      Animated.spring(celebrationAnim, {
-        toValue: 1,
-        tension: 50,
-        friction: 7,
-        useNativeDriver: true,
-      }).start(() => {
-        // Auto-dismiss celebration after 2 seconds
-        setTimeout(() => {
-          Animated.spring(celebrationAnim, {
-            toValue: 0,
-            tension: 50,
-            friction: 7,
-            useNativeDriver: true,
-          }).start(() => {
-            setShowActivationCelebration(false);
-          });
-        }, 2000);
-      });
     }
-  }, [activationChecklist, showActivationCelebration, showKickoffCard, celebrationAnim]);
+  }, [activationChecklist, showActivationFlow]);
 
   // Auto-dismiss activation card when project becomes active
   useEffect(() => {
@@ -1793,6 +1789,10 @@ function ProjectDetailContent() {
                 <Pressable
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (backToProjects) {
+                      router.replace("/(tabs)/projects");
+                      return;
+                    }
                     router.back();
                   }}
                   style={styles.backButton}
@@ -1966,6 +1966,10 @@ function ProjectDetailContent() {
                 <TouchableOpacity
                   style={styles.activationCardPrimaryButton}
                   onPress={() => {
+                    if (allChecklistComplete) {
+                      dismissKickoffCard();
+                      return;
+                    }
                     setShowActivationFlow(true);
                   }}
                   activeOpacity={0.8}
@@ -1977,7 +1981,7 @@ function ProjectDetailContent() {
                     style={styles.activationCardPrimaryGradient}
                   >
                     <Text style={styles.activationCardPrimaryText}>
-                      {activationChecklist.timelineConfirmed && activationChecklist.paymentScheduleReviewed 
+                      {allChecklistComplete
                         ? 'View live project' 
                         : 'Start project setup'}
                     </Text>
@@ -2055,33 +2059,8 @@ function ProjectDetailContent() {
             </View>
           )}
 
-          {/* Activation Celebration Overlay */}
-          {showActivationCelebration && (
-            <Animated.View
-              style={[
-                styles.celebrationOverlay,
-                {
-                  opacity: celebrationAnim,
-                  transform: [
-                    {
-                      scale: celebrationAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.8, 1],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.celebrationCard}>
-                <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
-                <Text style={styles.celebrationTitle}>Project is ready!</Text>
-                <Text style={styles.celebrationSubtitle}>
-                  All setup steps complete. Your project is ready to run smoothly.
-                </Text>
-              </View>
-            </Animated.View>
-          )}
+          {/* Activation Celebration Overlay - Disabled to prevent glitching */}
+          {/* The activation card provides sufficient visual feedback */}
 
           {/* Smart First Action Suggestions */}
           {showKickoffCard && activeTab === 'Overview' && (
@@ -2272,34 +2251,63 @@ function ProjectDetailContent() {
         <ProjectActivationFlow
           visible={showActivationFlow}
           onComplete={(completedSteps) => {
-            setShowActivationFlow(false);
-            setActiveTab('Overview');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            
-            // Update activation checklist based on completed steps
-            if (completedSteps) {
-              setActivationChecklist({
-                timelineConfirmed: completedSteps.timeline || false,
-                paymentScheduleReviewed: completedSteps.paymentSchedule || false,
-                teamAssigned: completedSteps.team || false,
-              });
-            }
-            
-            // Show AI suggestions card 5 seconds after project setup completes
-            setTimeout(() => {
-              const suggestions = generateAISuggestions(realProjectData);
-              setAiSuggestions(suggestions);
-              // Reset animation to 0 before showing
-              aiSuggestionAnim.setValue(0);
-              setShowAiSuggestions(true);
-              // Animate in with iOS-style spring animation
-              Animated.spring(aiSuggestionAnim, {
-                toValue: 1,
-                tension: 50,
-                friction: 7,
-                useNativeDriver: true,
-              }).start();
-            }, 5000);
+              // Close the activation flow modal first - do this immediately
+              setShowActivationFlow(false);
+              
+              // Dismiss the activation card since setup is complete
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowKickoffCard(false);
+              
+              // Save dismissal state
+              if (id) {
+                try {
+                  AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
+                  AsyncStorage.setItem(`bps.activationCompleted.${id}`, 'true');
+                } catch (error) {
+                  console.error('Error saving activation completion:', error);
+                }
+              }
+              
+              // Update activation checklist after a brief delay to avoid conflicts
+              setTimeout(() => {
+                if (completedSteps) {
+                  setActivationChecklist({
+                    timelineConfirmed: completedSteps.timeline || false,
+                    paymentScheduleReviewed: completedSteps.paymentSchedule || false,
+                    teamAssigned: completedSteps.team || false,
+                  });
+                }
+                
+                // Switch to Overview tab
+                setActiveTab('Overview');
+                
+                // Haptic feedback
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                
+                // Show AI suggestions card 5 seconds after project setup completes
+                setTimeout(() => {
+                  const suggestions = generateAISuggestions(realProjectData);
+                  setAiSuggestions(suggestions);
+                  // Reset animation to 0 before showing
+                  aiSuggestionAnim.setValue(0);
+                  setShowAiSuggestions(true);
+                  // Animate in with iOS-style spring animation
+                  Animated.spring(aiSuggestionAnim, {
+                    toValue: 1,
+                    tension: 50,
+                    friction: 7,
+                    useNativeDriver: true,
+                  }).start();
+                }, 5000);
+              }, 500);
+          }}
+          onStepComplete={(completedSteps) => {
+            setActivationChecklist((prev) => ({
+              ...prev,
+              timelineConfirmed: completedSteps.timeline ?? prev.timelineConfirmed,
+              paymentScheduleReviewed: completedSteps.paymentSchedule ?? prev.paymentScheduleReviewed,
+              teamAssigned: completedSteps.team ?? prev.teamAssigned,
+            }));
           }}
           onSkip={() => {
             setShowActivationFlow(false);

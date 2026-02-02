@@ -460,7 +460,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 end={{ x: 1, y: 1 }}
                 style={styles.saveButtonGradient}
               >
-                <Text style={styles.saveButtonText}>✓ Save</Text>
+                <Text style={styles.saveButtonText}>Save</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

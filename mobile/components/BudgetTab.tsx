@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   View,
@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -569,6 +570,25 @@ export default function BudgetTab({
 
   const hasExpenses = (projectData?.expenses || []).length > 0;
   const totalSpent = actual;
+  const quickAddPulse = useRef(new Animated.Value(1)).current;
+  const hasPulsedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasPulsedRef.current || hasExpenses || totalSpent !== 0) return;
+    hasPulsedRef.current = true;
+    Animated.sequence([
+      Animated.timing(quickAddPulse, {
+        toValue: 1.12,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      Animated.timing(quickAddPulse, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [hasExpenses, totalSpent, quickAddPulse]);
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
@@ -577,17 +597,6 @@ export default function BudgetTab({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 120 }}
       >
-        {/* Empty State Helper - Early Phase */}
-        {!hasExpenses && totalSpent === 0 && (
-          <View style={[styles.emptyStateCard, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
-            <MaterialIcons name="info-outline" size={24} color={Colors.sub} />
-            <Text style={[styles.emptyStateTitle, { color: Colors.text }]}>No expenses yet</Text>
-            <Text style={[styles.emptyStateText, { color: Colors.sub }]}>
-              Once materials or labor are added, we'll track spending and alert you if anything drifts.
-            </Text>
-          </View>
-        )}
-
         {/* Wide Container - matches Overview page */}
         <View
           style={[
@@ -611,9 +620,14 @@ export default function BudgetTab({
                 borderColor: Colors.line 
               }]}>
                 <Ionicons name="lock-closed" size={14} color={Colors.sub} />
-                <Text style={[styles.baselineIndicatorText, { color: Colors.sub }]}>
-                  Baseline from estimate
-                </Text>
+                <View style={styles.baselineIndicatorTextWrap}>
+                  <Text style={[styles.baselineIndicatorText, { color: Colors.sub }]}>
+                    Baseline locked from estimate
+                  </Text>
+                  <Text style={[styles.baselineIndicatorSubtext, { color: Colors.sub }]}>
+                    Changes are tracked automatically
+                  </Text>
+                </View>
               </View>
 
               {/* Zero-State Budget Callout - Enhanced with Quick Add */}
@@ -627,16 +641,8 @@ export default function BudgetTab({
                     No costs logged yet
                   </Text>
                   <Text style={[styles.zeroStateSubtitle, { color: theme.subtext }]}>
-                    Most contractors log their first expense within 24 hours.
+                    Most contractors log their first expense within the first day.
                   </Text>
-                  
-                  {/* Quick Add Tooltip */}
-                  <View style={[styles.quickAddTooltip, { backgroundColor: Colors.surface2 }]}>
-                    <Ionicons name="information-circle-outline" size={14} color={theme.subtext} />
-                    <Text style={[styles.quickAddTooltipText, { color: theme.subtext }]}>
-                      Start with your first receipt or invoice
-                    </Text>
-                  </View>
                   
                   <View style={styles.zeroStateButtons}>
                     <TouchableOpacity
@@ -659,11 +665,22 @@ export default function BudgetTab({
                       }}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="add-circle" size={18} color="#22c55e" style={{ marginRight: 6 }} />
+                      <Animated.View style={{ transform: [{ scale: quickAddPulse }], marginRight: 6 }}>
+                        <Ionicons name="add-circle" size={18} color="#22c55e" />
+                      </Animated.View>
                       <Text style={[styles.zeroStatePrimaryButtonText, { color: '#22c55e' }]}>
                         Quick Add Expense
                       </Text>
                     </TouchableOpacity>
+                  </View>
+                  <Text style={[styles.zeroStateHelperText, { color: theme.subtext }]}>
+                    Add materials, labor, or misc costs
+                  </Text>
+                  <View style={styles.zeroStateSuggestionRow}>
+                    <Ionicons name="bulb-outline" size={14} color={theme.subtext} />
+                    <Text style={[styles.zeroStateSuggestionText, { color: theme.subtext }]}>
+                      Suggested: Log materials from your first supplier
+                    </Text>
                   </View>
                 </View>
               )}
@@ -673,7 +690,7 @@ export default function BudgetTab({
                 <View>
                   <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Details</Text>
                   <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
-                    Summary of your budget status & spending
+                    Once expenses are logged, you&apos;ll see actual vs planned in real time.
                   </Text>
                 </View>
               </View>
@@ -798,6 +815,12 @@ export default function BudgetTab({
                       >
                         {/* Header with Category and Icon */}
                         <View style={[styles.budgetCardHeader, { justifyContent: 'center', position: 'relative', width: '100%' }]}>
+                          {/* Over Budget Badge - Top Right */}
+                          {isOverBudget && (
+                            <View style={[styles.warningBadge, { backgroundColor: theme.accent, position: 'absolute', top: 0, right: 0 }]}>
+                              <Text style={styles.warningBadgeText}>Over Budget</Text>
+                            </View>
+                          )}
                           <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                             <View style={{ alignItems: 'center', marginBottom: 4 }}>
                               <MaterialIcons name={categoryIconName as any} size={22} color="#22c55e" />
@@ -811,11 +834,6 @@ export default function BudgetTab({
                               </Text>
                             </View>
                           </View>
-                          {isOverBudget && (
-                            <View style={[styles.warningBadge, { backgroundColor: theme.accent, position: 'absolute', right: 0 }]}>
-                              <Text style={styles.warningBadgeText}>Over Budget</Text>
-                            </View>
-                          )}
                         </View>
 
                         {/* Current Label - Centered */}
@@ -885,78 +903,84 @@ export default function BudgetTab({
         )}
 
         {tab === 'cos' && (
-          <View style={{ gap: 12, marginTop: 12 }}>
-            {/* Purchase Orders Card */}
-            {(() => {
-              // Get the EXACT same array that individual items use - use projectData for consistency
-              const individualPOs = (projectData?.purchaseOrders || [])
-                .filter(po => po.status !== 'Cancelled')
-                .sort((a, b) => new Date(a.expectedDelivery).getTime() - new Date(b.expectedDelivery).getTime());
-              
-              // Use the purchaseOrdersTotal from useMemo (includes both POs and expenses with category "Purchase Orders")
-              const poTotal = purchaseOrdersTotal;
-              
-              return (
-                <View key="purchase-orders-card" style={styles.budgetCardContainer}>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.sectionCardBorder}
-                  >
-                  <View style={[styles.budgetCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
-                    <Pressable
-                      onPress={() => setSelectedCategory('Purchase Orders')}
-                      style={{ flex: 1 }}
-                    >
-                      {/* Header with Category and Icon */}
-                      <View style={styles.budgetCardHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
-                          <MaterialIcons name="receipt-long" size={22} color="#22c55e" />
-                          <View style={{ alignItems: 'center' }}>
-                            <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
-                              Purchase Orders
-                            </Text>
-                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
-                              Tap to view transactions →
+          <View style={{ marginTop: 12 }}>
+            {/* Outer green-to-blue border wrapping header and both order cards */}
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.overviewBorder}
+            >
+              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+                {/* Header for Orders */}
+                <View style={styles.budgetHeaderRow}>
+                  <View>
+                    <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Orders</Text>
+                    <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                      Purchase orders and change orders
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Purchase Orders Card */}
+                {(() => {
+                  // Get the EXACT same array that individual items use - use projectData for consistency
+                  const individualPOs = (projectData?.purchaseOrders || [])
+                    .filter(po => po.status !== 'Cancelled')
+                    .sort((a, b) => new Date(a.expectedDelivery).getTime() - new Date(b.expectedDelivery).getTime());
+                  
+                  // Use the purchaseOrdersTotal from useMemo (includes both POs and expenses with category "Purchase Orders")
+                  const poTotal = purchaseOrdersTotal;
+                  
+                  return (
+                    <View key="purchase-orders-card" style={[styles.budgetCardContainer, { marginTop: 0 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                        <Pressable
+                          onPress={() => setSelectedCategory('Purchase Orders')}
+                          style={{ flex: 1 }}
+                        >
+                          {/* Header with Category and Icon */}
+                          <View style={styles.budgetCardHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
+                              <MaterialIcons name="receipt-long" size={22} color="#22c55e" />
+                              <View style={{ alignItems: 'center' }}>
+                                <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
+                                  Purchase Orders
+                                </Text>
+                                <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
+                                  Tap to view transactions →
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          {/* Current Label - Centered */}
+                          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                            <Text style={[styles.budgetAmountLabel, { color: theme.subtext }]}>Current</Text>
+                          </View>
+
+                          {/* Total Amount */}
+                          <View style={styles.budgetStatusRow}>
+                            <Text style={[styles.statusLabel, { color: theme.subtext }]}>Total:</Text>
+                            <Text style={[styles.statusValue, { color: theme.text }]}>
+                              {money(poTotal, currency)}
                             </Text>
                           </View>
-                        </View>
-                      </View>
+                        </Pressable>
 
-                      {/* Current Label - Centered */}
-                      <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                        <Text style={[styles.budgetAmountLabel, { color: theme.subtext }]}>Current</Text>
-                      </View>
-
-                      {/* Total Amount */}
-                      <View style={styles.budgetStatusRow}>
-                        <Text style={[styles.statusLabel, { color: theme.subtext }]}>Total:</Text>
-                        <Text style={[styles.statusValue, { color: theme.text }]}>
-                          {money(poTotal, currency)}
-                        </Text>
-                      </View>
-                    </Pressable>
-
-                    {/* Individual Purchase Orders */}
-                    <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                      {individualPOs.map(po => {
-                    const daysUntilDelivery = Math.ceil((new Date(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                    const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
-                    
-                    return (
-                      <View key={po.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
-                        <LinearGradient
-                          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                          start={{ x: 0.05, y: 0.15 }}
-                          end={{ x: 0.95, y: 0.85 }}
-                          style={styles.sectionCardBorder}
-                        >
-                        <View style={[styles.budgetCard, { padding: 12 }, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
-                          <Pressable 
-                            onPress={() => setEditingPO(po)}
-                            style={{ flex: 1 }}
-                          >
+                        {/* Individual Purchase Orders */}
+                        <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
+                          {individualPOs.map(po => {
+                            const daysUntilDelivery = Math.ceil((new Date(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                            const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
+                            
+                            return (
+                              <View key={po.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
+                                <View style={[styles.budgetCard, { padding: 12, backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                                  <Pressable 
+                                    onPress={() => setEditingPO(po)}
+                                    style={{ flex: 1 }}
+                                  >
                       {/* Header with PO Number and Icon */}
                       <View style={[styles.budgetCardHeader, { marginBottom: 10 }]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -1075,49 +1099,41 @@ export default function BudgetTab({
                           </View>
                         </View>
                       )}
-                          </Pressable>
+                                  </Pressable>
+                                </View>
+                              </View>
+                            );
+                          })}
                         </View>
-                        </LinearGradient>
                       </View>
-                    );
-                  })}
                     </View>
-                  </View>
-                  </LinearGradient>
-                </View>
-              );
-            })()}
+                  );
+                })()}
 
-            {/* Change Orders Card */}
-            {(() => {
-              // Get the EXACT same array that individual items use
-              const individualCOs = normalizedChangeOrders;
-              
-              // Use the changeOrdersTotal from useMemo (includes both COs and expenses with category "Change Orders")
-              const coTotal = changeOrdersTotal;
-              
-              return (
-                <View key="change-orders-card" style={styles.budgetCardContainer}>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.sectionCardBorder}
-                  >
-                  <View style={[styles.budgetCard, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
-                    <Pressable
-                      onPress={() => setSelectedCategory('Change Orders')}
-                      style={{ flex: 1 }}
-                    >
+                {/* Change Orders Card */}
+                {(() => {
+                  // Get the EXACT same array that individual items use
+                  const individualCOs = normalizedChangeOrders;
+                  
+                  // Use the changeOrdersTotal from useMemo (includes both COs and expenses with category "Change Orders")
+                  const coTotal = changeOrdersTotal;
+                  
+                  return (
+                    <View key="change-orders-card" style={[styles.budgetCardContainer, { marginTop: 12 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                        <Pressable
+                          onPress={() => setSelectedCategory('Change Orders')}
+                          style={{ flex: 1 }}
+                        >
                       {/* Header with Category and Icon */}
                       <View style={styles.budgetCardHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
                           <Text style={{ fontSize: 24 }}>📝</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.budgetCardTitle, { color: theme.text }]}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
                               Change Orders
                             </Text>
-                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2 }}>
+                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
                               Tap to view transactions →
                             </Text>
                           </View>
@@ -1138,22 +1154,16 @@ export default function BudgetTab({
                       </View>
                     </Pressable>
 
-                    {/* Individual Change Orders */}
-                    <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                      {individualCOs.map(co => {
-                const coAmount = Number(co.amount || 0);
-                const isApproved = co.status === 'Approved';
-                const statusColor = isApproved ? '#22c55e' : co.status === 'Submitted' ? '#f59e0b' : '#64748b';
-                
-                return (
-                  <View key={co.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
-                    <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.sectionCardBorder}
-                    >
-                    <View style={[styles.budgetCard, { padding: 12 }, !darkMode && { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.line }]}>
+                        {/* Individual Change Orders */}
+                        <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
+                          {individualCOs.map(co => {
+                            const coAmount = Number(co.amount || 0);
+                            const isApproved = co.status === 'Approved';
+                            const statusColor = isApproved ? '#22c55e' : co.status === 'Submitted' ? '#f59e0b' : '#64748b';
+                            
+                            return (
+                              <View key={co.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
+                                <View style={[styles.budgetCard, { padding: 12, backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
                       {/* Header: Title and Status */}
                       <View style={[styles.budgetCardHeader, { marginBottom: 10 }]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -1273,17 +1283,17 @@ export default function BudgetTab({
                           <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
                         </TouchableOpacity>
                       </View>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
                     </View>
-                    </LinearGradient>
-                  </View>
-                );
-              })}
+                  );
+                })()}
               </View>
-                  </View>
-                  </LinearGradient>
-            </View>
-              );
-            })()}
+            </LinearGradient>
           </View>
         )}
         </View>
@@ -2772,7 +2782,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.18)',
     height: 50,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2823,7 +2833,7 @@ const styles = StyleSheet.create({
   },
   zeroStatePrimaryButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 10,
     borderWidth: 1.5,
@@ -2833,35 +2843,42 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  quickAddTooltip: {
+  zeroStateHelperText: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  zeroStateSuggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    marginTop: 6,
   },
-  quickAddTooltipText: {
+  zeroStateSuggestionText: {
     fontSize: 12,
-    lineHeight: 16,
+    fontWeight: '500',
   },
   baselineIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 16,
     alignSelf: 'flex-start',
   },
+  baselineIndicatorTextWrap: {
+    gap: 2,
+  },
   baselineIndicatorText: {
     fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '700',
+  },
+  baselineIndicatorSubtext: {
+    fontSize: 11,
+    fontWeight: '500',
   },
   emptyStateText: {
     fontSize: 13,
@@ -2878,7 +2895,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },

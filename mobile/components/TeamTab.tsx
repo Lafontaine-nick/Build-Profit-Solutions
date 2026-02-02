@@ -23,6 +23,7 @@ import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { useProjectData } from "@/contexts/ProjectDataContext";
 
 const Colors = {
   bg: "#020617",
@@ -1207,6 +1208,7 @@ export default function TeamTab() {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const { projectData } = useProjectData();
   const [team, setTeam] = useState<Member[]>(TEAM);
   const [q, setQ] = useState("");
   const [tradeFilter, setTradeFilter] = useState<Trade | "All">("All");
@@ -1215,7 +1217,6 @@ export default function TeamTab() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
-
 
   // Load team from storage
   useEffect(() => {
@@ -1231,6 +1232,62 @@ export default function TeamTab() {
     };
     loadTeam();
   }, []);
+
+  // Merge PM and crew from ProjectDataContext into team list
+  useEffect(() => {
+    if (!projectData || !isLoaded) return;
+    
+    const pmName = projectData.team?.pmName;
+    const crewMembers = (projectData.team as any)?.crewMembers || [];
+    
+    setTeam(prevTeam => {
+      const updatedTeam = [...prevTeam];
+      
+      // Add/update PM if assigned
+      if (pmName) {
+        const pmIndex = updatedTeam.findIndex(m => m.role === 'Project Manager' && m.name === pmName);
+        if (pmIndex < 0) {
+          const pmMember: Member = {
+            id: `pm-${pmName}-${Date.now()}`,
+            name: pmName,
+            role: 'Project Manager',
+            trade: 'Project Manager',
+            status: 'active',
+            phone: '',
+            email: '',
+            licenseNumber: '',
+            licenseExpiryISO: '',
+            skills: [],
+            licenseVerified: false,
+          };
+          updatedTeam.unshift(pmMember);
+        }
+      }
+      
+      // Add crew members that aren't already in the list
+      crewMembers.forEach((crewName: string) => {
+        const crewIndex = updatedTeam.findIndex(m => m.name === crewName && m.role !== 'Project Manager');
+        if (crewIndex < 0 && crewName.trim()) {
+          const crewMember: Member = {
+            id: `crew-${crewName}-${Date.now()}`,
+            name: crewName,
+            role: 'Crew Member',
+            trade: 'General Labor',
+            status: 'active',
+            phone: '',
+            email: '',
+            licenseNumber: '',
+            licenseExpiryISO: '',
+            skills: [],
+            licenseVerified: false,
+          };
+          updatedTeam.push(crewMember);
+        }
+      });
+      
+      return updatedTeam;
+    });
+  }, [projectData?.team?.pmName, (projectData?.team as any)?.crewMembers, isLoaded]);
 
   // Save team whenever it changes
   useEffect(() => {

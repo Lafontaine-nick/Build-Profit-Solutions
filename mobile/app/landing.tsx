@@ -415,19 +415,21 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   cardHeaderRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 18,
   },
   cardTitle: {
     fontSize: 22,
     fontWeight: darkMode ? "700" : "800",
     color: darkMode ? "#FFFFFF" : "#0F172A",
+    textAlign: "center",
   },
   cardSubtitle: {
-    marginTop: 2,
+    marginTop: 8,
     fontSize: 13,
     color: darkMode ? "#8DA0B8" : "#475569",
+    textAlign: "center",
   },
 
   primaryButton: {

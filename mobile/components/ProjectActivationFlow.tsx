@@ -8,16 +8,20 @@ import {
   ScrollView,
   TextInput,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import * as Haptics from 'expo-haptics';
+import GreyCalendar from './GreyCalendar';
+import { useProjectData } from '../contexts/ProjectDataContext';
 
 interface ProjectActivationFlowProps {
   visible: boolean;
   onComplete: (completedSteps?: { timeline?: boolean; paymentSchedule?: boolean; team?: boolean }) => void;
+  onStepComplete?: (completedSteps: { timeline?: boolean; paymentSchedule?: boolean; team?: boolean }) => void;
   onSkip: () => void;
   initialStep?: number;
   project: {
@@ -42,12 +46,14 @@ interface ProjectActivationFlowProps {
 export default function ProjectActivationFlow({
   visible,
   onComplete,
+  onStepComplete,
   onSkip,
   initialStep = 1,
   project,
 }: ProjectActivationFlowProps) {
   const { theme, darkMode } = useTheme();
   const Colors = getColors(theme);
+  const { updateTeam, projectData: contextProjectData } = useProjectData();
   const [currentStep, setCurrentStep] = useState(initialStep);
   
   // Reset to initial step when modal opens
@@ -59,6 +65,49 @@ export default function ProjectActivationFlow({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [paymentSchedule, setPaymentSchedule] = useState<any[]>([]);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [startDateObj, setStartDateObj] = useState(new Date());
+  const [endDateObj, setEndDateObj] = useState(new Date());
+  const [showPMModal, setShowPMModal] = useState(false);
+  const [showCrewModal, setShowCrewModal] = useState(false);
+  const [assignedPM, setAssignedPM] = useState<string | null>(null);
+  const [assignedCrew, setAssignedCrew] = useState<string[]>([]);
+  const [crewInputValue, setCrewInputValue] = useState('');
+  
+  // Load team data from context when modal opens or data changes
+  useEffect(() => {
+    if (visible && contextProjectData) {
+      setAssignedPM(contextProjectData.team?.pmName || null);
+      // Load crew members from context
+      const crewMembers = (contextProjectData.team as any)?.crewMembers || [];
+      if (Array.isArray(crewMembers)) {
+        setAssignedCrew(crewMembers);
+        console.log('Loaded crew members from context:', crewMembers);
+      }
+    }
+  }, [visible, contextProjectData?.team?.pmName, (contextProjectData?.team as any)?.crewMembers]);
+  
+  // Also update crew when context data changes (even if modal is open)
+  useEffect(() => {
+    if (contextProjectData) {
+      const crewMembers = (contextProjectData.team as any)?.crewMembers || [];
+      if (Array.isArray(crewMembers)) {
+        setAssignedCrew(prevCrew => {
+          // Only update if different to avoid unnecessary re-renders
+          if (JSON.stringify(prevCrew) !== JSON.stringify(crewMembers)) {
+            console.log('Updated crew members from context:', crewMembers);
+            return crewMembers;
+          }
+          return prevCrew;
+        });
+      }
+    }
+  }, [(contextProjectData?.team as any)?.crewMembers]);
+
+  useEffect(() => {
+    console.log('Calendar state changed:', { showStartDatePicker, showEndDatePicker });
+  }, [showStartDatePicker, showEndDatePicker]);
 
   useEffect(() => {
     if (visible && project) {
@@ -66,18 +115,27 @@ export default function ProjectActivationFlow({
       const estimateStart = project.estimateData?.projectStartDate || project.startDate;
       const estimateEnd = project.estimateData?.projectEndDate || project.endDate;
       
+      let startDateValue: Date;
+      let endDateValue: Date;
+      
       if (estimateStart) {
+        startDateValue = new Date(estimateStart);
         setStartDate(estimateStart.split('T')[0]);
       } else {
-        setStartDate(new Date().toISOString().split('T')[0]);
+        startDateValue = new Date();
+        setStartDate(startDateValue.toISOString().split('T')[0]);
       }
       
       if (estimateEnd) {
+        endDateValue = new Date(estimateEnd);
         setEndDate(estimateEnd.split('T')[0]);
       } else {
-        const defaultEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-        setEndDate(defaultEnd.toISOString().split('T')[0]);
+        endDateValue = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+        setEndDate(endDateValue.toISOString().split('T')[0]);
       }
+      
+      setStartDateObj(startDateValue);
+      setEndDateObj(endDateValue);
 
       // Load payment schedule from estimate
       if (project.estimateData?.weeklyPayments && project.estimateData.weeklyPayments.length > 0) {
@@ -109,6 +167,12 @@ export default function ProjectActivationFlow({
 
   const handleNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (currentStep === 1) {
+      onStepComplete?.({ timeline: true });
+    }
+    if (currentStep === 2) {
+      onStepComplete?.({ paymentSchedule: true });
+    }
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
     } else {
@@ -119,6 +183,9 @@ export default function ProjectActivationFlow({
   const handleComplete = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (currentStep === 3) {
+      onStepComplete?.({ team: true });
+    }
     // Return which steps were completed
     const completedSteps = {
       timeline: currentStep >= 1,
@@ -147,23 +214,39 @@ export default function ProjectActivationFlow({
         <View style={styles.dateRow}>
           <View style={styles.dateItem}>
             <Text style={[styles.dateLabel, { color: Colors.sub }]}>Start date</Text>
-            <TextInput
-              style={[styles.dateInput, { color: Colors.text, borderColor: Colors.line }]}
-              value={startDate}
-              onChangeText={setStartDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={Colors.sub}
-            />
+            <TouchableOpacity
+              style={[styles.dateInput, { borderColor: Colors.line }]}
+              onPress={() => {
+                console.log('Start date pressed, setting showStartDatePicker to true');
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowEndDatePicker(false); // Close end date picker if open
+                setShowStartDatePicker(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="calendar-today" size={18} color="#2DFFC4" style={{ marginRight: 8 }} />
+              <Text style={[styles.dateInputText, { color: Colors.text }]}>
+                {startDate ? formatDate(startDate) : 'Select date'}
+              </Text>
+            </TouchableOpacity>
           </View>
           <View style={styles.dateItem}>
             <Text style={[styles.dateLabel, { color: Colors.sub }]}>End date</Text>
-            <TextInput
-              style={[styles.dateInput, { color: Colors.text, borderColor: Colors.line }]}
-              value={endDate}
-              onChangeText={setEndDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={Colors.sub}
-            />
+            <TouchableOpacity
+              style={[styles.dateInput, { borderColor: Colors.line }]}
+              onPress={() => {
+                console.log('End date pressed, setting showEndDatePicker to true');
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowStartDatePicker(false); // Close start date picker if open
+                setShowEndDatePicker(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="calendar-today" size={18} color="#2DFFC4" style={{ marginRight: 8 }} />
+              <Text style={[styles.dateInputText, { color: Colors.text }]}>
+                {endDate ? formatDate(endDate) : 'Select date'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
         <View style={[styles.durationRow, { borderTopColor: Colors.line }]}>
@@ -176,18 +259,6 @@ export default function ProjectActivationFlow({
           <View style={[styles.statusDot, { backgroundColor: '#22c55e' }]} />
           <Text style={[styles.statusText, { color: Colors.text }]}>Early / On Track</Text>
         </View>
-      </View>
-
-      <View style={styles.stepActions}>
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => {
-            // Could open date picker here
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }}
-        >
-          <Text style={styles.editButtonText}>Edit dates</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -271,29 +342,37 @@ export default function ProjectActivationFlow({
           <View style={styles.teamItem}>
             <Ionicons name="person-outline" size={20} color={Colors.sub} />
             <Text style={[styles.teamLabel, { color: Colors.sub }]}>PM:</Text>
-            <Text style={[styles.teamValue, { color: Colors.text }]}>Not assigned</Text>
+            <Text style={[styles.teamValue, { color: Colors.text }]}>
+              {assignedPM || 'Not assigned'}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.assignButton}
             onPress={() => {
-              // Could open team assignment modal
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowPMModal(true);
             }}
           >
             <Text style={styles.assignButtonText}>Assign</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.teamRow}>
+        <View style={[styles.teamRow, { borderTopColor: Colors.line }]}>
           <View style={styles.teamItem}>
             <Ionicons name="people-outline" size={20} color={Colors.sub} />
             <Text style={[styles.teamLabel, { color: Colors.sub }]}>Crew:</Text>
-            <Text style={[styles.teamValue, { color: Colors.text }]}>Not assigned</Text>
+            <Text style={[styles.teamValue, { color: Colors.text }]}>
+              {assignedCrew.length > 0 
+                ? assignedCrew.length === 1 
+                  ? assignedCrew[0] 
+                  : `${assignedCrew.length} assigned`
+                : 'Not assigned'}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.assignButton}
             onPress={() => {
-              // Could open crew assignment modal
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowCrewModal(true);
             }}
           >
             <Text style={styles.assignButtonText}>Assign</Text>
@@ -340,7 +419,7 @@ export default function ProjectActivationFlow({
           </ScrollView>
 
           {/* Footer Actions */}
-          <View style={[styles.footer, { borderTopColor: Colors.line }]}>
+          <View style={[styles.footer, { borderTopColor: Colors.line, backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.2)' : 'transparent' }]}>
             {currentStep < 3 ? (
               <>
                 <TouchableOpacity
@@ -390,6 +469,259 @@ export default function ProjectActivationFlow({
             )}
           </View>
         </View>
+        
+        {/* Calendar Overlay */}
+        {(showStartDatePicker || showEndDatePicker) && (
+          <View style={styles.calendarOverlay}>
+            <TouchableOpacity
+              style={styles.calendarBackdrop}
+              activeOpacity={1}
+              onPress={() => {
+                setShowStartDatePicker(false);
+                setShowEndDatePicker(false);
+              }}
+            />
+            <View style={styles.calendarModalContent}>
+              <View style={styles.calendarModalHeader}>
+                <Text style={[styles.calendarModalTitle, { color: Colors.text }]}>
+                  {showStartDatePicker ? 'Select Start Date' : 'Select End Date'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowStartDatePicker(false);
+                    setShowEndDatePicker(false);
+                  }}
+                  style={styles.calendarCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.calendarWrapper}>
+                <GreyCalendar
+                  onDayPress={(day) => {
+                    const selectedDate = new Date(day.dateString + 'T00:00:00');
+                    if (showStartDatePicker) {
+                      setStartDateObj(selectedDate);
+                      setStartDate(day.dateString);
+                      setShowStartDatePicker(false);
+                      // Ensure end date is after start date
+                      if (endDateObj < selectedDate) {
+                        const newEndDate = new Date(selectedDate);
+                        newEndDate.setDate(newEndDate.getDate() + 90); // Default 90 days
+                        setEndDateObj(newEndDate);
+                        setEndDate(newEndDate.toISOString().split('T')[0]);
+                      }
+                    } else if (showEndDatePicker) {
+                      // Ensure end date is after start date
+                      if (selectedDate >= startDateObj) {
+                        setEndDateObj(selectedDate);
+                        setEndDate(day.dateString);
+                        setShowEndDatePicker(false);
+                      } else {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        return;
+                      }
+                    }
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  markedDates={{
+                    [showStartDatePicker ? startDate : endDate]: {
+                      selected: true,
+                      selectedColor: '#22c55e',
+                      selectedTextColor: '#000000',
+                    }
+                  }}
+                  initialDate={showStartDatePicker ? startDate : endDate}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* PM Assignment Modal */}
+        <Modal
+          visible={showPMModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowPMModal(false)}
+        >
+          <View style={styles.assignmentModalOverlay}>
+            <TouchableOpacity
+              style={styles.assignmentModalBackdrop}
+              activeOpacity={1}
+              onPress={() => setShowPMModal(false)}
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? -100 : -50}
+            >
+              <View style={styles.assignmentModalContent}>
+              <View style={styles.assignmentModalHeader}>
+                <Text style={[styles.assignmentModalTitle, { color: Colors.text }]}>Assign Project Manager</Text>
+                <TouchableOpacity
+                  onPress={() => setShowPMModal(false)}
+                  style={styles.assignmentCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.assignmentModalBody}>
+                <TextInput
+                  style={[styles.assignmentInput, { backgroundColor: Colors.surface2, borderColor: Colors.line, color: Colors.text }]}
+                  placeholder="Enter PM name"
+                  placeholderTextColor={Colors.sub}
+                  value={assignedPM || ''}
+                  onChangeText={setAssignedPM}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={styles.assignmentSaveButton}
+                  onPress={() => {
+                    if (assignedPM && assignedPM.trim()) {
+                      // Save PM to project data, preserving existing crew members
+                      const existingCrew = (contextProjectData?.team as any)?.crewMembers || assignedCrew;
+                      updateTeam(
+                        true, 
+                        assignedPM.trim(), 
+                        existingCrew.length || contextProjectData?.crewCount,
+                        existingCrew
+                      );
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setShowPMModal(false);
+                    }
+                  }}
+                >
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.assignmentSaveButtonGradient}
+                  >
+                    <Text style={styles.assignmentSaveButtonText}>Save</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+
+        {/* Crew Assignment Modal */}
+        <Modal
+          visible={showCrewModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowCrewModal(false)}
+        >
+          <View style={styles.assignmentModalOverlay}>
+            <TouchableOpacity
+              style={styles.assignmentModalBackdrop}
+              activeOpacity={1}
+              onPress={() => setShowCrewModal(false)}
+            />
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? -100 : -50}
+            >
+              <View style={styles.assignmentModalContent}>
+              <View style={styles.assignmentModalHeader}>
+                <Text style={[styles.assignmentModalTitle, { color: Colors.text }]}>Assign Crew Members</Text>
+                <TouchableOpacity
+                  onPress={() => setShowCrewModal(false)}
+                  style={styles.assignmentCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.assignmentModalBody}>
+                <TextInput
+                  style={[styles.assignmentInput, { backgroundColor: Colors.surface2, borderColor: Colors.line, color: Colors.text }]}
+                  placeholder="Enter crew member name"
+                  placeholderTextColor={Colors.sub}
+                  value={crewInputValue}
+                  onChangeText={setCrewInputValue}
+                  onSubmitEditing={(e) => {
+                    const name = e.nativeEvent.text.trim();
+                    if (name && !assignedCrew.includes(name)) {
+                      const newCrew = [...assignedCrew, name];
+                      setAssignedCrew(newCrew);
+                      setCrewInputValue(''); // Clear input
+                      // Save immediately to project data
+                      updateTeam(
+                        contextProjectData?.team?.pmAssigned || false,
+                        contextProjectData?.team?.pmName,
+                        newCrew.length,
+                        newCrew
+                      );
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                  }}
+                />
+                {assignedCrew.length > 0 && (
+                  <View style={styles.crewList}>
+                    {assignedCrew.map((member, index) => (
+                      <View key={index} style={[styles.crewMemberTag, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                        <Text style={[styles.crewMemberText, { color: Colors.text }]}>{member}</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            const newCrew = assignedCrew.filter((_, i) => i !== index);
+                            setAssignedCrew(newCrew);
+                            // Save immediately when crew member is removed
+                            updateTeam(
+                              contextProjectData?.team?.pmAssigned || false,
+                              contextProjectData?.team?.pmName,
+                              newCrew.length,
+                              newCrew
+                            );
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                        >
+                          <Ionicons name="close-circle" size={20} color={Colors.sub} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.assignmentSaveButton}
+                  onPress={() => {
+                    // If there's text in the input, add it before closing
+                    let finalCrew = assignedCrew;
+                    if (crewInputValue.trim() && !assignedCrew.includes(crewInputValue.trim())) {
+                      finalCrew = [...assignedCrew, crewInputValue.trim()];
+                      setAssignedCrew(finalCrew);
+                      setCrewInputValue('');
+                    }
+                    
+                    // Save crew to project data
+                    console.log('Saving crew members:', finalCrew);
+                    updateTeam(
+                      contextProjectData?.team?.pmAssigned || false,
+                      contextProjectData?.team?.pmName,
+                      finalCrew.length,
+                      finalCrew
+                    );
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    // Small delay to ensure save completes
+                    setTimeout(() => {
+                      setShowCrewModal(false);
+                    }, 100);
+                  }}
+                >
+                  <LinearGradient
+                    colors={['#2DFFC4', '#00A6FF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.assignmentSaveButtonGradient}
+                  >
+                    <Text style={styles.assignmentSaveButtonText}>Done</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
       </View>
     </Modal>
   );
@@ -499,12 +831,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   dateInput: {
-    fontSize: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    fontWeight: '600',
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    minHeight: 48,
+  },
+  dateInputText: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
   },
   durationRow: {
     flexDirection: 'row',
@@ -680,7 +1018,6 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     borderTopWidth: 1,
     gap: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
   skipButton: {
     flex: 1,
@@ -736,5 +1073,137 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  calendarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  calendarBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  calendarModalContent: {
+    width: '95%',
+    maxWidth: 420,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 12,
+    zIndex: 1000,
+  },
+  calendarModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  calendarModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  calendarCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarWrapper: {
+    width: '100%',
+  },
+  assignmentModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 100 : 80,
+  },
+  assignmentModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  assignmentModalContent: {
+    width: '95%',
+    maxWidth: 500,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 24,
+    padding: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 12,
+    zIndex: 1000,
+  },
+  assignmentModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  assignmentModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  assignmentCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  assignmentModalBody: {
+    gap: 16,
+  },
+  assignmentInput: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  assignmentSaveButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  assignmentSaveButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assignmentSaveButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  crewList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  crewMemberTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 8,
+  },
+  crewMemberText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

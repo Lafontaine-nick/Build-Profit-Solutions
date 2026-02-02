@@ -124,7 +124,7 @@ export default function SpendingTrendChart({
   }, [actualPoints, plannedPoints]);
 
   const legendTextColor = Colors.sub;
-  const chartSurface = Colors.surface2;
+  const chartSurface = darkMode ? Colors.surface2 : "#E5E7EB"; // Darker grey in light mode
   const chartBorder = darkMode ? Colors.line : "#9CA3AF";
   const chartSpacing = 42;
   const chartInitialSpacing = 14;

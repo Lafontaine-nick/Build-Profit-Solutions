@@ -94,12 +94,12 @@ const ProjectPMModal: React.FC<ProjectPMModalProps> = ({
       Budget: [
         {
           icon: 'alert-circle-outline',
-          question: 'Am I over budget anywhere?',
+          question: 'Am I overspending?',
           category: 'budget',
         },
         {
-          icon: 'trending-down-outline',
-          question: 'Where can I save money?',
+          icon: 'list-outline',
+          question: 'Which category should I log first?',
           category: 'budget',
         },
         {
