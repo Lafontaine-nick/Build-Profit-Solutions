@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import AIAssistantModal from '@/components/AIAssistantModal';
 
 // Utility functions (same as dashboard)
 const formatCurrencyShort = (value: number) => {
@@ -111,6 +112,7 @@ export default function ProjectsScreen() {
     params.tab === 'submitted' ? 'submitted' : 'active'
   );
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
 
   // Update tab if route param changes
   useEffect(() => {
@@ -631,6 +633,190 @@ export default function ProjectsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
+      <Pressable
+        style={styles.aiFloatingWrapper}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setShowAIAssistant(true);
+        }}
+      >
+        <LinearGradient
+          colors={["#22c55e", "#22d3ee"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.aiFloating}
+        >
+          <Ionicons
+            name="sparkles"
+            size={18}
+            color="#020617"
+          />
+          <Text style={styles.aiFloatingText}>Ask PM</Text>
+        </LinearGradient>
+      </Pressable>
+
+      {/* AI Assistant Modal */}
+      <AIAssistantModal
+        visible={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        context={JSON.stringify({
+          screen: "Projects",
+          allProjects: [...activeProjects, ...estimates].map(p => ({
+            id: p.id,
+            title: p.title,
+            customerName: (p as any).client || p.title,
+            status: p.status,
+            bidPrice: p.bidPrice || 0,
+            estimatedCost: p.estimatedCost || 0,
+            actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
+            totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
+            expenses: p.expenses || p.projectData?.expenses || [],
+            expensesCount: (p.expenses || p.projectData?.expenses || []).length,
+            margin: p.margin || 0,
+            progress: p.progress || p.overallProgressPct || 0,
+          })),
+        })}
+        onAction={async (action) => {
+          console.log('AI Action from Projects page:', action);
+          
+          // Handle project expense actions
+          if ((action.type === 'add_material' || action.type === 'add_material_purchase') && 
+              action.projectId && 
+              action.projectName) {
+            const allProjects = [...activeProjects, ...estimates];
+            const project = allProjects.find(p => p.id === action.projectId);
+            
+            if (project) {
+              // CRITICAL: Load expenses from AsyncStorage to avoid restoring deleted items
+              let currentExpenses = project.projectData?.expenses || [];
+              try {
+                const storageKey = `bps.project.${action.projectId}`;
+                const existingDataStr = await AsyncStorage.getItem(storageKey);
+                if (existingDataStr) {
+                  const existingProjectData = JSON.parse(existingDataStr);
+                  // Use expenses from AsyncStorage as source of truth (includes deletions)
+                  currentExpenses = existingProjectData.expenses || [];
+                }
+              } catch (error) {
+                console.error('Error loading expenses from AsyncStorage:', error);
+                // Fallback to project.projectData if AsyncStorage fails
+              }
+              
+              const expenseCategory = action.category || 'Materials/Equipment';
+              
+              const newExpense = {
+                id: `exp-${Date.now()}`,
+                category: expenseCategory,
+                vendor: action.vendor || '',
+                amount: action.amount || 0,
+                date: new Date().toISOString(),
+                notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+                receiptUri: null,
+              };
+              
+              const updatedExpenses = [...currentExpenses, newExpense];
+              
+              // Load current spent from AsyncStorage too
+              let currentSpent = project.projectData?.spent || 0;
+              try {
+                const storageKey = `bps.project.${action.projectId}`;
+                const existingDataStr = await AsyncStorage.getItem(storageKey);
+                if (existingDataStr) {
+                  const existingProjectData = JSON.parse(existingDataStr);
+                  currentSpent = existingProjectData.spent || 0;
+                }
+              } catch (error) {
+                // Fallback to project.projectData if AsyncStorage fails
+              }
+              
+              const newSpent = currentSpent + (action.amount || 0);
+              
+              // Update budget buckets
+              const expenseCategoryLower = expenseCategory.toLowerCase();
+              let currentBuckets = project.projectData?.buckets || [];
+              try {
+                const storageKey = `bps.project.${action.projectId}`;
+                const existingDataStr = await AsyncStorage.getItem(storageKey);
+                if (existingDataStr) {
+                  const existingProjectData = JSON.parse(existingDataStr);
+                  currentBuckets = existingProjectData.buckets || [];
+                }
+              } catch (error) {
+                // Fallback to project.projectData if AsyncStorage fails
+              }
+              
+              const updatedBuckets = currentBuckets.map((bucket: any) => {
+                const bucketName = (bucket.name || '').toLowerCase();
+                
+                if (bucketName === expenseCategoryLower) {
+                  return {
+                    ...bucket,
+                    spent: (bucket.spent || 0) + (action.amount || 0),
+                  };
+                }
+                
+                const isMaterialsBucket = bucketName.includes('materials') || bucketName.includes('equipment');
+                const isMaterialCategory = expenseCategoryLower.includes('materials') || 
+                                         expenseCategoryLower.includes('equipment') ||
+                                         ['tile', 'drywall', 'lumber', 'concrete', 'paint', 'electrical', 
+                                          'plumbing', 'hardware', 'roofing', 'insulation', 'flooring', 
+                                          'cabinets', 'appliances', 'windows', 'doors', 'siding', 
+                                          'decking', 'fencing', 'landscaping'].includes(expenseCategoryLower);
+                
+                if (isMaterialsBucket && isMaterialCategory) {
+                  return {
+                    ...bucket,
+                    spent: (bucket.spent || 0) + (action.amount || 0),
+                  };
+                }
+                
+                if (bucketName.includes('labor') && expenseCategoryLower.includes('labor')) {
+                  return {
+                    ...bucket,
+                    spent: (bucket.spent || 0) + (action.amount || 0),
+                  };
+                }
+                
+                return bucket;
+              });
+              
+              updateProject(action.projectId, {
+                projectData: {
+                  ...project.projectData,
+                  expenses: updatedExpenses,
+                  spent: newSpent,
+                  buckets: updatedBuckets,
+                  lastUpdated: new Date().toISOString(),
+                },
+              });
+              
+              // Also save directly to AsyncStorage to ensure consistency
+              try {
+                const storageKey = `bps.project.${action.projectId}`;
+                const existingDataStr = await AsyncStorage.getItem(storageKey);
+                let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
+                
+                const projectDataToSave = {
+                  ...existingProjectData,
+                  expenses: updatedExpenses,
+                  spent: newSpent,
+                  buckets: updatedBuckets,
+                  lastUpdated: new Date().toISOString(),
+                };
+                
+                await AsyncStorage.setItem(storageKey, JSON.stringify(projectDataToSave));
+                console.log('✅ Saved expense to AsyncStorage from Projects page');
+              } catch (error) {
+                console.error('Error saving to AsyncStorage:', error);
+              }
+              
+              console.log('✅ Added expense to project:', action.projectName, action.amount, action.category);
+            }
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1044,5 +1230,30 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '700',
+  },
+  // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
+  aiFloatingWrapper: {
+    position: "absolute",
+    right: 20,
+    bottom: 100, // Raised above tab bar with more spacing
+    zIndex: 10,
+  },
+  aiFloating: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8, // Android shadow
+  },
+  aiFloatingText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#020617",
   },
 });

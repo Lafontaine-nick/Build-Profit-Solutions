@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard } from "react-native";
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
+import { useTheme } from "../contexts/ThemeContext";
+import { getColors } from "../theme/getColors";
 
 type Props = {
   visible: boolean;
@@ -15,6 +17,8 @@ type Props = {
 };
 
 export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose, onSave, onCancel }: Props) {
+  const { theme, darkMode } = useTheme();
+  const Colors = getColors(theme);
   const [poNumber, setPONumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
@@ -51,25 +55,6 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
     onClose();
   };
 
-  const handleCancel = () => {
-    if (!purchaseOrder) return;
-    
-    Alert.alert(
-      'Cancel Purchase Order?',
-      `Cancel ${poNumber}? This cannot be undone.`,
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Cancel PO',
-          style: 'destructive',
-          onPress: () => {
-            onCancel(purchaseOrder.id);
-            onClose();
-          }
-        }
-      ]
-    );
-  };
 
   const descriptionRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -78,7 +63,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.backBtnWrapper}>
@@ -93,21 +78,28 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
-                  style={styles.backBtn}
+                  style={[styles.backBtn, !darkMode && { backgroundColor: '#FFFFFF' }]}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
                 </TouchableOpacity>
               </LinearGradient>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={styles.headerIconContainer}>
-                  <Text style={{ fontSize: 24 }}>📋</Text>
-                </View>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.headerIconBorder}
+                >
+                  <View style={[styles.headerIconContainer, !darkMode && { backgroundColor: '#FFFFFF' }]}>
+                    <Text style={{ fontSize: 24 }}>📋</Text>
+                  </View>
+                </LinearGradient>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.title}>Edit Purchase Orders</Text>
-                  <Text style={styles.subtitle}>Transactions & Invoices</Text>
+                  <Text style={[styles.title, !darkMode && { color: '#000000' }]}>Edit Purchase Orders</Text>
+                  <Text style={[styles.subtitle, !darkMode && { color: '#4B5563' }]}>Transactions & Invoices</Text>
                 </View>
               </View>
             </View>
@@ -120,26 +112,41 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
             showsVerticalScrollIndicator={false} 
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.field}>
-              <Text style={styles.label}>Vendor / Supplier *</Text>
-              <TextInput
-                style={styles.input}
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={vendor}
-                onChangeText={setVendor}
-                autoCapitalize="words"
-                returnKeyType="next"
-                onSubmitEditing={() => Keyboard.dismiss()}
-              />
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Vendor / Supplier *</Text>
+              <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <Feather
+                  name="store"
+                  size={16}
+                  color={darkMode ? "#8DA0B8" : "#6B7280"}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={[styles.input, !darkMode && { color: '#000000' }]}
+                  placeholder="e.g., Home Depot, ABC Contractors"
+                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  value={vendor}
+                  onChangeText={setVendor}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                />
+              </View>
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Amount *</Text>
-              <View style={styles.amountInputContainer}>
-                <Text style={styles.dollarSign}>$</Text>
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Amount *</Text>
+              <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <Feather
+                  name="dollar-sign"
+                  size={16}
+                  color="#22c55e"
+                  style={styles.inputIcon}
+                />
                 <TextInput
-                  style={[styles.input, styles.amountInput]}
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  style={[styles.input, !darkMode && { color: '#000000' }]}
+                  placeholder="$ 0.00"
+                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
                   value={amount}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -150,7 +157,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                       setAmount(cleaned);
                     }
                   }}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                 />
@@ -160,57 +167,76 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
               )}
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                ref={descriptionRef}
-                style={[styles.input, styles.textArea]}
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={description}
-                onChangeText={setDescription}
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
-                multiline
-                numberOfLines={2}
-              />
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Description</Text>
+              <View style={[styles.textAreaWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <Feather
+                  name="file-text"
+                  size={16}
+                  color={darkMode ? "#8DA0B8" : "#6B7280"}
+                  style={styles.inputIconTop}
+                />
+                <TextInput
+                  ref={descriptionRef}
+                  style={[styles.input, styles.textArea, !darkMode && { color: '#000000' }]}
+                  placeholder="What was purchased or service provided?"
+                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  value={description}
+                  onChangeText={setDescription}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
+                  multiline
+                  numberOfLines={2}
+                />
+              </View>
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>PO Number</Text>
-              <TextInput
-                style={styles.input}
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={poNumber}
-                onChangeText={setPONumber}
-                autoCapitalize="characters"
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
-              />
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>PO Number</Text>
+              <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <Feather
+                  name="tag"
+                  size={16}
+                  color={darkMode ? "#8DA0B8" : "#6B7280"}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={[styles.input, !darkMode && { color: '#000000' }]}
+                  placeholder="e.g., PO-1003"
+                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  value={poNumber}
+                  onChangeText={setPONumber}
+                  autoCapitalize="characters"
+                  onFocus={() => {
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
+                />
+              </View>
             </View>
           </ScrollView>
 
           {/* Actions */}
-          <View style={styles.actions}>
-            <TouchableOpacity 
-              onPress={handleCancel} 
-              style={[styles.button, styles.deleteButton]}
-            >
-              <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
-            </TouchableOpacity>
+          <View style={[styles.actions, { borderTopColor: Colors.line, backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}>
             <TouchableOpacity 
               onPress={() => {
                 Keyboard.dismiss();
                 handleSave();
               }} 
-              style={[styles.button, styles.saveButton]}
+              style={styles.saveButton}
             >
-              <Text style={styles.saveButtonText}>✓ Save</Text>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.saveButtonGradient}
+              >
+                <Text style={styles.saveText}>✓ Save</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
       </View>
@@ -226,7 +252,6 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: "#020617",
     paddingBottom: 20,
   },
   header: {
@@ -253,15 +278,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerIconBorder: {
+    borderRadius: 15,
+    padding: 1,
+  },
   headerIconContainer: {
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: 'rgba(67, 206, 162, 0.15)',
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.25)',
   },
   title: {
     color: "white",
@@ -293,84 +320,102 @@ const styles = StyleSheet.create({
   form: {
     padding: 20,
   },
-  field: {
+  fieldGroup: {
     marginBottom: 20,
   },
   label: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    marginBottom: 8,
+    color: "#FFFFFF",
+    marginBottom: 10,
+    letterSpacing: 0.2,
   },
-  input: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    color: "white",
-    fontSize: 16,
-    padding: 14,
+  inputWrapper: {
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.18)",
-  },
-  amountInputContainer: {
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "#6B7280",
   },
-  dollarSign: {
-    position: "absolute",
-    left: 14,
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 18,
-    fontWeight: "600",
-    zIndex: 1,
+  textAreaWrapper: {
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "#6B7280",
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
-  amountInput: {
-    paddingLeft: 32,
+  inputIcon: {
+    marginRight: 12,
+  },
+  inputIconTop: {
+    marginRight: 12,
+    marginTop: 4,
+  },
+  input: {
     flex: 1,
+    fontSize: 14,
+    color: "white",
+    fontWeight: "500",
   },
   textArea: {
-    height: 70,
+    minHeight: 80,
     textAlignVertical: "top",
   },
   hint: {
-    color: "#10f297",
+    color: "#22c55e",
     fontSize: 13,
     marginTop: 6,
     fontWeight: "600",
   },
   actions: {
     flexDirection: "row",
-    padding: 20,
-    paddingTop: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
     gap: 12,
+    borderTopWidth: 1,
   },
-  button: {
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  deleteButton: {
-    flex: 0.45,
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ef4444',
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    justifyContent: "center",
   },
-  deleteButtonText: {
-    color: "#ef4444",
-    fontSize: 16,
-    fontWeight: "700",
+  cancelText: {
+    fontSize: 15,
+    fontWeight: "600",
   },
   saveButton: {
     flex: 1,
-    backgroundColor: "#10f297",
-    shadowColor: '#10f297',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#22d3ee",
+    overflow: "hidden",
   },
-  saveButtonText: {
-    color: "white",
-    fontSize: 18,
+  saveButtonGradient: {
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  saveText: {
+    fontSize: 15,
     fontWeight: "700",
+    color: "#020617",
+    letterSpacing: 0.3,
   },
 }); 

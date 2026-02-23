@@ -2,6 +2,7 @@ require('express-async-errors');
 require('dotenv').config();
 
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -42,6 +43,7 @@ const { initializeDatabase } = require('./services/database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const PORT2 = 3000; // Secondary port
 
 // Initialize database
 try {
@@ -221,23 +223,33 @@ function getLocalIP() {
 
 const LOCAL_IP = getLocalIP();
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔗 API Base: http://localhost:${PORT}/api`);
-  console.log(`🌐 Customer website: http://localhost:${PORT}`);
-  console.log(`📱 LAN access: http://${LOCAL_IP}:${PORT}`);
-  console.log(`   - Health: http://${LOCAL_IP}:${PORT}/health`);
-  console.log(`   - API: http://${LOCAL_IP}:${PORT}/api`);
+// Helper function to log server info
+function logServerInfo(port) {
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`📊 Health check: http://localhost:${port}/health`);
+  console.log(`🔗 API Base: http://localhost:${port}/api`);
+  console.log(`🌐 Customer website: http://localhost:${port}`);
+  console.log(`📱 LAN access: http://${LOCAL_IP}:${port}`);
+  console.log(`   - Health: http://${LOCAL_IP}:${port}/health`);
+  console.log(`   - API: http://${LOCAL_IP}:${port}/api`);
+}
+
+// Verify SKU Search configuration on startup
+const serpApiKey = process.env.SERPAPI_KEY;
+const webScrapingApiKey = process.env.WEBSCRAPINGAPI_KEY;
+const hasSerpApi = serpApiKey && serpApiKey !== 'YOUR_SERPAPI_KEY_HERE';
+const hasWebScrapingApi = webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE';
+
+// Create HTTP servers for both ports
+const server1 = http.createServer(app);
+const server2 = http.createServer(app);
+
+// Start server on primary port (3001)
+server1.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n${'='.repeat(60)}`);
+  logServerInfo(PORT);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔄 Marketplace sync: Running every 5 minutes`);
-  
-  // Verify SKU Search configuration on startup
-  const serpApiKey = process.env.SERPAPI_KEY;
-  const webScrapingApiKey = process.env.WEBSCRAPINGAPI_KEY;
-  const hasSerpApi = serpApiKey && serpApiKey !== 'YOUR_SERPAPI_KEY_HERE';
-  const hasWebScrapingApi = webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE';
   
   console.log(`\n✅ SKU Search API ready:`);
   if (hasSerpApi) {
@@ -252,7 +264,14 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`   ⚠️  No API keys configured - SKU search will use mock data only`);
     console.log(`   💡 To enable real data: Configure SERPAPI_KEY in .env file`);
   }
-  console.log('');
+  console.log(`${'='.repeat(60)}\n`);
+});
+
+// Start server on secondary port (3000)
+server2.listen(PORT2, '0.0.0.0', () => {
+  console.log(`\n${'='.repeat(60)}`);
+  logServerInfo(PORT2);
+  console.log(`${'='.repeat(60)}\n`);
 });
 
 module.exports = app; 

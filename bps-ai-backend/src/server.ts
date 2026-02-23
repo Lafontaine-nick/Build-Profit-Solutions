@@ -66,10 +66,19 @@ const ProjectService = {
           if (matchingProject) {
             actualProjectName = matchingProject.title;
             projectId = matchingProject.id;
+            const projectStatus = (matchingProject.status || '').toLowerCase();
+            
+            // CRITICAL: Check if this is an estimate (should use update_estimate_item, not record_material_purchase)
+            const isEstimate = ['draft', 'estimate', 'submitted', 'bid_submitted'].includes(projectStatus);
+            if (isEstimate) {
+              console.log(`⚠️ Project "${actualProjectName}" is an ESTIMATE (status: ${projectStatus}). record_material_purchase should NOT be used for estimates.`);
+              console.log(`💡 Suggestion: Use update_estimate_item instead for estimates.`);
+            }
+            
             // Get the project's actual budget and spent amounts
             projectBudget = matchingProject.bidPrice || matchingProject.estimatedCost || 0;
             projectSpent = matchingProject.actualCost || 0;
-            console.log(`✅ Found matching project: ${actualProjectName} (ID: ${projectId}) for search "${args.project_name}"`);
+            console.log(`✅ Found matching project: ${actualProjectName} (ID: ${projectId}, status: ${projectStatus}) for search "${args.project_name}"`);
             console.log(`📊 Project budget: $${projectBudget}, already spent: $${projectSpent}`);
           } else {
             console.log(`⚠️ No matching project found for "${args.project_name}". Available projects:`, 
@@ -517,6 +526,129 @@ const ProjectService = {
     };
   },
 
+  async getRecentProjects(args: {
+    context?: string;
+    limit?: number;
+  }) {
+    console.log("Getting recent projects:", args);
+    
+    const limit = args.limit || 10;
+    let projects: any[] = [];
+
+    if (args.context) {
+      try {
+        const context = JSON.parse(args.context);
+        
+        if (context.allProjects && Array.isArray(context.allProjects)) {
+          // Get all projects and sort by activity/recency
+          projects = context.allProjects
+            .map((p: any) => ({
+              id: p.id || String(p.projectId || ''),
+              title: p.title || p.name || 'Untitled Project',
+              status: p.status || 'unknown',
+              customerName: p.customerName || p.client || '',
+              bidPrice: p.bidPrice || p.estimatedCost || 0,
+              actualCost: p.actualCost || p.spent || 0,
+              lastOpened: p.lastOpened || p.updatedAt || p.createdAt,
+              isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+                (p.status || '').toLowerCase()
+              ),
+            }))
+            .sort((a, b) => {
+              // Sort by: active first, then by last opened
+              if (a.isActive && !b.isActive) return -1;
+              if (!a.isActive && b.isActive) return 1;
+              
+              const dateA = new Date(a.lastOpened || 0).getTime();
+              const dateB = new Date(b.lastOpened || 0).getTime();
+              return dateB - dateA;
+            })
+            .slice(0, limit);
+          
+          console.log(`✅ Found ${projects.length} recent projects`);
+        } else {
+          console.log("⚠️ No allProjects in context");
+        }
+      } catch (e) {
+        console.error("Error parsing context:", e);
+      }
+    }
+
+    return {
+      projects,
+      count: projects.length,
+    };
+  },
+
+  async getProjectSnapshot(args: {
+    project_id: string;
+    context?: string;
+  }) {
+    console.log("Getting project snapshot:", args);
+
+    let project: any = null;
+    let error: string | null = null;
+
+    if (args.context) {
+      try {
+        const context = JSON.parse(args.context);
+        
+        if (context.allProjects && Array.isArray(context.allProjects)) {
+          // Find project by ID
+          project = context.allProjects.find((p: any) => 
+            String(p.id || p.projectId || '') === String(args.project_id)
+          );
+          
+          if (project) {
+            // Return full project snapshot with all relevant data
+            project = {
+              id: project.id || project.projectId,
+              title: project.title || project.name,
+              customerName: project.customerName || project.client,
+              status: project.status,
+              bidPrice: project.bidPrice || project.estimatedCost || 0,
+              actualCost: project.actualCost || project.spent || 0,
+              budgeted: project.budgeted || project.bidPrice || 0,
+              estimatedCost: project.estimatedCost || 0,
+              margin: project.margin || 0,
+              markup: project.markup || project.markupPct || 0,
+              overhead: project.overhead || 0,
+              progress: project.progress || project.overallProgressPct || 0,
+              location: project.location || '',
+              startDate: project.startDate,
+              endDate: project.endDate,
+              buckets: project.buckets || [],
+              expenses: project.expenses || [],
+              purchaseOrders: project.purchaseOrders || [],
+              changeOrders: project.changeOrders || [],
+              milestones: project.milestones || [],
+              notes: project.notes || [],
+              lastOpened: project.lastOpened || project.updatedAt || project.createdAt,
+            };
+            
+            console.log(`✅ Found project snapshot: ${project.title} (ID: ${project.id})`);
+          } else {
+            error = `Project with ID '${args.project_id}' not found.`;
+            console.log(`❌ Project not found: ID "${args.project_id}"`);
+          }
+        } else {
+          error = "No project data available in context.";
+        }
+      } catch (e) {
+        console.error("Error parsing context:", e);
+        error = "Error parsing project context. Please try again.";
+      }
+    } else {
+      error = "No project context provided. Cannot get project snapshot.";
+    }
+
+    return {
+      projectId: args.project_id,
+      projectData: project,
+      error: error || undefined,
+    };
+  },
+
   async summarizeProject(args: {
     project_name: string;
     context?: string;
@@ -526,6 +658,7 @@ const ProjectService = {
     let actualProjectName = args.project_name;
     let projectId: string | undefined;
     let project: any = null;
+    let error: string | null = null;
 
     if (args.context) {
       try {
@@ -537,16 +670,25 @@ const ProjectService = {
           projectId = found.projectId;
           project = found.project;
           console.log(`✅ Found matching project: ${actualProjectName} (ID: ${projectId})`);
+        } else {
+          // Project not found - return error instead of null project
+          const availableProjects = context.allProjects?.map((p: any) => p.title || p.name).filter(Boolean) || [];
+          error = `Project '${args.project_name}' not found. Available projects: ${availableProjects.length > 0 ? availableProjects.join(', ') : 'none'}. Please make sure the project exists and the name is correct.`;
+          console.log(`❌ Project not found: "${args.project_name}". Available: ${availableProjects.join(', ')}`);
         }
       } catch (e) {
         console.error("Error parsing context:", e);
+        error = "Error parsing project context. Please try again.";
       }
+    } else {
+      error = "No project context provided. Cannot summarize project.";
     }
 
     return {
       projectName: actualProjectName,
       projectId,
       projectData: project,
+      error: error || undefined,
     };
   },
 
@@ -2324,7 +2466,12 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         "Record a material purchase as an EXPENSE against the existing project budget. This does NOT increase the bid total. It records what was spent, which reduces the remaining budget in the Materials/Equipment category. " +
         "CRITICAL: Only use this when the user explicitly says they 'purchased', 'bought', or 'spent' money on materials (past tense - they already bought it). " +
         "If the user says 'add [amount] material' or 'add material' for a DRAFT/ESTIMATE project, use 'update_estimate_item' instead to add it to the estimate. " +
-        "This tool is for recording expenses on WON/ACTIVE projects, not for adding materials to estimates.",
+        "This tool is for recording expenses on WON/ACTIVE projects, not for adding materials to estimates. " +
+        "REQUIRED: Before calling this tool, ensure you have: project_name, amount, vendor, and category (material name). " +
+        "SMART DEFAULTS: If user mentions specific material types (lumber, tile, concrete, drywall, paint, electrical, plumbing, hardware, roofing, insulation, flooring, cabinets, appliances, windows, doors, siding, decking, fencing, landscaping), auto-categorize - only ask if truly unclear. " +
+        "VENDOR NORMALIZATION: Normalize common vendors (Home Depot/HD, Lowe's/Lowes, Menards, Ace Hardware/Ace, Sherwin Williams/SW) to standard capitalization. " +
+        "DATE HANDLING: If user says 'yesterday', 'last week', 'today', parse and include in notes field. " +
+        "BATCH RECORDING: If user mentions multiple materials (e.g., 'I bought $500 of lumber and $300 of tile'), call this tool MULTIPLE times - once for each material.",
       parameters: {
         type: "object",
         properties: {
@@ -2574,6 +2721,42 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ["project_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recent_projects",
+      description:
+        "Get a list of the user's recent and active projects. Use this when you need to know what projects are available, or when the user asks about 'my projects' or needs to select a project. Returns projects sorted by activity and recency.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "Maximum number of projects to return (default: 10)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_project_snapshot",
+      description:
+        "Get a complete snapshot of a specific project by its ID. Use this when you have a project_id and need full project data including budget, costs, expenses, purchase orders, change orders, milestones, and status. This provides all the data needed for project analysis.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: {
+            type: "string",
+            description: "The project ID to get a snapshot for",
+          },
+        },
+        required: ["project_id"],
       },
     },
   },
@@ -3049,11 +3232,19 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "update_estimate_item",
       description:
-        "Update or ADD line items in an estimate. CRITICAL: Distinguish between 'UPDATE existing item' vs 'ADD new item'. " +
+        "Update or ADD line items in an estimate. CRITICAL: This is the PRIMARY tool to use when the user is in the Estimate Generator screen (context.screen === 'Estimate Generator' or context.status === 'estimate'). " +
+        "When user says 'add material', 'add material cost', 'add 500 material spent', 'add it to my project budget' while in Estimate Generator → use this tool to ADD a new material line item. " +
+        "When user says 'add labor', 'add labor cost' while in Estimate Generator → use this tool to ADD a new labor line item. " +
+        "CRITICAL: Distinguish between 'UPDATE existing item' vs 'ADD new item'. " +
         "UPDATE: When user says 'update', 'change', 'modify' an existing item (e.g., 'update framing labor to $13,500', 'change tile labor to $15,000'). " +
-        "ADD NEW: When user says 'add', 'create', 'new line item', 'new labor', 'new material' (e.g., 'add plumbing labor for $2000', 'create a new line item for electrical labor'). " +
+        "ADD NEW: When user says 'add', 'create', 'new line item', 'new labor', 'new material' (e.g., 'add plumbing labor for $2000', 'create a new line item for electrical labor', 'add 500 material spent'). " +
         "For ADD NEW: Provide new_description (the name of the new item) AND new_amount. " +
         "For UPDATE: Provide item_description (name of existing item to find) AND new_amount. " +
+        "REQUIRED INFORMATION: " +
+        "- itemType: 'material' or 'labor' (REQUIRED) " +
+        "- new_description: Name of the material/labor (REQUIRED for ADD NEW) " +
+        "- new_amount: Amount in USD (REQUIRED) " +
+        "- If missing material name, ask: 'What material was this for?' then immediately call this tool. " +
         "CRITICAL: Before calling this tool, you MUST ask clarifying questions if needed: " +
         "1. If project is unclear: 'Which project is this for?' " +
         "2. If adding material and the user only provides an amount without specifying what material (e.g., 'add $500 for material', 'add $2000 material'), you MUST ask 'What material is this for?' BEFORE calling this tool. Do NOT use generic descriptions like 'Materials', 'Material', or 'General Materials' - always get the specific material name first (e.g., 'Tile', 'Drywall', 'Lumber', 'Concrete'). " +
@@ -3558,6 +3749,160 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
+type AssistantDomain = 'estimate' | 'project' | 'general';
+
+function resolveAssistantDomain(context?: string, message?: string): AssistantDomain {
+  if (!context) return 'general';
+  try {
+    const parsed = JSON.parse(context);
+    const domain = (parsed.assistantDomain || '').toString().toLowerCase();
+    
+    // CRITICAL: If user mentions a project name, check the project's status to determine domain
+    if (message && parsed.allProjects && Array.isArray(parsed.allProjects)) {
+      const lowerMsg = message.toLowerCase();
+      // Extract project name from message (look for patterns like "for Bob project", "Bob project", "to Steve job")
+      const projectNameMatch = lowerMsg.match(/(?:for|to|in)\s+([a-z]+(?:\s+[a-z]+)?)\s+(?:project|job)/) ||
+                               lowerMsg.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:project|job)/) ||
+                               lowerMsg.match(/(?:project|job)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+      
+      if (projectNameMatch) {
+        const searchName = projectNameMatch[1].toLowerCase().trim();
+        // Find matching project in allProjects
+        const matchingProject = parsed.allProjects.find((p: any) => {
+          const title = (p.title || '').toLowerCase();
+          const customer = (p.customerName || '').toLowerCase();
+          return title.includes(searchName) || 
+                 searchName.includes(title) ||
+                 customer.includes(searchName) ||
+                 searchName.includes(customer);
+        });
+        
+        if (matchingProject) {
+          const projectStatus = (matchingProject.status || '').toLowerCase();
+          // Active project statuses: won, active, in_progress, completed
+          const isActiveProject = ['won', 'active', 'in_progress', 'completed'].includes(projectStatus);
+          // Estimate statuses: draft, estimate, submitted, bid_submitted
+          const isEstimate = ['draft', 'estimate', 'submitted', 'bid_submitted'].includes(projectStatus);
+          
+          if (isActiveProject) {
+            console.log(`🎯 Project "${matchingProject.title}" is active (status: ${projectStatus}) → routing to PROJECT domain`);
+            return 'project';
+          } else if (isEstimate) {
+            console.log(`📋 Project "${matchingProject.title}" is an estimate (status: ${projectStatus}) → routing to ESTIMATE domain`);
+            return 'estimate';
+          }
+        }
+      }
+    }
+    
+    if (domain === 'estimate' || domain === 'project' || domain === 'general') {
+      // CRITICAL: Even if domain is 'estimate', check if user mentions a specific project name
+      // If they say "materials spent in projects" or mention a project name, they want PROJECT tools
+      if (domain === 'estimate' && message) {
+        const lowerMsg = message.toLowerCase();
+        // Check for project expense indicators
+        if (lowerMsg.includes('materials spent') || 
+            lowerMsg.includes('material spent') ||
+            lowerMsg.includes('spent in projects') ||
+            /(for|to|in)\s+([A-Z][a-z]+|[a-z]+\s+[a-z]+)\s+(project|job)/.test(lowerMsg)) {
+          // User wants to record a PROJECT expense, not add to estimate
+          return 'project';
+        }
+      }
+      return domain;
+    }
+
+    const screen = (parsed.screen || '').toString().toLowerCase();
+    const status = (parsed.status || parsed.projectStatus || '').toString().toLowerCase();
+    if (screen.includes('estimate') || ['estimate', 'draft', 'submitted', 'bid_submitted'].includes(status)) {
+      // Same check: if user mentions project expense, override to project domain
+      if (message) {
+        const lowerMsg = message.toLowerCase();
+        if (lowerMsg.includes('materials spent') || 
+            lowerMsg.includes('material spent') ||
+            lowerMsg.includes('spent in projects') ||
+            /(for|to|in)\s+([A-Z][a-z]+|[a-z]+\s+[a-z]+)\s+(project|job)/.test(lowerMsg)) {
+          return 'project';
+        }
+      }
+      return 'estimate';
+    }
+    if (screen.includes('project')) return 'project';
+    return 'general';
+  } catch {
+    return 'general';
+  }
+}
+
+const TOOL_NAMES = {
+  estimate: [
+    "create_new_bid",
+    "update_estimate_item",
+    "update_customer_info",
+    "export_estimate_pdf",
+    "search_material_prices",
+    "find_alternative_materials",
+    "suggest_missing_costs",
+    "forecast_total_cost",
+    "set_payment_schedule_type",
+    "add_payment_milestone",
+    "add_weekly_payment",
+    "update_overhead_markup",
+  ],
+  project: [
+    "record_material_purchase",
+    "record_labor_expense",
+    "create_change_order",
+    "approve_change_order",
+    "create_purchase_order",
+    "update_timeline_milestone",
+    "set_work_schedule",
+    "set_project_timeline",
+    "update_project_details",
+    "update_customer_info",
+    "add_project_note",
+    "summarize_project",
+    "get_recent_projects",
+    "get_project_snapshot",
+    "calculate_project_profitability",
+    "identify_project_risks",
+    "generate_project_proposal",
+    "generate_client_update",
+    "recommend_next_steps",
+    "suggest_missing_costs",
+    "forecast_total_cost",
+    "search_material_prices",
+    "search_contractors",
+    "translate_update",
+    "profitability_forecast_pro",
+    "ai_project_manager_mode",
+    "update_overhead_markup",
+    "add_payment_milestone",
+    "add_weekly_payment",
+    "set_payment_schedule_type",
+    "safety_checklist",
+    "find_alternative_materials",
+  ],
+  general: [
+    "get_recent_projects",
+    "get_project_snapshot",
+    "summarize_project",
+    "search_material_prices",
+    "search_contractors",
+    "find_alternative_materials",
+    "recommend_next_steps",
+    "translate_update",
+  ],
+} as const;
+
+function selectToolsForDomain(domain: AssistantDomain): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  const allowed = new Set<string>(TOOL_NAMES[domain] as unknown as string[]);
+  return tools.filter(t => {
+    const name = (t as any)?.function?.name;
+    return typeof name === 'string' && allowed.has(name);
+  });
+}
+
 // ----- Master System Prompt -----
 const MASTER_SYSTEM_PROMPT = `
 🔧 Build Profit Solutions – AI System Prompt
@@ -3569,6 +3914,21 @@ Your goals:
 - Help the user run profitable jobs – accurate estimates, healthy overhead/markup, clear payment schedules, and risk control.
 - Make the app feel like a smart project manager, not just a calculator.
 - Use tools whenever they are needed to read or update real project data.
+- CRITICAL ACTION RULE: When users ask you to DO something (add, create, update, record, set, modify), you MUST actually use the tools to perform the action. Do NOT just give instructions on how they can do it manually. You have access to tools - use them to actually perform the requested actions. 
+  * FORBIDDEN RESPONSES: Never say "I'm unable to", "I can't directly", "I cannot", "you would typically", "you can easily", "go to the budget section", "navigate to", "select Add Expense", or any variation that gives instructions instead of performing the action.
+  * REQUIRED BEHAVIOR: When user says "add material", "add material cost", "add it to my project budget", "can you add", "do it for me" → you MUST call update_estimate_item (for estimates) or record_material_purchase (for active projects). Do NOT give instructions.
+  * If you're missing required information (like material name, project name, etc.), ask ONE clear question, wait for the answer, then immediately use the tool.
+  * Never say "I can help you with that!" or "Let me know if you need anything else" - just ask for what's missing, then do it!
+  * After performing an action, confirm directly with a conversational tone: "Got it! I've recorded..." or "Done! I've added..." - be confident and mention where it will appear (expenses, budget, etc.)
+  * BATCH ACTIONS: If user mentions multiple items (e.g., "I bought $500 of lumber and $300 of tile"), call the tool multiple times - once for each item. Then confirm all items together: "Got it! I've recorded $500 for lumber and $300 for tile..."
+
+CRITICAL DATA RULES:
+- ONLY use REAL data returned from tools. NEVER invent, estimate, or make up project data.
+- If a tool returns null, undefined, or an error, tell the user the data is unavailable. DO NOT create example data.
+- NEVER use placeholder values like $50,000, $500,000, $475,000, or any fictional numbers.
+- If you don't have real data, clearly state that you need the actual project data to proceed.
+- CRITICAL: Before showing ANY project health summary, budget numbers, margin percentages, or cost data, you MUST first call get_project_snapshot(project_id) and verify the data exists.
+- If get_project_snapshot() fails or returns null/empty data, DO NOT show a health summary with made-up numbers. Instead say: "I couldn't load the project data. Please make sure the project exists and try again."
 
 1. General Behavior & Tone
 - Speak conversationally, clearly, and professionally, like a smart project manager who knows construction.
@@ -3580,13 +3940,17 @@ Your goals:
 
 2. Project Context & Identification
 - You often need to know which project or which estimate to act on.
+- CRITICAL: If context.resolvedProjectId exists (user is on Project Detail page using "Ask PM" mode):
+  * ALL questions and commands are about THIS project - do NOT ask which project
+  * Use the resolvedProjectId directly in tool calls (project_id parameter)
+  * The project name is in context.projectName or context.currentProject - reference it naturally in responses
 - Maintain an internal active_project based on the most recent project the user referenced or modified.
 - If the user says:
   * "add $500 for material"
   * "set up weekly payments"
   * "what's the total?"
-  and you already know which project they are working on, use that project without asking again.
-- If there is ambiguity:
+  and you already know which project they are working on (from resolvedProjectId or context), use that project without asking again.
+- If there is ambiguity (and no resolvedProjectId):
   * Ask a single concise question:
     "Which project is this for? (e.g., 'Chris remodel' or 'Kitchen demo')."
   * If the user mistypes a name, use fuzzy matching and confirm:
@@ -3605,12 +3969,66 @@ create_new_bid
 record_material_purchase
 - Log a real-world material purchase as an expense without changing the estimate total.
 - Use when the user talks about what they already bought or paid, not what they're quoting.
+- CRITICAL: ONLY use this tool for ACTIVE PROJECTS (status: 'won', 'active', 'in_progress', 'completed').
+- NEVER use this tool for ESTIMATES (status: 'draft', 'estimate', 'submitted', 'bid_submitted') - use 'update_estimate_item' instead.
+- REQUIRED INFORMATION (MUST HAVE ALL BEFORE CALLING):
+  1. Project name - CRITICAL: If project name is missing or unclear, ask "Which project is this for?" FIRST and WAIT for response
+  2. Amount - CRITICAL: Extract amounts from user messages. Look for: "$500", "500", "five hundred", "$1,200", "1200", etc. If amount is clearly stated in the message, use it. Only ask "How much did you spend?" if NO amount is mentioned at all.
+  3. Vendor (ask if missing: "Where did you buy this from?")
+  4. Category/Material name - CRITICAL: If material type is missing, ask "What material is this for?" AFTER project is identified
+- WORKFLOW:
+  * STEP 1: Extract amount from user message FIRST. Look for numbers with $ signs, or standalone numbers when user says "spent", "bought", "paid", "material", etc. Examples: "add 500 material" → amount=500, "spent $1,200" → amount=1200, "bought 500 worth" → amount=500. If amount is clearly present, proceed. Only ask "How much?" if truly no amount is mentioned.
+  * STEP 2: If no project mentioned → ask "Which project is this for?" and STOP. Do not proceed.
+  * STEP 3: Once project is identified, check status in context.allProjects:
+    - If status is 'draft', 'estimate', 'submitted', or 'bid_submitted' → use 'update_estimate_item' instead (this is an estimate, not an expense)
+    - If status is 'won', 'active', 'in_progress', or 'completed' → continue with this tool
+  * STEP 4: If material name is missing → ask "What material is this for?" and STOP. Do not proceed.
+  * STEP 5: If vendor is missing → ask "Where did you buy this from?" and STOP. Do not proceed.
+  * STEP 6: Once ALL information is gathered, call this tool immediately.
+- AMOUNT EXTRACTION RULES:
+  * If user says "add 500 material" or "500 material spent" → amount is 500
+  * If user says "$500" or "$1,200" → extract the number (500 or 1200)
+  * If user says "five hundred" or "one thousand two hundred" → convert to numbers (500 or 1200)
+  * If user says "spent 500" or "bought 500" → amount is 500
+  * NEVER ask "How much did you spend?" if the user already mentioned a number in their message
 - Triggers:
   * "I bought $500 of lumber from Home Depot."
   * "Record $1,200 for tile I picked up today."
   * "Log yesterday's concrete delivery."
+  * "Add $500 material cost at Home Depot spent" (when they say "spent")
+  * "Home Depot spent $500" (when they mention spending)
+  * "I spent $500 at Home Depot" (when they mention spending)
+  * "Let's add 500 material spent" → amount=500, extract immediately, don't ask "How much?"
+  * "Add 500 material" → amount=500, extract immediately
+  * "500 material spent" → amount=500, extract immediately
 - This affects job-costing / profit analysis, not the bid price.
 - CRITICAL: If the user says "add [amount] material" for a DRAFT/ESTIMATE project, use 'update_estimate_item' instead to add it to the estimate. Only use 'record_material_purchase' when they explicitly say they "bought", "purchased", or "spent" money on materials.
+- SMART DEFAULTS FOR MATERIAL CATEGORIES:
+  * If user mentions specific material types, auto-categorize: "lumber" → "Lumber", "tile" → "Tile", "concrete" → "Concrete", "drywall" → "Drywall", "paint" → "Paint", "electrical" → "Electrical", "plumbing" → "Plumbing", "hardware" → "Hardware", "roofing" → "Roofing", "insulation" → "Insulation", "flooring" → "Flooring", "cabinets" → "Cabinets", "appliances" → "Appliances", "windows" → "Windows", "doors" → "Doors", "siding" → "Siding", "decking" → "Decking", "fencing" → "Fencing", "landscaping" → "Landscaping"
+  * Only ask "What material was this for?" if the material type is truly unclear (e.g., user just says "materials" or "supplies" without specifics)
+- VENDOR NORMALIZATION:
+  * Recognize common vendor variations: "Home Depot" / "HD" / "home depot" → "Home Depot"
+  * "Lowe's" / "Lowes" / "lowes" → "Lowe's"
+  * "Menards" / "menards" → "Menards"
+  * "Ace Hardware" / "Ace" → "Ace Hardware"
+  * "Sherwin Williams" / "SW" / "sherwin" → "Sherwin Williams"
+  * Normalize to standard capitalization and spelling
+- DATE HANDLING:
+  * If user says "yesterday", calculate yesterday's date and use it
+  * If user says "last week", calculate approximate date (7 days ago)
+  * If user says "today", use today's date
+  * If user says "last Monday" or similar, calculate that date
+  * Parse relative dates and convert to ISO format (YYYY-MM-DD) for the notes field
+- BATCH RECORDING:
+  * If user mentions multiple materials in one request (e.g., "I bought $500 of lumber and $300 of tile"), call this tool MULTIPLE times - once for each material
+  * Example: "I bought $500 of lumber and $300 of tile from Home Depot" → call record_material_purchase twice:
+    * First call: amount=500, category="Lumber", vendor="Home Depot"
+    * Second call: amount=300, category="Tile", vendor="Home Depot"
+  * In your confirmation, mention all items: "Got it! I've recorded $500 for lumber and $300 for tile from Home Depot."
+- RECEIPT PHOTO INTEGRATION:
+  * If the user mentions a receipt or photo, acknowledge it: "I see you have a receipt. You can attach it in the app for better categorization."
+  * Note: The tool doesn't currently accept image uploads, but you can mention this capability exists
+- CRITICAL: When the user asks you to add/record a cost, you MUST actually use this tool to do it. Do NOT just give instructions. If you're missing required information (like material name), ask ONE clear question, wait for the answer, then immediately use the tool. Never say "I can help you with that!" - just ask for what's missing, then do it!
 
 record_labor_expense
 - Log labor actually paid (subs or employees).
@@ -3621,6 +4039,19 @@ record_labor_expense
 
 update_estimate_item
 - Modify the estimate itself – line items for materials and labor.
+- CRITICAL: This is for DRAFT/ESTIMATE projects only (status: 'draft', 'estimate', 'submitted', 'bid_submitted').
+- NEVER use this tool for active projects - use record_material_purchase for expenses on active projects.
+- REQUIRED INFORMATION (MUST HAVE ALL BEFORE CALLING):
+  1. Project name - CRITICAL: If project name is missing or unclear, ask "Which project is this for?" FIRST and WAIT for response
+  2. Amount (usually provided)
+  3. Category/Material name - CRITICAL: If material type is missing, ask "What material is this for?" AFTER project is identified
+- WORKFLOW:
+  * STEP 1: If no project mentioned → ask "Which project is this for?" and STOP. Do not proceed.
+  * STEP 2: Once project is identified, check status in context.allProjects:
+    - If status is 'draft', 'estimate', 'submitted', or 'bid_submitted' → continue with this tool (it's an estimate)
+    - If status is 'won', 'active', 'in_progress', or 'completed' → use 'record_material_purchase' instead (it's an active project expense)
+  * STEP 3: If material name is missing → ask "What material is this for?" and STOP. Do not proceed.
+  * STEP 4: Once ALL information is gathered, call this tool immediately.
 - Use when the user wants to:
   * Add, remove, or change items in the estimate.
   * Change quantities, unit prices, or descriptions.
@@ -3629,15 +4060,9 @@ update_estimate_item
   * "Add 200 sq ft of tile at $8/sq ft."
   * "Increase framing labor by $1,000."
   * "Change drywall from level 4 to level 5."
-- If the user only says an amount and type ("add $2000 for labor"), ask for:
-  * Project (if unclear)
-  * Type (e.g., electrical, plumbing, tile) if it matters for the line item.
-- CRITICAL: Before calling this tool, you MUST ask clarifying questions if needed:
-  * STEP 1: If project is unclear, ask "Which project is this for?" and WAIT for the user's response.
-  * STEP 2: Once project is identified, determine what type of item is being added:
-    - For MATERIALS: If the user said "material" or "materials" without a specific name, ask "What material is this for?" and WAIT for the response. DO NOT use generic terms like "Materials", "Material", or "General Materials" - these are FORBIDDEN.
-    - For LABOR/SUBCONTRACTOR: If the user said "add sub labor", "add subcontractor", "add labor" without specifying the type, ask "What type of labor is this for? (e.g., tile, plumbing, electrical, framing, etc.)" and WAIT for the response. DO NOT use generic terms like "Labor", "Sub labor", or "Subcontractor" - these are FORBIDDEN. Use format like "Tile labor", "Plumbing labor", "Electrical labor", etc.
-  * ONLY call this tool AFTER you have the project name AND a specific item name (not generic terms).
+  * "I need to add some materials cost" (for estimate/draft projects)
+  * "Add material cost" (when project is in estimate/draft phase)
+- CRITICAL: When the user asks you to add material or labor to an estimate, you MUST actually use this tool to do it. Do NOT just give instructions on how they can do it manually. You have the tool - use it to actually perform the action! Once you have all required information (project name and specific material/labor type), IMMEDIATELY call the tool. Never say "follow these steps" or "you can do this by..." - just do it!
 - PROJECT SCOPE FOR MATERIALS: When adding a NEW material, if the project scope is unclear (e.g., project has multiple scopes, or you can't determine from context), you MUST ask the user: "Which project scope is this for? (kitchen, bathroom, room addition, home addition, new build, landscaping, or other)" BEFORE calling the tool. Only proceed if:
   * The project title clearly indicates the scope (e.g., 'Josh kitchen remodel' → 'kitchen')
   * The context explicitly shows a single project scope
@@ -3793,9 +4218,177 @@ share_contract
   * Only call this tool AFTER you have: project name, share method (email or text), and the email address or phone number.
 
 3.8 Project Analysis & Notes
+
+PROJECT CONTEXT RESOLUTION & SMART DEFAULTS:
+- When user asks broad questions like "analyze my project", "how is this job doing?", "our estimate", "my project", "this job", or "project health", you should:
+  1. First check if context.resolvedProjectId exists - this means the app already resolved which project to use
+  2. If resolvedProjectId exists, use get_project_snapshot(resolvedProjectId) to get full project data immediately
+  3. If no resolvedProjectId, use get_recent_projects() to see available projects
+  4. If only one active project exists, use get_project_snapshot() with that project's ID automatically
+  5. If multiple projects exist and user didn't specify, the app will show chips for selection (you don't need to ask)
+- CRITICAL: NEVER say "I don't have access" or "I lack access to project data" when tools exist
+- CRITICAL: When context.resolvedProjectId exists (user is on Project Detail page using "Ask PM" mode):
+  * ALL questions and commands default to this project - the user does NOT need to specify the project name
+  * When user says "add material", "record expense", "check budget", etc., they mean THIS project
+  * Do NOT ask "Which project is this for?" - it's already resolved
+  * Use the resolvedProjectId directly in all tool calls (project_id parameter)
+  * The project name is available in context.projectName or context.currentProject - use it in your responses
+- If project context is missing when user asks about "my project" / "this job" / "our estimate":
+  * DO NOT say you lack access
+  * DO use get_recent_projects() to see what projects are available
+  * DO ask a SINGLE clarifying question: "Which project do you mean?" and list the top 3 most recent/active projects
+  * OR if only one project exists, automatically use get_project_snapshot() with that project's ID
+  * Once project is identified, ALWAYS use get_project_snapshot(project_id) to fetch full data before answering
+- SMART DEFAULTS (use automatically):
+  * If resolvedProjectId exists in context -> use get_project_snapshot(resolvedProjectId) immediately, and ALL commands default to this project
+  * If user says "this project" / "this job" / "current" / "my project" / "our estimate" -> try to use active project from context first
+  * If no active project but last_opened_project_id exists (within 7 days) -> use that
+  * If only 1 Active/In Progress project -> choose it automatically
+  * Only ask for clarification if multiple projects exist and none match the above
+- CLARIFYING QUESTIONS (max 1-2 questions):
+  * Must be multiple-choice when possible (chips/buttons shown in UI)
+  * Should NOT ask "which project?" if you can infer it from context
+  * If question is broad and project is already chosen, ask: "Do you want a quick health check or full breakdown?" ONLY after project is resolved
+  * When asking which project, format as: "Which project do you mean? [List top 3 projects with status]"
+- OUTPUT CONFIDENCE:
+  * Start responses with: "Here's the current health check for [Project Name]..." or similar confident phrasing
+  * NEVER say "I can't access X" or "I don't have access to project data" when tools exist
+  * If tools fail, say "I couldn't load the project data right now" and suggest retry
+  * Always fetch project data using get_project_snapshot() before answering project-related questions
+
+get_recent_projects
+- Get a list of the user's recent and active projects.
+- Use this when you need to know what projects are available, or when the user asks about "my projects".
+- Returns projects sorted by activity and recency.
+- Use this BEFORE asking which project the user means - it helps you provide better options.
+
+get_project_snapshot
+- Get a complete snapshot of a specific project by its ID.
+- Use this when you have a project_id (from resolvedProjectId in context, or from get_recent_projects).
+- Provides full project data including budget, costs, expenses, purchase orders, change orders, milestones, and status.
+- This is the PRIMARY tool to use for project analysis - it gives you all the data you need.
+- CRITICAL: Once you identify which project the user is asking about (from get_recent_projects or context), ALWAYS call this tool to fetch the full project data before answering their question.
+- NEVER answer project-related questions without first fetching the project snapshot.
+- CRITICAL: If this tool returns an error or null data, DO NOT invent or estimate project data. Tell the user: "I couldn't load the project data right now. Please try again or check if the project exists."
+- NEVER use placeholder values like $50,000, $500,000, or any fictional numbers. ONLY use numbers returned by this tool.
+
 summarize_project
 - Give a high-level overview: scope, totals, payments, schedule.
 - Triggers: "Summarize this project", "Give me a quick overview of Chris remodel".
+- CRITICAL RULES:
+  * ONLY use REAL project data returned in the projectData field from the tool response.
+  * If the tool returns an "error" field, the project was NOT found. Tell the user: "I couldn't find a project named '[project_name]'. [error message from tool]"
+  * If projectData is null, undefined, or missing, DO NOT generate example data. Tell the user the project data is unavailable.
+  * NEVER invent, estimate, or make up budget amounts, costs, or project details.
+  * NEVER use placeholder values like $500,000, $475,000, or any example numbers.
+  * If you don't have real data, clearly state: "I don't have the project data needed to provide this summary. Please make sure the project exists and try again."
+  * PREFERRED WORKFLOW: Use get_project_snapshot(project_id) instead of summarize_project when you have a project ID - it provides more complete data.
+
+PROJECT ANALYSIS TEMPLATE (STRICT ENFORCEMENT):
+- When intent=project_analysis (user asks "analyze my project", "project analysis", "how is this job doing?", "project health", etc.), you MUST follow this exact template structure.
+- CRITICAL DISTINCTION: This template is ONLY for ANALYSIS/REVIEW requests. If the user asks to "add", "create", "update", "record", "set", or "modify" something, use the appropriate ACTION tool (update_estimate_item, record_material_purchase, create_change_order, etc.) and do NOT use this analysis template.
+- Examples:
+  * "Add material cost" → Use update_estimate_item or record_material_purchase (NOT analysis template)
+  * "Create change order" → Use create_change_order (NOT analysis template)
+  * "Analyze my project" → Use analysis template
+  * "How is this job doing?" → Use analysis template
+  
+  1) SUMMARY (2-3 bullets):
+     - Budget status: [On track / Over budget by X% / Under budget by X%]
+     - Margin status: [Healthy / At risk / Below target]
+     - Schedule status: [On time / X days behind / Ahead of schedule]
+  
+  2) BUDGET & COSTING:
+     - Planned vs Actual: $[planned] planned, $[actual] actual (use ONLY numbers from project snapshot)
+     - Top 3 cost drivers: List the 3 largest expense categories with amounts and percentages
+     - Missing costs: List any obvious missing cost categories (permits, dumpsters, etc.)
+     - Suspicious entries: Flag any unusual or duplicate entries
+  
+  3) PROFITABILITY:
+     - Current margin vs target: [current]% current vs [target]% target
+     - Forecast at completion: $[forecast] (calculate based on current burn rate)
+     - Risk level: [Low/Medium/High] + brief reason why
+  
+  4) SCHEDULE:
+     - Milestones at risk: List any milestones that are behind or at risk
+     - Next 7-day critical path actions: List the most critical actions needed in next 7 days
+  
+  5) RISKS & RECOMMENDATIONS:
+     - 3 prioritized actions to protect margin: List 3 actions with priority (High/Medium/Low) and reason
+  
+  6) NEXT BEST ACTIONS (as structured buttons):
+     - "Add missing cost" (action: add_missing_cost)
+     - "Update schedule" (action: update_schedule)
+     - "Generate change order" (action: generate_change_order)
+     - "Send client update" (action: send_client_update)
+  
+  TEMPLATE RULES:
+  - If any section lacks data, say "Data needed" + propose exact next step/tool call to fetch or input it
+  - Use numbers ONLY from project snapshot (no guessing, no example data)
+  - Keep it contractor-practical and short (each section should be concise)
+  - Format your response as structured JSON when possible, or use clear markdown sections
+  - Always start with: "Here's the current analysis for [Project Name]..."
+  
+  EXAMPLE STRUCTURE:
+  {
+    "summary": {
+      "budgetStatus": "Over budget by 5%",
+      "marginStatus": "At risk - 12% vs 18% target",
+      "scheduleStatus": "3 days behind"
+    },
+    "budgetAndCosting": {
+      "planned": 50000,
+      "actual": 52500,
+      "topCostDrivers": [
+        {"name": "Materials", "amount": 25000, "percentage": 48},
+        {"name": "Labor", "amount": 20000, "percentage": 38},
+        {"name": "Equipment", "amount": 7500, "percentage": 14}
+      ],
+      "missingCosts": ["Permits", "Dumpster rental"],
+      "suspiciousEntries": []
+    },
+    "profitability": {
+      "currentMargin": 12,
+      "targetMargin": 18,
+      "forecastAtCompletion": 55000,
+      "riskLevel": "Medium",
+      "riskReason": "Spending 5% over budget with 70% completion"
+    },
+    "schedule": {
+      "milestonesAtRisk": [
+        {"name": "Foundation complete", "risk": "3 days behind"}
+      ],
+      "next7DayActions": ["Complete framing", "Schedule inspection", "Order windows"]
+    },
+    "risksAndRecommendations": {
+      "prioritizedActions": [
+        {"action": "Review material costs", "priority": "High", "reason": "Materials 10% over budget"},
+        {"action": "Negotiate better labor rates", "priority": "Medium", "reason": "Labor costs rising"},
+        {"action": "Add missing permit costs", "priority": "Low", "reason": "Permits not yet logged"}
+      ]
+    },
+    "nextBestActions": [
+      {"label": "Add missing cost", "action": "add_missing_cost"},
+      {"label": "Update schedule", "action": "update_schedule"},
+      {"label": "Generate change order", "action": "generate_change_order"},
+      {"label": "Send client update", "action": "send_client_update"}
+    ],
+    "dataNeeded": [
+      {
+        "section": "Schedule",
+        "missingData": "Milestone completion dates",
+        "nextStep": "Use update_timeline_milestone tool to add dates",
+        "toolCall": "update_timeline_milestone"
+      }
+    ]
+  }
+- CRITICAL RULES:
+  * ONLY use REAL project data returned in the projectData field from the tool response.
+  * If the tool returns an "error" field, the project was NOT found. Tell the user: "I couldn't find a project named '[project_name]'. [error message from tool]"
+  * If projectData is null, undefined, or missing, DO NOT generate example data. Tell the user the project data is unavailable.
+  * NEVER invent, estimate, or make up budget amounts, costs, or project details.
+  * NEVER use placeholder values like $500,000, $475,000, or any example numbers.
+  * If you don't have real data, clearly state: "I don't have the project data needed to provide this summary. Please make sure the project exists and try again."
 
 calculate_project_profitability
 - Analyze profit and margins using estimate vs actual expenses vs overhead & markup.
@@ -3988,6 +4581,97 @@ function buildSystemPrompt(aiProjectManagerMode?: boolean): string {
   return MASTER_SYSTEM_PROMPT + `\n\n[AI PROJECT MANAGER MODE: ENABLED]`;
 }
 
+type ActionIntent = {
+  isAction: boolean;
+  type: 'add_material' | 'add_labor' | 'change_order' | 'payment' | 'estimate' | 'other';
+  isExpense: boolean;
+};
+
+function parseContextStatus(context?: string): string {
+  if (!context) return '';
+  try {
+    const parsed = JSON.parse(context);
+    return (parsed.status || parsed.projectStatus || '').toString().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function detectActionIntent(message: string): ActionIntent {
+  const lower = message.toLowerCase();
+  // More comprehensive action detection - includes "can you", "will you", "please", etc.
+  const actionVerbs = /(add|record|log|create|update|set|change|modify|approve|pay|paid|spent|bought|purchase|do it|do this|handle|take care of|apply|can you|will you|please add|please create)/;
+  const isAction = actionVerbs.test(lower);
+  
+  // CRITICAL: Check for expense keywords FIRST - "spent", "bought", "purchase", "materials spent in projects"
+  // These indicate recording an expense for a PROJECT, not adding to an estimate
+  const isExpense = /(spent|bought|purchase|paid|receipt|materials spent|material spent)/.test(lower);
+  
+  // Check if user mentions a specific project name (not "this project" or "current project")
+  // If they mention a project name AND say "spent" or "materials spent", it's definitely a project expense
+  const mentionsSpecificProject = /(for|to|in)\s+([A-Z][a-z]+|[a-z]+\s+[a-z]+)\s+(project|job)/.test(lower) ||
+    /([A-Z][a-z]+|[a-z]+\s+[a-z]+)\s+(project|job)/.test(lower);
+
+  // Check for material-related keywords
+  if (/material/.test(lower) || /material cost/.test(lower) || /material spent/.test(lower)) {
+    // If user says "materials spent in projects" or mentions a specific project, it's an expense
+    if (isExpense || mentionsSpecificProject || lower.includes('materials spent')) {
+      return { isAction: true, type: 'add_material', isExpense: true };
+    }
+    return { isAction: true, type: 'add_material', isExpense };
+  }
+  // Check for labor-related keywords
+  if (/labor|labour|subcontractor|sub labor|crew/.test(lower)) {
+    return { isAction: true, type: 'add_labor', isExpense };
+  }
+  // Check for change order
+  if (/change order/.test(lower)) {
+    return { isAction: true, type: 'change_order', isExpense: false };
+  }
+  // Check for payment
+  if (/payment|invoice|deposit|milestone|weekly/.test(lower)) {
+    return { isAction: true, type: 'payment', isExpense: false };
+  }
+  // Check for estimate/bid
+  if (/estimate|bid/.test(lower) && isAction) {
+    return { isAction: true, type: 'estimate', isExpense: false };
+  }
+  // If action verb detected but no specific type, still mark as action
+  if (isAction) {
+    return { isAction: true, type: 'other', isExpense };
+  }
+  return { isAction: false, type: 'other', isExpense: false };
+}
+
+function buildActionClarification(intent: ActionIntent, status: string): string {
+  const isEstimateProject = ['estimate', 'draft', 'submitted', 'bid_submitted'].includes(status);
+
+  if (intent.type === 'add_material') {
+    if (intent.isExpense || !isEstimateProject) {
+      return 'What material, amount, and vendor did you spend? (Example: "Lumber $500 at Home Depot")';
+    }
+    return 'What material and amount should I add to the estimate? (Example: "Lumber $500")';
+  }
+
+  if (intent.type === 'add_labor') {
+    return 'What labor type and amount should I add? (Example: "Electrical labor $1,200")';
+  }
+
+  if (intent.type === 'change_order') {
+    return 'What’s the change order description and total amount? If you can, include material and labor breakdown.';
+  }
+
+  if (intent.type === 'payment') {
+    return 'What payment amount/percentage and due date should I add?';
+  }
+
+  if (intent.type === 'estimate') {
+    return 'What should I add or change in the estimate (material/labor name and amount)?';
+  }
+
+  return 'Tell me the details (what to add and the amount), and I’ll take care of it.';
+}
+
 // ----- Main AI endpoint -----
 app.post("/api/ai-assistant", async (req, res) => {
   const { message, context, history, user_settings } = req.body as {
@@ -4001,6 +4685,20 @@ app.post("/api/ai-assistant", async (req, res) => {
 
   const aiProjectManagerMode = user_settings?.ai_project_manager_mode ?? false;
   const systemPrompt = buildSystemPrompt(aiProjectManagerMode);
+  const actionIntent = detectActionIntent(message);
+  const contextStatus = parseContextStatus(context);
+  
+  // CRITICAL: Check ALL messages in history for project names, not just current message
+  // This ensures we detect project names from previous messages in the conversation
+  const allMessages = [...(history || []), { role: 'user' as const, content: message }];
+  const allMessageText = allMessages.map(m => m.content).join(' ');
+  const domain = resolveAssistantDomain(context, allMessageText);
+  const domainTools = selectToolsForDomain(domain);
+  const actionEnforcement = actionIntent.isAction
+    ? `CRITICAL: The user issued a COMMAND. You MUST either (1) call the correct tool to perform the action, or (2) ask ONE clarifying question to get missing details. 
+NEVER say you "can't make changes" or "can't do that." 
+If AI Project Manager Mode is enabled, DO NOT prepend a health summary for command requests. Execute the command instead.`
+    : '';
 
   try {
     // 1) First call: let OpenAI decide whether to answer or use a tool
@@ -4009,7 +4707,10 @@ app.post("/api/ai-assistant", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: systemPrompt,
+          content:
+            systemPrompt +
+            `\n\n[ROUTING]\n- assistantDomain=${domain}\n- Use ONLY the tools provided. If a tool you want is missing, ask a single clarifying question instead.` +
+            (actionEnforcement ? `\n\n${actionEnforcement}` : ''),
         },
         ...(context
           ? [
@@ -4022,18 +4723,125 @@ app.post("/api/ai-assistant", async (req, res) => {
         ...(history ?? []),
         { role: "user", content: message },
       ],
-      tools,
+      tools: domainTools,
       tool_choice: "auto",
       temperature: 0.4,
     });
 
     const choice = first.choices[0];
 
-    // No tool calls → just answer as normal chat
+    // No tool calls → check if this is an action request that requires a tool
     if (!choice.message.tool_calls || choice.message.tool_calls.length === 0) {
-      return res.json({
-        reply: choice.message.content ?? "I'm not sure how to answer that.",
-      });
+      // CRITICAL: If user asked for an action but AI didn't call a tool, check if we need to ask for project first
+      if (actionIntent.isAction) {
+        console.log('🚨 Action detected but no tool called');
+        console.log('Action intent:', actionIntent);
+        console.log('Context status:', contextStatus);
+        
+        // Check if we're in general context (AI Assistant page) and no project is mentioned
+        let parsedContext: any = {};
+        try {
+          parsedContext = context ? JSON.parse(context) : {};
+        } catch (e) {
+          console.error('Error parsing context:', e);
+        }
+        
+        const isGeneralContext = !parsedContext.projectId && 
+                                 !parsedContext.activeProjectId && 
+                                 (parsedContext.screen === 'AI Assistant Tab' || 
+                                  parsedContext.screen === 'AI Assistant' ||
+                                  !parsedContext.screen);
+        
+        // Check if project name is mentioned in message or history
+        const allText = allMessageText.toLowerCase();
+        let hasProjectName = false;
+        
+        if (parsedContext.allProjects && Array.isArray(parsedContext.allProjects)) {
+          hasProjectName = parsedContext.allProjects.some((p: any) => {
+            const title = (p.title || '').toLowerCase();
+            const customer = (p.customerName || '').toLowerCase();
+            return allText.includes(title) || 
+                   allText.includes(customer) ||
+                   new RegExp(`(?:for|to|in|is)\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(?:project|job)`, 'i').test(allText) ||
+                   new RegExp(`(?:for|to|in|is)\\s+${customer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(?:project|job)`, 'i').test(allText);
+          });
+        }
+        
+        // If in general context and no project mentioned, ask for project FIRST
+        if (isGeneralContext && !hasProjectName && (actionIntent.type === 'add_material' || actionIntent.type === 'add_labor')) {
+          console.log('📋 No project mentioned in general context - asking for project first');
+          return res.json({
+            reply: 'Which project is this for?',
+          });
+        }
+        
+        // Force a tool call with explicit requirement
+        const forcedCall = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt + `
+CRITICAL: The user asked you to perform an action: "${message}"
+You MUST use a tool to perform this action. Do NOT give instructions.
+
+ACTION DETECTED: ${actionIntent.type}
+ASSISTANT DOMAIN: ${domain}
+CONTEXT: ${context ? JSON.stringify(JSON.parse(context), null, 2) : 'No context'}
+
+REQUIRED BEHAVIOR:
+- BEFORE calling any tool, you MUST check the project's status in context.allProjects:
+  * Find the project by name in context.allProjects
+  * Check the status field: 'won'/'active'/'in_progress'/'completed' = ACTIVE PROJECT → use record_material_purchase
+  * Check the status field: 'draft'/'estimate'/'submitted'/'bid_submitted' = ESTIMATE → use update_estimate_item
+  * If project not found or status unclear, ask the user
+- If user says "add material", "add material cost", "add 500 material spent", "add it to my project budget":
+  * For ACTIVE PROJECTS → use record_material_purchase (expense)
+  * For ESTIMATES → use update_estimate_item (line item)
+- If user says "add labor":
+  * For ACTIVE PROJECTS → use record_labor_expense (expense)
+  * For ESTIMATES → use update_estimate_item (line item)
+- If you're missing information (like material name), ask ONE question, then use the tool.
+- NEVER say "I'm unable" or "you can easily" - you have tools, use them!
+- NEVER assume a project is an estimate - always check the status field first!
+
+${actionEnforcement}
+`,
+            },
+            ...(context
+              ? [
+                  {
+                    role: "system" as const,
+                    content: `Screen context from the app: ${context}`,
+                  },
+                ]
+              : []),
+            ...(history ?? []),
+            { role: "user", content: message },
+          ],
+          tools: domainTools,
+          tool_choice: "required", // FORCE tool usage
+          temperature: 0.2, // Lower temperature for more deterministic behavior
+        });
+        
+        const forcedChoice = forcedCall.choices[0];
+        if (forcedChoice.message.tool_calls && forcedChoice.message.tool_calls.length > 0) {
+          // Use the forced tool calls instead
+          choice.message = forcedChoice.message;
+          console.log('✅ Forced tool call successful:', forcedChoice.message.tool_calls.map(tc => tc.function?.name));
+        } else {
+          // Even with forced tool choice, if no tool was called, return clarification
+          console.log('⚠️ Even forced tool_choice failed - returning clarification');
+          return res.json({
+            reply: buildActionClarification(actionIntent, contextStatus, message),
+          });
+        }
+      } else {
+        // Not an action request, just answer normally
+        return res.json({
+          reply: choice.message.content ?? "I'm not sure how to answer that.",
+        });
+      }
     }
 
     // There ARE tool calls → handle them
@@ -4070,27 +4878,59 @@ app.post("/api/ai-assistant", async (req, res) => {
           content: JSON.stringify(result),
         });
       } else if (name === "record_material_purchase") {
-        const result = await ProjectService.recordMaterialPurchase({
-          ...args,
-          context: context,
-        });
+        try {
+          const result = await ProjectService.recordMaterialPurchase({
+            ...args,
+            context: context,
+          });
 
-        actions.push({
-          type: "add_material",
-          projectName: result.projectName,
-          projectId: result.projectId,
-          amount: args.amount,
-          vendor: args.vendor,
-          category: args.category,
-          notes: result.notes,
-        });
+          // Check if result indicates this was an estimate (should have used update_estimate_item)
+          if (result.error === "INVALID_STATUS") {
+            toolMessages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              name,
+              content: JSON.stringify({
+                error: "INVALID_STATUS",
+                message: `The project "${result.projectName || args.project_name}" is an ESTIMATE (status: ${result.status || 'estimate'}). Use update_estimate_item tool instead of record_material_purchase for estimates.`,
+                projectName: result.projectName || args.project_name,
+                status: result.status,
+              }),
+            });
+          } else {
+            actions.push({
+              type: "add_material",
+              projectName: result.projectName,
+              projectId: result.projectId,
+              amount: args.amount,
+              vendor: args.vendor,
+              category: args.category,
+              notes: result.notes,
+            });
 
-        toolMessages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          name,
-          content: JSON.stringify(result),
-        });
+            toolMessages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              name,
+              content: JSON.stringify(result),
+            });
+          }
+        } catch (error: any) {
+          // Handle validation errors from recordMaterialPurchase
+          if (error.message && error.message.includes('INVALID_STATUS')) {
+            toolMessages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              name,
+              content: JSON.stringify({
+                error: "INVALID_STATUS",
+                message: error.message,
+              }),
+            });
+          } else {
+            throw error; // Re-throw if it's a different error
+          }
+        }
       } else if (name === "record_labor_expense") {
         const result = await ProjectService.recordLaborExpense({
           ...args,
@@ -4301,6 +5141,77 @@ app.post("/api/ai-assistant", async (req, res) => {
           tool_call_id: toolCall.id,
           content: JSON.stringify(result),
         });
+      } else if (name === "get_recent_projects") {
+        const result = await ProjectService.getRecentProjects({
+          ...args,
+          context: context,
+        });
+
+        toolMessages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name,
+          content: JSON.stringify(result),
+        });
+      } else if (name === "get_project_snapshot") {
+        const result = await ProjectService.getProjectSnapshot({
+          ...args,
+          context: context,
+        });
+
+        if (result.error) {
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name,
+            content: JSON.stringify({
+              error: result.error,
+              projectId: result.projectId,
+              projectData: null,
+            }),
+          });
+        } else {
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name,
+            content: JSON.stringify(result),
+          });
+        }
+      } else if (name === "summarize_project") {
+        const result = await ProjectService.summarizeProject({
+          ...args,
+          context: context,
+        });
+
+        // If there's an error (project not found), return error message to AI
+        if (result.error) {
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name,
+            content: JSON.stringify({
+              error: result.error,
+              projectName: result.projectName,
+              projectId: null,
+              projectData: null,
+            }),
+          });
+        } else {
+          actions.push({
+            type: "summarize_project",
+            projectName: result.projectName,
+            projectId: result.projectId,
+            projectData: result.projectData,
+          });
+
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name,
+            content: JSON.stringify(result),
+          });
+        }
       } else if (name === "calculate_project_profitability") {
         const result = await ProjectService.calculateProjectProfitability({
           ...args,
@@ -4823,6 +5734,73 @@ app.post("/api/ai-assistant", async (req, res) => {
     }
 
     // 2) Second call: ask OpenAI to explain what happened in human language
+    // Detect if this is a project_analysis intent (NOT an action request)
+    const lowerMessageForAnalysis = message.toLowerCase();
+    const isActionRequestForAnalysis = 
+      lowerMessageForAnalysis.includes('add') ||
+      lowerMessageForAnalysis.includes('create') ||
+      lowerMessageForAnalysis.includes('update') ||
+      lowerMessageForAnalysis.includes('record') ||
+      lowerMessageForAnalysis.includes('set') ||
+      lowerMessageForAnalysis.includes('change') ||
+      lowerMessageForAnalysis.includes('modify') ||
+      lowerMessageForAnalysis.includes('remove') ||
+      lowerMessageForAnalysis.includes('delete');
+    
+    const isProjectAnalysis = !isActionRequestForAnalysis && (
+      lowerMessageForAnalysis.includes('analyze') ||
+      lowerMessageForAnalysis.includes('analysis') ||
+      lowerMessageForAnalysis.includes('project health') ||
+      lowerMessageForAnalysis.includes('how is this job') ||
+      lowerMessageForAnalysis.includes('how\'s this project') ||
+      (context && JSON.parse(context).resolvedProjectId && 
+       (lowerMessageForAnalysis.includes('status') || lowerMessageForAnalysis.includes('health')))
+    );
+    
+    // Detect if user is asking about "my project" / "this job" / "our estimate" without context
+    let parsedContext: any = {};
+    try {
+      parsedContext = context ? JSON.parse(context) : {};
+    } catch (e) {
+      // Context parsing failed
+    }
+    
+    const isProjectQueryWithoutContext = 
+      (message.toLowerCase().includes('my project') ||
+       message.toLowerCase().includes('this job') ||
+       message.toLowerCase().includes('our estimate') ||
+       message.toLowerCase().includes('our project') ||
+       message.toLowerCase().includes('my job')) &&
+      !parsedContext.resolvedProjectId;
+    
+    // Build enforcement prompt for project analysis
+    const projectAnalysisEnforcement = isProjectAnalysis && !isActionRequestForAnalysis ? `
+CRITICAL: This is a PROJECT ANALYSIS request (NOT an action request like "add", "create", "update"). You MUST follow the strict Project Analysis Template:
+1) Start with: "Here's the current analysis for [Project Name]..."
+2) Provide SUMMARY (2-3 bullets): budget status, margin status, schedule status
+3) BUDGET & COSTING: Planned vs Actual, Top 3 cost drivers, Missing costs, Suspicious entries
+4) PROFITABILITY: Current margin vs target, Forecast at completion, Risk level (Low/Med/High) + why
+5) SCHEDULE: Milestones at risk, Next 7-day critical path actions
+6) RISKS & RECOMMENDATIONS: 3 prioritized actions to protect margin
+7) NEXT BEST ACTIONS: List as buttons (Add missing cost, Update schedule, Generate change order, Send client update)
+
+If any section lacks data, say "Data needed" + propose exact next step/tool call.
+Use numbers ONLY from project snapshot (no guessing).
+Format as structured JSON when possible for better parsing.
+` : '';
+
+    // Build prompt for missing project context
+    const missingContextEnforcement = isProjectQueryWithoutContext ? `
+CRITICAL: User asked about "my project" / "this job" / "our estimate" but project context is missing.
+DO NOT say "I don't have access" or "I lack access to project data".
+INSTEAD:
+1) Use get_recent_projects() tool to see available projects
+2) If only one project exists, use get_project_snapshot(project_id) with that project's ID
+3) If multiple projects exist, ask a SINGLE clarifying question: "Which project do you mean?" and list the top 3 most recent/active projects with their status
+4) Once project is identified, ALWAYS use get_project_snapshot(project_id) to fetch full data before answering
+5) Never proceed with answering until you have fetched the project snapshot
+` : '';
+
     const second = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -4831,20 +5809,58 @@ app.post("/api/ai-assistant", async (req, res) => {
           content: systemPrompt + `
 You are finalizing a response for a contractor inside the Build Profit Solutions app.
 Explain clearly what changed, what it means, and what they should know.
+
+CRITICAL RULES FOR ACTION RESPONSES:
+- If a tool was called to perform an action (add, create, update, record), you MUST confirm what was done, NOT give instructions.
+- NEVER say "I can't", "I'm unable", "you can easily", "go to", "navigate to", "select", "look for", or any instruction phrase.
+- ALWAYS start with: "Got it! I've added..." or "Done! I've recorded..." - be confident and direct.
+- Mention the specific details: amount, material/labor type, project name, and where it will appear.
+
+EXAMPLES OF CORRECT RESPONSES:
+✅ "Got it! I've added $500 for materials to your current estimate. This will appear in the materials section."
+✅ "Done! I've recorded $500 for lumber from Home Depot to Bob project. This will show up in your expenses."
+✅ "I've added $500 for materials to the estimate. The total has been updated."
+
+EXAMPLES OF FORBIDDEN RESPONSES:
+❌ "I can't directly make changes, but you can easily add..."
+❌ "To add $500, go to the budget section..."
+❌ "Navigate to the expenses section and select Add Expense..."
+❌ "You would typically go to..."
+
 Rules:
 - Be concise (2–5 short paragraphs or bullet points).
-- If a tool performed an update, briefly confirm it in plain language.
+- If a tool performed an update, confirm it in a conversational, confident tone:
+  * Single item: "Got it! I've recorded $500 for lumber from Home Depot to Bob project. This will show up in your expenses."
+  * Multiple items: "Got it! I've recorded $500 for lumber and $300 for tile from Home Depot to Bob project. Both will show up in your expenses."
+  * Include the project name naturally, mention where it will appear (expenses, budget, etc.)
 - Mention key numbers (amounts, dates, statuses) ONLY if they appear in tool outputs.
 - If no tool was used (analysis only), provide a strong, actionable summary.
 - Never mention tools, JSON, or internal processes.
-- Speak like a construction project manager.
+- Speak like a construction project manager - friendly, professional, and helpful.
+- When confirming an action, be direct and confident with a conversational tone. Don't hedge with "Let me know if you need anything else" - just confirm what you did clearly.
+- ERROR RECOVERY: If a tool call fails, explain what went wrong in plain language and suggest a fix:
+  * "I couldn't record that expense because [specific reason from error]. Try [specific fix]."
+  * "The project wasn't found. Did you mean [suggested project name]?"
+  * "I need the material type to record this. What material was this for?"
+  * Never say "An error occurred" - be specific about what failed and how to fix it.
+- CRITICAL: If a tool returns error "INVALID_STATUS" (e.g., record_material_purchase called for an estimate):
+  * The tool will tell you the project status and suggest the correct tool
+  * IMMEDIATELY use the suggested tool (e.g., update_estimate_item) instead
+  * Do NOT ask the user - just fix it and use the correct tool
+  * Example: If record_material_purchase returns INVALID_STATUS saying "use update_estimate_item", immediately call update_estimate_item with the same parameters
 - IMPORTANT: When showing budget numbers, use the numbers from the tool result for the SPECIFIC project mentioned by the user.
 - Do NOT use numbers from the current bid or any other project.
+- CRITICAL: If you don't have real project data from a tool call, DO NOT invent numbers. Say "I need to fetch the project data first" and call get_project_snapshot() before answering.
+- NEVER show project health, budget, or margin data unless you've successfully called get_project_snapshot() and received real data.
+- NEVER show "$50,000", "$500,000", or any placeholder budget amounts - these are FORBIDDEN.
+- If get_project_snapshot() fails or returns null, tell the user: "I couldn't load the project data right now. The project might not exist or there might be a connection issue. Please try again."
+- If you're about to show a "Project Health Summary" or any analysis, you MUST have called get_project_snapshot() first and received valid data. If not, don't show the summary.
 - CRITICAL: If a tool returns an error with 'MISSING_BREAKDOWN', you MUST ask the user for the materials and labor breakdown before creating the change order.
 - Use the message from the tool error to guide your response.
 - When creating a change order that is not approved, always end your message with: 'The change order is currently pending approval. Please let me know if you want to approve it.'
 - CRITICAL: When adding materials to a DRAFT/ESTIMATE project (status: 'estimate', 'draft', 'submitted'), NEVER mention "change order" in your response. Simply confirm that you've added the material to the estimate (e.g., "I've added $X for [material] to the estimate"). Change orders are only relevant for active/won projects.
-- CRITICAL: When adding materials to a DRAFT/ESTIMATE project (status: 'estimate', 'draft', 'submitted'), NEVER mention "change order" in your response. Simply confirm that you've added the material to the estimate (e.g., "I've added $X for [material] to the estimate"). Change orders are only relevant for active/won projects.
+${projectAnalysisEnforcement}
+${missingContextEnforcement}
 `,
         },
         ...(history ?? []),
@@ -4855,7 +5871,225 @@ Rules:
       temperature: 0.4,
     });
 
-    const finalReply = second.choices[0].message.content;
+    // Check if any tool returned INVALID_STATUS error (wrong tool for project type)
+    // If so, automatically retry with the correct tool
+    const hasInvalidStatusError = toolMessages.some((msg: any) => {
+      try {
+        const content = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+        return content?.error === 'INVALID_STATUS' && content?.message?.includes('update_estimate_item');
+      } catch {
+        return false;
+      }
+    });
+    
+    if (hasInvalidStatusError) {
+      console.log('🔄 INVALID_STATUS detected - retrying with correct tool (update_estimate_item)');
+      
+      // Find the INVALID_STATUS error to get the project details
+      let invalidStatusMsg: any = null;
+      for (const msg of toolMessages) {
+        try {
+          const content = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+          if (content?.error === 'INVALID_STATUS' && content?.message?.includes('update_estimate_item')) {
+            invalidStatusMsg = content;
+            break;
+          }
+        } catch {}
+      }
+      
+      // Find the original tool call that failed
+      const failedToolCall = choice.message.tool_calls?.find((tc: any) => tc.function?.name === 'record_material_purchase');
+      if (failedToolCall && invalidStatusMsg) {
+        const originalArgs = JSON.parse(failedToolCall.function.arguments || '{}');
+        
+        // Automatically call update_estimate_item with the same parameters
+        try {
+          const estimateResult = await ProjectService.updateEstimateItem({
+            project_name: originalArgs.project_name || invalidStatusMsg.projectName,
+            item_type: 'material',
+            item_description: originalArgs.category || 'Material',
+            new_amount: originalArgs.amount,
+            new_quantity: 1,
+            new_unit_cost: originalArgs.amount,
+            context: context,
+          });
+          
+          // Replace the error message with success
+          const successIndex = toolMessages.findIndex((msg: any) => {
+            try {
+              const content = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+              return content?.error === 'INVALID_STATUS';
+            } catch {
+              return false;
+            }
+          });
+          
+          if (successIndex >= 0) {
+            toolMessages[successIndex] = {
+              role: 'tool',
+              tool_call_id: failedToolCall.id,
+              name: 'update_estimate_item',
+              content: JSON.stringify(estimateResult),
+            };
+            
+            // Add action for estimate update
+            actions.push({
+              type: 'update_estimate_item',
+              projectName: estimateResult.projectName,
+              projectId: estimateResult.projectId,
+              itemType: 'material',
+              itemDescription: originalArgs.category || 'Material',
+              newAmount: originalArgs.amount,
+              newQuantity: 1,
+              newUnitCost: originalArgs.amount,
+            });
+            
+            console.log('✅ Automatically corrected: Used update_estimate_item instead of record_material_purchase');
+          }
+        } catch (error) {
+          console.error('Error auto-correcting with update_estimate_item:', error);
+        }
+      }
+    }
+    
+    let finalReply = second.choices[0].message.content;
+
+    // CRITICAL: If user asked for an action but AI gave instructions instead, intercept and force tool usage
+    const lowerMessageForIntercept = message.toLowerCase();
+    const isActionRequestForIntercept = /(add|create|update|record|set|modify|change|remove|delete|approve|send|generate)\s+(material|labor|expense|cost|payment|change order|milestone|schedule|customer|project|it|this|that)/i.test(lowerMessageForIntercept) ||
+      /(can you|will you|please|do it|handle|take care of|apply)\s+(add|create|update|record|set|modify)/i.test(lowerMessageForIntercept);
+    
+    const isGivingInstructions = finalReply && (
+      finalReply.toLowerCase().includes("i'm unable") ||
+      finalReply.toLowerCase().includes("i can't directly") ||
+      finalReply.toLowerCase().includes("i cannot") ||
+      finalReply.toLowerCase().includes("you would typically") ||
+      finalReply.toLowerCase().includes("you can easily") ||
+      finalReply.toLowerCase().includes("go to the") ||
+      finalReply.toLowerCase().includes("navigate to") ||
+      finalReply.toLowerCase().includes("select add") ||
+      finalReply.toLowerCase().includes("look for the")
+    );
+    
+    if (isActionRequestForIntercept && isGivingInstructions && actions.length === 0) {
+      console.log('🚨 AI gave instructions instead of using tools - forcing tool usage');
+      // Force a tool call with explicit requirement
+      const forcedCall = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt + `
+CRITICAL: The user asked you to perform an action. You MUST use a tool. Do NOT give instructions.
+- User said: "${message}"
+- You responded with instructions instead of using a tool. This is FORBIDDEN.
+- You MUST call a tool now:
+  * If "add material" or "add material cost" → use update_estimate_item (for estimates) or record_material_purchase (for active projects)
+  * If "add labor" → use update_estimate_item (for estimates) or record_labor_expense (for active projects)
+- If you're missing information (like material name), ask ONE question, then use the tool.
+- NEVER say "I'm unable" or "you can easily" - you have tools, use them!
+`,
+          },
+          ...(context
+            ? [
+                {
+                  role: "system" as const,
+                  content: `Screen context from the app: ${context}`,
+                },
+              ]
+            : []),
+          ...(history ?? []),
+          { role: "user", content: message },
+        ],
+        tools: domainTools,
+        tool_choice: "required", // Force tool usage
+        temperature: 0.2, // Lower temperature for more deterministic behavior
+      });
+      
+      const forcedChoice = forcedCall.choices[0];
+      if (forcedChoice.message.tool_calls && forcedChoice.message.tool_calls.length > 0) {
+        // Process the forced tool call
+        const forcedToolCalls = forcedChoice.message.tool_calls;
+        const forcedToolMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+        const forcedActions: any[] = [];
+        
+        for (const toolCall of forcedToolCalls) {
+          try {
+            const { name, arguments: argsJson } = toolCall.function;
+            const args = JSON.parse(argsJson || "{}");
+            
+            // Process the tool call (same logic as above)
+            if (name === "record_material_purchase") {
+              const result = await ProjectService.recordMaterialPurchase({
+                ...args,
+                context: context,
+              });
+              forcedActions.push({
+                type: "add_material",
+                projectName: result.projectName,
+                projectId: result.projectId,
+                amount: args.amount,
+                vendor: args.vendor,
+                category: args.category,
+                notes: result.notes,
+              });
+              forcedToolMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                name,
+                content: JSON.stringify(result),
+              });
+            } else if (name === "update_estimate_item") {
+              const result = await ProjectService.updateEstimateItem({
+                ...args,
+                context: context,
+              });
+              forcedActions.push({
+                type: "update_estimate_item",
+                projectName: result.projectName,
+                projectId: result.projectId,
+                itemDescription: result.itemDescription,
+                newAmount: result.newAmount,
+              });
+              forcedToolMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                name,
+                content: JSON.stringify(result),
+              });
+            }
+            // Add other tool handlers as needed
+          } catch (error: any) {
+            console.error(`Error processing forced tool call:`, error);
+          }
+        }
+        
+        // Generate final response with forced tool results
+        const forcedFinal = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt + `
+You are finalizing a response for a contractor inside the Build Profit Solutions app.
+You just used a tool to perform an action the user requested.
+Confirm what you did in a conversational, confident tone: "Got it! I've added..." or "Done! I've recorded..."
+Do NOT give instructions - you already did it!
+`,
+            },
+            ...(history ?? []),
+            { role: "user", content: message },
+            forcedChoice.message,
+            ...forcedToolMessages,
+          ],
+          temperature: 0.4,
+        });
+        
+        finalReply = forcedFinal.choices[0].message.content;
+        // Merge forced actions with existing actions
+        actions.push(...forcedActions);
+      }
+    }
 
     return res.json({
       reply: finalReply ?? "I processed your request.",

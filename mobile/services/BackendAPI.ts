@@ -222,7 +222,16 @@ class BackendAPI {
   // Authentication
   private async getAuthToken(): Promise<string | null> {
     try {
-      return await AsyncStorage.getItem('auth_token');
+      const token = await AsyncStorage.getItem('auth_token');
+      
+      if (token) {
+        console.log('✅ Auth token found (length:', token.length, ')');
+      } else {
+        console.warn('⚠️ No auth token found in AsyncStorage. User may need to log in again.');
+        console.warn('💡 Tip: If using Clerk, make sure the token is synced to AsyncStorage.');
+      }
+      
+      return token;
     } catch (error) {
       console.error('Error getting auth token:', error);
       return null;
@@ -273,6 +282,7 @@ class BackendAPI {
       vendor?: string;
       notes?: string;
       date?: string;
+      currentExpenses?: any[]; // Optional: send current expenses list to prevent restoring deleted items
     }
   ): Promise<ApiResponse<any>> {
     return this.request<any>(`/projects/${projectId}/expenses`, {

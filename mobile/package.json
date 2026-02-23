@@ -39,6 +39,7 @@
     "ajv": "^8.17.1",
     "expo": "~54.0.31",
     "expo-auth-session": "~7.0.10",
+    "expo-av": "^16.0.8",
     "expo-battery": "~10.0.8",
     "expo-blur": "~15.0.8",
     "expo-clipboard": "~8.0.8",

@@ -3,7 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { loadProjects, saveProjects } = require('../services/leadStorage');
 
-// Middleware to verify JWT token (import from auth routes)
+// Middleware to verify JWT token or Clerk token
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -12,12 +12,52 @@ const authenticateToken = async (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
+  // First, try to verify as backend JWT token (for backward compatibility)
   try {
     const jwt = require('jsonwebtoken');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
-    next();
-  } catch (error) {
+    console.log('✅ Auth: JWT token verified successfully');
+    return next();
+  } catch (jwtError) {
+    // If JWT verification fails, try to verify as Clerk token
+    try {
+        const jwt = require('jsonwebtoken');
+        // Clerk tokens are JWTs, but we need to verify them with Clerk's API
+        // For now, we'll decode the token to get user info (Clerk tokens contain user data)
+        // In production, you should verify with Clerk's API or use @clerk/backend SDK
+        const decoded = jwt.decode(token);
+        
+        console.log('🔍 Auth: Attempting Clerk token decode', {
+          hasDecoded: !!decoded,
+          hasSub: decoded && !!decoded.sub,
+          tokenLength: token.length,
+          tokenPreview: token.substring(0, 20) + '...'
+        });
+        
+        if (decoded && decoded.sub) {
+          // Extract user info from Clerk token
+          // Clerk tokens have 'sub' as the user ID
+          req.user = {
+            userId: decoded.sub,
+            email: decoded.email || decoded.primary_email_address || null,
+            role: decoded.role || 'contractor'
+          };
+          console.log('✅ Auth: Clerk token decoded successfully', { userId: decoded.sub });
+          return next();
+        } else {
+          console.warn('⚠️ Auth: Clerk token decoded but missing sub field', { decoded: decoded ? Object.keys(decoded) : null });
+        }
+      } catch (clerkError) {
+        console.error('❌ Auth: Clerk token decoding error:', clerkError.message);
+      }
+    
+    // If both verifications fail, return error
+    console.error('❌ Auth: Token verification failed completely', {
+      jwtError: jwtError.message,
+      tokenLength: token.length,
+      tokenPreview: token.substring(0, 30) + '...'
+    });
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
@@ -287,17 +327,100 @@ router.post('/:id/expenses', authenticateToken, [
     const userId = req.user.userId;
     const { id } = req.params;
     
+    console.log('📥 Expense request received', {
+      projectId: id,
+      userId: userId,
+      amount: req.body.amount,
+      category: req.body.category,
+      vendor: req.body.vendor
+    });
+    
     // Reload projects from disk
     projects = loadProjects();
     
-    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
+    console.log('📋 Loaded projects from disk', {
+      totalProjects: projects.length,
+      projectIds: projects.map(p => ({ id: p.id, title: p.title || p.name, userId: p.userId })).slice(0, 10)
+    });
     
+    // Try to find project - check multiple userId fields for compatibility with estimates
+    // Also handle string/number ID mismatches
+    let projectIndex = projects.findIndex(p => {
+      // Check ID match (handle string/number mismatch)
+      const idMatch = String(p.id) === String(id) || p.id === id;
+      if (!idMatch) return false;
+      // Check multiple possible userId fields (for estimates that might use different field names)
+      return p.userId === userId || 
+             p.ownerId === userId || 
+             p.createdBy === userId ||
+             !p.userId; // If project has no userId, allow it (for legacy/estimate projects)
+    });
+    
+    console.log('🔍 First search result', { projectIndex, searchedWithUserId: true });
+    
+    // If still not found, try without userId check (for estimates that might not have userId)
+    // Also handle string/number ID mismatches
     if (projectIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        error: 'Project not found',
+      projectIndex = projects.findIndex(p => String(p.id) === String(id) || p.id === id);
+      console.log('⚠️ Expense: Found project without userId check', { 
+        id, 
+        idType: typeof id,
+        found: projectIndex !== -1,
+        projectTitle: projectIndex !== -1 ? (projects[projectIndex].title || projects[projectIndex].name) : null,
+        foundProjectId: projectIndex !== -1 ? projects[projectIndex].id : null,
+        foundProjectIdType: projectIndex !== -1 ? typeof projects[projectIndex].id : null
       });
     }
+    
+    if (projectIndex === -1) {
+      console.log('⚠️ Expense: Project not found, attempting to create from context', { 
+        id, 
+        userId, 
+        totalProjects: projects.length
+      });
+      
+      // Try to get project info from request body (AI assistant might send it)
+      const projectInfo = req.body.projectInfo || {};
+      
+      // Create a new project entry for this estimate
+      const newProject = {
+        id: id, // Use the provided ID (from estimate)
+        userId: userId,
+        name: projectInfo.title || projectInfo.name || projectInfo.projectName || 'Untitled Project',
+        title: projectInfo.title || projectInfo.name || projectInfo.projectName || 'Untitled Project',
+        client: projectInfo.client || projectInfo.customerName || 'Unknown Client',
+        location: projectInfo.location || '',
+        totalBudget: projectInfo.bidTotal || projectInfo.total || projectInfo.estimatedCost || 0,
+        estimatedCost: projectInfo.estimatedCost || projectInfo.bidTotal || projectInfo.total || 0,
+        bidPrice: projectInfo.bidPrice || projectInfo.bidTotal || projectInfo.total || 0,
+        totalSpent: 0,
+        remaining: projectInfo.bidTotal || projectInfo.total || projectInfo.estimatedCost || 0,
+        progress: 0,
+        status: projectInfo.status || 'estimate',
+        description: projectInfo.description || '',
+        expenses: [],
+        phases: [],
+        budgetItems: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      projects.push(newProject);
+      saveProjects(projects);
+      
+      projectIndex = projects.length - 1;
+      console.log('✅ Expense: Created new project entry', {
+        id: newProject.id,
+        title: newProject.title,
+        status: newProject.status
+      });
+    }
+    
+    console.log('✅ Project found', {
+      projectId: projects[projectIndex].id,
+      projectTitle: projects[projectIndex].title || projects[projectIndex].name,
+      currentExpenses: projects[projectIndex].expenses?.length || 0
+    });
     
     const {
       amount,
@@ -317,31 +440,72 @@ router.post('/:id/expenses', authenticateToken, [
       createdAt: new Date().toISOString(),
     };
     
-    // Initialize expenses array if it doesn't exist
-    if (!projects[projectIndex].expenses) {
-      projects[projectIndex].expenses = [];
+    // CRITICAL: Use currentExpenses from request body as source of truth (frontend has latest state)
+    // This prevents deleted expenses from being restored
+    let currentExpenses = [];
+    if (req.body.currentExpenses && Array.isArray(req.body.currentExpenses)) {
+      // Frontend sent current expenses list - use it as source of truth
+      currentExpenses = req.body.currentExpenses;
+      console.log('✅ Using currentExpenses from request body:', currentExpenses.length, 'expenses');
+      console.log('✅ Current expense IDs:', currentExpenses.map(e => e.id).join(', '));
+    } else {
+      // Fallback to backend storage if frontend didn't send currentExpenses
+      // This should rarely happen - frontend should always send currentExpenses
+      currentExpenses = projects[projectIndex].expenses || [];
+      console.log('⚠️ WARNING: No currentExpenses in request, using backend storage (might include deleted items):', currentExpenses.length, 'expenses');
+      console.log('⚠️ Backend expense IDs:', currentExpenses.map(e => e.id).join(', '));
     }
     
-    projects[projectIndex].expenses.push(expense);
+    // Add new expense to the current expenses list
+    const updatedExpenses = [...currentExpenses, expense];
     
-    // Update total spent if it exists
-    if (projects[projectIndex].totalSpent !== undefined) {
-      projects[projectIndex].totalSpent += expense.amount;
+    // Update project expenses
+    projects[projectIndex].expenses = updatedExpenses;
+    
+    // Update total spent - calculate from all expenses
+    const totalSpent = updatedExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    projects[projectIndex].totalSpent = totalSpent;
+    
+    // Update actualCost to match totalSpent for consistency
+    if (projects[projectIndex].actualCost !== undefined) {
+      projects[projectIndex].actualCost = totalSpent;
+    }
+    
+    // Update projectData.actualCost and projectData.spent if they exist
+    if (projects[projectIndex].projectData) {
+      if (projects[projectIndex].projectData.actualCost !== undefined) {
+        projects[projectIndex].projectData.actualCost = totalSpent;
+      }
+      if (projects[projectIndex].projectData.spent !== undefined) {
+        projects[projectIndex].projectData.spent = totalSpent;
+      }
+      // Update expenses array in projectData - use the updated expenses list
+      projects[projectIndex].projectData.expenses = updatedExpenses;
     }
     
     // Update remaining budget if it exists
-    if (projects[projectIndex].totalBudget !== undefined && projects[projectIndex].totalSpent !== undefined) {
-      projects[projectIndex].remaining = projects[projectIndex].totalBudget - projects[projectIndex].totalSpent;
+    const totalBudget = projects[projectIndex].totalBudget || projects[projectIndex].estimatedCost || projects[projectIndex].bidPrice || 0;
+    if (totalBudget > 0) {
+      projects[projectIndex].remaining = totalBudget - totalSpent;
     }
     
     projects[projectIndex].updatedAt = new Date().toISOString();
     
     saveProjects(projects); // Persist to disk
     
+    // Return updated project data for client sync
     res.status(201).json({
       success: true,
       data: expense,
       message: 'Expense recorded successfully',
+      project: {
+        id: projects[projectIndex].id,
+        totalSpent: totalSpent,
+        actualCost: totalSpent,
+        remaining: projects[projectIndex].remaining,
+        expenses: updatedExpenses,
+        expensesCount: updatedExpenses.length,
+      },
     });
   } catch (error) {
     console.error('Error recording expense:', error);

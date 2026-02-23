@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiService } from '../services/api';
 
 // Unified Project interface that combines Estimates, Projects, and Dashboard data
 export interface UnifiedProject {
@@ -237,10 +238,120 @@ const normalizeStatus = (status?: string | null) =>
     .replace(/\s+/g, '_')
     .trim();
 
+const normalizeBackendStatus = (status?: string | null): UnifiedProject['status'] => {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'planning' || normalized === 'draft' || normalized === 'estimate') {
+    return 'estimate';
+  }
+  if (normalized === 'submitted' || normalized === 'bid_submitted') {
+    return 'bid_submitted';
+  }
+  if (normalized === 'won' || normalized === 'active' || normalized === 'in_progress' || normalized === 'in-progress') {
+    return 'in_progress';
+  }
+  if (normalized === 'completed') {
+    return 'completed';
+  }
+  if (normalized === 'lost' || normalized === 'cancelled' || normalized === 'canceled') {
+    return 'lost';
+  }
+  return 'estimate';
+};
+
+const toIsoDate = (value: any, fallback: string): string => {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
+};
+
+const mapBackendProjectToUnified = (project: any): UnifiedProject => {
+  const nowIso = new Date().toISOString();
+  const title = project?.title || project?.name || 'Untitled Project';
+  const bidPrice = firstPositiveNumber(
+    project?.bidPrice,
+    project?.projectData?.bidPrice,
+    project?.estimateData?.bidPrice,
+    project?.totalBudget,
+    project?.total,
+    project?.totalRevenue
+  );
+  const estimatedCost = firstPositiveNumber(
+    project?.estimatedCost,
+    project?.projectData?.estimatedCost,
+    project?.estimateData?.estimatedCost,
+    project?.totalBudget,
+    bidPrice
+  );
+  const margin = typeof project?.margin === 'number'
+    ? project.margin
+    : bidPrice > 0
+      ? ((bidPrice - estimatedCost) / bidPrice) * 100
+      : 0;
+  const markup = typeof project?.markup === 'number'
+    ? project.markup
+    : estimatedCost > 0
+      ? ((bidPrice - estimatedCost) / estimatedCost) * 100
+      : 0;
+
+  return {
+    id: String(project?.id || `${Date.now()}`),
+    title,
+    status: normalizeBackendStatus(project?.status),
+    estimatedCost,
+    bidPrice,
+    actualCost: resolveActualCost(project),
+    margin: Number.isFinite(margin) ? margin : 0,
+    markup: Number.isFinite(markup) ? markup : 0,
+    location: project?.location || project?.projectData?.location || '',
+    city: project?.city,
+    state: project?.state,
+    zip: project?.zip,
+    startDate: toIsoDate(project?.startDate, nowIso),
+    endDate: toIsoDate(project?.endDate, nowIso),
+    progress: Number(project?.progress ?? project?.overallProgressPct ?? 0) || 0,
+    overallProgressPct: Number(project?.overallProgressPct ?? project?.progress ?? 0) || 0,
+    milestones: Array.isArray(project?.milestones) ? project.milestones : [],
+    weeklyPayments: Array.isArray(project?.weeklyPayments) ? project.weeklyPayments : [],
+    paymentSchedule: project?.paymentSchedule,
+    client: project?.client || project?.projectData?.client || 'Unknown Client',
+    clientEmail: project?.clientEmail,
+    clientPhone: project?.clientPhone,
+    createdAt: toIsoDate(project?.createdAt, nowIso),
+    updatedAt: toIsoDate(project?.updatedAt, nowIso),
+    estimateData: project?.estimateData,
+    projectData: project?.projectData,
+    projectType: project?.projectType || project?.projectData?.projectType || title,
+  };
+};
+
+const listBackendProjects = async (): Promise<any[]> => {
+  const projectsResponse: any = await apiService.getProjects();
+  const backendProjects = Array.isArray(projectsResponse)
+    ? projectsResponse
+    : Array.isArray(projectsResponse?.data)
+      ? projectsResponse.data
+      : [];
+  return backendProjects;
+};
+
+const toBackendCreatePayload = (project: UnifiedProject) => {
+  const nowIso = new Date().toISOString();
+  return {
+    name: (project.title || 'Untitled Project').trim(),
+    client: (project.client || 'Unknown Client').trim(),
+    location: (project.location || 'Unspecified').trim(),
+    startDate: toIsoDate(project.startDate, nowIso),
+    endDate: toIsoDate(project.endDate, nowIso),
+    totalBudget: firstPositiveNumber(project.bidPrice, project.estimatedCost, 0),
+    description: project.projectData?.description || project.estimateData?.description || '',
+  };
+};
+
 export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasAttemptedBackendSeedRef = useRef(false);
 
   // Load from AsyncStorage on mount
   useEffect(() => {
@@ -314,15 +425,66 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           return fixedProject;
         });
 
-        setProjects(normalized);
-        setIsHydrated(true);
-        setHasLoadedOnce(true);
+        // If we already have local projects, trust local first for offline reliability.
+        if (normalized.length > 0) {
+          setProjects(normalized);
+          setIsHydrated(true);
+          setHasLoadedOnce(true);
+
+          // One-way seed: if backend is empty but local device has real data,
+          // push local projects so other devices/simulators can hydrate the same dataset.
+          if (!hasAttemptedBackendSeedRef.current) {
+            hasAttemptedBackendSeedRef.current = true;
+            void (async () => {
+              try {
+                const backendProjects = await listBackendProjects();
+                if (backendProjects.length > 0) return;
+
+                let created = 0;
+                for (const localProject of normalized) {
+                  const payload = toBackendCreatePayload(localProject);
+                  if (!payload.name || !payload.client) continue;
+                  await apiService.createProject(payload);
+                  created += 1;
+                }
+
+                if (__DEV__) {
+                  console.log(`✅ Seeded backend with ${created} local projects`);
+                }
+              } catch (seedError) {
+                if (__DEV__) {
+                  console.log('ℹ️ Backend seed skipped (auth/network/backend not ready)');
+                }
+              }
+            })();
+          }
+          return;
+        }
       } else {
-        // No saved data - set empty array and mark as hydrated
-        setProjects([]);
-        setIsHydrated(true);
-        setHasLoadedOnce(true);
+        if (__DEV__) {
+          console.log('ℹ️ No local project cache found, attempting backend hydration');
+        }
       }
+
+      // Local storage is empty (or empty array) - try to hydrate from backend so
+      // simulator and physical device can converge on shared server data.
+      try {
+        const backendProjects = await listBackendProjects();
+        const hydrated = backendProjects.map(mapBackendProjectToUnified);
+
+        setProjects(hydrated);
+        if (__DEV__) {
+          console.log(`✅ Hydrated ${hydrated.length} projects from backend`);
+        }
+      } catch (backendError) {
+        if (__DEV__) {
+          console.log('ℹ️ Backend hydration unavailable, using local empty state');
+        }
+        setProjects([]);
+      }
+
+      setIsHydrated(true);
+      setHasLoadedOnce(true);
     } catch (error) {
       console.error('Error loading projects:', error);
       // On error, keep existing projects if any, but mark as hydrated

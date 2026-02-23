@@ -52,6 +52,9 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useRequireAuth } from '../../hooks/useRequireAuth';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
+import api from '../../services/BackendAPI';
+import { useAuth } from '@clerk/clerk-expo';
+import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 
 // Colors will be defined inside the component using theme
 
@@ -2871,6 +2874,31 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 8,
     gap: 8,
   },
+  // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
+  aiFloatingWrapper: {
+    position: "absolute",
+    right: 20,
+    bottom: 100, // Raised above tab bar with more spacing
+    zIndex: 10,
+  },
+  aiFloating: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8, // Android shadow
+  },
+  aiFloatingText: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#020617",
+  },
 });
 
 // Final Step Guidance Card Component with pulse animation
@@ -2950,6 +2978,7 @@ export default function EstimateGeneratorScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const darkMode = theme.bg === '#000000';
+  const { getToken } = useAuth();
   const Colors = useMemo(() => {
     const baseColors = getColors(theme);
     return {
@@ -3000,6 +3029,24 @@ export default function EstimateGeneratorScreen() {
   const [localCustomerZip, setLocalCustomerZip] = useState('');
   const [localCustomerCompany, setLocalCustomerCompany] = useState('');
   const customerDebounceRefs = useRef({});
+  
+  // Format phone number with dashes (XXX-XXX-XXXX)
+  const formatPhoneNumber = (text) => {
+    // Remove all non-digit characters
+    const digits = text.replace(/\D/g, '');
+    
+    // Limit to 10 digits
+    const limitedDigits = digits.slice(0, 10);
+    
+    // Format with dashes
+    if (limitedDigits.length <= 3) {
+      return limitedDigits;
+    } else if (limitedDigits.length <= 6) {
+      return `${limitedDigits.slice(0, 3)}-${limitedDigits.slice(3)}`;
+    } else {
+      return `${limitedDigits.slice(0, 3)}-${limitedDigits.slice(3, 6)}-${limitedDigits.slice(6)}`;
+    }
+  };
   
   // Debug useEffect to track state changes
   useEffect(() => {
@@ -3828,6 +3875,9 @@ export default function EstimateGeneratorScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartDateCalendar, setShowStartDateCalendar] = useState(false);
   const [showEndDateCalendar, setShowEndDateCalendar] = useState(false);
+  const [openMilestoneCalendarId, setOpenMilestoneCalendarId] = useState(null);
+  const [openWeekCalendarId, setOpenWeekCalendarId] = useState(null);
+  const [showDepositCalendar, setShowDepositCalendar] = useState(false);
   const [expandedMilestones, setExpandedMilestones] = useState({});
   const [activeMilestoneForScheduling, setActiveMilestoneForScheduling] = useState(null);
   const [showMilestoneDatePicker, setShowMilestoneDatePicker] = useState(null);
@@ -4942,6 +4992,443 @@ export default function EstimateGeneratorScreen() {
     
     return { materials, labor, rentals, overhead, permitCosts, contingency, profit, total, subtotal, unitPrice, marginRatio, marginPercent };
   }, [bid, rentalCart, materialsCart]);
+
+  const estimateContext = useMemo(() => JSON.stringify({
+    screen: 'Estimate Generator',
+    projectId: bid.id,
+    projectName: bid.title || 'Current Estimate',
+    bidTitle: bid.title || 'Current Estimate',
+    bidTotal: calc?.total || 0,
+    total: calc?.total || 0,
+    status: 'estimate',
+    bidData: bid,
+    // Include real projects so AI can resolve actual IDs/statuses for expense actions
+    allProjects: [...activeProjects, ...estimates].map((p) => ({
+      id: p.id,
+      title: p.title || p.name || 'Untitled Project',
+      status: p.status,
+      bidPrice: p.bidPrice || 0,
+      estimatedCost: p.estimatedCost || p.bidPrice || 0,
+      actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
+      totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
+      expenses: p.expenses || p.projectData?.expenses || [],
+      expensesCount: (p.expenses || p.projectData?.expenses || []).length,
+      margin: p.margin || 0,
+      progress: p.progress || p.overallProgressPct || 0,
+      customerName: p.client || p.customerName || '',
+      location: p.location || '',
+    })),
+    stepTitle: step === 0 ? 'Bid Summary' : `Step ${step + 1}`,
+  }), [bid, calc?.total, step, activeProjects, estimates]);
+
+  const handleEstimateAIAction = useCallback(async (action) => {
+    if (!action || !action.type) return;
+
+    // CRITICAL: Check if this is a PROJECT expense action (not estimate action)
+    // If action has projectId and projectName, it's for a PROJECT, not the current estimate
+    if ((action.type === 'add_material' || action.type === 'add_material_purchase') && 
+        action.projectId && 
+        action.projectName && 
+        action.projectName !== bid.title) {
+      // This is a project expense, not an estimate addition
+      try {
+        // First, ensure Clerk token is synced to AsyncStorage
+        const clerkToken = await getToken();
+        if (clerkToken) {
+          await syncClerkTokenToAsyncStorage(clerkToken);
+          console.log('✅ Synced Clerk token to AsyncStorage');
+        } else {
+          console.warn('⚠️ No Clerk token available');
+        }
+        
+        // Update the project's expenses using ProjectListContext (local state)
+        const project = activeProjects.find(p => p.id === action.projectId);
+        if (project) {
+          // CRITICAL: Load expenses from AsyncStorage to avoid restoring deleted items
+          let currentExpenses = project.projectData?.expenses || [];
+          let currentSpent = project.projectData?.spent || 0;
+          try {
+            const storageKey = `bps.project.${action.projectId}`;
+            const existingDataStr = await AsyncStorage.getItem(storageKey);
+            if (existingDataStr) {
+              const existingProjectData = JSON.parse(existingDataStr);
+              // Use expenses from AsyncStorage as source of truth (includes deletions)
+              currentExpenses = existingProjectData.expenses || [];
+              currentSpent = existingProjectData.spent || 0;
+            }
+          } catch (error) {
+            console.error('Error loading expenses from AsyncStorage:', error);
+            // Fallback to project.projectData if AsyncStorage fails
+          }
+          
+          const newExpense = {
+            id: `exp-${Date.now()}`,
+            category: action.category || 'Materials/Equipment',
+            vendor: action.vendor || '',
+            amount: action.amount || 0,
+            date: new Date().toISOString(),
+            notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+            receiptUri: null,
+          };
+          
+          const updatedExpenses = [...currentExpenses, newExpense];
+          const newSpent = currentSpent + (action.amount || 0);
+          
+          updateProject(action.projectId, {
+            projectData: {
+              ...project.projectData,
+              expenses: updatedExpenses,
+              spent: newSpent,
+            },
+          });
+          
+          // Also save directly to AsyncStorage to ensure consistency
+          try {
+            const storageKey = `bps.project.${action.projectId}`;
+            const existingDataStr = await AsyncStorage.getItem(storageKey);
+            let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
+            
+            const projectDataToSave = {
+              ...existingProjectData,
+              expenses: updatedExpenses,
+              spent: newSpent,
+              lastUpdated: new Date().toISOString(),
+            };
+            
+            await AsyncStorage.setItem(storageKey, JSON.stringify(projectDataToSave));
+            console.log('✅ Saved expense to AsyncStorage from estimate-generator');
+          } catch (error) {
+            console.error('Error saving to AsyncStorage:', error);
+          }
+        }
+        
+        // Then, sync to backend API
+        // CRITICAL: Send current expenses list so backend uses it as source of truth
+        const expenseData = {
+          amount: action.amount || 0,
+          category: action.category || 'Materials/Equipment',
+          vendor: action.vendor || '',
+          notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+          date: new Date().toISOString().split('T')[0],
+          currentExpenses: updatedExpenses, // Send current expenses (includes new one) so backend doesn't restore deleted items
+        };
+        
+        const response = await api.addExpense(action.projectId, expenseData);
+        if (response.success) {
+          console.log('✅ Added expense to backend:', response.data);
+          Alert.alert(
+            'Expense Recorded',
+            `I've recorded $${action.amount || 0} for ${action.category || 'materials'} to ${action.projectName}. This was added to the project's expenses.`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          console.error('❌ Failed to add expense to backend:', response.error);
+          Alert.alert(
+            'Authentication Error',
+            'There was an issue adding the expense due to authentication. Please log in again and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+      } catch (error) {
+        console.error('❌ Error adding expense:', error);
+        // Check if it's an authentication error
+        if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
+          Alert.alert(
+            'Authentication Error',
+            'There was an issue with authentication. Please log in again and we can try adding the expense.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Error',
+            `Failed to add expense: ${error.message || 'Unknown error'}`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
+      return;
+    }
+
+    // Handle labor expenses for projects (not estimates)
+    if (action.type === 'add_labor_expense' && 
+        action.projectId && 
+        action.projectName && 
+        action.projectName !== bid.title) {
+      try {
+        // First, ensure Clerk token is synced to AsyncStorage
+        const clerkToken = await getToken();
+        if (clerkToken) {
+          await syncClerkTokenToAsyncStorage(clerkToken);
+          console.log('✅ Synced Clerk token to AsyncStorage');
+        } else {
+          console.warn('⚠️ No Clerk token available');
+        }
+        
+        // Update the project's expenses using ProjectListContext (local state)
+        const project = activeProjects.find(p => p.id === action.projectId);
+        let updatedExpenses = [];
+        if (project) {
+          // CRITICAL: Load expenses from AsyncStorage to avoid restoring deleted items
+          let currentExpenses = project.projectData?.expenses || [];
+          let currentSpent = project.projectData?.spent || 0;
+          try {
+            const storageKey = `bps.project.${action.projectId}`;
+            const existingDataStr = await AsyncStorage.getItem(storageKey);
+            if (existingDataStr) {
+              const existingProjectData = JSON.parse(existingDataStr);
+              // Use expenses from AsyncStorage as source of truth (includes deletions)
+              currentExpenses = existingProjectData.expenses || [];
+              currentSpent = existingProjectData.spent || 0;
+            }
+          } catch (error) {
+            console.error('Error loading expenses from AsyncStorage:', error);
+            // Fallback to project.projectData if AsyncStorage fails
+          }
+          
+          const newExpense = {
+            id: `exp-${Date.now()}`,
+            category: 'Labor',
+            vendor: action.vendor || action.laborType || '',
+            amount: action.amount || 0,
+            date: new Date().toISOString(),
+            notes: action.notes || `${action.laborType || 'Labor'} expense`,
+            receiptUri: null,
+          };
+          
+          updatedExpenses = [...currentExpenses, newExpense];
+          const newSpent = currentSpent + (action.amount || 0);
+          
+          updateProject(action.projectId, {
+            projectData: {
+              ...project.projectData,
+              expenses: updatedExpenses,
+              spent: newSpent,
+            },
+          });
+          
+          // Also save directly to AsyncStorage to ensure consistency
+          try {
+            const storageKey = `bps.project.${action.projectId}`;
+            const existingDataStr = await AsyncStorage.getItem(storageKey);
+            let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
+            
+            const projectDataToSave = {
+              ...existingProjectData,
+              expenses: updatedExpenses,
+              spent: newSpent,
+              lastUpdated: new Date().toISOString(),
+            };
+            
+            await AsyncStorage.setItem(storageKey, JSON.stringify(projectDataToSave));
+            console.log('✅ Saved labor expense to AsyncStorage from estimate-generator');
+          } catch (error) {
+            console.error('Error saving to AsyncStorage:', error);
+          }
+        }
+        
+        // Then, sync to backend API
+        // CRITICAL: Send current expenses list so backend uses it as source of truth
+        const expenseData = {
+          amount: action.amount || 0,
+          category: 'Labor',
+          vendor: action.vendor || action.laborType || '',
+          notes: action.notes || `${action.laborType || 'Labor'} expense`,
+          date: new Date().toISOString().split('T')[0],
+          currentExpenses: updatedExpenses, // Send current expenses (includes new one) so backend doesn't restore deleted items
+        };
+        
+        const response = await api.addExpense(action.projectId, expenseData);
+        if (response.success) {
+          console.log('✅ Added labor expense to backend:', response.data);
+          Alert.alert(
+            'Expense Recorded',
+            `I've recorded $${action.amount || 0} for labor to ${action.projectName}. This was added to the project's expenses.`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          console.error('❌ Failed to add labor expense to backend:', response.error);
+          Alert.alert(
+            'Authentication Error',
+            'There was an issue adding the expense due to authentication. Please log in again and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+      } catch (error) {
+        console.error('❌ Error adding labor expense:', error);
+        // Check if it's an authentication error
+        if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
+          Alert.alert(
+            'Authentication Error',
+            'There was an issue with authentication. Please log in again and we can try adding the expense.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Error',
+            `Failed to add expense: ${error.message || 'Unknown error'}`,
+            [{ text: 'OK' }]
+          );
+        }
+      }
+      return;
+    }
+
+    // --- Estimate-page specific commands ---
+    // The backend may return structured actions; apply them directly to the local bid state
+    // so the UI updates immediately (materials/labor, customer info, payment schedule, etc.).
+    if (action.type === 'update_customer_info') {
+      setBid(prev => ({
+        ...prev,
+        customerName: action.customerName ?? prev.customerName,
+        customerEmail: action.email ?? prev.customerEmail,
+        customerPhone: action.phone ?? prev.customerPhone,
+        customerCompany: action.company ?? prev.customerCompany,
+        customerAddress: action.address ?? prev.customerAddress,
+        customerCity: action.city ?? prev.customerCity,
+        customerState: action.state ?? prev.customerState,
+        customerZip: action.zip ?? prev.customerZip,
+      }));
+      setForceRefresh(prev => prev + 1);
+      return;
+    }
+
+    if (action.type === 'set_payment_schedule_type') {
+      setBid(prev => ({
+        ...prev,
+        paymentSchedule: action.paymentSchedule ?? prev.paymentSchedule,
+      }));
+      setForceRefresh(prev => prev + 1);
+      return;
+    }
+
+    if (action.type === 'add_payment_milestone' && action.milestone) {
+      setBid(prev => ({
+        ...prev,
+        paymentMilestones: [...(prev.paymentMilestones || []), action.milestone],
+      }));
+      setForceRefresh(prev => prev + 1);
+      return;
+    }
+
+    if (action.type === 'add_weekly_payment' && action.payment) {
+      setBid(prev => ({
+        ...prev,
+        weeklyPayments: [...(prev.weeklyPayments || []), action.payment],
+      }));
+      setForceRefresh(prev => prev + 1);
+      return;
+    }
+
+    if (action.type === 'update_overhead_markup') {
+      setBid(prev => ({
+        ...prev,
+        insuranceOverhead: action.insuranceOverhead ?? prev.insuranceOverhead,
+        equipment: action.equipment ?? prev.equipment,
+        facilities: action.facilities ?? prev.facilities,
+        otherOverhead: action.otherOverhead ?? prev.otherOverhead,
+        markupPct: action.markupPct ?? prev.markupPct,
+      }));
+      setForceRefresh(prev => prev + 1);
+      return;
+    }
+
+    const rawDescription =
+      action.newDescription ||
+      action.itemDescription ||
+      action.category ||
+      action.laborType ||
+      'Material';
+    const description = String(rawDescription).trim() || 'Material';
+    const amount = Number(action.newAmount ?? action.amount ?? 0) || 0;
+    const quantity = Number(action.newQuantity ?? 1) || 1;
+    const unitCost = Number(action.newUnitCost ?? (amount && quantity ? amount / quantity : 0)) || 0;
+    const itemId = action.itemId || action.item_id || `ai-${Date.now()}`;
+    const descriptionKey = description.toLowerCase();
+
+    const isLabor =
+      action.type === 'add_labor_expense' ||
+      /labor|labour|sub|crew/.test(descriptionKey);
+
+    // CRITICAL: Check if this is a PROJECT expense action (not estimate action)
+    // If action has projectId and projectName, it's for a PROJECT, not the current estimate
+    if (action.type === 'add_material' && action.projectId && action.projectName && action.projectName !== bid.title) {
+      // This is a project expense, not an estimate addition
+      // Show a message that it was added to the project
+      Alert.alert(
+        'Expense Recorded',
+        `I've recorded $${action.amount || 0} for ${action.category || 'materials'} to ${action.projectName}. This was added to the project's expenses, not the current estimate.`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    if (action.type === 'update_estimate_item' || action.type === 'add_material' || action.type === 'add_labor_expense') {
+      if (isLabor) {
+        const nextLabor = {
+          id: itemId,
+          name: description,
+          description,
+          hours: quantity,
+          rate: unitCost || (amount ? amount / quantity : 0),
+          total: amount || quantity * (unitCost || 0),
+          category: action.projectScope || 'Labor',
+          section: action.projectScope || 'Labor',
+        };
+
+        setBid((prev) => {
+          const existing = prev.laborLineItems || [];
+          const matchIndex = existing.findIndex((item) => {
+            const name = (item.name || item.description || '').toLowerCase();
+            return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
+          });
+          const updated = matchIndex >= 0
+            ? existing.map((item, idx) => (idx === matchIndex ? { ...item, ...nextLabor } : item))
+            : [...existing, nextLabor];
+          return { ...prev, laborLineItems: updated };
+        });
+        return;
+      }
+
+      const nextMaterial = {
+        id: itemId,
+        name: description,
+        description,
+        quantity,
+        unit: action.unit || 'lot',
+        unitPrice: unitCost || (amount ? amount / quantity : 0),
+        total: amount || quantity * (unitCost || 0),
+        vendor: action.vendor || '',
+        section: action.projectScope || description,
+        category: action.projectScope || description,
+        scope: action.projectScope || activeScope,
+        source: 'ai',
+        isManual: true,
+      };
+
+      setMaterialsCart((prev) => {
+        const matchIndex = prev.findIndex((item) => {
+          const name = (item.name || item.description || '').toLowerCase();
+          return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
+        });
+        if (matchIndex >= 0) {
+          return prev.map((item, idx) => (idx === matchIndex ? { ...item, ...nextMaterial } : item));
+        }
+        return [...prev, nextMaterial];
+      });
+
+      setBid((prev) => {
+        const existing = prev.materialLineItems || [];
+        const matchIndex = existing.findIndex((item) => {
+          const name = (item.name || item.description || '').toLowerCase();
+          return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
+        });
+        const updated = matchIndex >= 0
+          ? existing.map((item, idx) => (idx === matchIndex ? { ...item, ...nextMaterial } : item))
+          : [...existing, nextMaterial];
+        return { ...prev, materialLineItems: updated };
+      });
+    }
+  }, [activeScope, setMaterialsCart, setBid]);
 
   // Auto-adjust payment amounts when total bid price changes
   useEffect(() => {
@@ -7428,12 +7915,13 @@ export default function EstimateGeneratorScreen() {
                 <Text style={s.label}>Phone</Text>
                 <TextInput
                   style={s.input}
-                  placeholder="(555) 123-4567"
+                  placeholder="555-123-4567"
                   placeholderTextColor={Colors.sub}
                   value={localCustomerPhone}
                   onChangeText={(text) => {
-                    setLocalCustomerPhone(text);
-                    setBid(prev => ({ ...prev, customerPhone: text }));
+                    const formatted = formatPhoneNumber(text);
+                    setLocalCustomerPhone(formatted);
+                    setBid(prev => ({ ...prev, customerPhone: formatted }));
                   }}
                   onSubmitEditing={() => {
                     Keyboard.dismiss();
@@ -10152,9 +10640,9 @@ export default function EstimateGeneratorScreen() {
                     <>
                       {/* Section 1: Upfront Deposit */}
                   <View style={{ 
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2, 
+                    backgroundColor: Colors.surface2, 
                     borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                    borderColor: Colors.line,
                     borderRadius: 20, 
                     padding: 16, 
                     marginBottom: 16 
@@ -10166,6 +10654,109 @@ export default function EstimateGeneratorScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
                         <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                      </View>
+                    </View>
+                    
+                    {/* Project Dates */}
+                    <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+                      <View style={{ flexDirection: 'row', gap: 12 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                          <TouchableOpacity
+                            onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
+                            style={{
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                              borderWidth: 1,
+                              borderColor: Colors.line,
+                              borderRadius: 12,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                            }}
+                          >
+                            <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                              {(bid.startDate || bid.projectStartDate) 
+                                ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                : 'Select start date'}
+                            </Text>
+                          </TouchableOpacity>
+                          {showStartDateCalendar && (
+                            <View style={{ marginTop: 8 }}>
+                              <GreyCalendar
+                                onDayPress={(day) => {
+                                  updateBid('startDate', day.dateString);
+                                  updateBid('projectStartDate', day.dateString);
+                                  setShowStartDateCalendar(false);
+                                }}
+                                markedDates={{
+                                  [(bid.startDate || bid.projectStartDate) || '']: {
+                                    selected: true,
+                                    selectedColor: '#38d39f',
+                                    selectedTextColor: '#000000',
+                                  }
+                                }}
+                                initialDate={bid.startDate || bid.projectStartDate}
+                              />
+                            </View>
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                          <TouchableOpacity
+                            onPress={() => setShowDepositCalendar(!showDepositCalendar)}
+                            style={{
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                              borderWidth: 1,
+                              borderColor: Colors.line,
+                              borderRadius: 12,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                            }}
+                          >
+                            <Text style={{ color: (() => {
+                              const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                              return depositMilestone?.scheduledDate;
+                            })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                              {(() => {
+                                const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                const currentDate = depositMilestone?.scheduledDate;
+                                return currentDate 
+                                  ? new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                  : 'Select deposit date';
+                              })()}
+                            </Text>
+                          </TouchableOpacity>
+                          {showDepositCalendar && (
+                            <View style={{ marginTop: 8 }}>
+                              <GreyCalendar
+                                onDayPress={(day) => {
+                                  const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                  
+                                  if (depositMilestone) {
+                                    const updatedMilestones = milestones.map(m => 
+                                      m.id === depositMilestone.id ? { ...m, scheduledDate: day.dateString } : m
+                                    );
+                                    updateBid('paymentMilestones', updatedMilestones);
+                                  }
+                                  setShowDepositCalendar(false);
+                                }}
+                                markedDates={{
+                                  [(() => {
+                                    const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                    return depositMilestone?.scheduledDate || '';
+                                  })()]: {
+                                    selected: true,
+                                    selectedColor: '#38d39f',
+                                    selectedTextColor: '#000000',
+                                  }
+                                }}
+                                initialDate={(() => {
+                                  const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                  return depositMilestone?.scheduledDate;
+                                })()}
+                              />
+                            </View>
+                          )}
+                        </View>
                       </View>
                     </View>
                     
@@ -11061,9 +11652,9 @@ export default function EstimateGeneratorScreen() {
                   {scheduleType === 'milestone-based' && milestones.length > 0 ? (
                     <>
                     <View style={{ 
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2, 
+                      backgroundColor: Colors.surface2, 
                       borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                      borderColor: Colors.line,
                       borderRadius: 20, 
                       padding: 16, 
                       marginBottom: 16 
@@ -11075,6 +11666,109 @@ export default function EstimateGeneratorScreen() {
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
                             <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                          </View>
+                        </View>
+                        
+                        {/* Project Dates */}
+                        <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+                          <View style={{ gap: 12 }}>
+                            <View>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                              <TouchableOpacity
+                                onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
+                                style={{
+                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                  borderWidth: 1,
+                                  borderColor: Colors.line,
+                                  borderRadius: 12,
+                                  paddingHorizontal: 12,
+                                  paddingVertical: 10,
+                                }}
+                              >
+                                <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                  {(bid.startDate || bid.projectStartDate) 
+                                    ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : 'Select start date'}
+                                </Text>
+                              </TouchableOpacity>
+                              {showStartDateCalendar && (
+                                <View style={{ marginTop: 8 }}>
+                                  <GreyCalendar
+                                    onDayPress={(day) => {
+                                      updateBid('startDate', day.dateString);
+                                      updateBid('projectStartDate', day.dateString);
+                                      setShowStartDateCalendar(false);
+                                    }}
+                                    markedDates={{
+                                      [(bid.startDate || bid.projectStartDate) || '']: {
+                                        selected: true,
+                                        selectedColor: '#38d39f',
+                                        selectedTextColor: '#000000',
+                                      }
+                                    }}
+                                    initialDate={bid.startDate || bid.projectStartDate}
+                                  />
+                                </View>
+                              )}
+                            </View>
+                            <View>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                              <TouchableOpacity
+                                onPress={() => setShowDepositCalendar(!showDepositCalendar)}
+                                style={{
+                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                  borderWidth: 1,
+                                  borderColor: Colors.line,
+                                  borderRadius: 12,
+                                  paddingHorizontal: 12,
+                                  paddingVertical: 10,
+                                }}
+                              >
+                                <Text style={{ color: (() => {
+                                  const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                  return depositMilestone?.scheduledDate;
+                                })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                  {(() => {
+                                    const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                    const currentDate = depositMilestone?.scheduledDate;
+                                    return currentDate 
+                                      ? new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                      : 'Select deposit date';
+                                  })()}
+                                </Text>
+                              </TouchableOpacity>
+                              {showDepositCalendar && (
+                                <View style={{ marginTop: 8 }}>
+                                  <GreyCalendar
+                                    onDayPress={(day) => {
+                                      const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                      
+                                      if (depositMilestone) {
+                                        const updatedMilestones = milestones.map(m => 
+                                          m.id === depositMilestone.id ? { ...m, scheduledDate: day.dateString } : m
+                                        );
+                                        updateBid('paymentMilestones', updatedMilestones);
+                                      }
+                                      setShowDepositCalendar(false);
+                                    }}
+                                    markedDates={{
+                                      [(() => {
+                                        const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                        return depositMilestone?.scheduledDate || '';
+                                      })()]: {
+                                        selected: true,
+                                        selectedColor: '#38d39f',
+                                        selectedTextColor: '#000000',
+                                      }
+                                    }}
+                                    initialDate={(() => {
+                                      const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                      return depositMilestone?.scheduledDate;
+                                    })()}
+                                  />
+                                </View>
+                              )}
+                            </View>
                           </View>
                         </View>
                         
@@ -11268,9 +11962,9 @@ export default function EstimateGeneratorScreen() {
                     
                     {/* Section 2: Milestone Progress Payments */}
                     <View style={{ 
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2, 
+                      backgroundColor: Colors.surface2, 
                       borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                      borderColor: Colors.line,
                       borderRadius: 20, 
                       padding: 16, 
                       marginBottom: 16 
@@ -11450,6 +12144,63 @@ export default function EstimateGeneratorScreen() {
                                 </View>
                               </View>
                             </View>
+                            
+                            {/* Milestone Dates */}
+                            {progressMilestones.length > 0 && (
+                              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.line }}>
+                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 12 }}>Milestone Dates</Text>
+                                <View style={{ gap: 12 }}>
+                                  {progressMilestones.map((milestone, index) => {
+                                    const milestoneNumber = index + 1;
+                                    const isCalendarOpen = openMilestoneCalendarId === milestone.id;
+                                    return (
+                                      <View key={milestone.id || index}>
+                                        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Milestone {milestoneNumber} Date</Text>
+                                        <TouchableOpacity
+                                          onPress={() => setOpenMilestoneCalendarId(isCalendarOpen ? null : milestone.id || null)}
+                                          style={{
+                                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                            borderWidth: 1,
+                                            borderColor: Colors.line,
+                                            borderRadius: 12,
+                                            paddingHorizontal: 12,
+                                            paddingVertical: 10,
+                                          }}
+                                        >
+                                          <Text style={{ color: milestone.scheduledDate ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                            {milestone.scheduledDate
+                                              ? new Date(milestone.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                              : `Select Milestone ${milestoneNumber} date`}
+                                          </Text>
+                                        </TouchableOpacity>
+                                        {isCalendarOpen && (
+                                          <View style={{ marginTop: 8 }}>
+                                            <GreyCalendar
+                                              onDayPress={(day) => {
+                                                const updatedMilestones = milestones.map(m => 
+                                                  m.id === milestone.id ? { ...m, scheduledDate: day.dateString } : m
+                                                );
+                                                updateBid('paymentMilestones', updatedMilestones);
+                                                setOpenMilestoneCalendarId(null);
+                                              }}
+                                              markedDates={{
+                                                [milestone.scheduledDate || '']: {
+                                                  selected: true,
+                                                  selectedColor: '#38d39f',
+                                                  selectedTextColor: '#000000',
+                                                }
+                                              }}
+                                              initialDate={milestone.scheduledDate}
+                                            />
+                                          </View>
+                                        )}
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            )}
+                            
                             {progressMilestones.length > 0 && (
                               <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -11610,9 +12361,9 @@ export default function EstimateGeneratorScreen() {
                         
                         return (
                           <View style={{ 
-                            backgroundColor: 'rgba(255, 255, 255, 0.03)', 
+                            backgroundColor: Colors.surface2, 
                             borderWidth: 1,
-                            borderColor: 'rgba(255, 255, 255, 0.15)',
+                            borderColor: darkMode ? Colors.line : Colors.line,
                             borderRadius: 20, 
                             padding: 16, 
                             marginBottom: 16 
@@ -11624,6 +12375,119 @@ export default function EstimateGeneratorScreen() {
                               <View style={{ flex: 1 }}>
                                 <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
                                 <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                              </View>
+                            </View>
+                            
+                            {/* Project Dates */}
+                            <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+                              <View style={{ gap: 12 }}>
+                                <View>
+                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                                  <TouchableOpacity
+                                    onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                      borderWidth: 1,
+                                      borderColor: Colors.line,
+                                      borderRadius: 12,
+                                      paddingHorizontal: 12,
+                                      paddingVertical: 10,
+                                    }}
+                                  >
+                                    <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                      {(bid.startDate || bid.projectStartDate) 
+                                        ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                        : 'Select start date'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                  {showStartDateCalendar && (
+                                    <View style={{ marginTop: 8 }}>
+                                      <GreyCalendar
+                                        onDayPress={(day) => {
+                                          updateBid('startDate', day.dateString);
+                                          updateBid('projectStartDate', day.dateString);
+                                          setShowStartDateCalendar(false);
+                                        }}
+                                        markedDates={{
+                                          [(bid.startDate || bid.projectStartDate) || '']: {
+                                            selected: true,
+                                            selectedColor: '#38d39f',
+                                            selectedTextColor: '#000000',
+                                          }
+                                        }}
+                                        initialDate={bid.startDate || bid.projectStartDate}
+                                      />
+                                    </View>
+                                  )}
+                                </View>
+                                <View>
+                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                                  <TouchableOpacity
+                                    onPress={() => setShowDepositCalendar(!showDepositCalendar)}
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                      borderWidth: 1,
+                                      borderColor: Colors.line,
+                                      borderRadius: 12,
+                                      paddingHorizontal: 12,
+                                      paddingVertical: 10,
+                                    }}
+                                  >
+                                    <Text style={{ color: (() => {
+                                      const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
+                                      const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                      return depositPayment?.scheduledDate || depositMilestone?.scheduledDate;
+                                    })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                      {(() => {
+                                        const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
+                                        const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                        const currentDate = depositPayment?.scheduledDate || depositMilestone?.scheduledDate;
+                                        return currentDate 
+                                          ? new Date(currentDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                          : 'Select deposit date';
+                                      })()}
+                                    </Text>
+                                  </TouchableOpacity>
+                                  {showDepositCalendar && (
+                                    <View style={{ marginTop: 8 }}>
+                                      <GreyCalendar
+                                        onDayPress={(day) => {
+                                          const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
+                                          const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                          
+                                          if (depositPayment) {
+                                            const updatedPayments = weeklyPayments.map(p => 
+                                              p.id === depositPayment.id ? { ...p, scheduledDate: day.dateString } : p
+                                            );
+                                            updateBid('weeklyPayments', updatedPayments);
+                                          } else if (depositMilestone) {
+                                            const updatedMilestones = milestones.map(m => 
+                                              m.id === depositMilestone.id ? { ...m, scheduledDate: day.dateString } : m
+                                            );
+                                            updateBid('paymentMilestones', updatedMilestones);
+                                          }
+                                          setShowDepositCalendar(false);
+                                        }}
+                                        markedDates={{
+                                          [(() => {
+                                            const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
+                                            const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                            return depositPayment?.scheduledDate || depositMilestone?.scheduledDate || '';
+                                          })()]: {
+                                            selected: true,
+                                            selectedColor: '#38d39f',
+                                            selectedTextColor: '#000000',
+                                          }
+                                        }}
+                                        initialDate={(() => {
+                                          const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
+                                          const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                          return depositPayment?.scheduledDate || depositMilestone?.scheduledDate;
+                                        })()}
+                                      />
+                                    </View>
+                                  )}
+                                </View>
                               </View>
                             </View>
                             
@@ -11808,9 +12672,9 @@ export default function EstimateGeneratorScreen() {
                   {/* Weekly Progress Payments Card for Time-Based */}
                   {scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
                     <View style={{ 
-                      backgroundColor: 'rgba(255, 255, 255, 0.03)', 
+                      backgroundColor: Colors.surface2, 
                       borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.15)',
+                      borderColor: Colors.line,
                       borderRadius: 20, 
                       padding: 16, 
                       marginBottom: 16 
@@ -11960,8 +12824,65 @@ export default function EstimateGeneratorScreen() {
                                 </View>
                               </View>
                             </View>
+                            
+                            {/* Week Dates */}
                             {progressPayments.length > 0 && (
-                              <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
+                              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.line }}>
+                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 12 }}>Week Dates</Text>
+                                <View style={{ gap: 12 }}>
+                                  {progressPayments.map((payment, index) => {
+                                    const weekNumber = payment.weekNumber || index + 1;
+                                    const isCalendarOpen = openWeekCalendarId === payment.id;
+                                    return (
+                                      <View key={payment.id || index}>
+                                        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Week {weekNumber} Date</Text>
+                                        <TouchableOpacity
+                                          onPress={() => setOpenWeekCalendarId(isCalendarOpen ? null : payment.id || null)}
+                                          style={{
+                                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                            borderWidth: 1,
+                                            borderColor: Colors.line,
+                                            borderRadius: 12,
+                                            paddingHorizontal: 12,
+                                            paddingVertical: 10,
+                                          }}
+                                        >
+                                          <Text style={{ color: payment.scheduledDate ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                            {payment.scheduledDate
+                                              ? new Date(payment.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                              : `Select Week ${weekNumber} date`}
+                                          </Text>
+                                        </TouchableOpacity>
+                                        {isCalendarOpen && (
+                                          <View style={{ marginTop: 8 }}>
+                                            <GreyCalendar
+                                              onDayPress={(day) => {
+                                                const updatedPayments = weeklyPayments.map(p => 
+                                                  p.id === payment.id ? { ...p, scheduledDate: day.dateString } : p
+                                                );
+                                                updateBid('weeklyPayments', updatedPayments);
+                                                setOpenWeekCalendarId(null);
+                                              }}
+                                              markedDates={{
+                                                [payment.scheduledDate || '']: {
+                                                  selected: true,
+                                                  selectedColor: '#38d39f',
+                                                  selectedTextColor: '#000000',
+                                                }
+                                              }}
+                                              initialDate={payment.scheduledDate}
+                                            />
+                                          </View>
+                                        )}
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            )}
+                            
+                            {progressPayments.length > 0 && (
+                              <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)', marginTop: 16 }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <Text style={{ color: Colors.sub, fontSize: 12 }}>Per Week</Text>
                                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{weeklyPctPerWeek.toFixed(1)}% ({money(progressPayments[0]?.amount || weeklyPayments.find(w => w.weekNumber !== 0)?.amount || 0)})</Text>
@@ -14060,6 +14981,36 @@ export default function EstimateGeneratorScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
+
+      {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
+      <Pressable
+        style={s.aiFloatingWrapper}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setShowAIAssistant(true);
+        }}
+      >
+        <LinearGradient
+          colors={["#22c55e", "#22d3ee"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={s.aiFloating}
+        >
+          <Ionicons
+            name="sparkles"
+            size={18}
+            color="#020617"
+          />
+          <Text style={s.aiFloatingText}>Ask PM</Text>
+        </LinearGradient>
+      </Pressable>
+
+      <AIAssistantModal
+        visible={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        context={estimateContext}
+        onAction={handleEstimateAIAction}
+      />
     </SafeAreaView>
   );
 }

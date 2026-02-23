@@ -1,6 +1,7 @@
 // API Service for connecting to Python backend
 import { safeAsyncStorage } from '../utils/asyncStorage';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Type definitions
 export interface User {
@@ -80,18 +81,69 @@ class ApiService {
     // Production URL is the default - ensures app works without local backend
     const PRODUCTION_URL = this.PRODUCTION_URL;
     
-    // Check if local URL is explicitly set via env variable
+    // For iOS Simulator, check if explicitly configured to use localhost
+    // Otherwise, fall through to production (same as physical devices)
+    if (Platform.OS === 'ios' && !Constants.isDevice) {
+      const useLocalhost = process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' || 
+                          process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true';
+      if (useLocalhost) {
+        if (!(this as any)._simulatorUrlLogged) {
+          console.log('📱 iOS Simulator detected - using localhost:3001 (explicitly configured)');
+          (this as any)._simulatorUrlLogged = true;
+        }
+        return 'http://localhost:3001';
+      }
+      // Fall through to production/default logic below
+    }
+    
+    // For Android Emulator, check if explicitly configured to use localhost
+    if (Platform.OS === 'android' && !Constants.isDevice) {
+      const useLocalhost = process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' || 
+                          process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
+      if (useLocalhost) {
+        if (!(this as any)._emulatorUrlLogged) {
+          console.log('🤖 Android Emulator detected - using 10.0.2.2:3001 (explicitly configured)');
+          (this as any)._emulatorUrlLogged = true;
+        }
+        return 'http://10.0.2.2:3001';
+      }
+      // Fall through to production/default logic below
+    }
+    
+    // Log when simulator/emulator uses production (for debugging)
+    if ((Platform.OS === 'ios' || Platform.OS === 'android') && !Constants.isDevice) {
+      if (!(this as any)._simulatorProductionLogged) {
+        console.log(`📱 ${Platform.OS === 'ios' ? 'iOS Simulator' : 'Android Emulator'} detected - using production backend (same as physical device)`);
+        (this as any)._simulatorProductionLogged = true;
+      }
+    }
+    
+    const allowLocalBackend =
+      process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' ||
+      process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true' ||
+      process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
+
+    // Check env URL, but only honor local IP URLs when explicitly enabled.
     const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
     if (envUrl) {
       const url = envUrl.replace(/\/api$/, '');
-      // Only use local URL if it's explicitly a local IP
+      // Local env URLs can accidentally leak across devices/simulators.
+      // Only use them when explicit local mode is enabled.
       if (url.includes('localhost') || url.includes('192.168') || url.includes('10.0.2.2')) {
-        if (!(this as any)._localUrlWarned) {
-          console.log('⚠️  Using LOCAL backend URL from env:', url);
-          console.log('💡 Make sure backend is running: cd backend && npm start');
-          (this as any)._localUrlWarned = true;
+        if (allowLocalBackend) {
+          if (!(this as any)._localUrlWarned) {
+            console.log('⚠️  Using LOCAL backend URL from env:', url);
+            console.log('💡 Make sure backend is running: cd backend && npm start');
+            (this as any)._localUrlWarned = true;
+          }
+          return url;
         }
-        return url;
+        if (!(this as any)._localEnvIgnoredWarned) {
+          console.log('⚠️  Ignoring LOCAL env backend URL because local mode is disabled:', url);
+          console.log('✅ Falling back to production backend');
+          (this as any)._localEnvIgnoredWarned = true;
+        }
+        return PRODUCTION_URL;
       }
       // If env URL is production, use it
       if (!(this as any)._envUrlLogged) {
@@ -135,6 +187,14 @@ class ApiService {
   private isOnline: boolean = true;
   private syncInProgress: boolean = false;
 
+  private async getAuthToken(): Promise<string | null> {
+    // Support both key formats used in the app to avoid auth drift across modules.
+    const token =
+      (await safeAsyncStorage.getItem('authToken')) ||
+      (await safeAsyncStorage.getItem('auth_token'));
+    return token;
+  }
+
   constructor() {
     this.initializeNetworkListener();
     this.loadSyncQueue();
@@ -174,10 +234,15 @@ class ApiService {
   // Test connection method with better error handling
   async testConnection(): Promise<boolean> {
     try {
+      const url = `${this.baseUrl}/health`;
+      if (__DEV__) {
+        console.log('🔍 Testing backend connection to:', url);
+      }
+      
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-      const response = await fetch(`${this.baseUrl}/health`, {
+      const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal,
         headers: {
@@ -186,12 +251,21 @@ class ApiService {
       });
 
       clearTimeout(timeoutId);
+      if (__DEV__) {
+        console.log('✅ Backend connection successful:', response.status);
+      }
       return response.ok;
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('⏱️  Backend connection test timed out');
+        if (__DEV__) {
+          console.log('🔍 Attempted URL was:', `${this.baseUrl}/health`);
+        }
       } else {
         console.log('🌐 Backend connection test failed:', error.message || error);
+        if (__DEV__) {
+          console.log('🔍 Attempted URL was:', `${this.baseUrl}/health`);
+        }
       }
       return false;
     }
@@ -200,7 +274,7 @@ class ApiService {
   // Authentication methods
   async checkAuthStatus(): Promise<{ isAuthenticated: boolean; user?: User }> {
     try {
-      const token = await safeAsyncStorage.getItem('authToken');
+      const token = await this.getAuthToken();
       if (!token) {
         return { isAuthenticated: false };
       }
@@ -231,6 +305,7 @@ class ApiService {
 
     if (response.data.token) {
       await safeAsyncStorage.setItem('authToken', response.data.token);
+      await safeAsyncStorage.setItem('auth_token', response.data.token);
     }
 
     return response.data;
@@ -244,6 +319,7 @@ class ApiService {
 
     if (response.data.token) {
       await safeAsyncStorage.setItem('authToken', response.data.token);
+      await safeAsyncStorage.setItem('auth_token', response.data.token);
     }
 
     return response.data;
@@ -251,6 +327,7 @@ class ApiService {
 
   async logout(): Promise<void> {
     await safeAsyncStorage.removeItem('authToken');
+    await safeAsyncStorage.removeItem('auth_token');
     this.cache.clear();
   }
 
@@ -543,7 +620,7 @@ class ApiService {
     console.log('🌐 ApiService making request to:', url);
     console.log('🌐 ApiService baseUrl:', this.baseUrl);
     console.log('🌐 ApiService endpoint:', endpoint);
-    const token = await safeAsyncStorage.getItem('authToken');
+    const token = await this.getAuthToken();
 
     const defaultOptions = {
       headers: {

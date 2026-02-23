@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useTheme } from "../contexts/ThemeContext";
+import { getColors } from "../theme/getColors";
 
 type Props = {
   visible: boolean;
@@ -22,10 +24,13 @@ type Props = {
 };
 
 export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Props) {
+  const { theme, darkMode } = useTheme();
+  const Colors = getColors(theme);
   const [poNumber, setPONumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [category, setCategory] = useState("Materials");
   const [amount, setAmount] = useState("");
+  const [scope, setScope] = useState("");
   const [description, setDescription] = useState("");
   const [orderDate, setOrderDate] = useState(new Date());
   const [expectedDelivery, setExpectedDelivery] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)); // 2 weeks from now
@@ -75,6 +80,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
     setVendor("");
     setCategory("Materials");
     setAmount("");
+    setScope("");
     setDescription("");
     setOrderDate(new Date());
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
@@ -85,6 +91,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
     setVendor("");
     setCategory("Materials");
     setAmount("");
+    setScope("");
     setDescription("");
     setOrderDate(new Date());
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
@@ -154,36 +161,55 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               </Text>
             </View>
           </View>
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>PO Number *</Text>
-              <TextInput
-                ref={poRef}
-                style={styles.input}
-                placeholder="PO-123456"
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={poNumber}
-                onChangeText={setPONumber}
-                autoCapitalize="characters"
-              />
+              <View style={styles.inputWrapper}>
+                <Feather
+                  name="tag"
+                  size={16}
+                  color="#8DA0B8"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  ref={poRef}
+                  style={styles.input}
+                  placeholder="PO-123456"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={poNumber}
+                  onChangeText={setPONumber}
+                  autoCapitalize="characters"
+                  returnKeyType="next"
+                  onSubmitEditing={() => vendorRef.current?.focus()}
+                  blurOnSubmit={false}
+                />
+              </View>
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Vendor / Supplier *</Text>
-              <TextInput
-                ref={vendorRef}
-                style={styles.input}
-                placeholder="e.g., Home Depot, ABC Supply"
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={vendor}
-                onChangeText={setVendor}
-                autoCapitalize="words"
-                returnKeyType="next"
-                onSubmitEditing={() => amountRef.current?.focus()}
-                blurOnSubmit={false}
-              />
+              <View style={styles.inputWrapper}>
+                <Feather
+                  name="store"
+                  size={16}
+                  color="#8DA0B8"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  ref={vendorRef}
+                  style={styles.input}
+                  placeholder="e.g., Home Depot, ABC Supply"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={vendor}
+                  onChangeText={setVendor}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  onSubmitEditing={() => amountRef.current?.focus()}
+                  blurOnSubmit={false}
+                />
+              </View>
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Category *</Text>
               <View style={styles.categoryButtons}>
                 {categories.map(cat => (
@@ -207,14 +233,19 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               </View>
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Amount *</Text>
-              <View style={styles.amountInputContainer}>
-                <Text style={styles.dollarSign}>$</Text>
+              <View style={styles.inputWrapper}>
+                <Feather
+                  name="dollar-sign"
+                  size={16}
+                  color="#22c55e"
+                  style={styles.inputIcon}
+                />
                 <TextInput
                   ref={amountRef}
-                  style={[styles.input, styles.amountInput]}
-                  placeholder="0.00"
+                  style={styles.input}
+                  placeholder="$ 0.00"
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   value={amount}
                   onChangeText={(text) => {
@@ -226,20 +257,23 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                       setAmount(cleaned);
                     }
                   }}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                 />
               </View>
+              {amount && !isNaN(parseFloat(amount)) && (
+                <Text style={styles.hint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
+              )}
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Order Date</Text>
               <TouchableOpacity 
                 onPress={() => setShowOrderDatePicker(true)}
                 style={styles.dateButton}
               >
-                <MaterialIcons name="calendar-today" size={18} color="#10f297" style={{ marginRight: 8 }} />
+                <Feather name="calendar" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
                 <Text style={styles.dateButtonText}>
                   {orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </Text>
@@ -257,13 +291,13 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               )}
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Expected Delivery</Text>
               <TouchableOpacity 
                 onPress={() => setShowDeliveryDatePicker(true)}
                 style={styles.dateButton}
               >
-                <MaterialIcons name="local-shipping" size={18} color="#10f297" style={{ marginRight: 8 }} />
+                <Feather name="truck" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
                 <Text style={styles.dateButtonText}>
                   {expectedDelivery.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </Text>
@@ -285,33 +319,61 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               </Text>
             </View>
 
-            <View style={styles.field}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Scope / Location (Optional)</Text>
+              <View style={styles.inputWrapper}>
+                <Feather
+                  name="layers"
+                  size={16}
+                  color="#8DA0B8"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Kitchen, Unit 3, Bathroom"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={scope}
+                  onChangeText={setScope}
+                  returnKeyType="next"
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
               <Text style={styles.label}>Description / Items</Text>
-              <TextInput
-                ref={descriptionRef}
-                style={[styles.input, styles.textArea]}
-                placeholder="What items are being ordered?"
-                placeholderTextColor="rgba(255,255,255,0.4)"
-                value={description}
-                onChangeText={setDescription}
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
-                multiline
-                numberOfLines={2}
-              />
+              <View style={styles.textAreaWrapper}>
+                <Feather
+                  name="file-text"
+                  size={16}
+                  color="#8DA0B8"
+                  style={styles.inputIconTop}
+                />
+                <TextInput
+                  ref={descriptionRef}
+                  style={[styles.input, styles.textArea]}
+                  placeholder="What items are being ordered?"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={description}
+                  onChangeText={setDescription}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
+                  multiline
+                  numberOfLines={2}
+                />
+              </View>
             </View>
           </ScrollView>
 
           {/* Actions */}
-          <View style={styles.actions}>
+          <View style={[styles.actions, { borderTopColor: Colors.line }]}>
             <TouchableOpacity 
               onPress={handleCancel} 
-              style={styles.cancelButton}
+              style={[styles.cancelButton, { borderColor: '#22c55e', backgroundColor: Colors.surface2 }]}
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={[styles.cancelText, { color: Colors.text }]}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => {
@@ -320,7 +382,14 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               }} 
               style={styles.saveButton}
             >
-              <Text style={styles.saveButtonText} numberOfLines={1}>✓ Create Purchase Order</Text>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.saveButtonGradient}
+              >
+                <Text style={styles.saveText}>✓ Save</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -406,24 +475,54 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.5,
   },
-  field: {
+  fieldGroup: {
     marginBottom: 20,
   },
   label: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    marginBottom: 8,
-    letterSpacing: -0.2,
+    color: "#FFFFFF",
+    marginBottom: 10,
+    letterSpacing: 0.2,
+  },
+  inputWrapper: {
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "#6B7280",
+  },
+  textAreaWrapper: {
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "#6B7280",
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  inputIconTop: {
+    marginRight: 12,
+    marginTop: 4,
   },
   input: {
+    flex: 1,
+    fontSize: 14,
     color: "white",
-    fontSize: 16,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    fontWeight: "500",
+  },
+  hint: {
+    color: "#22c55e",
+    fontSize: 13,
+    marginTop: 6,
+    fontWeight: "600",
   },
   categoryButtons: {
     flexDirection: "row",
@@ -456,34 +555,19 @@ const styles = StyleSheet.create({
   categoryButtonTextActive: {
     color: "#10f297",
   },
-  amountInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    position: 'relative',
-  },
-  dollarSign: {
-    position: "absolute",
-    left: 14,
-    color: "#10f297",
-    fontSize: 18,
-    fontWeight: "600",
-    zIndex: 1,
-  },
-  amountInput: {
-    paddingLeft: 32,
-  },
   dateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: '#6B7280',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   dateButtonText: {
     color: "white",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "500",
   },
   deliveryHint: {
@@ -493,51 +577,51 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   textArea: {
-    height: 70,
+    minHeight: 80,
     textAlignVertical: "top",
   },
   actions: {
-    flexDirection: 'row',
-    padding: 20,
+    flexDirection: "row",
+    paddingHorizontal: 20,
     paddingTop: 12,
-    gap: 10,
+    paddingBottom: 20,
+    gap: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.12)',
-    backgroundColor: 'transparent',
+    backgroundColor: "#020617",
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.18)',
-    height: 50,
+    paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  cancelButtonText: {
-    color: 'rgba(255,255,255,0.8)',
+  cancelText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   saveButton: {
     flex: 1,
-    backgroundColor: '#10f297',
-    shadowColor: '#10f297',
-    shadowOffset: { width: 0, height: 6 },
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#22d3ee",
+    overflow: "hidden",
+  },
+  saveButtonGradient: {
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#22c55e",
     shadowOpacity: 0.25,
     shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 4,
-    height: 50,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  saveButtonText: {
-    color: '#020617',
+  saveText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
+    color: "#020617",
     letterSpacing: 0.3,
-    textAlign: 'center',
   },
 }); 

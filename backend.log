@@ -1,0 +1,48 @@
+
+> build-profit-solutions-backend@1.0.0 start
+> node src/server.js
+
+📦 Loaded 1 users from disk
+📦 Loaded 16 unified leads from persistent storage
+⏭️ Skipping demo leads - 16 leads already loaded from storage
+📦 Loaded 4 project leads from persistent storage
+✅ Database initialization attempted
+🚀 Starting marketplace lead sync service...
+🔄 Syncing marketplace leads...
+
+============================================================
+🚀 Server running on port 3001
+📊 Health check: http://localhost:3001/health
+🔗 API Base: http://localhost:3001/api
+🌐 Customer website: http://localhost:3001
+📱 LAN access: http://192.168.1.147:3001
+   - Health: http://192.168.1.147:3001/health
+   - API: http://192.168.1.147:3001/api
+🌍 Environment: development
+🔄 Marketplace sync: Running every 5 minutes
+
+✅ SKU Search API ready:
+   ✅ SerpAPI configured (real product images & prices)
+============================================================
+
+
+============================================================
+🚀 Server running on port 3000
+📊 Health check: http://localhost:3000/health
+🔗 API Base: http://localhost:3000/api
+🌐 Customer website: http://localhost:3000
+📱 LAN access: http://192.168.1.147:3000
+   - Health: http://192.168.1.147:3000/health
+   - API: http://192.168.1.147:3000/api
+============================================================
+
+❌ Database connection failed: 
+Error code: ECONNREFUSED
+Error details: { code: 'ECONNREFUSED', message: '', hint: undefined }
+💡 PostgreSQL might not be running. Start it with: brew services start postgresql@14 (or your version)
+📄 Loaded 4 invoices from storage
+[0mGET /api/marketplace-leads?since=2026-02-23T12:20:42.898Z [32m200[0m 2.176 ms - 76[0m
+✅ No new marketplace leads to sync
+🔄 Syncing marketplace leads...
+[0mGET /api/marketplace-leads?since=2026-02-23T12:25:42.910Z [32m200[0m 1.469 ms - 76[0m
+✅ No new marketplace leads to sync

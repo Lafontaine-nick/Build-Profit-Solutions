@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform } from "react-native";
+import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
+import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
@@ -24,8 +25,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [activePOTab, setActivePOTab] = useState<'total' | 'committed' | 'received'>('total');
   const previousDataRef = useRef<any[]>([]);
-  const { projectData, addExpense, deleteExpense, updateExpense, reloadFromStorage } = useProjectData();
+  const { projectData, addExpense, deleteExpense, updateExpense, reloadFromStorage, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO } = useProjectData();
   
   // Force re-render when expenses change
   // Use both the count and IDs to ensure we catch all changes
@@ -35,32 +38,171 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     const count = expenses.length;
     return `${count}:${ids}`;
   }, [projectData.expenses]);
+  
+  // Force re-render when purchase orders change
+  const purchaseOrdersKey = useMemo(() => {
+    const pos = projectData.purchaseOrders || [];
+    const ids = pos.map((po: any) => po.id).join(',');
+    const count = pos.length;
+    const pendingCount = pos.filter((po: any) => po.status === 'Pending').length;
+    return `${count}:${pendingCount}:${ids}`;
+  }, [projectData.purchaseOrders]);
 
+  // Special handling for Change Orders and Purchase Orders - show actual objects, not expenses
+  const isChangeOrdersCategory = categoryName.toLowerCase().includes('change order');
+  const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
+  
   // Filter expenses by category (flexible matching for Materials/Equipment)
+  // OR show change orders if category is "Change Orders"
+  // OR show purchase orders if category is "Purchase Orders"
   const data = useMemo(() => {
+    // If this is the Purchase Orders category, show purchase order objects
+    if (isPurchaseOrdersCategory) {
+      const purchaseOrders = projectData.purchaseOrders || [];
+      console.log('📊 CategoryDetailModal: Showing purchase orders. Total:', purchaseOrders.length);
+      console.log('📊 CategoryDetailModal: PO statuses:', purchaseOrders.map((po: any) => ({ id: po.id, status: po.status, vendor: po.vendor })));
+      
+      const poData = purchaseOrders
+        .filter((po: any) => {
+          // Filter based on active tab for Purchase Orders
+          if (activePOTab === 'total') {
+            // Total = Pending + Received (all active POs, exclude Cancelled, Archived)
+            return po.status === 'Pending' || po.status === 'Received';
+          } else if (activePOTab === 'committed') {
+            // Committed POs = Only Pending (not yet paid)
+            return po.status === 'Pending';
+          } else if (activePOTab === 'received') {
+            return po.status === 'Received';
+          }
+          // Fallback: exclude Cancelled and Archived
+          return po.status !== 'Cancelled' && po.status !== 'Archived';
+        })
+        .map((po: any) => {
+          return {
+            id: po.id,
+            date: po.orderDate || new Date().toISOString(),
+            vendor: po.vendor || 'Unknown',
+            amount: po.amount || 0,
+            description: po.description || '',
+            receiptUri: undefined,
+            isPlanned: po.status === 'Pending',
+            projectPhase: undefined,
+            scope: undefined,
+            priceReasonableness: undefined,
+            // Purchase order specific fields
+            isPurchaseOrder: true,
+            status: po.status || 'Pending', // Ensure status is preserved
+            poNumber: po.poNumber,
+            expectedDelivery: po.expectedDelivery,
+            category: po.category,
+          };
+        })
+        .sort((a, b) => {
+          // Sort by status: Pending first, then Received, then by date
+          const statusOrder = { 'Pending': 0, 'Received': 1, 'Cancelled': 2 };
+          const statusDiff = (statusOrder[a.status as keyof typeof statusOrder] || 99) - (statusOrder[b.status as keyof typeof statusOrder] || 99);
+          if (statusDiff !== 0) return statusDiff;
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+      
+      if (poData.length > 0) {
+        previousDataRef.current = poData;
+      }
+      
+      return poData;
+    }
+    
+    // If this is the Change Orders category, show change order objects
+    if (isChangeOrdersCategory) {
+      const changeOrders = projectData.changeOrders || [];
+      console.log('📊 CategoryDetailModal: Showing change orders. Total:', changeOrders.length);
+      
+      const coData = changeOrders.map((co: any) => {
+        // Determine status
+        let status = co.status;
+        if (!status) {
+          if (co.approved === true || co.approved === 'true') {
+            status = 'Approved';
+          } else {
+            status = 'Submitted';
+          }
+        }
+        
+        return {
+          id: co.id,
+          date: co.date || new Date().toISOString(),
+          vendor: co.title || 'Change Order',
+          amount: co.amount || 0,
+          description: co.notes || '',
+          receiptUri: undefined,
+          isPlanned: co.approved || status === 'Approved',
+          projectPhase: undefined,
+          scope: undefined,
+          priceReasonableness: undefined,
+          // Change order specific fields
+          isChangeOrder: true,
+          status: status,
+          approved: co.approved || status === 'Approved',
+          materialsAmount: co.materialsAmount,
+          laborAmount: co.laborAmount,
+        };
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      if (coData.length > 0) {
+        previousDataRef.current = coData;
+      }
+      
+      return coData;
+    }
+    
+    // Otherwise, filter expenses by category
     const expenses = projectData.expenses || [];
     const categoryLower = categoryName.toLowerCase();
     
     console.log('📊 CategoryDetailModal: Filtering expenses. Total:', expenses.length, 'Category:', categoryName);
+    console.log('📊 CategoryDetailModal: All expenses:', expenses.map((e: any) => ({ 
+      id: e.id, 
+      category: e.category, 
+      vendor: e.vendor, 
+      amount: e.amount 
+    })));
     
     const filtered = expenses
       .filter(exp => {
         const expCategory = (exp.category || '').toLowerCase();
         
+        console.log(`🔍 Checking expense: category="${expCategory}" vs categoryName="${categoryLower}"`);
+        
         // Exact match
-        if (expCategory === categoryLower) return true;
+        if (expCategory === categoryLower) {
+          console.log(`✅ Exact match: ${expCategory} === ${categoryLower}`);
+          return true;
+        }
         
         // Flexible match for Materials/Equipment
-        if ((categoryLower.includes('materials') || categoryLower.includes('equipment')) &&
-            (expCategory.includes('materials') || expCategory.includes('equipment'))) {
+        // Also match specific material names (tile, drywall, lumber, etc.) to Materials/Equipment
+        const isMaterialsCategory = categoryLower.includes('materials') || categoryLower.includes('equipment');
+        const isMaterialExpense = expCategory.includes('materials') || 
+                                   expCategory.includes('equipment') ||
+                                   // Common material names that should match Materials/Equipment
+                                   ['tile', 'drywall', 'lumber', 'concrete', 'paint', 'electrical', 
+                                    'plumbing', 'hardware', 'roofing', 'insulation', 'flooring', 
+                                    'cabinets', 'appliances', 'windows', 'doors', 'siding', 
+                                    'decking', 'fencing', 'landscaping'].includes(expCategory);
+        
+        if (isMaterialsCategory && isMaterialExpense) {
+          console.log(`✅ Materials match: isMaterialsCategory=${isMaterialsCategory}, isMaterialExpense=${isMaterialExpense}`);
           return true;
         }
         
         // Flexible match for Labor
         if (categoryLower.includes('labor') && expCategory.includes('labor')) {
+          console.log(`✅ Labor match`);
           return true;
         }
         
+        console.log(`❌ No match for expense category="${expCategory}"`);
         return false;
       })
       .map(exp => {
@@ -82,6 +224,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           projectPhase: exp.projectPhase || undefined,
           scope: exp.scope || undefined,
           priceReasonableness: exp.priceReasonableness || undefined,
+          isChangeOrder: false,
         };
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Most recent first
@@ -95,11 +238,25 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     
     // Return filtered data (don't freeze during delete - let it update naturally)
     return filtered;
-  }, [projectData.expenses, categoryName]);
+  }, [projectData.expenses, projectData.changeOrders, projectData.purchaseOrders, categoryName, isChangeOrdersCategory, isPurchaseOrdersCategory, showArchived, activePOTab]);
+  
+  // Debug: Log when purchase orders change
+  useEffect(() => {
+    if (isPurchaseOrdersCategory) {
+      console.log('🔄 CategoryDetailModal: projectData.purchaseOrders changed, count:', projectData.purchaseOrders?.length || 0);
+      console.log('🔄 CategoryDetailModal: PO statuses:', projectData.purchaseOrders?.map((po: any) => ({ id: po.id, status: po.status, vendor: po.vendor })));
+    }
+  }, [projectData.purchaseOrders, isPurchaseOrdersCategory]);
 
   const total = useMemo(() => {
+    // For Purchase Orders, calculate total based on active tab
+    if (isPurchaseOrdersCategory) {
+      // For tabs, just sum the filtered data (already filtered by tab)
+      return data.reduce((sum, item) => sum + (item.amount || 0), 0);
+    }
+    // For all other categories, sum all items
     return data.reduce((sum, item) => sum + (item.amount || 0), 0);
-  }, [data]);
+  }, [data, isPurchaseOrdersCategory]);
 
   // Update ref when data changes
   useEffect(() => {
@@ -133,6 +290,83 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
   };
 
   const handleAddTransaction = (transaction: any) => {
+    // Handle Purchase Orders
+    if (isPurchaseOrdersCategory) {
+      const amount = Number(transaction.amount || 0);
+      if (!transaction.vendor || amount <= 0) {
+        Alert.alert('Error', 'Please enter a vendor and amount.');
+        return;
+      }
+
+      // Generate PO number
+      const poNumber = transaction.po || `PO-${Date.now().toString().slice(-6)}`;
+      
+      addPurchaseOrder({
+        poNumber: poNumber,
+        vendor: transaction.vendor,
+        category: transaction.category || 'Materials',
+        amount: amount,
+        description: transaction.description || '',
+        orderDate: transaction.date || new Date().toISOString().split('T')[0],
+        expectedDelivery: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 weeks from now
+        status: 'Pending',
+        notes: transaction.description || '',
+      });
+      
+      setShowAddForm(false);
+      Alert.alert('Created!', 'Purchase Order created. It will appear in Committed POs.');
+      return;
+    }
+    
+    // Handle Change Orders
+    if (isChangeOrdersCategory) {
+      const amount = Number(transaction.amount || 0);
+      if (!transaction.vendor || amount <= 0) {
+        Alert.alert('Error', 'Please enter a change order name and amount.');
+        return;
+      }
+
+      Alert.alert(
+        'Approve Change Order?',
+        `Do you want to approve this change order for ${formatMoneyFull(amount, { decimals: 2 })}? Approved change orders will be added to your budget.`,
+        [
+          {
+            text: 'Not Now',
+            style: 'cancel',
+            onPress: () => {
+              addChangeOrder({
+                id: `co-${Date.now()}`,
+                title: transaction.vendor,
+                amount: amount,
+                notes: transaction.description || '',
+                approved: false,
+                status: 'Submitted',
+              });
+              setShowAddForm(false);
+              Alert.alert('Saved', 'Change order added. You can approve it later.');
+            },
+          },
+          {
+            text: 'Approve',
+            style: 'default',
+            onPress: () => {
+              addChangeOrder({
+                id: `co-${Date.now()}`,
+                title: transaction.vendor,
+                amount: amount,
+                notes: transaction.description || '',
+                approved: true,
+                status: 'Approved',
+              });
+              setShowAddForm(false);
+              Alert.alert('Approved!', 'Change order approved and added to budget.');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     // Check for duplicates
     const isDuplicate = checkForDuplicates(transaction);
     if (isDuplicate) {
@@ -241,8 +475,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
               )}
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={styles.headerIconContainerWrapper}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={styles.headerIconContainerWrapper}>
                   {darkMode ? (
                   <LinearGradient
                     colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -272,8 +507,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                     {categoryName.replace('/', ' & ')}
                   </Text>
                   <Text style={[styles.headerSubtitle, !darkMode && { color: Colors.sub }]}>
-                    Transactions & Invoices
+                    {isPurchaseOrdersCategory ? 'Transactions & Invoices' : 'Transactions & Invoices'}
                   </Text>
+                </View>
                 </View>
               </View>
             </View>
@@ -285,6 +521,93 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Tabs for Purchase Orders */}
+          {isPurchaseOrdersCategory && (
+            <View style={styles.poTabContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.poTab,
+                  activePOTab === 'total' && styles.poActiveTab,
+                  { 
+                    borderColor: activePOTab === 'total' ? Colors.primary : Colors.line,
+                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActivePOTab('total');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.poTabText,
+                    {
+                      color: activePOTab === 'total' ? Colors.primary : Colors.sub,
+                      fontWeight: activePOTab === 'total' ? '600' : '400',
+                      lineHeight: 20,
+                    },
+                  ]}
+                >
+                  Total
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.poTab,
+                  activePOTab === 'committed' && styles.poActiveTab,
+                  { 
+                    borderColor: activePOTab === 'committed' ? Colors.primary : Colors.line,
+                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActivePOTab('committed');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.poTabText,
+                    {
+                      color: activePOTab === 'committed' ? Colors.primary : Colors.sub,
+                      fontWeight: activePOTab === 'committed' ? '600' : '400',
+                      lineHeight: 20,
+                    },
+                  ]}
+                >
+                  Committed POs
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.poTab,
+                  activePOTab === 'received' && styles.poActiveTab,
+                  { 
+                    borderColor: activePOTab === 'received' ? Colors.primary : Colors.line,
+                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                  },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActivePOTab('received');
+                }}
+              >
+                <Text
+                  style={[
+                    styles.poTabText,
+                    {
+                      color: activePOTab === 'received' ? Colors.primary : Colors.sub,
+                      fontWeight: activePOTab === 'received' ? '600' : '400',
+                      lineHeight: 20,
+                    },
+                  ]}
+                >
+                  Received
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Total Spent Card */}
           <View style={styles.totalCardContainer}>
             {darkMode ? (
@@ -296,7 +619,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
             >
               <View style={styles.totalCardInner}>
                 <View style={styles.totalCard}>
-                  <Text style={styles.totalLabel}>Total Spent</Text>
+                  <Text style={styles.totalLabel}>
+                    {isPurchaseOrdersCategory 
+                      ? (activePOTab === 'total' ? 'Total POs' : activePOTab === 'committed' ? 'Committed POs' : 'Received POs')
+                      : 'Total Spent'}
+                  </Text>
                   <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                 </View>
               </View>
@@ -305,7 +632,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
                 <View style={[styles.totalCardInner, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }]}>
                   <View style={styles.totalCard}>
-                    <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
+                    <Text style={[styles.totalLabel, { color: Colors.sub }]}>
+                      {isPurchaseOrdersCategory 
+                        ? (activePOTab === 'total' ? 'Total POs' : activePOTab === 'committed' ? 'Committed POs' : 'Received POs')
+                        : 'Total Spent'}
+                    </Text>
                     <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                   </View>
                 </View>
@@ -333,6 +664,308 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
             <View style={styles.transactionsContainer}>
               {data.map((item) => {
                 const isItemDeleting = deletingId === item.id;
+                
+                // For Purchase Orders, use the BudgetTab card design
+                if (isPurchaseOrdersCategory && item.isPurchaseOrder) {
+                  const po = projectData.purchaseOrders?.find((p: any) => p.id === item.id);
+                  if (!po) return null;
+                  
+                  const daysUntilDelivery = Math.ceil((new Date(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
+                  
+                  return (
+                    <View key={item.id} style={{ marginBottom: 12 }}>
+                      {darkMode ? (
+                        <LinearGradient
+                          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                          start={{ x: 0.05, y: 0.15 }}
+                          end={{ x: 0.95, y: 0.85 }}
+                          style={styles.transactionCardBorder}
+                        >
+                          <View style={[styles.transactionCard, { padding: 16 }]}>
+                            <Pressable 
+                              onPress={() => {
+                                if (isItemDeleting) return;
+                                setEditingPurchaseOrder(po);
+                              }}
+                              style={{ flex: 1 }}
+                            >
+                              {/* Header with PO Number and Icon */}
+                              <View style={{ marginBottom: 10 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                  <Text style={{ fontSize: 18 }}>{categoryIcon}</Text>
+                                  <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text 
+                                      style={{ color: Colors.text, fontSize: 15, lineHeight: 20, fontWeight: '700' }}
+                                      numberOfLines={1}
+                                      ellipsizeMode="tail"
+                                    >
+                                      {po.poNumber}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                                      <Text style={{ color: Colors.sub, fontSize: 11 }}>{po.vendor || 'No vendor'}</Text>
+                                      <View style={{ 
+                                        backgroundColor: po.status === 'Pending' 
+                                          ? '#f59e0b' 
+                                          : po.status === 'Received'
+                                          ? '#22c55e'
+                                          : '#64748b',
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: 3,
+                                        marginLeft: 6
+                                      }} />
+                                      <Text style={{ 
+                                        color: po.status === 'Pending' 
+                                          ? '#f59e0b' 
+                                          : po.status === 'Received'
+                                          ? '#22c55e'
+                                          : '#64748b',
+                                        fontSize: 10,
+                                        fontWeight: '600',
+                                        letterSpacing: 0.5
+                                      }}>
+                                        {po.status.toUpperCase()}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Text style={{ 
+                                    color: po.status === 'Pending' 
+                                      ? '#f59e0b' 
+                                      : po.status === 'Received'
+                                      ? '#22c55e'
+                                      : '#64748b',
+                                    fontSize: 15,
+                                    fontWeight: '700'
+                                  }}>
+                                    {formatMoneyFull(po.amount, { decimals: 2 })}
+                                  </Text>
+                                </View>
+                                {po.status === 'Pending' && daysUntilDelivery <= 3 && (
+                                  <View style={{ backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6, alignSelf: 'flex-start' }}>
+                                    <Text style={{ color: 'white', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 }}>URGENT</Text>
+                                  </View>
+                                )}
+                              </View>
+                              
+                              {/* Expected Delivery */}
+                              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
+                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
+                                <Text style={{ 
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#22c55e',
+                                  fontSize: 12,
+                                  fontWeight: '600'
+                                }}>
+                                  {new Date(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {po.status === 'Pending' && (
+                                    <Text style={{ color: 'rgba(255,255,255,0.6)', fontWeight: '400' }}>
+                                      {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
+                                    </Text>
+                                  )}
+                                </Text>
+                              </View>
+
+                              {/* Description */}
+                              {po.description && (
+                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
+                                  <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{po.description}</Text>
+                                </View>
+                              )}
+
+                              {/* Actions */}
+                              {po.status === 'Pending' && (
+                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
+                                  <TouchableOpacity
+                                    onPress={(e) => {
+                                      e.stopPropagation();
+                                      Alert.alert(
+                                        'Mark as Received?',
+                                        `${po.poNumber} from ${po.vendor} will be added to expenses.`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          {
+                                            text: 'Received',
+                                            onPress: () => markPOReceived(po.id)
+                                          }
+                                        ]
+                                      );
+                                    }}
+                                    style={{ flex: 1, backgroundColor: '#22c55e', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}
+                                  >
+                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>✓ Received</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={(e) => {
+                                      e.stopPropagation();
+                                      Alert.alert(
+                                        'Cancel PO?',
+                                        `Cancel ${po.poNumber}?`,
+                                        [
+                                          { text: 'No', style: 'cancel' },
+                                          {
+                                            text: 'Cancel PO',
+                                            style: 'destructive',
+                                            onPress: () => cancelPO(po.id)
+                                          }
+                                        ]
+                                      );
+                                    }}
+                                    style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.2)', paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' }}
+                                  >
+                                    <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700' }}>✕ Cancel</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </Pressable>
+                          </View>
+                        </LinearGradient>
+                      ) : (
+                        <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
+                          <View style={[styles.transactionCard, { 
+                            padding: 16,
+                            backgroundColor: Colors.surface2,
+                            borderColor: Colors.line,
+                            borderWidth: 1,
+                          }]}>
+                            <Pressable 
+                              onPress={() => {
+                                if (isItemDeleting) return;
+                                setEditingPurchaseOrder(po);
+                              }}
+                              style={{ flex: 1 }}
+                            >
+                              {/* Same content as dark mode but with Colors */}
+                              <View style={{ marginBottom: 10 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                  <Text style={{ fontSize: 18 }}>{categoryIcon}</Text>
+                                  <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text 
+                                      style={{ color: Colors.text, fontSize: 15, lineHeight: 20, fontWeight: '700' }}
+                                      numberOfLines={1}
+                                      ellipsizeMode="tail"
+                                    >
+                                      {po.poNumber}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                                      <Text style={{ color: Colors.sub, fontSize: 11 }}>{po.vendor || 'No vendor'}</Text>
+                                      <View style={{ 
+                                        backgroundColor: po.status === 'Pending' 
+                                          ? '#f59e0b' 
+                                          : po.status === 'Received'
+                                          ? '#22c55e'
+                                          : '#64748b',
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: 3,
+                                        marginLeft: 6
+                                      }} />
+                                      <Text style={{ 
+                                        color: po.status === 'Pending' 
+                                          ? '#f59e0b' 
+                                          : po.status === 'Received'
+                                          ? '#22c55e'
+                                          : '#64748b',
+                                        fontSize: 10,
+                                        fontWeight: '600',
+                                        letterSpacing: 0.5
+                                      }}>
+                                        {po.status.toUpperCase()}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Text style={{ 
+                                    color: po.status === 'Pending' 
+                                      ? '#f59e0b' 
+                                      : po.status === 'Received'
+                                      ? '#22c55e'
+                                      : '#64748b',
+                                    fontSize: 15,
+                                    fontWeight: '700'
+                                  }}>
+                                    {formatMoneyFull(po.amount, { decimals: 2 })}
+                                  </Text>
+                                </View>
+                                {po.status === 'Pending' && daysUntilDelivery <= 3 && (
+                                  <View style={{ backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6, alignSelf: 'flex-start' }}>
+                                    <Text style={{ color: 'white', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 }}>URGENT</Text>
+                                  </View>
+                                )}
+                              </View>
+                              
+                              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }}>
+                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
+                                <Text style={{ 
+                                  color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#22c55e',
+                                  fontSize: 12,
+                                  fontWeight: '600'
+                                }}>
+                                  {new Date(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {po.status === 'Pending' && (
+                                    <Text style={{ color: Colors.sub, fontWeight: '400' }}>
+                                      {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
+                                    </Text>
+                                  )}
+                                </Text>
+                              </View>
+
+                              {po.description && (
+                                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }}>
+                                  <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{po.description}</Text>
+                                </View>
+                              )}
+
+                              {po.status === 'Pending' && (
+                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.line }}>
+                                  <TouchableOpacity
+                                    onPress={(e) => {
+                                      e.stopPropagation();
+                                      Alert.alert(
+                                        'Mark as Received?',
+                                        `${po.poNumber} from ${po.vendor} will be added to expenses.`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          {
+                                            text: 'Received',
+                                            onPress: () => markPOReceived(po.id)
+                                          }
+                                        ]
+                                      );
+                                    }}
+                                    style={{ flex: 1, backgroundColor: '#22c55e', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}
+                                  >
+                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>✓ Received</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={(e) => {
+                                      e.stopPropagation();
+                                      Alert.alert(
+                                        'Cancel PO?',
+                                        `Cancel ${po.poNumber}?`,
+                                        [
+                                          { text: 'No', style: 'cancel' },
+                                          {
+                                            text: 'Cancel PO',
+                                            style: 'destructive',
+                                            onPress: () => cancelPO(po.id)
+                                          }
+                                        ]
+                                      );
+                                    }}
+                                    style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.2)', paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' }}
+                                  >
+                                    <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700' }}>✕ Cancel</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </Pressable>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+                
+                // For other categories (expenses, change orders), use the original card design
                 return (
                   <View key={item.id} style={{ marginBottom: 12 }}>
                     {darkMode ? (
@@ -351,8 +984,18 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                         ]}
                         onPress={() => {
                       if (isItemDeleting) return;
-                      // For Purchase Orders category, convert expense to PO format
-                      if (categoryName === 'Purchase Orders') {
+                      // For Change Orders, we need to navigate to Budget tab or show change order editor
+                      // For now, just show an alert that they should use the Budget tab
+                      if (item.isChangeOrder) {
+                        Alert.alert(
+                          'Edit Change Order',
+                          'To edit change orders, please use the Budget tab. You can approve change orders from here by tapping the "Approve" button.',
+                          [{ text: 'OK' }]
+                        );
+                        return;
+                      }
+                      // Legacy: For Purchase Orders category, convert expense to PO format (fallback)
+                      if (categoryName === 'Purchase Orders' && !item.isPurchaseOrder) {
                         const poLike = {
                           id: item.id,
                           poNumber: item.po || '',
@@ -374,12 +1017,81 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   >
                     <View style={styles.transactionHeader}>
                       <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <Text style={styles.vendor}>{item.vendor}</Text>
+                        {/* Vendor and Status Row - Better spacing for Purchase Orders */}
+                        <View style={{ 
+                          flexDirection: 'row', 
+                          alignItems: 'center', 
+                          gap: 10, 
+                          marginBottom: item.isPurchaseOrder ? 8 : 4,
+                          flexWrap: 'wrap'
+                        }}>
+                          <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }]}>{item.vendor}</Text>
                           {item.receiptUri && (
                             <MaterialIcons name="receipt" size={16} color="#22c55e" />
                           )}
-                          {item.isPlanned === false && (
+                          {/* Change Order Status Badge */}
+                          {item.isChangeOrder && item.status && (
+                            <View style={{
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 6,
+                              backgroundColor: item.status === 'Approved' 
+                                ? 'rgba(34, 197, 94, 0.2)' 
+                                : item.status === 'Submitted'
+                                ? 'rgba(245, 158, 11, 0.2)'
+                                : 'rgba(100, 116, 139, 0.2)',
+                              borderWidth: 1,
+                              borderColor: item.status === 'Approved'
+                                ? 'rgba(34, 197, 94, 0.4)'
+                                : item.status === 'Submitted'
+                                ? 'rgba(245, 158, 11, 0.4)'
+                                : 'rgba(100, 116, 139, 0.4)',
+                            }}>
+                              <Text style={{ 
+                                color: item.status === 'Approved' 
+                                  ? '#22c55e' 
+                                  : item.status === 'Submitted'
+                                  ? '#f59e0b'
+                                  : '#64748b', 
+                                fontSize: 10, 
+                                fontWeight: '600' 
+                              }}>
+                                {item.status.toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          {/* Purchase Order Status Badge */}
+                          {item.isPurchaseOrder && item.status && (
+                            <View style={{
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 6,
+                              backgroundColor: item.status === 'Pending'
+                                ? 'rgba(245, 158, 11, 0.2)' 
+                                : item.status === 'Received'
+                                ? 'rgba(34, 197, 94, 0.2)'
+                                : 'rgba(100, 116, 139, 0.2)',
+                              borderWidth: 1,
+                              borderColor: item.status === 'Pending'
+                                ? 'rgba(245, 158, 11, 0.4)'
+                                : item.status === 'Received'
+                                ? 'rgba(34, 197, 94, 0.4)'
+                                : 'rgba(100, 116, 139, 0.4)',
+                            }}>
+                              <Text style={{ 
+                                color: item.status === 'Pending' 
+                                  ? '#f59e0b' 
+                                  : item.status === 'Received'
+                                  ? '#22c55e'
+                                  : '#64748b', 
+                                fontSize: 10, 
+                                fontWeight: '600' 
+                              }}>
+                                {item.status.toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          {!item.isChangeOrder && item.isPlanned === false && (
                             <View style={{
                               paddingHorizontal: 6,
                               paddingVertical: 2,
@@ -416,52 +1128,242 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                             </View>
                           )}
                         </View>
-                        {item.description && (
-                          <Text style={styles.description} numberOfLines={1} ellipsizeMode="tail">
-                            {item.description}
-                          </Text>
-                        )}
-                        {(item.projectPhase || item.scope) && (
-                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                            {item.projectPhase && (
-                              <Text style={{ color: '#8DA0B8', fontSize: 11 }}>📐 {item.projectPhase}</Text>
+                        {/* Purchase Order specific layout - better spacing */}
+                        {item.isPurchaseOrder ? (
+                          <View style={{ marginTop: 8 }}>
+                            {/* PO Number and Date Row */}
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              alignItems: 'center', 
+                              gap: 10, 
+                              marginBottom: 8,
+                              flexWrap: 'wrap'
+                            }}>
+                              {item.poNumber && (
+                                <View style={[styles.poBadge, { marginRight: 0 }]}>
+                                  <Text style={styles.poText}>📋 {item.poNumber}</Text>
+                                </View>
+                              )}
+                              <Text style={[styles.date, { marginTop: 0 }]}>
+                                {new Date(item.date).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: 'numeric' 
+                                })}
+                              </Text>
+                            </View>
+                            
+                            {/* Description if available */}
+                            {item.description && (
+                              <Text style={[styles.description, { marginTop: 6, marginBottom: 0 }]} numberOfLines={2} ellipsizeMode="tail">
+                                {item.description}
+                              </Text>
                             )}
-                            {item.scope && (
-                              <Text style={{ color: '#8DA0B8', fontSize: 11 }}>📍 {item.scope}</Text>
+                            
+                            {/* Expected Delivery for Pending POs */}
+                            {item.expectedDelivery && item.status === 'Pending' && (
+                              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+                                <Text style={{ color: '#8DA0B8', fontSize: 11, fontWeight: '600', marginBottom: 3 }}>Expected Delivery</Text>
+                                <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
+                                  {new Date(item.expectedDelivery).toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                  })}
+                                </Text>
+                              </View>
                             )}
                           </View>
+                        ) : (
+                          <>
+                            {item.description && (
+                              <Text style={styles.description} numberOfLines={1} ellipsizeMode="tail">
+                                {item.description}
+                              </Text>
+                            )}
+                            {(item.projectPhase || item.scope) && (
+                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                                {item.projectPhase && (
+                                  <Text style={{ color: '#8DA0B8', fontSize: 11 }}>📐 {item.projectPhase}</Text>
+                                )}
+                                {item.scope && (
+                                  <Text style={{ color: '#8DA0B8', fontSize: 11 }}>📍 {item.scope}</Text>
+                                )}
+                              </View>
+                            )}
+                          </>
                         )}
                       </View>
                       <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
                     </View>
                     
-                    <View style={styles.transactionFooter}>
-                      <Text style={styles.date}>
-                        {new Date(item.date).toLocaleDateString('en-US', { 
-                          month: 'short', 
-                          day: 'numeric', 
-                          year: 'numeric' 
-                        })}
-                      </Text>
-                      {item.po && (
-                        <View style={styles.poBadge}>
-                          <Text style={styles.poText}>📋 {item.po}</Text>
-                        </View>
-                      )}
-                      {item.amount > 1000 && !item.receiptUri && (
-                        <View style={{
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
-                          borderRadius: 6,
-                          backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                          borderWidth: 1,
-                          borderColor: 'rgba(239, 68, 68, 0.3)',
-                        }}>
-                          <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
-                        </View>
-                      )}
-                      <Text style={styles.tapToEdit}>Tap to edit →</Text>
-                    </View>
+                    {/* Footer - Different layout for Purchase Orders */}
+                    {item.isPurchaseOrder ? (
+                      <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+                        {/* Action buttons based on status */}
+                        {item.status === 'Pending' ? (
+                          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                            <TouchableOpacity
+                              style={{
+                                flex: 1,
+                                paddingVertical: 12,
+                                paddingHorizontal: 16,
+                                borderRadius: 10,
+                                backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(34, 197, 94, 0.4)',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                              onPress={() => {
+                                Alert.alert(
+                                  'Mark as Received?',
+                                  `${item.poNumber || 'This purchase order'} from ${item.vendor} will be added to expenses.`,
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Received',
+                                      onPress: () => {
+                                        markPOReceived(item.id);
+                                        Alert.alert('Received', `Purchase order "${item.poNumber || item.vendor}" has been marked as received. It will now appear in expenses.`);
+                                      }
+                                    }
+                                  ]
+                                );
+                              }}
+                            >
+                              <MaterialIcons name="check-circle" size={16} color="#22c55e" />
+                              <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>Mark as Received</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => {
+                                const actualPO = projectData.purchaseOrders?.find((po: any) => po.id === item.id);
+                                if (actualPO) {
+                                  setEditingPurchaseOrder(actualPO);
+                                }
+                              }}
+                              style={{
+                                paddingVertical: 12,
+                                paddingHorizontal: 16,
+                                borderRadius: 10,
+                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                              }}
+                            >
+                              <Text style={{ color: '#8DA0B8', fontSize: 13, fontWeight: '600' }}>Edit</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : item.status === 'Received' ? (
+                          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                            <TouchableOpacity
+                              style={{
+                                flex: 1,
+                                paddingVertical: 12,
+                                paddingHorizontal: 16,
+                                borderRadius: 10,
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(59, 130, 246, 0.4)',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                              onPress={() => {
+                                const actualPO = projectData.purchaseOrders?.find((po: any) => po.id === item.id);
+                                if (actualPO) {
+                                  setEditingPurchaseOrder(actualPO);
+                                }
+                              }}
+                              style={{
+                                paddingVertical: 12,
+                                paddingHorizontal: 16,
+                                borderRadius: 10,
+                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                              }}
+                            >
+                              <Text style={{ color: '#8DA0B8', fontSize: 13, fontWeight: '600' }}>Edit</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            borderRadius: 10,
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(34, 197, 94, 0.2)',
+                            alignItems: 'center',
+                          }}>
+                            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>✓ Received</Text>
+                          </View>
+                        )}
+                      </View>
+                    ) : (
+                      <View style={styles.transactionFooter}>
+                        <Text style={styles.date}>
+                          {new Date(item.date).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          })}
+                        </Text>
+                        {item.poNumber && (
+                          <View style={styles.poBadge}>
+                            <Text style={styles.poText}>📋 {item.poNumber}</Text>
+                          </View>
+                        )}
+                        {item.po && !item.poNumber && (
+                          <View style={styles.poBadge}>
+                            <Text style={styles.poText}>📋 {item.po}</Text>
+                          </View>
+                        )}
+                        {item.amount > 1000 && !item.receiptUri && (
+                          <View style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                            borderRadius: 6,
+                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(239, 68, 68, 0.3)',
+                          }}>
+                            <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
+                          </View>
+                        )}
+                        <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                      </View>
+                    )}
+                    
+                    {/* Approval Button for Change Orders */}
+                    {item.isChangeOrder && !item.approved && item.status !== 'Approved' && (
+                      <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(34, 197, 94, 0.3)',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                          onPress={() => {
+                            approveChangeOrder(item.id);
+                            Alert.alert('Approved', `Change order "${item.vendor}" has been approved. Budget updated.`);
+                          }}
+                        >
+                          <MaterialIcons name="check-circle-outline" size={14} color="#22c55e" />
+                          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600' }}>Approve</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                       </TouchableOpacity>
                     </LinearGradient>
                     ) : (
@@ -478,8 +1380,27 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           ]}
                           onPress={() => {
                             if (isItemDeleting) return;
-                            // For Purchase Orders category, convert expense to PO format
-                            if (categoryName === 'Purchase Orders') {
+                            // For Change Orders, we need to navigate to Budget tab or show change order editor
+                            // For now, just show an alert that they should use the Budget tab
+                            if (item.isChangeOrder) {
+                              Alert.alert(
+                                'Edit Change Order',
+                                'To edit change orders, please use the Budget tab. You can approve change orders from here by tapping the "Approve" button.',
+                                [{ text: 'OK' }]
+                              );
+                              return;
+                            }
+                            // For Purchase Orders category, use actual PO object
+                            if (isPurchaseOrdersCategory && item.isPurchaseOrder) {
+                              // Find the actual PO object
+                              const actualPO = projectData.purchaseOrders?.find((po: any) => po.id === item.id);
+                              if (actualPO) {
+                                setEditingPurchaseOrder(actualPO);
+                                return;
+                              }
+                            }
+                            // Legacy: For Purchase Orders category, convert expense to PO format (fallback)
+                            if (categoryName === 'Purchase Orders' && !item.isPurchaseOrder) {
                               const poLike = {
                                 id: item.id,
                                 poNumber: item.po || '',
@@ -506,7 +1427,38 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                 {item.receiptUri && (
                                   <MaterialIcons name="receipt" size={16} color="#22c55e" />
                                 )}
-                                {item.isPlanned === false && (
+                                {/* Change Order Status Badge */}
+                                {item.isChangeOrder && item.status && (
+                                  <View style={{
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 6,
+                                    backgroundColor: item.status === 'Approved' 
+                                      ? 'rgba(34, 197, 94, 0.2)' 
+                                      : item.status === 'Submitted'
+                                      ? 'rgba(245, 158, 11, 0.2)'
+                                      : 'rgba(100, 116, 139, 0.2)',
+                                    borderWidth: 1,
+                                    borderColor: item.status === 'Approved'
+                                      ? 'rgba(34, 197, 94, 0.4)'
+                                      : item.status === 'Submitted'
+                                      ? 'rgba(245, 158, 11, 0.4)'
+                                      : 'rgba(100, 116, 139, 0.4)',
+                                  }}>
+                                    <Text style={{ 
+                                      color: item.status === 'Approved' 
+                                        ? '#22c55e' 
+                                        : item.status === 'Submitted'
+                                        ? '#f59e0b'
+                                        : '#64748b', 
+                                      fontSize: 10, 
+                                      fontWeight: '600' 
+                                    }}>
+                                      {item.status.toUpperCase()}
+                                    </Text>
+                                  </View>
+                                )}
+                                {!item.isChangeOrder && item.isPlanned === false && (
                                   <View style={{
                                     paddingHorizontal: 6,
                                     paddingVertical: 2,
@@ -588,6 +1540,29 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                               </View>
                             )}
                             <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                            {/* Approval Button for Change Orders */}
+                            {item.isChangeOrder && !item.approved && item.status !== 'Approved' && (
+                              <TouchableOpacity
+                                style={{
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
+                                  borderRadius: 8,
+                                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(34, 197, 94, 0.3)',
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                                onPress={() => {
+                                  approveChangeOrder(item.id);
+                                  Alert.alert('Approved', `Change order "${item.vendor}" has been approved. Budget updated.`);
+                                }}
+                              >
+                                <MaterialIcons name="check-circle-outline" size={14} color="#22c55e" />
+                                <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600' }}>Approve</Text>
+                              </TouchableOpacity>
+                            )}
                           </View>
                         </TouchableOpacity>
                       </View>
@@ -639,39 +1614,22 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
 
       {/* Edit Purchase Order Modal (for Purchase Orders category) */}
       <EditPurchaseOrderModal
-        visible={categoryName === 'Purchase Orders' && editingPurchaseOrder !== null}
+        visible={isPurchaseOrdersCategory && editingPurchaseOrder !== null}
         purchaseOrder={editingPurchaseOrder}
         onClose={() => setEditingPurchaseOrder(null)}
         onSave={(updated) => {
-          // Convert PO back to expense format
-          updateExpense({
-            id: updated.id,
-            category: 'Purchase Orders',
-            vendor: updated.vendor,
-            amount: updated.amount,
-            date: updated.orderDate || new Date().toISOString(),
-            notes: updated.description,
-          });
+          // Use updatePurchaseOrder for actual PO objects
+          updatePurchaseOrder(updated);
           Alert.alert('Updated!', 'Purchase Order updated successfully');
           setEditingPurchaseOrder(null);
         }}
         onCancel={(id) => {
-          // For expenses, we want to delete, not cancel
-          Alert.alert(
-            'Delete Purchase Order?',
-            'This will permanently remove this purchase order.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () => {
-                  deleteExpense(id);
-                  setEditingPurchaseOrder(null);
-                }
-              }
-            ]
-          );
+          // Cancel the PO
+          if (id) {
+            cancelPO(id);
+            Alert.alert('Cancelled', 'Purchase Order has been cancelled.');
+          }
+          setEditingPurchaseOrder(null);
         }}
       />
 
@@ -862,6 +1820,28 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.6,
   },
+  poTabContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  poTab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  poActiveTab: {
+    // Keep same borderWidth to prevent layout shift
+  },
+  poTabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
   addButtonWrapper: {
     marginBottom: 24,
   },
@@ -900,6 +1880,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 20,
     marginBottom: 0,
+  },
+  // Enhanced spacing for Purchase Orders
+  purchaseOrderCard: {
+    padding: 24,
   },
   transactionHeader: {
     flexDirection: "row",

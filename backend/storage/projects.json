@@ -1,1 +1,87 @@
-[]
+[
+  {
+    "id": "1770729486763",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Bob remodel",
+    "title": "Bob remodel",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 27387.6,
+    "estimatedCost": 27387.6,
+    "bidPrice": 27387.6,
+    "totalSpent": 4080,
+    "remaining": 23307.6,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "expense-1771322494006",
+        "category": "Labor",
+        "vendor": "Tile work",
+        "amount": 300,
+        "date": "2026-02-17",
+        "notes": "",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771326031298",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 1000,
+        "date": "2026-02-17",
+        "notes": "Tile from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771326656084",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 600,
+        "date": "2026-02-17",
+        "notes": "Drywall from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771326723087",
+        "category": "Labor",
+        "vendor": "Drywall mud",
+        "amount": 450,
+        "date": "2026-02-17",
+        "notes": "",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771326822450",
+        "category": "Labor",
+        "vendor": "Tiling shower",
+        "amount": 600,
+        "date": "2026-02-17",
+        "notes": "",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771331041587",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 700,
+        "date": "2026-02-17",
+        "notes": "Lumber from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1771413145818",
+        "category": "Materials/Equipment",
+        "vendor": "Lowe's",
+        "amount": 430,
+        "date": "2026-02-18",
+        "notes": "Drywall from Lowe's",
+        "createdAt": "2026-02-18T11:12:25.818Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-02-10T14:55:16.105Z",
+    "updatedAt": "2026-02-18T11:12:25.818Z"
+  }
+]

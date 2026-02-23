@@ -273,17 +273,39 @@ const AuthScreen: React.FC = () => {
       // If result.setActive is available, use it directly (it handles the session automatically)
       if (result?.setActive && typeof result.setActive === 'function') {
         console.log('Using setActive from result...');
-        await result.setActive();
-        console.log('Session set via result.setActive, navigating to app...');
-        router.replace('/(tabs)/dashboard');
-        return;
+        try {
+          await result.setActive();
+          console.log('Session set via result.setActive, navigating to app...');
+          router.replace('/(tabs)/dashboard');
+          setLoading(false);
+          return;
+        } catch (setActiveError: any) {
+          console.warn('result.setActive() failed, trying fallback method:', setActiveError);
+          // Fall through to try alternative method below
+        }
       }
       
       if (sessionId && resultSetActive) {
         console.log('Google OAuth successful, setting active session...');
-        await resultSetActive({ session: sessionId });
-        console.log('Session set, navigating to app...');
-        router.replace('/(tabs)/dashboard');
+        try {
+          await resultSetActive({ session: sessionId });
+          console.log('Session set, navigating to app...');
+          router.replace('/(tabs)/dashboard');
+          setLoading(false);
+          return;
+        } catch (setActiveError: any) {
+          console.error('Failed to set active session:', setActiveError);
+          // Check if user is actually signed in despite the error
+          const isActuallySignedIn = clerkAuth?.isSignedIn === true && clerkAuth?.isLoaded === true;
+          if (isActuallySignedIn) {
+            console.log('User is signed in despite setActive error, navigating...');
+            router.replace('/(tabs)/dashboard');
+            setLoading(false);
+            return;
+          }
+          // If not signed in, throw the error to be caught by outer catch
+          throw setActiveError;
+        }
       } else {
         console.error('Google OAuth flow incomplete:', {
           hasCreatedSessionId: !!result?.createdSessionId,

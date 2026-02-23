@@ -1,9 +1,25 @@
 #!/bin/bash
 
-echo "🚀 Starting Build Profit Solutions Backend..."
+echo "🚀 Starting Backend Server"
+echo "=========================="
 echo ""
 
 cd "$(dirname "$0")/backend" || exit 1
+
+# Check if already running
+if lsof -i :3001 > /dev/null 2>&1; then
+    echo "⚠️  Port 3001 is already in use"
+    echo "   Stopping existing process..."
+    lsof -ti:3001 | xargs kill -9 2>/dev/null || true
+    sleep 2
+fi
+
+if lsof -i :3000 > /dev/null 2>&1; then
+    echo "⚠️  Port 3000 is already in use"
+    echo "   Stopping existing process..."
+    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+    sleep 2
+fi
 
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then
@@ -27,18 +43,14 @@ if [ ! -f ".env" ]; then
 fi
 
 # Start the server
-echo "🌐 Starting backend server on port 3001..."
-echo "   Access it at: http://localhost:3001"
+echo "🌐 Starting backend server..."
+echo "   Port 3001: Main API"
+echo "   Port 3000: Secondary API"
+echo ""
 echo "   Health check: http://localhost:3001/health"
+echo "   API Base: http://localhost:3001/api"
 echo ""
 echo "   Press Ctrl+C to stop"
 echo ""
 
 npm start
-
-
-
-
-
-
-

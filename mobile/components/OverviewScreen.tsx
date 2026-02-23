@@ -145,8 +145,8 @@ export default function OverviewScreen({
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount || 0);
   };
 
@@ -205,19 +205,67 @@ export default function OverviewScreen({
 
   const adjustedBudget = Number(project.budgeted || 0) + approvedChangeOrdersTotal;
 
-  const actualSpent =
-    expensesTotal > 0
+  // Calculate Purchase Orders total - ONLY includes PENDING POs (matches BudgetTab logic)
+  // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing
+  const purchaseOrdersTotal = (() => {
+    const rawPOs = project.purchaseOrders || [];
+    
+    // ONLY include Pending POs (exclude Received and Cancelled)
+    const pendingPOs = rawPOs.filter((po: any) => po.status === 'Pending');
+    
+    const poObjectsTotal = pendingPOs.reduce((sum: number, po: any) => {
+      let amount = 0;
+      if (typeof po.amount === 'string') {
+        amount = parseFloat(po.amount) || 0;
+      } else if (typeof po.amount === 'number') {
+        amount = po.amount;
+      } else {
+        amount = Number(po.amount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+    
+    return poObjectsTotal;
+  })();
+
+  // Calculate Received Purchase Orders total (to include in Actual Expenses)
+  const receivedPOsTotal = (() => {
+    const rawPOs = project.purchaseOrders || [];
+    const receivedPOs = rawPOs.filter((po: any) => po.status === 'Received');
+    
+    return receivedPOs.reduce((sum: number, po: any) => {
+      let amount = 0;
+      if (typeof po.amount === 'string') {
+        amount = parseFloat(po.amount) || 0;
+      } else if (typeof po.amount === 'number') {
+        amount = po.amount;
+      } else {
+        amount = Number(po.amount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+  })();
+
+  // Actual Expenses = Regular expenses + Received Purchase Orders
+  const actualSpent = (() => {
+    const baseExpenses = expensesTotal > 0
       ? expensesTotal
       : Number(project.spent ?? 0) > 0
       ? Number(project.spent ?? 0)
       : bucketSpentTotal;
+    
+    return baseExpenses + receivedPOsTotal;
+  })();
 
-  const budgetDeltaRaw = adjustedBudget - actualSpent;
+  // Remaining budget accounts for both actual expenses and committed POs (matches BudgetTab)
+  const budgetDeltaRaw = adjustedBudget - actualSpent - purchaseOrdersTotal;
   const isUnderBudget = budgetDeltaRaw >= 0;
 
   const getBudgetProgress = () => {
     if (!adjustedBudget || adjustedBudget <= 0) return 0;
-    const progress = (Number(actualSpent || 0) / adjustedBudget) * 100;
+    // Budget progress includes both actual spent and committed POs
+    const totalCommitted = actualSpent + purchaseOrdersTotal;
+    const progress = (totalCommitted / adjustedBudget) * 100;
     return Math.min(100, Math.max(0, progress));
   };
 
@@ -529,6 +577,15 @@ export default function OverviewScreen({
                 {formatMoney(actualSpent)}
               </Text>
             </View>
+
+            {purchaseOrdersTotal > 0 && (
+              <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Committed POs</Text>
+              <Text style={styles.budgetValue}>
+                  {formatMoney(purchaseOrdersTotal)}
+                </Text>
+              </View>
+            )}
 
             <View style={styles.budgetRow}>
             <Text style={styles.budgetLabel}>Remaining</Text>

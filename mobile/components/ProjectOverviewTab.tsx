@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import SpendingTrendChart from './SpendingTrendChart';
+import { useProjectData } from '../contexts/ProjectDataContext';
 
 // Gradient Card wrapper for green-to-blue border with black background
 const GradientCard: React.FC<{
@@ -42,7 +43,12 @@ export type ProjectOverviewData = {
 
 // Helpers ----------------------------------------------------------
 const currency = (n: number, currency = 'USD') =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(n);
+  new Intl.NumberFormat(undefined, { 
+    style: 'currency', 
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(n);
 
 function getStatusColor(status: 'Good' | 'At Risk' | 'Critical' | 'On Track') {
   switch (status) {
@@ -116,8 +122,74 @@ export default function ProjectOverviewTab({
   onSendUpdate?: () => void;
   theme?: any;
 }) {
-  const remaining = Math.max(data.budgeted - data.spent, 0);
-  const overUnder = data.budgeted - data.spent; // + under, - over
+  const { projectData } = useProjectData();
+  
+  // Calculate approved change orders total (matches BudgetTab logic)
+  const approvedChangeOrdersTotal = useMemo(() => {
+    const changeOrders = projectData?.changeOrders || [];
+    return changeOrders.reduce((sum, co) => {
+      const amount = Number(co.amount || 0);
+      const isApproved =
+        (typeof co.approved === 'boolean' && co.approved) ||
+        (typeof (co as any).status === 'string' &&
+          (co as any).status.toLowerCase() === 'approved');
+      return isApproved ? sum + amount : sum;
+    }, 0);
+  }, [projectData?.changeOrders]);
+  
+  // Calculate purchase orders total - ONLY includes PENDING POs (matches BudgetTab logic)
+  // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing
+  const purchaseOrdersTotal = useMemo(() => {
+    const rawPOs = projectData?.purchaseOrders || [];
+    
+    // ONLY include Pending POs (exclude Received and Cancelled)
+    const pendingPOs = rawPOs.filter((po: any) => po.status === 'Pending');
+    
+    const poObjectsTotal = pendingPOs.reduce((sum: number, po: any) => {
+      let amount = 0;
+      if (typeof po.amount === 'string') {
+        amount = parseFloat(po.amount) || 0;
+      } else if (typeof po.amount === 'number') {
+        amount = po.amount;
+      } else {
+        amount = Number(po.amount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+    
+    // Note: Received POs become expenses and are already in data.spent
+    // They should NOT be double-counted in committed POs
+    
+    return poObjectsTotal;
+  }, [projectData?.purchaseOrders]);
+  
+  // Calculate Received Purchase Orders total (to include in Spent So Far)
+  const receivedPOsTotal = useMemo(() => {
+    const rawPOs = projectData?.purchaseOrders || [];
+    const receivedPOs = rawPOs.filter((po: any) => po.status === 'Received');
+    
+    return receivedPOs.reduce((sum: number, po: any) => {
+      let amount = 0;
+      if (typeof po.amount === 'string') {
+        amount = parseFloat(po.amount) || 0;
+      } else if (typeof po.amount === 'number') {
+        amount = po.amount;
+      } else {
+        amount = Number(po.amount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+  }, [projectData?.purchaseOrders]);
+  
+  // Spent So Far = Regular expenses + Received Purchase Orders
+  const totalSpent = (data.spent || 0) + receivedPOsTotal;
+  
+  // Use adjusted budget (base + approved change orders) - matches BudgetTab
+  const adjustedBudget = (data.budgeted || 0) + approvedChangeOrdersTotal;
+  
+  // Remaining accounts for both actual expenses and committed POs (matches BudgetTab)
+  const remaining = Math.max(adjustedBudget - totalSpent - purchaseOrdersTotal, 0);
+  const overUnder = adjustedBudget - totalSpent - purchaseOrdersTotal; // + under, - over
 
   return (
     <View
@@ -149,18 +221,25 @@ export default function ProjectOverviewTab({
           {/* Budget */}
           <GradientCard>
             <Text style={styles.sectionTitle}>Budget Summary</Text>
-            <LabeledRow label='Budgeted' value={currency(data.budgeted)} />
+            <LabeledRow label='Planned Budget' value={currency(data.budgeted || 0)} />
+            {approvedChangeOrdersTotal > 0 && (
+              <LabeledRow label='Approved Change Orders' value={`+ ${currency(approvedChangeOrdersTotal)}`} />
+            )}
+            <LabeledRow label='Adjusted Budget' value={currency(adjustedBudget)} />
             <LabeledRow
               label='Spent So Far'
               value={
-                <Text style={styles.spentText}>{currency(data.spent)}</Text>
+                <Text style={styles.spentText}>{currency(totalSpent)}</Text>
               }
             />
+            {purchaseOrdersTotal > 0 && (
+              <LabeledRow label='Committed POs' value={currency(purchaseOrdersTotal)} />
+            )}
             <View style={styles.remainingContainer}>
               <Text style={styles.remainingLabel}>Remaining</Text>
               <Bar
                 pct={Math.min(
-                  (remaining / Math.max(data.budgeted, 1)) * 100,
+                  (remaining / Math.max(adjustedBudget, 1)) * 100,
                   100
                 )}
               />
@@ -171,7 +250,7 @@ export default function ProjectOverviewTab({
                 ]}
               >
                 {overUnder >= 0
-                  ? `Under by ${currency(Math.abs(overUnder))}`
+                  ? `${currency(remaining)} available`
                   : `Over by ${currency(Math.abs(overUnder))}`}
               </Text>
             </View>
@@ -294,7 +373,7 @@ export default function ProjectOverviewTab({
 
           {/* Spending Trend Chart - Replaced Quick Actions */}
           <SpendingTrendChart
-            plannedBudget={data.budgeted}
+            plannedBudget={adjustedBudget}
             data={generateMockSpendingData(data)}
           />
         </View>

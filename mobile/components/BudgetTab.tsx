@@ -203,44 +203,35 @@ export default function BudgetTab({
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
 
   const router = useRouter();
-  const { projectData: contextProjectData, addExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
+  const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
   
-  // Debug: Log change orders when they change
-  useEffect(() => {
-    if (contextProjectData?.changeOrders && contextProjectData.changeOrders.length > 0) {
-      contextProjectData.changeOrders.forEach((co: any) => {
-        if (co.materialsAmount || co.laborAmount) {
-          console.log('📋 BudgetTab: Change order with breakdown:', {
-            id: co.id,
-            title: co.title,
-            materialsAmount: co.materialsAmount,
-            laborAmount: co.laborAmount,
-            fullCo: co,
-          });
-        }
-      });
-    }
-  }, [contextProjectData?.changeOrders]);
   
   // Track if we've already reloaded to prevent infinite loops
   const hasReloadedRef = React.useRef(false);
   
-  // Reload from storage when the Budget tab is focused to get latest purchase orders
+  // Reload from storage when the Budget tab is focused to get latest expenses and purchase orders
   useFocusEffect(
     React.useCallback(() => {
-      // Only reload once per focus session to prevent glitching
-      if (reloadFromStorage && !hasReloadedRef.current) {
+      // Always reload when Budget tab is focused to ensure we have latest data
+      // This is especially important when expenses are added from AI Assistant
+      if (reloadFromStorage) {
         hasReloadedRef.current = true;
-        reloadFromStorage();
-        console.log('🔄 BudgetTab: Reloaded from storage, purchase orders:', contextProjectData?.purchaseOrders?.length || 0);
+        reloadFromStorage().then(() => {
+        // Reduced logging to prevent terminal glitching
+        });
         
         // Reset the flag after a delay so it can reload again if needed
         setTimeout(() => {
           hasReloadedRef.current = false;
-        }, 1000);
+        }, 2000); // Increased delay to allow for AsyncStorage writes
       }
-    }, [reloadFromStorage, contextProjectData?.purchaseOrders?.length])
+    }, [reloadFromStorage])
   );
+  
+  // Reduced logging to prevent terminal glitching
+  // useEffect(() => {
+  //   // Only log count, not full array
+  // }, [contextProjectData?.purchaseOrders, contextProjectData?.committedPOs]);
   
   // Use data prop if provided, otherwise fall back to context
   // CRITICAL: If buckets exist in contextProjectData, use those (source of truth after estimate is saved)
@@ -314,74 +305,103 @@ export default function BudgetTab({
       bucket.name === 'Materials/Equipment' || bucket.name === 'Labor'
     );
     const total = relevantBuckets.reduce((s, l) => s + safe(l.budget), 0);
-    console.log('🔍 Planned Budget Debug:');
-    console.log('📋 All Buckets:', buckets.map(b => ({ name: b.name, budget: b.budget, unitCost: b.bidBudget })));
-    console.log('📋 Relevant Buckets (Materials/Equipment + Labor only):', relevantBuckets.map(b => ({ name: b.name, budget: b.budget, unitCost: b.bidBudget })));
-    console.log('📋 Planned Total:', total);
+    // Reduced logging to prevent terminal glitching
     return total;
   }, [projectData?.buckets]);
 
-  const planned = useMemo(() => {
+  // Calculate base budget (ORIGINAL contract amount, WITHOUT change orders)
+  // IMPORTANT: projectData.budgeted may include approved change orders, so we should NOT use it
+  // We need the original contract amount before any change orders
+  const baseBudget = useMemo(() => {
+    // Priority order for finding the original contract amount:
+    // 1. data.plannedBudget (from props - this should be the original estimate)
+    // 2. bidPrice or estimatedCost (original bid amounts)
+    // 3. plannedFromBuckets (sum of bucket budgets - original estimate breakdown)
+    // DO NOT use projectData.budgeted as it may already include approved change orders
+    
     const budgetCandidates = [
       data?.plannedBudget,
-      projectData?.budgeted,
       (projectData as any)?.bidPrice,
       (projectData as any)?.estimatedCost,
     ];
     const explicitBudget = firstPositiveNumber(...budgetCandidates);
     if (explicitBudget !== null) {
+      // Reduced logging
       return explicitBudget;
     }
     return plannedFromBuckets;
   }, [data?.plannedBudget, projectData, plannedFromBuckets]);
+
+  // Use baseBudget for planned (without change orders)
+  // This ensures we don't double-count when adding coApproved
+  const planned = baseBudget;
   const normalizedChangeOrders: ChangeOrder[] = useMemo(() => {
-    const normalized = (projectData?.changeOrders || []).map((co: any) => {
-      const normalizedCo = {
+    const rawChangeOrders = projectData?.changeOrders || [];
+    
+    if (rawChangeOrders.length === 0) {
+      return [];
+    }
+    
+    const normalized = rawChangeOrders.map((co: any) => {
+      // Determine status: prioritize explicit status, then check approved flag, default to 'Submitted' for new ones
+      let status = co.status;
+      if (!status) {
+        if (co.approved === true || co.approved === 'true') {
+          status = 'Approved';
+        } else {
+          // Default to 'Submitted' for new change orders
+          status = 'Submitted';
+        }
+      }
+      
+      return {
         id: String(co.id),
-        title: String(co.title ?? ''),
+        title: String(co.title ?? 'Change Order'),
         amount: Number(co.amount ?? 0),
-        status: co.status ?? (co.approved ? 'Approved' : 'Draft'),
+        status: status as 'Draft' | 'Submitted' | 'Approved' | 'Rejected',
         materialsAmount: co.materialsAmount !== undefined && co.materialsAmount !== null ? Number(co.materialsAmount) : undefined,
         laborAmount: co.laborAmount !== undefined && co.laborAmount !== null ? Number(co.laborAmount) : undefined,
         notes: co.notes,
-        approved: co.approved || co.status === 'Approved',
+        approved: co.approved === true || status === 'Approved',
         date: co.date ?? new Date().toISOString(),
       };
-      
-      // Debug logging for change orders with materials/labor
-      if (co.materialsAmount || co.laborAmount) {
-        console.log('🔍 Normalizing change order with breakdown:', {
-          id: normalizedCo.id,
-          title: normalizedCo.title,
-          originalMaterialsAmount: co.materialsAmount,
-          originalLaborAmount: co.laborAmount,
-          normalizedMaterialsAmount: normalizedCo.materialsAmount,
-          normalizedLaborAmount: normalizedCo.laborAmount,
-          rawCo: co,
-        });
-      }
-      
-      return normalizedCo;
     });
     
     return normalized;
   }, [projectData?.changeOrders]);
 
   const coApproved = useMemo(
-    () => normalizedChangeOrders
-        .filter(c => c.status === 'Approved')
-        .reduce((s, c) => s + safe(c.amount), 0),
+    () => {
+      const approved = normalizedChangeOrders
+        .filter(c => {
+          // Check both approved boolean and status string
+          return c.approved === true || c.status === 'Approved';
+        })
+        .reduce((s, c) => s + safe(c.amount), 0);
+      
+      return approved;
+    },
     [normalizedChangeOrders]
   );
   const adjustedBudget = planned + coApproved;
 
-  // Calculate Purchase Orders total - includes both PO objects and expenses with category "Purchase Orders"
+  // Calculate Purchase Orders total - includes ONLY PENDING POs (not paid for yet)
+  // Logic:
+  // - Pending POs → Count as "Committed POs" (not yet received/paid, still committed)
+  // - Received POs → Don't count (goods received and paid for)
+  // - Archived POs → Don't count (historical, no longer active commitment)
+  // - Cancelled POs → Don't count as anything
   const purchaseOrdersTotal = useMemo(() => {
-    // First, sum up Purchase Order objects (excluding cancelled)
     const rawPOs = projectData?.purchaseOrders || [];
-    const allPOs = rawPOs.filter(po => po.status !== 'Cancelled');
     
-    const poObjectsTotal = allPOs.reduce((sum, po) => {
+    // Reduced logging to prevent terminal glitching
+    
+    // Include ONLY Pending POs (not yet paid for)
+    const activePOs = rawPOs.filter(po => 
+      po.status === 'Pending'
+    );
+    
+    const poObjectsTotal = activePOs.reduce((sum, po) => {
       let amount = 0;
       if (typeof po.amount === 'string') {
         amount = parseFloat(po.amount) || 0;
@@ -393,29 +413,10 @@ export default function BudgetTab({
       return sum + amount;
     }, 0);
     
-    // Second, sum up expenses with category "Purchase Orders"
-    const expenses = projectData?.expenses || [];
-    const poExpenses = expenses.filter(exp => 
-      (exp.category || '').toLowerCase() === 'purchase orders'
-    );
+    // Reduced logging to prevent terminal glitching
     
-    const poExpensesTotal = poExpenses.reduce((sum, exp) => {
-      const amount = typeof exp.amount === 'number' ? exp.amount : Number(exp.amount) || 0;
-      return sum + amount;
-    }, 0);
-    
-    const total = poObjectsTotal + poExpensesTotal;
-    
-    console.log('📊 Purchase Orders Total Calculation:', {
-      poObjectsCount: allPOs.length,
-      poObjectsTotal: poObjectsTotal,
-      poExpensesCount: poExpenses.length,
-      poExpensesTotal: poExpensesTotal,
-      finalTotal: total
-    });
-    
-    return total;
-  }, [projectData?.purchaseOrders, projectData?.expenses]);
+    return poObjectsTotal;
+  }, [projectData?.purchaseOrders, contextProjectData?.purchaseOrders]);
 
   // Calculate Change Orders total - includes both CO objects and expenses with category "Change Orders"
   const changeOrdersTotal = useMemo(() => {
@@ -438,13 +439,7 @@ export default function BudgetTab({
     
     const total = coObjectsTotal + coExpensesTotal;
     
-    console.log('📊 Change Orders Total Calculation:', {
-      coObjectsCount: normalizedChangeOrders.length,
-      coObjectsTotal: coObjectsTotal,
-      coExpensesCount: coExpenses.length,
-      coExpensesTotal: coExpensesTotal,
-      finalTotal: total
-    });
+    // Reduced logging to prevent terminal glitching
     
     return total;
   }, [normalizedChangeOrders, projectData?.expenses]);
@@ -467,15 +462,42 @@ export default function BudgetTab({
     }));
   }, [buckets]);
 
-  const actual = useMemo(
-    () => projectData?.spent || (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0),
-    [projectData?.spent, projectData?.expenses]
-  );
+  // Calculate Received Purchase Orders total (these should be included in Actual Expenses)
+  const receivedPOsTotal = useMemo(() => {
+    const rawPOs = projectData?.purchaseOrders || [];
+    const receivedPOs = rawPOs.filter(po => po.status === 'Received');
+    
+    const total = receivedPOs.reduce((sum, po) => {
+      let amount = 0;
+      if (typeof po.amount === 'string') {
+        amount = parseFloat(po.amount) || 0;
+      } else if (typeof po.amount === 'number') {
+        amount = po.amount;
+      } else {
+        amount = Number(po.amount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+    
+    // Reduced logging to prevent terminal glitching
+    
+    return total;
+  }, [projectData?.purchaseOrders]);
+
+  // Actual Expenses = Regular expenses + Received Purchase Orders
+  const actual = useMemo(() => {
+    const expensesTotal = projectData?.spent || (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0);
+    const total = expensesTotal + receivedPOsTotal;
+    
+    // Reduced logging to prevent terminal glitching
+    
+    return total;
+  }, [projectData?.spent, projectData?.expenses, receivedPOsTotal]);
   const committed = safe(projectData?.committedPOs || 0);
-  const remaining = Math.max(adjustedBudget - actual, 0);
+  const remaining = Math.max(adjustedBudget - actual - purchaseOrdersTotal, 0);
 
   // Calculate projected costs for alerts
-  const projectedTotal = actual + (committed * 0.8); // Assume 80% of committed POs will be spent
+  const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
   
   // Prepare category data for alerts
   const categorySnapshots = useMemo(() => {
@@ -499,12 +521,7 @@ export default function BudgetTab({
     notify: false, // Disable push in Expo Go
   });
 
-  // Debug alerts
-  console.log('BudgetTab - Alerts count:', alerts.length);
-  console.log('BudgetTab - Planned:', adjustedBudget, 'Projected:', projectedTotal);
-  if (alerts.length > 0) {
-    console.log('BudgetTab - Active alerts:', alerts);
-  }
+  // Reduced logging to prevent terminal glitching
 
   const onGenerateDraft = async () => {
     setIsGenerating(true);
@@ -727,7 +744,7 @@ export default function BudgetTab({
           />
           <Row
             label='Committed POs'
-            value={money(committed, currency)}
+            value={money(purchaseOrdersTotal, currency)}
             theme={theme}
           />
           <View style={styles.remainingSection}>
@@ -745,9 +762,9 @@ export default function BudgetTab({
               { color: remainingColor },
               ]}
             >
-              {actual <= adjustedBudget
-                ? `Under by ${money(adjustedBudget - actual, currency)}`
-                : `Over by ${money(actual - adjustedBudget, currency)}`}
+              {remaining > 0
+                ? `${money(remaining, currency)} available`
+                : `Over budget by ${money(Math.abs(remaining), currency)}`}
             </Text>
           </View>
           </View>
@@ -924,13 +941,29 @@ export default function BudgetTab({
 
                 {/* Purchase Orders Card */}
                 {(() => {
-                  // Get the EXACT same array that individual items use - use projectData for consistency
+                  // Get all POs for display (show Pending, Received, but exclude Cancelled)
                   const individualPOs = (projectData?.purchaseOrders || [])
                     .filter(po => po.status !== 'Cancelled')
                     .sort((a, b) => new Date(a.expectedDelivery).getTime() - new Date(b.expectedDelivery).getTime());
                   
-                  // Use the purchaseOrdersTotal from useMemo (includes both POs and expenses with category "Purchase Orders")
-                  const poTotal = purchaseOrdersTotal;
+                  // Calculate total for display: includes ALL active POs (Pending + Received)
+                  // This is different from purchaseOrdersTotal which only counts Pending (for budget calculations)
+                  const poTotalForDisplay = individualPOs.reduce((sum, po) => {
+                    let amount = 0;
+                    if (typeof po.amount === 'string') {
+                      amount = parseFloat(po.amount) || 0;
+                    } else if (typeof po.amount === 'number') {
+                      amount = po.amount;
+                    } else {
+                      amount = Number(po.amount) || 0;
+                    }
+                    return sum + amount;
+                  }, 0);
+                  
+                  // Use the display total (includes Pending + Received)
+                  const poTotal = poTotalForDisplay;
+                  
+                  // Reduced logging to prevent terminal glitching
                   
                   return (
                     <View key="purchase-orders-card" style={[styles.budgetCardContainer, { marginTop: 0 }]}>
@@ -968,143 +1001,6 @@ export default function BudgetTab({
                           </View>
                         </Pressable>
 
-                        {/* Individual Purchase Orders */}
-                        <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          {individualPOs.map(po => {
-                            const daysUntilDelivery = Math.ceil((new Date(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                            const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
-                            
-                            return (
-                              <View key={po.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
-                                <View style={[styles.budgetCard, { padding: 12, backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
-                                  <Pressable 
-                                    onPress={() => setEditingPO(po)}
-                                    style={{ flex: 1 }}
-                                  >
-                      {/* Header with PO Number and Icon */}
-                      <View style={[styles.budgetCardHeader, { marginBottom: 10 }]}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                          <Text style={{ fontSize: 18 }}>{categoryIcon}</Text>
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text 
-                              style={[styles.budgetCardTitle, { color: theme.text, fontSize: 15, lineHeight: 20 }]}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              {po.poNumber}
-                            </Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
-                              <Text style={{ color: theme.subtext, fontSize: 11 }}>{po.vendor || 'No vendor'}</Text>
-                              <View style={[styles.statusDot, { 
-                                backgroundColor: po.status === 'Pending' ? '#f59e0b' : '#22c55e',
-                                width: 6,
-                                height: 6,
-                                marginLeft: 6
-                              }]} />
-                              <Text style={{ 
-                                color: po.status === 'Pending' ? '#f59e0b' : '#22c55e',
-                                fontSize: 10,
-                                fontWeight: '600',
-                                letterSpacing: 0.5
-                              }}>
-                                {po.status.toUpperCase()}
-                            </Text>
-                          </View>
-                            </View>
-                          <Text style={{ 
-                            color: po.status === 'Pending' ? '#f59e0b' : '#22c55e',
-                            fontSize: 15,
-                            fontWeight: '700'
-                          }}>
-                            {money(po.amount, currency)}
-                          </Text>
-                        </View>
-                        {po.status === 'Pending' && daysUntilDelivery <= 3 && (
-                          <View style={{ backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6, alignSelf: 'flex-start' }}>
-                            <Text style={{ color: 'white', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 }}>URGENT</Text>
-                          </View>
-                        )}
-                      </View>
-                      
-                      {/* Expected Delivery */}
-                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                        <Text style={{ color: theme.subtext, fontSize: 10, marginBottom: 3 }}>Expected Delivery</Text>
-                        <Text style={{ 
-                          color: po.status === 'Pending' && daysUntilDelivery <= 3 ? '#ef4444' : '#22c55e',
-                          fontSize: 12,
-                          fontWeight: '600'
-                        }}>
-                          {new Date(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          {po.status === 'Pending' && (
-                            <Text style={{ color: 'rgba(255,255,255,0.6)', fontWeight: '400' }}>
-                              {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
-                            </Text>
-                          )}
-                        </Text>
-                      </View>
-
-                      {/* Description */}
-                      {po.description && (
-                        <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          <Text style={{ color: theme.subtext, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{po.description}</Text>
-                        </View>
-                      )}
-
-                      {/* Actions */}
-                      {po.status === 'Pending' && (
-                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          <TouchableOpacity
-                            onPress={() => {
-                              Alert.alert(
-                                'Mark as Received?',
-                                `${po.poNumber} from ${po.vendor} will be added to expenses.`,
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  {
-                                    text: 'Received',
-                                    onPress: () => markPOReceived(po.id)
-                                  }
-                                ]
-                              );
-                            }}
-                            style={{ flex: 1, backgroundColor: '#22c55e', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}
-                          >
-                            <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>✓ Received</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => {
-                              Alert.alert(
-                                'Cancel PO?',
-                                `Cancel ${po.poNumber}?`,
-                                [
-                                  { text: 'No', style: 'cancel' },
-                                  {
-                                    text: 'Cancel PO',
-                                    style: 'destructive',
-                                    onPress: () => cancelPO(po.id)
-                                  }
-                                ]
-                              );
-                            }}
-                            style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.2)', paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' }}
-                          >
-                            <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700' }}>✕ Cancel</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      {po.status === 'Received' && (
-                        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          <View style={{ backgroundColor: '#065f46', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}>
-                            <Text style={{ color: '#10b981', fontSize: 12, fontWeight: '700' }}>✓ Delivered</Text>
-                          </View>
-                        </View>
-                      )}
-                                  </Pressable>
-                                </View>
-                              </View>
-                            );
-                          })}
-                        </View>
                       </View>
                     </View>
                   );
@@ -1113,7 +1009,21 @@ export default function BudgetTab({
                 {/* Change Orders Card */}
                 {(() => {
                   // Get the EXACT same array that individual items use
-                  const individualCOs = normalizedChangeOrders;
+                  // Fallback to raw change orders if normalization fails
+                  const individualCOs = normalizedChangeOrders.length > 0 
+                    ? normalizedChangeOrders 
+                    : (projectData?.changeOrders || []).map((co: any) => ({
+                        id: String(co.id || ''),
+                        title: String(co.title || 'Change Order'),
+                        amount: Number(co.amount || 0),
+                        status: (co.status || (co.approved ? 'Approved' : 'Submitted')) as 'Draft' | 'Submitted' | 'Approved' | 'Rejected',
+                        materialsAmount: co.materialsAmount ? Number(co.materialsAmount) : undefined,
+                        laborAmount: co.laborAmount ? Number(co.laborAmount) : undefined,
+                        notes: co.notes,
+                        approved: co.approved || co.status === 'Approved',
+                        date: co.date || new Date().toISOString(),
+                      }));
+                  
                   
                   // Use the changeOrdersTotal from useMemo (includes both COs and expenses with category "Change Orders")
                   const coTotal = changeOrdersTotal;
@@ -1153,143 +1063,8 @@ export default function BudgetTab({
                         </Text>
                       </View>
                     </Pressable>
-
-                        {/* Individual Change Orders */}
-                        <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          {individualCOs.map(co => {
-                            const coAmount = Number(co.amount || 0);
-                            const isApproved = co.status === 'Approved';
-                            const statusColor = isApproved ? '#22c55e' : co.status === 'Submitted' ? '#f59e0b' : '#64748b';
-                            
-                            return (
-                              <View key={co.id} style={[styles.budgetCardContainer, { marginBottom: 10 }]}>
-                                <View style={[styles.budgetCard, { padding: 12, backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
-                      {/* Header: Title and Status */}
-                      <View style={[styles.budgetCardHeader, { marginBottom: 10 }]}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                          <Text style={{ fontSize: 18 }}>📝</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text 
-                              style={[styles.budgetCardTitle, { color: theme.text, fontSize: 15, lineHeight: 20 }]}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              {co.title}
-                            </Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 }}>
-                              <View style={[styles.statusDot, { backgroundColor: statusColor, width: 6, height: 6 }]} />
-                              <Text style={{ color: statusColor, fontSize: 10, fontWeight: '600', letterSpacing: 0.5 }}>
-                            {co.status.toUpperCase()}
-                          </Text>
-                        </View>
-                      </View>
-                        </View>
-                        <Text style={{ color: statusColor, fontSize: 16, fontWeight: '700' }}>
-                          {money(coAmount, currency)}
-                        </Text>
-                      </View>
-
-                      {/* Breakdown - Side by side if both exist */}
-                      {((co.materialsAmount && co.materialsAmount > 0) || (co.laborAmount && co.laborAmount > 0)) && (
-                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                          {co.materialsAmount && co.materialsAmount > 0 && (
-                            <View style={{ flex: 1, padding: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={{ fontSize: 16 }}>🧱</Text>
-                              <View style={{ flex: 1 }}>
-                                  <Text style={{ color: theme.subtext, fontSize: 9, fontWeight: '600', letterSpacing: 0.5, marginBottom: 2 }}>MATERIALS</Text>
-                                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
-                                  {money(co.materialsAmount, currency)}
-                                </Text>
-                              </View>
-                            </View>
-                            </View>
-                          )}
-                          {co.laborAmount && co.laborAmount > 0 && (
-                            <View style={{ flex: 1, padding: 8, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={{ fontSize: 16 }}>👷</Text>
-                              <View style={{ flex: 1 }}>
-                                  <Text style={{ color: theme.subtext, fontSize: 9, fontWeight: '600', letterSpacing: 0.5, marginBottom: 2 }}>LABOR</Text>
-                                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700' }}>
-                                  {money(co.laborAmount, currency)}
-                                </Text>
-                              </View>
-                            </View>
-                            </View>
-                          )}
-                        </View>
-                      )}
-
-                      {/* Notes */}
-                      {co.notes && (
-                        <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                          <Text style={{ color: theme.subtext, fontSize: 11, lineHeight: 16 }} numberOfLines={2} ellipsizeMode="tail">{co.notes}</Text>
-                        </View>
-                      )}
-
-                      {/* Actions */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
-                        <TouchableOpacity
-                          style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(96, 165, 250, 0.15)', borderWidth: 1, borderColor: 'rgba(96, 165, 250, 0.3)' }}
-                          onPress={() => {
-                            console.log('📝 Editing change order:', {
-                              id: co.id,
-                              title: co.title,
-                              amount: co.amount,
-                              materialsAmount: co.materialsAmount,
-                              laborAmount: co.laborAmount,
-                              fullCo: co,
-                            });
-                            setEditingChangeOrder(co);
-                            setShowChangeOrderModal(true);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                        >
-                          <MaterialIcons name="edit" size={16} color="#60a5fa" />
-                        </TouchableOpacity>
-                        {co.status !== 'Approved' && (
-                          <TouchableOpacity
-                            style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(34, 197, 94, 0.15)', borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.3)' }}
-                            onPress={() => {
-                              approveChangeOrder(co.id);
-                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                              Alert.alert('Approved', `Change order "${co.title}" has been approved. Budget updated.`);
-                            }}
-                          >
-                            <MaterialIcons name="check-circle-outline" size={16} color="#22c55e" />
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }}
-                          onPress={() => {
-                            Alert.alert(
-                              'Delete Change Order',
-                              `Are you sure you want to delete "${co.title}"? This action cannot be undone.`,
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                {
-                                  text: 'Delete',
-                                  style: 'destructive',
-                                  onPress: () => {
-                                    deleteChangeOrder(co.id);
-                                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                                  },
-                                },
-                              ]
-                            );
-                          }}
-                        >
-                          <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
-                        </TouchableOpacity>
-                      </View>
-                                </View>
-                              </View>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    </View>
+                  </View>
+                </View>
                   );
                 })()}
               </View>
@@ -1686,7 +1461,7 @@ export default function BudgetTab({
                   const total = parseFloat(co.amount || '0') || (materials + labor);
                   
                   if (editingChangeOrder) {
-                    // Update existing change order
+                    // Update existing change order - keep existing approval status
                     const updatedCO = {
                       ...editingChangeOrder,
                       title: co.title,
@@ -1699,22 +1474,58 @@ export default function BudgetTab({
                     };
                     updateChangeOrder(updatedCO);
                     setEditingChangeOrder(null);
+                    setShowChangeOrderModal(false);
+                    setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
+                    Alert.alert('Success', 'Change order updated successfully!');
                   } else {
-                    addChangeOrder({
-                      id: `co-${Date.now()}`,
-                      title: co.title,
-                      amount: total,
-                      materialsAmount: materials,
-                      laborAmount: labor,
-                      notes: co.notes || '',
-                      approved: false,
-                      status: 'Submitted',
-                    });
+                    // New change order - ask if they want to approve it
+                    Alert.alert(
+                      'Approve Change Order?',
+                      `Do you want to approve this change order for $${total.toFixed(2)}? Approved change orders will be added to your budget.`,
+                      [
+                        {
+                          text: 'Not Now',
+                          style: 'cancel',
+                          onPress: () => {
+                            // Create as unapproved
+                            addChangeOrder({
+                              id: `co-${Date.now()}`,
+                              title: co.title,
+                              amount: total,
+                              materialsAmount: materials,
+                              laborAmount: labor,
+                              notes: co.notes || '',
+                              approved: false,
+                              status: 'Submitted',
+                            });
+                            setShowChangeOrderModal(false);
+                            setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
+                            Alert.alert('Saved', 'Change order added. You can approve it later from the Orders tab.');
+                          },
+                        },
+                        {
+                          text: 'Approve',
+                          style: 'default',
+                          onPress: () => {
+                            // Create as approved - this will add to budget
+                            addChangeOrder({
+                              id: `co-${Date.now()}`,
+                              title: co.title,
+                              amount: total,
+                              materialsAmount: materials,
+                              laborAmount: labor,
+                              notes: co.notes || '',
+                              approved: true,
+                              status: 'Approved',
+                            });
+                            setShowChangeOrderModal(false);
+                            setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
+                            Alert.alert('Approved!', `Change order approved and added to budget. The amount ($${total.toFixed(2)}) has been added to your total budget.`);
+                          },
+                        },
+                      ]
+                    );
                   }
-                  setShowChangeOrderModal(false);
-                  setEditingChangeOrder(null);
-                  setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
-                  Alert.alert('Success', editingChangeOrder ? 'Change order updated successfully!' : 'Change order added successfully!');
                 } else {
                   Alert.alert('Error', 'Please fill in title and at least one amount (materials or labor)');
                 }
@@ -2075,8 +1886,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
   },
-  rowLabel: { fontSize: 16 },
-  rowValue: { fontSize: 16, fontWeight: '500' },
+  rowLabel: { 
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  rowValue: { 
+    fontSize: 16, 
+    fontWeight: '500',
+    lineHeight: 22,
+  },
   remainingSection: { marginTop: 12 },
   remainingLabel: { fontSize: 16, marginBottom: 8 },
   remainingText: { fontSize: 16, fontWeight: '500', marginTop: 8 },

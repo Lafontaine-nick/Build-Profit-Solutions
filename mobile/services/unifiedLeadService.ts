@@ -1,7 +1,49 @@
 import { Lead, LeadSource, LeadStage } from '../lib/leads/types';
 import Constants from 'expo-constants';
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.0.201:3001/api';
+const PRODUCTION_API_BASE_URL = 'https://build-profit-solutions-backend.onrender.com/api';
+
+const normalizeApiBaseUrl = (url: string): string => {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+};
+
+const isLocalUrl = (url: string): boolean => {
+  return url.includes('localhost') || url.includes('192.168.') || url.includes('10.0.2.2');
+};
+
+const resolveApiBaseUrl = (): string => {
+  const allowLocalBackend =
+    process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' ||
+    process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true' ||
+    process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
+
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (envUrl) {
+    const normalized = normalizeApiBaseUrl(envUrl);
+    if (isLocalUrl(normalized) && !allowLocalBackend) {
+      if (__DEV__) {
+        console.log('⚠️ unifiedLeadService ignoring local env URL, using production');
+      }
+      return PRODUCTION_API_BASE_URL;
+    }
+    return normalized;
+  }
+
+  const configUrl = Constants.expoConfig?.extra?.apiBaseUrl;
+  if (configUrl) {
+    const normalized = normalizeApiBaseUrl(configUrl);
+    if (isLocalUrl(normalized) && !allowLocalBackend) {
+      if (__DEV__) {
+        console.log('⚠️ unifiedLeadService ignoring local config URL, using production');
+      }
+      return PRODUCTION_API_BASE_URL;
+    }
+    return normalized;
+  }
+
+  return PRODUCTION_API_BASE_URL;
+};
 
 export interface LeadFilters {
   source?: LeadSource | 'all';
@@ -41,6 +83,9 @@ export interface LeadInsights {
 
 export class UnifiedLeadService {
   private contractorId: string;
+  private get apiBaseUrl(): string {
+    return resolveApiBaseUrl();
+  }
 
   constructor(contractorId: string = 'contractor-demo') {
     this.contractorId = contractorId;
@@ -67,7 +112,7 @@ export class UnifiedLeadService {
         queryParams.append('sortBy', filters.sortBy);
       }
 
-      const url = `${API_BASE_URL}/unified-leads/contractor/${this.contractorId}?${queryParams.toString()}`;
+      const url = `${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}?${queryParams.toString()}`;
       
       const response = await fetch(url, {
         headers: {
@@ -94,7 +139,7 @@ export class UnifiedLeadService {
   // Get lead statistics
   async getLeadStats(): Promise<LeadStats> {
     try {
-      const response = await fetch(`${API_BASE_URL}/unified-leads/contractor/${this.contractorId}/stats`);
+      const response = await fetch(`${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}/stats`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -112,7 +157,7 @@ export class UnifiedLeadService {
   // Get lead insights
   async getLeadInsights(): Promise<LeadInsights> {
     try {
-      const response = await fetch(`${API_BASE_URL}/unified-leads/contractor/${this.contractorId}/insights`);
+      const response = await fetch(`${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}/insights`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -130,7 +175,7 @@ export class UnifiedLeadService {
   // Update lead stage
   async updateLeadStage(leadId: string, stage: LeadStage): Promise<Lead> {
     try {
-      const response = await fetch(`${API_BASE_URL}/unified-leads/leads/${leadId}/stage`, {
+      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/stage`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -157,7 +202,7 @@ export class UnifiedLeadService {
   // Accept a lead
   async acceptLead(leadId: string, message?: string): Promise<Lead> {
     try {
-      const response = await fetch(`${API_BASE_URL}/unified-leads/leads/${leadId}/accept`, {
+      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/accept`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -190,7 +235,7 @@ export class UnifiedLeadService {
     documents?: string[]
   ): Promise<Lead> {
     try {
-      const response_body = await fetch(`${API_BASE_URL}/unified-leads/leads/${leadId}/respond-bid`, {
+      const response_body = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/respond-bid`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -220,7 +265,7 @@ export class UnifiedLeadService {
   // Get lead details
   async getLeadDetails(leadId: string): Promise<Lead> {
     try {
-      const response = await fetch(`${API_BASE_URL}/unified-leads/leads/${leadId}`);
+      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -238,7 +283,7 @@ export class UnifiedLeadService {
   // Create project-based leads (for GCs)
   async createProjectLeads(projectId: string, trades: string[]): Promise<Lead[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/project-leads/projects/${projectId}/create-leads`, {
+      const response = await fetch(`${this.apiBaseUrl}/project-leads/projects/${projectId}/create-leads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -271,7 +316,7 @@ export class UnifiedLeadService {
     deadline?: string
   ): Promise<Lead[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/bid-invitations/send-invitations`, {
+      const response = await fetch(`${this.apiBaseUrl}/bid-invitations/send-invitations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -308,7 +353,7 @@ export class UnifiedLeadService {
     minRating: number = 4.0
   ): Promise<Lead[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/shared-leads/share-lead`, {
+      const response = await fetch(`${this.apiBaseUrl}/shared-leads/share-lead`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -340,7 +385,7 @@ export class UnifiedLeadService {
   // Get available projects for lead creation
   async getAvailableProjects(): Promise<any[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/project-leads/projects`);
+      const response = await fetch(`${this.apiBaseUrl}/project-leads/projects`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -370,7 +415,7 @@ export class UnifiedLeadService {
         queryParams.append('area', area);
       }
 
-      const url = `${API_BASE_URL}/shared-leads/network?${queryParams.toString()}`;
+      const url = `${this.apiBaseUrl}/shared-leads/network?${queryParams.toString()}`;
       
       const response = await fetch(url);
       

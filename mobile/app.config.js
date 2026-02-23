@@ -35,6 +35,9 @@ export default {
       // Explicitly disable new architecture
       jsEngine: 'hermes',
       newArchEnabled: false,
+      infoPlist: {
+        NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
+      },
     },
     android: {
       adaptiveIcon: {
@@ -45,6 +48,9 @@ export default {
       // Explicitly disable new architecture
       jsEngine: 'hermes',
       newArchEnabled: false,
+      permissions: [
+        'android.permission.RECORD_AUDIO',
+      ],
     },
     web: {
       favicon: './assets/images/favicon.png',

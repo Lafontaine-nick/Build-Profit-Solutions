@@ -21,6 +21,7 @@ import clerkTokenCache from '../utils/clerkTokenCache';
 import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
+import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
 import '../i18n/config'; // Initialize i18n
 
 // Component to apply theme-aware styling and StatusBar
@@ -36,7 +37,7 @@ function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
 }
 
 function AuthGateWithClerk() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, getToken } = useAuth();
   const { user } = useUser();
   const { userRole, isLoading } = useUserRole();
 
@@ -137,6 +138,24 @@ function AuthGateWithClerk() {
       setNeedsProfileSetup(null);
     }
   }, [isSignedIn, user, user?.firstName, user?.lastName]);
+
+  // Keep API token storage in sync with active Clerk session.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        await syncClerkTokenToAsyncStorage(token);
+      } catch (error) {
+        console.warn('AuthGate - token sync failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, getToken]);
 
   // Check onboarding status (only when authenticated, profile complete, and role is set)
   useEffect(() => {

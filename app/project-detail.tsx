@@ -31,7 +31,12 @@ export type ProjectOverviewData = {
 
 // Helpers ----------------------------------------------------------
 const currency = (n: number, currency = "USD") =>
-  new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n);
+  new Intl.NumberFormat(undefined, { 
+    style: "currency", 
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(n);
 
 function pillColor(status: "Good" | "At Risk" | "Critical" | "On Track", darkMode: boolean = true) {
   switch (status) {

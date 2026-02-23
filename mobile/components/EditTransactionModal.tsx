@@ -234,7 +234,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
           <View style={styles.actions}>
             <View style={styles.deleteButtonWrapper}>
               <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
+                colors={["#ef4444", "#dc2626"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.deleteButtonBorder}
@@ -244,7 +244,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                   style={styles.deleteButton}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.deleteButtonText}>Cancel</Text>
+                  <Text style={styles.deleteButtonText}>Delete</Text>
                 </TouchableOpacity>
               </LinearGradient>
             </View>
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
   deleteButton: {
     paddingVertical: 14,
     borderRadius: 10.5,
-    backgroundColor: "#000000",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
     alignItems: "center",
     justifyContent: "center",
     width: "100%",

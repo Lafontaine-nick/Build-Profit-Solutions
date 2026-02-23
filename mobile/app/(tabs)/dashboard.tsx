@@ -32,6 +32,17 @@ const { width } = Dimensions.get("window");
 
 type TabKey = "overview" | "analytics" | "insights";
 
+// Format currency to show exact value (matching projects page) - no rounding
+const formatCurrencyExact = (value: number) => {
+  return value.toLocaleString('en-US', { 
+    style: 'currency', 
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2 
+  });
+};
+
+// Keep short format for backwards compatibility (but prefer exact)
 const formatCurrencyShort = (value: number) => {
   const absValue = Math.abs(value);
   if (absValue >= 1_000_000_000) {
@@ -150,11 +161,11 @@ const computePipelineTotals = (projects: any[]) => {
     }
   });
 
-  // Round up the totals
+  // Return exact values (no rounding) to match projects page
   return { 
-    totalBidValue: Math.ceil(totalBidValue), 
-    activeProjectsValue: Math.ceil(activeProjectsValue), 
-    completedProfit: Math.ceil(completedProfit) 
+    totalBidValue: totalBidValue, 
+    activeProjectsValue: activeProjectsValue, 
+    completedProfit: completedProfit 
   };
 };
 
@@ -609,10 +620,10 @@ const DashboardScreen: React.FC = () => {
         : 0;
 
     return {
-      totalBids: formatCurrencyShort(totalBids),
-      activeProjects: formatCurrencyShort(activeProjectsValue),
+      totalBids: formatCurrencyExact(totalBids),
+      activeProjects: formatCurrencyExact(activeProjectsValue),
       avgMargin: `${avgMargin.toFixed(1)}%`,
-      completedProfit: pipelineTotals.completedProfit,
+      completedProfit: formatCurrencyExact(pipelineTotals.completedProfit),
     };
   }, [activeProjects, estimates, dashboardMetrics, projects]);
 

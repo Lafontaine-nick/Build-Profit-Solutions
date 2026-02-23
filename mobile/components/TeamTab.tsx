@@ -594,46 +594,39 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
           ]}
         >
           {/* Remove Button */}
-          <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.editFormDeleteBorder}
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert(
+                "Remove Team Member",
+                `Are you sure you want to remove ${member.name} from the team?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Remove",
+                    style: "destructive",
+                    onPress: () => onDelete(member.id),
+                  },
+                ]
+              );
+            }}
+            style={[
+              styles.editFormDeleteBtn,
+              {
+                backgroundColor: darkMode ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.1)",
+                borderColor: "#ef4444",
+                borderWidth: 1,
+              },
+            ]}
           >
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                Alert.alert(
-                  "Remove Team Member",
-                  `Are you sure you want to remove ${member.name} from the team?`,
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Remove",
-                      style: "destructive",
-                      onPress: () => onDelete(member.id),
-                    },
-                  ]
-                );
-              }}
-              style={[
-                styles.editFormDeleteBtn,
-                {
-                  backgroundColor: darkMode ? Colors.bg : "#FFFFFF",
-                  borderColor: darkMode ? Colors.red : "transparent",
-                  borderWidth: darkMode ? 1 : 0,
-                },
-              ]}
+            <Text
+              style={[styles.editFormDeleteBtnText, { color: "#ef4444" }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
-              <Text
-                style={[styles.editFormDeleteBtnText, { color: darkMode ? Colors.text : "#000000" }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                Remove from Team
-              </Text>
-            </TouchableOpacity>
-          </LinearGradient>
+              Remove from Team
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={handleSave}
@@ -822,19 +815,20 @@ const AddMemberModal = ({ onClose, onAdd }: {
 
         {/* Actions */}
         <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 34 : 20, flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: Colors.line, backgroundColor: Colors.bg }}>
-          <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={{ flex: 1, borderRadius: 12, padding: 1 }}
+          <TouchableOpacity 
+            onPress={onClose} 
+            style={{ 
+              flex: 1,
+              backgroundColor: darkMode ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.1)",
+              borderColor: "#ef4444",
+              borderWidth: 1,
+              paddingVertical: 14, 
+              borderRadius: 12, 
+              alignItems: "center" 
+            }}
           >
-            <TouchableOpacity 
-              onPress={onClose} 
-              style={{ backgroundColor: darkMode ? "#000000" : "#FFFFFF", paddingVertical: 14, borderRadius: 11, alignItems: "center" }}
-            >
-              <Text style={{ color: darkMode ? "#FFFFFF" : "#000000", fontSize: 15, fontWeight: "600" }}>Cancel</Text>
-            </TouchableOpacity>
-          </LinearGradient>
+            <Text style={{ color: "#ef4444", fontSize: 15, fontWeight: "600" }}>Cancel</Text>
+          </TouchableOpacity>
           {darkMode ? (
             <LinearGradient
               colors={["rgba(34, 197, 94, 0.9)", "rgba(34, 211, 238, 0.9)"]}
@@ -2203,6 +2197,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   editFormDeleteBtn: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 14,

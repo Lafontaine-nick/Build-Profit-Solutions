@@ -21,6 +21,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Constants from "expo-constants";
+import { Audio } from "expo-av";
+// Use legacy API for readAsStringAsync (deprecated in v19+ but still works)
+import * as FileSystemLegacy from "expo-file-system/legacy";
 import SubcontractorSearchModal from "./SubcontractorSearchModal";
 import { useAIManagerMode } from "@/state/useAIManagerMode";
 import { Switch, ActivityIndicator } from "react-native";
@@ -28,7 +31,114 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "@clerk/clerk-expo";
+import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
+import { 
+  resolveProjectContext, 
+  requiresProjectContext,
+  detectProjectIntent,
+  type UIState,
+  type RecentProject,
+  formatClarificationMessage,
+  type ProjectIntent
+} from "@/lib/ai/projectContextResolver";
+import { useProjectList } from "@/contexts/ProjectListContext";
+import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
+import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
+import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
+import ProjectAnalysisCard from "./ProjectAnalysisCard";
+import { parseProjectAnalysisResponse, validateProjectAnalysisResponse } from "@/lib/ai/projectAnalysisTemplate";
+
+function resolveAIBaseUrl(): string {
+  const envBase = process.env.EXPO_PUBLIC_AI_API_URL;
+  if (envBase && typeof envBase === "string") {
+    console.log('🤖 Using AI API URL from env:', envBase);
+    return envBase;
+  }
+
+  // PRIORITY 1: For iOS Simulator, ALWAYS use localhost (simulator shares network with Mac)
+  // Check both isDevice being false/undefined and Platform.OS being ios
+  if (Platform.OS === "ios" && Constants.isDevice === false) {
+    console.log('📱 iOS Simulator detected - using localhost:3001');
+    return "http://localhost:3001";
+  }
+
+  if (Platform.OS === "web") {
+    console.log('🌐 Web platform detected - using localhost:3001');
+    return "http://localhost:3001";
+  }
+
+  // PRIORITY 2: For Android Emulator, use special IP
+  if (Platform.OS === "android" && Constants.isDevice === false) {
+    console.log('🤖 Android Emulator detected - using 10.0.2.2:3001');
+    return "http://10.0.2.2:3001";
+  }
+
+  // PRIORITY 3: For physical devices, try to detect network IP from Expo
+  // Expo often provides hostUri like "192.168.x.x:8081"
+  const expoConfig: any = (Constants as any).expoConfig || (Constants as any).manifest;
+  const hostUri: string | undefined =
+    expoConfig?.hostUri ||
+    expoConfig?.debuggerHost ||
+    (Constants as any)?.manifest2?.extra?.expoClient?.hostUri;
+
+  if (hostUri) {
+    const maybeIp = typeof hostUri === "string" ? hostUri.split(":")[0] : undefined;
+    if (maybeIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(maybeIp)) {
+      const url = `http://${maybeIp}:3001`;
+      console.log('📱 Physical device detected - using network IP:', url);
+      return url;
+    }
+  }
+
+  // PRIORITY 4: Use the same base URL logic as the main API (for physical devices)
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 
+                     process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
+                     (Constants.expoConfig?.extra?.devApiBaseUrl);
+  
+  if (apiBaseUrl) {
+    // Extract base URL without /api suffix if present
+    const base = apiBaseUrl.replace(/\/api\/?$/, '');
+    console.log('📱 Using API base URL from config:', base);
+    return base;
+  }
+
+  // PRIORITY 5: Fallback to common dev IPs (try multiple)
+  const fallbackIPs = [
+    "192.168.1.115",  // Common home network
+    "192.168.0.201",  // Alternative network
+    "192.168.68.115", // Another common network
+  ];
+
+  // Try to detect which network we're on by checking Expo hostUri patterns
+  for (const ip of fallbackIPs) {
+    if (hostUri && hostUri.includes(ip.split('.').slice(0, 3).join('.'))) {
+      const url = `http://${ip}:3001`;
+      console.log('📱 Using detected network IP:', url);
+      return url;
+    }
+  }
+
+  // Final fallback
+  const fallbackUrl = "http://192.168.1.115:3001";
+  console.warn('⚠️ Using fallback AI API URL:', fallbackUrl);
+  console.warn('💡 Set EXPO_PUBLIC_AI_API_URL env variable to override');
+  return fallbackUrl;
+}
+
+function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 'project' | 'general' {
+  const s = (screen || '').toLowerCase();
+  const st = (status || '').toLowerCase();
+
+  if (s.includes('estimate') || st === 'estimate' || st === 'draft' || st === 'submitted' || st === 'bid_submitted') {
+    return 'estimate';
+  }
+  if (s.includes('project')) {
+    return 'project';
+  }
+  return 'general';
+}
 
 const Colors = {
   bg: "#000000",
@@ -91,6 +201,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -103,6 +214,78 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const dotAnim2 = useRef(new Animated.Value(0.4)).current;
   const dotAnim3 = useRef(new Animated.Value(0.4)).current;
   const sendButtonScale = useRef(new Animated.Value(1)).current;
+  const { activeProjects, estimates, updateProject, getProjectById } = useProjectList();
+  const [pendingProjectSelection, setPendingProjectSelection] = useState<{
+    query: string;
+    options: Array<{ id: string; title: string; status?: string }>;
+  } | null>(null);
+  const [pendingAnalysisType, setPendingAnalysisType] = useState<{
+    query: string;
+    projectId: string;
+  } | null>(null);
+  const [lastOpenedProjectId, setLastOpenedProjectIdState] = useState<string | null>(null);
+  
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingDurationRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingStartTimeRef = useRef<number>(0);
+  
+  // Load last opened project ID on mount
+  useEffect(() => {
+    getLastOpenedProjectId().then(setLastOpenedProjectIdState);
+  }, []);
+  
+  // Timer effect - ensure timer runs when recording starts
+  useEffect(() => {
+    if (isRecording && !recordingDurationRef.current) {
+      // Start timer if recording but timer not running
+      recordingDurationRef.current = setInterval(() => {
+        setRecordingDuration((prev) => {
+          const newDuration = prev + 1;
+          return newDuration;
+        });
+      }, 1000);
+      console.log('⏱️ Timer started');
+    } else if (!isRecording && recordingDurationRef.current) {
+      // Stop timer when recording stops
+      clearInterval(recordingDurationRef.current);
+      recordingDurationRef.current = null;
+      console.log('⏱️ Timer stopped');
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (recordingDurationRef.current) {
+        clearInterval(recordingDurationRef.current);
+        recordingDurationRef.current = null;
+      }
+    };
+  }, [isRecording]);
+
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        // Check if recording is still active before trying to stop/unload
+        recording.getStatusAsync().then(status => {
+          if (status.isLoaded && status.isRecording) {
+            recording.stopAndUnloadAsync().catch(console.error);
+          }
+        }).catch(() => {
+          // If we can't get status, try to stop anyway (might already be stopped)
+          try {
+            recording.stopAndUnloadAsync().catch(() => {
+              // Ignore errors if already unloaded
+            });
+          } catch (e) {
+            // Ignore - recording might already be cleaned up
+          }
+        });
+      }
+    };
+  }, [recording]);
 
   // Auto-send initial question if provided
   const initialQuestionSentRef = useRef(false);
@@ -131,23 +314,24 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             // Trigger API call (extracted from sendMessage)
             (async () => {
               try {
-                let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
-                if (!AI_API_BASE) {
-                  if (Platform.OS === 'web') {
-                    AI_API_BASE = 'http://localhost:3001';
-                  } else {
-                    AI_API_BASE = 'http://192.168.1.115:3001';
-                  }
-                }
+                const AI_API_BASE = resolveAIBaseUrl();
                 const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+                console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
                 
                 // Create AbortController for timeout
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
+                
+                // Get auth token from Clerk
+                const token = await getToken();
+                const headers: Record<string, string> = { "Content-Type": "application/json" };
+                if (token) {
+                  headers["Authorization"] = `Bearer ${token}`;
+                }
                 
                 const response = await fetch(API_URL, {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers,
                   body: JSON.stringify({
                     message: initialQuestion.trim(),
                     context,
@@ -184,23 +368,24 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 }
               } catch (error: any) {
                 // Handle timeout/abort errors
-                if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-                  const timeoutMsg: Message = {
-                    id: Date.now().toString() + "-timeout",
-                    role: "assistant",
-                    content: "The request took too long. Please try again or check your connection.",
-                    timestamp: new Date(),
-                  };
-                  setMessages((prev) => [...prev, timeoutMsg]);
-                } else {
-                  const errorMsg: Message = {
-                    id: Date.now().toString() + "-error",
-                    role: "assistant",
-                    content: "Sorry, I encountered an error. Please try again.",
-                    timestamp: new Date(),
-                  };
-                  setMessages((prev) => [...prev, errorMsg]);
+                let errorMessage = "I ran into a connection issue talking to the AI.";
+                
+                if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
+                  errorMessage = "The request timed out. This usually means:\n\n1. The backend isn't running\n2. Network connection is slow\n\nTo start the backend:\ncd backend && npm start\n\nOr check: http://localhost:3001/health";
+                } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
+                  const AI_API_BASE = resolveAIBaseUrl();
+                  errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
+                } else if (error?.message) {
+                  errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
                 }
+                
+                const errorMsg: Message = {
+                  id: Date.now().toString() + "-error",
+                  role: "assistant",
+                  content: errorMessage,
+                  timestamp: new Date(),
+                };
+                setMessages((prev) => [...prev, errorMsg]);
                 setIsTyping(false);
                 setLoading(false);
               }
@@ -286,20 +471,155 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
 
   // Parse context to get project info
   let projectInfo = null;
+  let parsedContext: any = null;
   try {
     if (context) {
-      const parsed = JSON.parse(context);
+      parsedContext = JSON.parse(context);
       projectInfo = {
-        title: parsed.bidTitle || parsed.projectName || "Current Project",
-        phase: parsed.stepTitle || "Estimate phase",
-        total: parsed.bidTotal || parsed.total || 0,
-        overhead: parsed.overheadPct || 12,
-        markup: parsed.markupPct || parsed.bidData?.markupPct || 18,
+        title: parsedContext.bidTitle || parsedContext.projectName || "Current Project",
+        phase: parsedContext.stepTitle || "Estimate phase",
+        total: parsedContext.bidTotal || parsedContext.total || 0,
+        overhead: parsedContext.overheadPct || 12,
+        markup: parsedContext.markupPct || parsedContext.bidData?.markupPct || 18,
       };
     }
   } catch (e) {
     // Context parsing failed, use defaults
   }
+
+  // Build enhanced context with allProjects if not present
+  const enhancedContext = useMemo(() => {
+    try {
+      const baseContext = parsedContext || {};
+      
+      // Ensure allProjects is included with budget and expense data
+      if (!baseContext.allProjects) {
+        const allProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
+          id: p.id,
+          title: p.title || p.name || 'Untitled Project',
+          status: p.status || 'unknown',
+          lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
+          isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+            ((p.status || '') as string).toLowerCase()
+          ),
+          // Include budget and expense data for AI to use
+          bidPrice: p.bidPrice || 0,
+          estimatedCost: p.estimatedCost || 0,
+          actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
+          totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
+          expenses: p.expenses || p.projectData?.expenses || [],
+          expensesCount: (p.expenses || p.projectData?.expenses || []).length,
+        }));
+        
+        baseContext.allProjects = allProjects;
+      } else {
+        // Update existing allProjects with latest budget/expense data
+        const existingProjects = baseContext.allProjects || [];
+        const updatedProjects = existingProjects.map((existing: any) => {
+          const fullProject = [...activeProjects, ...estimates].find(p => p.id === existing.id);
+          if (fullProject) {
+            return {
+              ...existing,
+              bidPrice: fullProject.bidPrice || existing.bidPrice || 0,
+              estimatedCost: fullProject.estimatedCost || existing.estimatedCost || 0,
+              actualCost: fullProject.actualCost || fullProject.totalSpent || (fullProject.projectData?.actualCost || fullProject.projectData?.spent || existing.actualCost || 0),
+              totalSpent: fullProject.totalSpent || fullProject.actualCost || (fullProject.projectData?.spent || fullProject.projectData?.actualCost || existing.totalSpent || 0),
+              expenses: fullProject.expenses || fullProject.projectData?.expenses || existing.expenses || [],
+              expensesCount: (fullProject.expenses || fullProject.projectData?.expenses || []).length || existing.expensesCount || 0,
+            };
+          }
+          return existing;
+        });
+        baseContext.allProjects = updatedProjects;
+      }
+      
+      // Add activeProjectId if available
+      if (baseContext.projectId && !baseContext.activeProjectId) {
+        baseContext.activeProjectId = baseContext.projectId;
+      }
+      
+      // Add lastOpenedProjectId if available
+      if (lastOpenedProjectId) {
+        baseContext.lastOpenedProjectId = lastOpenedProjectId;
+      }
+
+      // Add deterministic routing hint so backend can choose the right toolset (project vs estimate)
+      // This prevents estimate-page commands from accidentally using project expense tools and vice versa.
+      if (!baseContext.assistantDomain) {
+        baseContext.assistantDomain = computeAssistantDomain(baseContext.screen, baseContext.status);
+      }
+      
+      return JSON.stringify(baseContext);
+    } catch (e) {
+      console.error('Error enhancing context:', e);
+      return context || '{}';
+    }
+  }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject]);
+
+  // Handler for project selection from chips
+  const handleProjectSelection = async (projectId: string) => {
+    if (!pendingProjectSelection) return;
+    
+    // Store as last opened
+    await setLastOpenedProjectId(projectId);
+    setLastOpenedProjectIdState(projectId);
+    
+    // Get the selected project name
+    const selectedProject = [...activeProjects, ...estimates].find(p => p.id === projectId);
+    const projectName = selectedProject?.title || selectedProject?.name || 'the project';
+    
+    const query = pendingProjectSelection.query;
+    setPendingProjectSelection(null);
+    
+    // Check if we need to ask about analysis type
+    const intent = detectProjectIntent(query);
+    if (intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+      setPendingAnalysisType({
+        query,
+        projectId,
+      });
+      // Show a message asking about analysis type
+      const analysisTypeMsg: Message = {
+        id: Date.now().toString() + '-analysis-type',
+        role: 'assistant',
+        content: `Got it! I'll analyze ${projectName}. Do you want a quick health check or full breakdown?`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, analysisTypeMsg]);
+      return;
+    }
+    
+    // Send the query with resolved project
+    setInput(query);
+    // Small delay to ensure input is set, then trigger send
+    setTimeout(() => {
+      sendMessage();
+    }, 100);
+  };
+
+  // Handler for analysis type selection from chips
+  const handleAnalysisTypeSelection = async (type: 'quick' | 'full') => {
+    if (!pendingAnalysisType) return;
+    
+    const query = pendingAnalysisType.query;
+    const projectId = pendingAnalysisType.projectId;
+    setPendingAnalysisType(null);
+    
+    // Modify the query to include the analysis type
+    let modifiedQuery = query;
+    if (type === 'quick') {
+      modifiedQuery = `${query} (quick health check)`;
+    } else {
+      modifiedQuery = `${query} (full breakdown)`;
+    }
+    
+    // Send the modified query
+    setInput(modifiedQuery);
+    // Small delay to ensure input is set, then trigger send
+    setTimeout(() => {
+      sendMessage();
+    }, 100);
+  };
 
   // Hash-based caching for health summaries
   const computeProjectHash = (projectData: any): string => {
@@ -521,6 +841,160 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   };
 
+  // Voice recording functions
+  const startRecording = async () => {
+    try {
+      // Request permissions
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please allow microphone access to use voice recording.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Set audio mode for recording
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      // Start recording
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      
+      setRecording(newRecording);
+      setRecordingDuration(0); // Reset duration
+      recordingStartTimeRef.current = Date.now();
+      setIsRecording(true); // This will trigger the useEffect to start the timer
+      
+      console.log('🎤 Recording started');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      Alert.alert('Error', 'Failed to start recording. Please try again.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    
+    try {
+      setIsRecording(false);
+      if (recordingDurationRef.current) {
+        clearInterval(recordingDurationRef.current);
+        recordingDurationRef.current = null;
+      }
+      
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+      
+      const uri = recording.getURI();
+      setRecording(null);
+      
+      if (!uri) {
+        Alert.alert('Error', 'Recording failed. Please try again.');
+        return;
+      }
+      
+      // Convert audio to text
+      await transcribeAudio(uri);
+      
+      // Clean up the audio file - temp files are auto-cleaned by OS
+      // No need to manually delete, expo-av handles cleanup
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (err) {
+      console.error('Failed to stop recording:', err);
+      Alert.alert('Error', 'Failed to process recording. Please try again.');
+      setRecording(null);
+      setIsRecording(false);
+    }
+  };
+
+  const transcribeAudio = async (audioUri: string) => {
+    try {
+      setLoading(true);
+      console.log('🎤 Starting transcription for:', audioUri);
+      
+      // Read the audio file as base64 using legacy API (required for expo-file-system v19+)
+      // The legacy API maintains backward compatibility with readAsStringAsync
+      const base64Audio = await FileSystemLegacy.readAsStringAsync(audioUri, {
+        encoding: 'base64',
+      });
+      
+      console.log('🎤 Audio file read, size:', base64Audio.length, 'characters');
+      
+      // Get auth token
+      const token = await getToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      
+      // Send to backend for transcription
+      const AI_API_BASE = resolveAIBaseUrl();
+      const API_URL = `${AI_API_BASE}/api/ai-assistant/transcribe`;
+      
+      console.log('🎤 Sending transcription request to:', API_URL);
+      
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          audio: base64Audio,
+          format: Platform.OS === 'ios' ? 'm4a' : 'mp4', // iOS uses m4a, Android uses mp4
+        }),
+      });
+      
+      console.log('🎤 Transcription response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('🎤 Transcription failed:', response.status, errorData);
+        throw new Error(`Transcription failed: ${response.status} - ${errorData.message || errorData.error || 'Unknown error'}`);
+      }
+      
+      const data = await response.json();
+      console.log('🎤 Transcription response:', data);
+      
+      const transcribedText = data.text || data.transcription || '';
+      
+      if (transcribedText.trim()) {
+        console.log('✅ Transcription successful:', transcribedText);
+        // Set the transcribed text in the input field
+        setInput(transcribedText);
+        // Optionally auto-send
+        // sendMessage();
+      } else {
+        console.warn('⚠️ Transcription returned empty text');
+        Alert.alert('No Speech Detected', 'Could not detect any speech in the recording. Please try again.');
+      }
+    } catch (err: any) {
+      console.error('❌ Transcription error:', err);
+      console.error('❌ Error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+      });
+      
+      // Show more helpful error message
+      const errorMessage = err.message || 'Unknown error occurred';
+      Alert.alert(
+        'Transcription Unavailable',
+        `Voice transcription failed: ${errorMessage}. Please type your message instead.`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
@@ -566,31 +1040,128 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       // - Web: use localhost
       // - All mobile (simulator/device): use Mac's LAN IP (most reliable)
       // - You can override with EXPO_PUBLIC_AI_API_URL env variable
-      let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
-      
-      if (!AI_API_BASE) {
-        if (Platform.OS === 'web') {
-          AI_API_BASE = 'http://localhost:3001';
-                  } else {
-                    // For all mobile platforms (iOS/Android, simulator/device), use network IP
-                    // This is more reliable than localhost which doesn't work with Expo Go
-                    AI_API_BASE = 'http://192.168.1.115:3001';
-                  }
-      }
+      const AI_API_BASE = resolveAIBaseUrl();
       
       const API_URL = `${AI_API_BASE}/api/ai-assistant`;
       console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
 
+      // Use project context resolver for queries that need project context
+      let finalContext = enhancedContext;
+      let resolvedProjectId: string | null = null;
+      const intent = detectProjectIntent(newMessage.content);
+      
+      // Check if this is a follow-up after chip selection (project ID might be in pendingAnalysisType)
+      if (pendingAnalysisType && !intent.needsProject) {
+        // This is the analysis type selection, use the pending project ID
+        resolvedProjectId = pendingAnalysisType.projectId;
+      }
+      
+      if (intent.needsProject || resolvedProjectId) {
+        try {
+          const uiState: UIState = {
+            activeProjectId: parsedContext?.projectId || parsedContext?.activeProjectId,
+            selectedProjectId: parsedContext?.projectId,
+            currentScreen: parsedContext?.screen || 'AI Assistant',
+            lastOpenedProjectId: lastOpenedProjectId,
+          };
+          
+          const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
+            id: p.id,
+            title: p.title || p.name || 'Untitled Project',
+            status: p.status || 'unknown',
+            lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
+            isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+              ((p.status || '') as string).toLowerCase()
+            ),
+          }));
+          
+          // If we already have a resolved project ID from chip selection, use it
+          if (!resolvedProjectId) {
+            const projectContext = resolveProjectContext(newMessage.content, uiState, recentProjects);
+            
+            if (projectContext.needsClarification && projectContext.clarificationType === 'project_selection') {
+              // Show project selection chips
+              setPendingProjectSelection({
+                query: newMessage.content,
+                options: projectContext.options || [],
+              });
+              // Add a clarification message to the chat
+              const clarificationMsg: Message = {
+                id: Date.now().toString() + '-clarification',
+                role: 'assistant',
+                content: 'Which project do you mean?',
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, clarificationMsg]);
+              setLoading(false);
+              setIsTyping(false);
+              return; // Don't send to AI, wait for user to select project
+            } else if (projectContext.projectId) {
+              resolvedProjectId = projectContext.projectId;
+            }
+          }
+          
+          if (resolvedProjectId) {
+            // Store as last opened
+            await setLastOpenedProjectId(resolvedProjectId);
+            setLastOpenedProjectIdState(resolvedProjectId);
+            
+            // Check if we need to ask about analysis type (only if not already selected)
+            if (!pendingAnalysisType && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+              setPendingAnalysisType({
+                query: newMessage.content,
+                projectId: resolvedProjectId,
+              });
+              // Add a message asking about analysis type
+              const analysisTypeMsg: Message = {
+                id: Date.now().toString() + '-analysis-type',
+                role: 'assistant',
+                content: 'Do you want a quick health check or full breakdown?',
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, analysisTypeMsg]);
+              setLoading(false);
+              setIsTyping(false);
+              return; // Don't send to AI, wait for user to select analysis type
+            }
+            
+            // Enhance context with resolved project ID
+            const contextObj = JSON.parse(finalContext);
+            contextObj.resolvedProjectId = resolvedProjectId;
+            if (intent.analysisType !== 'unspecified') {
+              contextObj.requestedAnalysisType = intent.analysisType;
+            }
+            finalContext = JSON.stringify(contextObj);
+          }
+        } catch (e) {
+          console.error('Error resolving project context:', e);
+          // Continue with original context if resolver fails
+        }
+      }
+
       // Create AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
 
+      // Get auth token from Clerk
+      const token = await getToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        // Sync Clerk token to AsyncStorage for BackendAPI compatibility
+        try {
+          await syncClerkTokenToAsyncStorage(token);
+        } catch (e) {
+          console.warn('Could not sync Clerk token to AsyncStorage:', e);
+        }
+      }
+      
       const response = await fetch(API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           message: newMessage.content,
-          context,
+          context: finalContext,
           history: messages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -645,6 +1216,211 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         // The PDF will be generated by the action handler, so we'll add it after action execution
       };
 
+      // Sync project data if expense was added (check for projectUpdate in tool results)
+      console.log('🔍 AIAssistantModal: Checking for projectUpdate', {
+        hasProjectUpdate: !!data.projectUpdate,
+        projectUpdate: data.projectUpdate,
+        reply: data.reply?.substring(0, 100)
+      });
+      
+      if (data.projectUpdate || (data.reply && data.reply.includes('added') && data.reply.includes('$'))) {
+        try {
+          // Check if response contains project update data from function calls
+          // The AI assistant returns projectUpdate in the function result
+          if (data.projectUpdate) {
+            const { projectId, totalSpent, actualCost, remaining, expenses, expensesCount, purchaseOrders, committedPOs } = data.projectUpdate;
+            
+            console.log('📥 AIAssistantModal: Received projectUpdate', {
+              projectId,
+              expensesCount: expenses?.length || 0,
+              purchaseOrdersCount: purchaseOrders?.length || 0,
+              committedPOs,
+              totalSpent,
+              expenseIds: expenses?.map((e: any) => e.id) || [],
+              poIds: purchaseOrders?.map((po: any) => po.id) || []
+            });
+            
+            // Get current project to merge updates
+            const currentProject = getProjectById(projectId);
+            console.log('🔍 AIAssistantModal: Current project lookup', {
+              projectId,
+              found: !!currentProject,
+              currentExpensesCount: currentProject?.projectData?.expenses?.length || currentProject?.expenses?.length || 0,
+              currentPOsCount: currentProject?.projectData?.purchaseOrders?.length || 0
+            });
+            
+            if (currentProject) {
+              // Merge expenses array - combine existing with new expenses
+              const existingExpenses = currentProject.projectData?.expenses || currentProject.expenses || [];
+              const newExpenses = expenses || [];
+              
+              // Create a map to avoid duplicates (by ID)
+              const expenseMap = new Map();
+              existingExpenses.forEach((e: any) => {
+                if (e.id) expenseMap.set(e.id, e);
+              });
+              newExpenses.forEach((e: any) => {
+                if (e.id) expenseMap.set(e.id, e);
+              });
+              const mergedExpenses = Array.from(expenseMap.values());
+              
+              // Merge purchase orders array - combine existing with new purchase orders
+              const existingPOs = currentProject.projectData?.purchaseOrders || [];
+              const incomingPOs = purchaseOrders || [];
+              
+              console.log('📦 AIAssistantModal: Merging purchase orders', {
+                existingPOsCount: existingPOs.length,
+                incomingPOsCount: incomingPOs.length,
+                existingPOIds: existingPOs.map((po: any) => ({ id: po.id, poNumber: po.poNumber })),
+                incomingPOIds: incomingPOs.map((po: any) => ({ id: po.id, poNumber: po.poNumber }))
+              });
+              
+              // Create a map to avoid duplicates (by ID or poNumber)
+              const poMap = new Map();
+              existingPOs.forEach((po: any) => {
+                if (po.id) poMap.set(po.id, po);
+                else if (po.poNumber) poMap.set(po.poNumber, po);
+              });
+              
+              // Find which POs are actually new (not in existing)
+              const newPOs: any[] = [];
+              incomingPOs.forEach((po: any) => {
+                const existsById = po.id && poMap.has(po.id);
+                const existsByNumber = po.poNumber && poMap.has(po.poNumber);
+                
+                if (!existsById && !existsByNumber) {
+                  newPOs.push(po);
+                  console.log('📦 Found NEW purchase order:', { id: po.id, poNumber: po.poNumber, amount: po.amount });
+                } else {
+                  console.log('📦 Purchase order already exists:', { id: po.id, poNumber: po.poNumber, existsById, existsByNumber });
+                }
+                
+                // Add to map (update if exists)
+                if (po.id) poMap.set(po.id, po);
+                else if (po.poNumber) poMap.set(po.poNumber, po);
+              });
+              
+              const mergedPOs = Array.from(poMap.values());
+              
+              console.log('📦 AIAssistantModal: After merge', {
+                mergedPOsCount: mergedPOs.length,
+                newPOsCount: newPOs.length,
+                newPOs: newPOs.map((po: any) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount }))
+              });
+              
+              // Calculate committed POs from merged list
+              const calculatedCommittedPOs = mergedPOs
+                .filter((po: any) => po.status === 'Pending')
+                .reduce((sum: number, po: any) => sum + (Number(po.amount) || 0), 0);
+              
+              // Update project with new expense and PO data - this syncs to all pages
+              updateProject(projectId, {
+                actualCost: actualCost || totalSpent || 0,
+                totalSpent: totalSpent || 0,
+                expenses: mergedExpenses, // Update at project level
+                projectData: {
+                  ...currentProject.projectData,
+                  actualCost: actualCost || totalSpent || 0,
+                  spent: totalSpent || 0,
+                  expenses: mergedExpenses, // Update in projectData too
+                  purchaseOrders: mergedPOs, // Update purchase orders
+                  committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs, // Update committed POs
+                },
+              });
+              
+              console.log('✅ Synced project data after update:', {
+                projectId,
+                totalSpent,
+                expensesCount,
+                mergedExpensesCount: mergedExpenses.length,
+                purchaseOrdersCount: mergedPOs.length,
+                committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs,
+              });
+              
+              // Trigger refresh callback if provided (for project detail page)
+              // This will trigger ProjectDataContext to reload from ProjectListContext
+              if (onAction) {
+                onAction({ 
+                  type: 'project_updated', 
+                  projectId,
+                  expenses: mergedExpenses,
+                  purchaseOrders: mergedPOs,
+                  committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs,
+                  totalSpent: actualCost || totalSpent || 0
+                });
+              }
+              
+              // CRITICAL: Always call addPurchaseOrder for ALL incoming POs from projectUpdate
+              // This ensures immediate local state update in ProjectDataContext, just like materials/labor expenses
+              // We check incomingPOs (from backend) not mergedPOs (already merged into ProjectListContext)
+              // This way, even if the PO was just merged into ProjectListContext, we still trigger the action
+              if (incomingPOs && incomingPOs.length > 0 && onAction) {
+                console.log('📦 AIAssistantModal: Calling addPurchaseOrder for ALL incoming POs from projectUpdate', {
+                  incomingPOsCount: incomingPOs.length,
+                  incomingPOs: incomingPOs.map((po: any) => ({ 
+                    id: po.id,
+                    poNumber: po.poNumber, 
+                    amount: po.amount, 
+                    vendor: po.vendor,
+                    status: po.status,
+                    category: po.category
+                  })),
+                  hasOnAction: !!onAction,
+                  projectId
+                });
+                // Call the action handler for each incoming PO to ensure local state is updated immediately
+                // The action handler will handle duplicates correctly
+                incomingPOs.forEach((incomingPO: any) => {
+                  console.log('📦 AIAssistantModal: Sending add_purchase_order action for PO:', {
+                    poNumber: incomingPO.poNumber,
+                    amount: incomingPO.amount,
+                    vendor: incomingPO.vendor,
+                    category: incomingPO.category
+                  });
+                  onAction({
+                    type: 'add_purchase_order',
+                    projectId: projectId,
+                    amount: incomingPO.amount,
+                    vendor: incomingPO.vendor,
+                    category: incomingPO.category || 'Materials/Equipment',
+                    description: incomingPO.description || `${incomingPO.category || 'Material'} from ${incomingPO.vendor}`,
+                    poNumber: incomingPO.poNumber,
+                    expectedDelivery: incomingPO.expectedDelivery || null,
+                  });
+                });
+                console.log('✅ AIAssistantModal: Sent all add_purchase_order actions for incoming POs');
+              } else {
+                console.warn('⚠️ AIAssistantModal: Not calling addPurchaseOrder - incomingPOs:', incomingPOs?.length || 0, 'hasOnAction:', !!onAction);
+                
+                // FALLBACK: If we have purchase orders in projectUpdate but no incomingPOs,
+                // trigger the project_updated action to sync
+                if (mergedPOs.length > 0 && onAction) {
+                  console.log('📦 FALLBACK: Triggering project_updated action to sync purchase orders', {
+                    mergedPOsCount: mergedPOs.length
+                  });
+                  onAction({
+                    type: 'project_updated',
+                    projectId,
+                    purchaseOrders: mergedPOs,
+                    committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs,
+                    totalSpent: actualCost || totalSpent || 0
+                  });
+                }
+              }
+              
+              // Also trigger a small delay to allow ProjectDataContext to sync
+              // The project detail page should reload ProjectDataContext when it receives the update
+              setTimeout(() => {
+                // Force a re-render by triggering the onAction again if needed
+                console.log('🔄 Triggering project data refresh for Materials & Equipment page');
+              }, 100);
+            }
+          }
+        } catch (error) {
+          console.error('Error syncing project data:', error);
+        }
+      }
+
       // Cache health check responses
       const isHealthCheck = newMessage.content.toLowerCase().includes('health check') || 
                            newMessage.content.toLowerCase().includes('project health');
@@ -668,6 +1444,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       
       // Handle AI actions if any - but first show confirmation
       if (data.actions && Array.isArray(data.actions) && onAction) {
+        console.log('🔍 AIAssistantModal: Received actions from backend:', {
+          actionsCount: data.actions.length,
+          actions: data.actions.map((a: any) => ({ type: a.type, projectId: a.projectId, amount: a.amount, vendor: a.vendor }))
+        });
+        
         // Deduplicate actions by creating a unique key for each action
         const seenActions = new Set<string>();
         const uniqueActions: any[] = [];
@@ -678,12 +1459,26 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
           if (!seenActions.has(actionKey)) {
             seenActions.add(actionKey);
             uniqueActions.push(action);
+            console.log('✅ AIAssistantModal: Added unique action:', { type: action.type, key: actionKey });
+          } else {
+            console.log('⚠️ AIAssistantModal: Skipped duplicate action:', { type: action.type, key: actionKey });
           }
+        });
+        
+        console.log('📋 AIAssistantModal: Processing unique actions:', {
+          uniqueCount: uniqueActions.length,
+          uniqueActions: uniqueActions.map((a: any) => ({ type: a.type, projectId: a.projectId }))
         });
         
         // Show confirmation for each unique action (only once)
         uniqueActions.forEach((action: any) => {
           const actionDescription = getActionDescription(action);
+          console.log('🔍 AIAssistantModal: Action description:', {
+            type: action.type,
+            hasDescription: !!actionDescription,
+            description: actionDescription
+          });
+          
           if (actionDescription) {
             // Show confirmation alert
             setTimeout(() => {
@@ -710,8 +1505,14 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     text: 'Confirm',
                     style: 'default',
                     onPress: async () => {
+                      console.log('✅ AIAssistantModal: User confirmed action:', {
+                        type: action.type,
+                        action: action
+                      });
                       if (onAction) {
+                        console.log('📤 AIAssistantModal: Calling onAction handler...');
                         const result = await onAction(action);
+                        console.log('📥 AIAssistantModal: onAction handler returned:', result);
                         // If show_contract action returns a PDF URI, add it to the last message
                         if (action.type === 'show_contract' && result?.pdfUri) {
                           setMessages((prev) => {
@@ -767,10 +1568,13 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       let errorMessage = "I ran into a connection issue talking to the AI.";
       
       // Provide more specific error messages
-      if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
-        errorMessage = "I can't connect to the AI backend server. Please make sure the AI backend is running on port 3000.\n\nTo start it, run:\ncd bps-ai-backend && npm run dev";
+      if (error?.name === 'AbortError' || error?.message?.includes("aborted") || error?.message?.includes("timeout")) {
+        errorMessage = "The request timed out. This usually means:\n\n1. The backend isn't running\n2. Network connection is slow\n\nTo start the backend:\ncd backend && npm start\n\nOr check: http://localhost:3001/health";
+      } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
+        const AI_API_BASE = resolveAIBaseUrl();
+        errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
       } else if (error?.message) {
-        errorMessage = `Connection error: ${error.message}`;
+        errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
       }
       
       setMessages((prev) => [
@@ -844,23 +1648,24 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         // Make API call
         (async () => {
           try {
-            let AI_API_BASE = process.env.EXPO_PUBLIC_AI_API_URL;
-            if (!AI_API_BASE) {
-              if (Platform.OS === 'web') {
-                AI_API_BASE = 'http://localhost:3001';
-              } else {
-                AI_API_BASE = 'http://192.168.1.62:3001';
-              }
-            }
+            const AI_API_BASE = resolveAIBaseUrl();
             const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+            console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
             
             // Create AbortController for timeout
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
+            
+            // Get auth token from Clerk
+            const token = await getToken();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (token) {
+              headers["Authorization"] = `Bearer ${token}`;
+            }
             
             const response = await fetch(API_URL, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers,
               body: JSON.stringify({
                 message: messageToSend.trim(),
                 context,
@@ -877,6 +1682,16 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             
             clearTimeout(timeoutId);
             const data = await response.json();
+            
+            console.log('📥 AIAssistantModal: Received response from backend (second handler):', {
+              hasReply: !!data.reply,
+              replyPreview: data.reply?.substring(0, 100),
+              hasActions: !!data.actions,
+              actionsCount: data.actions?.length || 0,
+              actions: data.actions || [],
+              hasProjectUpdate: !!data.projectUpdate,
+              hasError: !!data.error
+            });
             
             if (data.error) {
               let errorMessage = data.message || "Sorry, I couldn't generate a response.";
@@ -909,17 +1724,37 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               }, 100);
               
               // Handle AI actions if any
+              console.log('🔍 AIAssistantModal: Checking for actions (second handler):', {
+                hasActions: !!data.actions,
+                isArray: Array.isArray(data.actions),
+                actionsCount: data.actions?.length || 0,
+                hasOnAction: !!onAction,
+                actions: data.actions
+              });
+              
               if (data.actions && Array.isArray(data.actions) && onAction) {
+                console.log('✅ AIAssistantModal: Processing actions, count:', data.actions.length);
                 const seenActions = new Set<string>();
                 const uniqueActions: any[] = [];
                 
                 data.actions.forEach((action: any) => {
+                  console.log('📋 AIAssistantModal: Processing action:', {
+                    type: action.type,
+                    projectId: action.projectId,
+                    amount: action.amount,
+                    vendor: action.vendor
+                  });
                   const actionKey = `${action.type}-${JSON.stringify(action.params || {})}`;
                   if (!seenActions.has(actionKey)) {
                     seenActions.add(actionKey);
                     uniqueActions.push(action);
+                    console.log('✅ AIAssistantModal: Added unique action:', action.type);
+                  } else {
+                    console.log('⚠️ AIAssistantModal: Skipped duplicate action:', action.type);
                   }
                 });
+                
+                console.log('📋 AIAssistantModal: Unique actions to process:', uniqueActions.length);
                 
                 uniqueActions.forEach((action) => {
                   const confirmationMessage = getActionDescription(action);
@@ -1058,6 +1893,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === "user";
+    
+    // Check if this message needs chips
+    const showProjectChips = !isUser && item.id.includes('clarification') && pendingProjectSelection;
+    const showAnalysisChips = !isUser && pendingAnalysisType;
+    
     return (
       <View
         style={[
@@ -1129,7 +1969,53 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   <Ionicons name="sparkles" size={12} color={Colors.green} />
                   <Text style={styles.assistantLabelText}>AI Assistant</Text>
                 </View>
-                {renderFormattedText(item.content)}
+                {/* Try to parse as structured project analysis - only if it's actually an analysis response */}
+                {(() => {
+                  // Check if the previous user message was asking for analysis (not an action)
+                  const previousUserMessage = messages.find((m, idx) => 
+                    idx < messages.indexOf(item) && m.role === 'user'
+                  );
+                  const isAnalysisRequest = previousUserMessage && 
+                    !previousUserMessage.content.toLowerCase().includes('add') &&
+                    !previousUserMessage.content.toLowerCase().includes('create') &&
+                    !previousUserMessage.content.toLowerCase().includes('update') &&
+                    !previousUserMessage.content.toLowerCase().includes('record') &&
+                    (previousUserMessage.content.toLowerCase().includes('analyze') ||
+                     previousUserMessage.content.toLowerCase().includes('analysis') ||
+                     previousUserMessage.content.toLowerCase().includes('health') ||
+                     previousUserMessage.content.toLowerCase().includes('status') ||
+                     previousUserMessage.content.toLowerCase().includes('how is'));
+                  
+                  // Only try to parse as analysis if it was an analysis request
+                  if (isAnalysisRequest) {
+                    // Try parsing as JSON first (structured response)
+                    let analysis = null;
+                    try {
+                      if (item.content.trim().startsWith('{')) {
+                        analysis = JSON.parse(item.content);
+                      } else {
+                        // Try parsing from formatted text
+                        analysis = parseProjectAnalysisResponse(item.content);
+                      }
+                    } catch (e) {
+                      // Not JSON, try text parsing
+                      analysis = parseProjectAnalysisResponse(item.content);
+                    }
+                    
+                    if (analysis && validateProjectAnalysisResponse(analysis).valid) {
+                      return (
+                        <ProjectAnalysisCard
+                          analysis={analysis}
+                          darkMode={darkMode}
+                          onAction={onAction}
+                        />
+                      );
+                    }
+                  }
+                  // Fallback to regular formatted text
+                  return renderFormattedText(item.content);
+                })()}
+                {/* Note: Chips are shown outside message bubbles in the main list area */}
                 {(item.pdfUri || item.attachment) && (
                   <View style={styles.pdfAttachmentWrapper}>
                     <LinearGradient
@@ -1536,16 +2422,47 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                       color={Colors.sub}
                       style={{ marginLeft: 12, marginRight: 8 }}
                     />
-                    <TextInput
-                      style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                      placeholder="Ask anything about this project…"
-                      placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
-                      value={input}
-                      onChangeText={setInput}
-                      multiline
-                      maxLength={500}
-                      textAlignVertical="center"
-                    />
+                    {isRecording ? (
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                          <View style={{ 
+                            width: 8, 
+                            height: 8, 
+                            borderRadius: 4, 
+                            backgroundColor: '#ef4444', 
+                            marginRight: 8,
+                            opacity: recordingDuration % 2 === 0 ? 1 : 0.5
+                          }} />
+                          <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
+                            Recording... {recordingDuration}s
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <TextInput
+                        style={[styles.input, !darkMode && { color: "#6B7280" }]}
+                        placeholder="Ask anything about this project…"
+                        placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
+                        value={input}
+                        onChangeText={setInput}
+                        multiline
+                        maxLength={500}
+                        textAlignVertical="center"
+                      />
+                    )}
+                    {/* Microphone button */}
+                    <TouchableOpacity
+                      onPress={isRecording ? stopRecording : startRecording}
+                      disabled={loading}
+                      style={styles.micButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={isRecording ? "stop-circle" : "mic"}
+                        size={20}
+                        color={isRecording ? "#ef4444" : Colors.green}
+                      />
+                    </TouchableOpacity>
                   </View>
                 </LinearGradient>
               </View>
@@ -1859,6 +2776,17 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     maxHeight: 100,
     lineHeight: 20,
+  },
+  recordingText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  micButton: {
+    padding: 8,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sendButtonWrapper: {
     marginLeft: 0,

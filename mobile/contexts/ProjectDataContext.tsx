@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ProjectOverview } from '../components/OverviewScreen';
 import { useProjectList } from './ProjectListContext';
@@ -13,7 +13,7 @@ export type PurchaseOrder = {
   description?: string;
   orderDate: string;
   expectedDelivery: string;
-  status: 'Pending' | 'Received' | 'Cancelled';
+  status: 'Pending' | 'Received' | 'Cancelled' | 'Archived';
   notes?: string;
 };
 
@@ -28,6 +28,7 @@ interface ProjectDataContextType {
     receiptUri?: string | null;
   }) => void;
   deleteExpense: (expenseId: string) => void;
+  clearAllExpenses: () => void;
   updateExpense: (expense: {
     id: string;
     category?: string;
@@ -40,6 +41,7 @@ interface ProjectDataContextType {
   updatePurchaseOrder: (po: PurchaseOrder) => void;
   markPOReceived: (poId: string) => void;
   cancelPO: (poId: string) => void;
+  archivePO: (poId: string) => void;
   addChangeOrder: (changeOrder: {
     id: string;
     title?: string;
@@ -188,6 +190,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     useState<ProjectOverview>(getInitialProjectData(projectId));
   const [isLoaded, setIsLoaded] = useState(false);
   const { updateProject, getProjectById } = useProjectList();
+  // Track last save to prevent race conditions with useEffect
+  const lastSaveRef = useRef<{ purchaseOrdersCount: number; timestamp: number }>({ purchaseOrdersCount: 0, timestamp: 0 });
 
   const syncProjectList = useCallback(
     (next: ProjectOverview) => {
@@ -249,12 +253,20 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           expenses: nextExpenses,
           buckets: next.buckets || existingProjectData.buckets,
           changeOrders: changeOrdersToUse, // Use the preserved change orders
-          purchaseOrders: next.purchaseOrders || existingProjectData.purchaseOrders,
-          committedPOs: next.committedPOs,
+          purchaseOrders: next.purchaseOrders || existingProjectData.purchaseOrders || [],
+          committedPOs: next.committedPOs || 0,
         };
         
         console.log('🔄 syncProjectList: hasExpensesProperty:', hasExpensesProperty, 'next.expenses count:', next.expenses?.length || 0, 'merged count:', mergedProjectData.expenses?.length || 0);
         console.log('🔄 syncProjectList: next.expenses IDs:', next.expenses?.map((e: any) => e.id) || []);
+        console.log('🔄 syncProjectList: purchaseOrders:', {
+          nextPOs: next.purchaseOrders?.length || 0,
+          existingPOs: existingProjectData.purchaseOrders?.length || 0,
+          mergedPOs: mergedProjectData.purchaseOrders?.length || 0,
+          nextCommittedPOs: next.committedPOs || 0,
+          mergedCommittedPOs: mergedProjectData.committedPOs || 0,
+          nextPOsList: next.purchaseOrders?.map((po: any) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, status: po.status })) || []
+        });
 
         updateProject(next.id, {
           projectData: mergedProjectData,
@@ -273,11 +285,30 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     [getProjectById, updateProject]
   );
 
+  // Track if we're currently syncing to prevent infinite loops
+  const isSyncingRef = useRef(false);
+  
   const replaceProjectDataState = useCallback(
     (next: ProjectOverview) => {
       if (!next) return;
-      syncProjectList(next);
-      setProjectData(next);
+      
+      // Prevent infinite loop: if we're already syncing, don't sync again
+      if (isSyncingRef.current) {
+        console.log('⏭️ Skipping syncProjectList - already syncing (preventing infinite loop)');
+        setProjectData(next);
+        return;
+      }
+      
+      isSyncingRef.current = true;
+      try {
+        syncProjectList(next);
+        setProjectData(next);
+      } finally {
+        // Reset the flag after a short delay to allow the sync to complete
+        setTimeout(() => {
+          isSyncingRef.current = false;
+        }, 100);
+      }
     },
     [syncProjectList]
   );
@@ -360,8 +391,21 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   }, [projectId]);
 
   // Save to AsyncStorage whenever projectData changes (after initial load)
+  // BUT: Skip if purchaseOrders just changed (addPurchaseOrder already saved it)
   useEffect(() => {
     if (!isLoaded) return; // Don't save during initial load
+    
+    const currentPOCount = (projectData.purchaseOrders || []).length;
+    const lastPOCount = lastSaveRef.current.purchaseOrdersCount;
+    const timeSinceLastSave = Date.now() - lastSaveRef.current.timestamp;
+    
+    // If purchase orders just changed (within last 2 seconds), skip this save
+    // because addPurchaseOrder/cancelPO/updatePurchaseOrder already saved it immediately
+    if (currentPOCount !== lastPOCount && timeSinceLastSave < 2000) {
+      console.log('⏭️ Skipping save - purchase order was just modified (already saved by PO operation)');
+      lastSaveRef.current = { purchaseOrdersCount: currentPOCount, timestamp: Date.now() };
+      return;
+    }
     
     const saveData = async () => {
       try {
@@ -370,9 +414,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           ...projectData,
           // Ensure expenses is always an array (never undefined)
           expenses: projectData.expenses || [],
+          // Ensure purchase orders is always an array (never undefined)
+          purchaseOrders: projectData.purchaseOrders || [],
+          // Ensure committedPOs is set
+          committedPOs: projectData.committedPOs || 0,
         };
         await AsyncStorage.setItem(key, JSON.stringify(dataToSave));
-        console.log('💾 Saved to AsyncStorage, expenses count:', dataToSave.expenses.length);
+        console.log('💾 Saved to AsyncStorage:', {
+          expensesCount: dataToSave.expenses.length,
+          purchaseOrdersCount: dataToSave.purchaseOrders.length,
+          committedPOs: dataToSave.committedPOs,
+          pendingPOs: dataToSave.purchaseOrders.filter((po: any) => po.status === 'Pending').length
+        });
+        lastSaveRef.current = { purchaseOrdersCount: currentPOCount, timestamp: Date.now() };
       } catch (error) {
         console.error('Error saving project data:', error);
       }
@@ -528,6 +582,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     applyProjectDataUpdate(prev => {
       // Find the matching budget bucket based on category
       // Match flexibly: "Materials/Equipment" matches "Materials" or "Materials/Equipment"
+      // Also match specific material names (Tile, Drywall, Lumber, etc.) to Materials/Equipment
       const updatedBuckets = prev.buckets.map(bucket => {
         if (expense.category) {
           const bucketName = bucket.name.toLowerCase();
@@ -542,8 +597,17 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           }
           
           // Flexible match for Materials/Equipment
-          if ((bucketName.includes('materials') || bucketName.includes('equipment')) &&
-              (expenseCategory.includes('materials') || expenseCategory.includes('equipment'))) {
+          // This includes specific material names (tile, drywall, lumber, concrete, etc.)
+          const isMaterialsBucket = bucketName.includes('materials') || bucketName.includes('equipment');
+          const isMaterialCategory = expenseCategory.includes('materials') || 
+                                     expenseCategory.includes('equipment') ||
+                                     // Common material names that should go to Materials/Equipment
+                                     ['tile', 'drywall', 'lumber', 'concrete', 'paint', 'electrical', 
+                                      'plumbing', 'hardware', 'roofing', 'insulation', 'flooring', 
+                                      'cabinets', 'appliances', 'windows', 'doors', 'siding', 
+                                      'decking', 'fencing', 'landscaping'].includes(expenseCategory);
+          
+          if (isMaterialsBucket && isMaterialCategory) {
             return {
               ...bucket,
               spent: (bucket.spent || 0) + expense.amount,
@@ -665,6 +729,43 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     });
   };
 
+  const clearAllExpenses = () => {
+    console.log('🗑️ Clearing ALL expenses');
+    console.log('🗑️ Current expenses count:', projectData.expenses?.length || 0);
+    console.log('🗑️ Current expenses total:', projectData.expenses?.reduce((sum: number, e: any) => sum + (e.amount || 0), 0) || 0);
+    
+    applyProjectDataUpdate(prev => {
+      // Reset all bucket spent amounts
+      const resetBuckets = prev.buckets.map(bucket => ({
+        ...bucket,
+        spent: 0,
+      }));
+
+      const cleared = {
+        ...prev,
+        expenses: [],
+        buckets: resetBuckets,
+        spent: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      
+      console.log('✅ All expenses cleared');
+      console.log('✅ New expenses count:', cleared.expenses.length);
+      console.log('✅ New spent total:', cleared.spent);
+      console.log('✅ All buckets reset to 0 spent');
+      
+      // Save to AsyncStorage immediately
+      const key = `bps.project.${prev.id}`;
+      AsyncStorage.setItem(key, JSON.stringify(cleared)).then(() => {
+        console.log('💾 Cleared expenses saved to AsyncStorage');
+      }).catch(err => {
+        console.error('Error saving cleared expenses to AsyncStorage:', err);
+      });
+      
+      return cleared;
+    });
+  };
+
   const updateExpense = (updatedExpense: {
     id: string;
     category?: string;
@@ -707,7 +808,29 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   };
 
   const addPurchaseOrder = (po: Omit<PurchaseOrder, 'id'>) => {
+    console.log('📦 addPurchaseOrder called with:', {
+      vendor: po.vendor,
+      amount: po.amount,
+      category: po.category,
+      status: po.status,
+      poNumber: po.poNumber
+    });
+    
     applyProjectDataUpdate(prev => {
+      // Check if PO already exists by PO number to prevent duplicates
+      const existingPO = (prev.purchaseOrders || []).find(
+        (p: any) => p.poNumber === po.poNumber
+      );
+      
+      if (existingPO) {
+        console.log('⚠️ Purchase order already exists, skipping duplicate:', {
+          poNumber: po.poNumber,
+          existingId: existingPO.id,
+          existingStatus: existingPO.status
+        });
+        return prev; // Don't add duplicate
+      }
+      
       const newPO = {
         ...po,
         id: `po-${Date.now()}`,
@@ -717,14 +840,76 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
       const newCommittedPOs = updatedPOs
         .filter(p => p.status === 'Pending')
-        .reduce((sum, p) => sum + p.amount, 0);
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-      return {
+      const updated = {
         ...prev,
         purchaseOrders: updatedPOs,
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      
+      console.log('📦 Purchase order state updated:', {
+        poId: newPO.id,
+        poNumber: newPO.poNumber,
+        amount: newPO.amount,
+        status: newPO.status,
+        totalPOs: updatedPOs.length,
+        pendingPOs: updatedPOs.filter(p => p.status === 'Pending').length,
+        committedPOs: newCommittedPOs,
+        allPOs: updatedPOs.map((p: any) => ({ id: p.id, poNumber: p.poNumber, amount: p.amount, status: p.status }))
+      });
+      
+      // CRITICAL: Immediately save to AsyncStorage to ensure persistence
+      const key = `bps.project.${prev.id}`;
+      
+      // Update the ref to track that we just saved a purchase order
+      // This prevents the useEffect from overwriting it
+      lastSaveRef.current = { 
+        purchaseOrdersCount: updatedPOs.length, 
+        timestamp: Date.now() 
+      };
+      
+      // Save synchronously using await in a separate async function to ensure it completes
+      // But we can't await here, so we'll save and then trigger a reload
+      AsyncStorage.setItem(key, JSON.stringify(updated)).then(() => {
+        console.log('💾 Purchase order saved to AsyncStorage immediately', {
+          poId: newPO.id,
+          poNumber: newPO.poNumber,
+          amount: newPO.amount,
+          status: newPO.status,
+          totalPOs: updatedPOs.length,
+          pendingPOs: updatedPOs.filter(p => p.status === 'Pending').length,
+          committedPOs: newCommittedPOs,
+          savedData: {
+            purchaseOrders: updated.purchaseOrders?.length || 0,
+            committedPOs: updated.committedPOs || 0
+          }
+        });
+        
+        // Verify the save was successful
+        AsyncStorage.getItem(key).then(saved => {
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            const savedPOs = parsed.purchaseOrders || [];
+            const foundPO = savedPOs.find((po: any) => po.id === newPO.id);
+            console.log('🔄 Verifying purchase order in AsyncStorage:', {
+              savedPOs: savedPOs.length,
+              savedCommittedPOs: parsed.committedPOs || 0,
+              foundNewPO: !!foundPO,
+              newPOInStorage: foundPO ? { id: foundPO.id, poNumber: foundPO.poNumber, amount: foundPO.amount } : null
+            });
+            
+            if (!foundPO) {
+              console.error('❌ CRITICAL: Purchase order NOT found in AsyncStorage after save!');
+            }
+          }
+        });
+      }).catch(err => {
+        console.error('❌ Error saving purchase order to AsyncStorage:', err);
+      });
+      
+      return updated;
     });
   };
 
@@ -773,10 +958,64 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     });
   };
 
+
   const cancelPO = (poId: string) => {
+    console.log('🚫 cancelPO called for PO ID:', poId);
+    
     applyProjectDataUpdate(prev => {
+      const poToCancel = prev.purchaseOrders?.find(p => p.id === poId);
+      if (!poToCancel) {
+        console.warn('⚠️ PO not found for cancellation:', poId);
+        return prev;
+      }
+      
       const updatedPOs = (prev.purchaseOrders || []).map(p =>
         p.id === poId ? { ...p, status: 'Cancelled' as const } : p
+      );
+
+      const newCommittedPOs = updatedPOs
+        .filter(p => p.status === 'Pending')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+      const updated = {
+        ...prev,
+        purchaseOrders: updatedPOs,
+        committedPOs: newCommittedPOs,
+        lastUpdated: new Date().toISOString(),
+      };
+      
+      console.log('🚫 PO cancelled:', {
+        poId,
+        poNumber: poToCancel.poNumber,
+        previousStatus: poToCancel.status,
+        newCommittedPOs,
+        totalPOs: updatedPOs.length,
+        pendingPOs: updatedPOs.filter(p => p.status === 'Pending').length
+      });
+      
+      // CRITICAL: Immediately save to AsyncStorage to prevent reloadFromStorage from overwriting
+      // Update the ref to track that we just saved a purchase order change
+      lastSaveRef.current = { 
+        purchaseOrdersCount: updatedPOs.length, 
+        timestamp: Date.now() 
+      };
+      
+      // Save asynchronously so it doesn't block the state update
+      const key = `bps.project.${prev.id}`;
+      AsyncStorage.setItem(key, JSON.stringify(updated)).then(() => {
+        console.log('💾 Cancel PO saved to AsyncStorage immediately');
+      }).catch(err => {
+        console.error('❌ Error saving cancel PO to AsyncStorage:', err);
+      });
+      
+      return updated;
+    });
+  };
+
+  const archivePO = (poId: string) => {
+    applyProjectDataUpdate(prev => {
+      const updatedPOs = (prev.purchaseOrders || []).map(p =>
+        p.id === poId ? { ...p, status: 'Archived' as const } : p
       );
 
       const newCommittedPOs = updatedPOs
@@ -821,6 +1060,17 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     laborAmount?: number;
     status?: string;
   }) => {
+    console.log('➕ Adding change order:', {
+      id: changeOrder.id,
+      title: changeOrder.title,
+      amount: changeOrder.amount,
+      approved: changeOrder.approved,
+      status: changeOrder.status,
+      materialsAmount: changeOrder.materialsAmount,
+      laborAmount: changeOrder.laborAmount,
+      projectId: projectId,
+    });
+    
     // Emit PM event for change order added
     pmEventTracker.emit({
       type: 'change_order_added',
@@ -835,6 +1085,10 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     });
 
     applyProjectDataUpdate(prev => {
+      console.log('📝 addChangeOrder - prev state:', {
+        existingChangeOrders: (prev.changeOrders || []).length,
+        existingChangeOrderIds: (prev.changeOrders || []).map((co: any) => co.id),
+      });
       // Check if this is an update (change order with this ID already exists)
       const existingIndex = (prev.changeOrders || []).findIndex(co => co.id === changeOrder.id);
       
@@ -880,9 +1134,17 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           ? prev.budgeted + changeOrder.amount
           : prev.budgeted;
 
+        const updatedChangeOrders = [...(prev.changeOrders || []), changeOrderWithStatus];
+        console.log('✅ addChangeOrder - new state:', {
+          changeOrdersCount: updatedChangeOrders.length,
+          changeOrderIds: updatedChangeOrders.map((co: any) => co.id),
+          newChangeOrder: changeOrderWithStatus,
+          newBudgeted: newBudgeted,
+        });
+        
         return {
           ...prev,
-          changeOrders: [...(prev.changeOrders || []), changeOrderWithStatus],
+          changeOrders: updatedChangeOrders,
           budgeted: newBudgeted,
           lastUpdated: new Date().toISOString(),
         };
@@ -930,36 +1192,58 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   };
 
   const approveChangeOrder = (changeOrderId: string) => {
+    console.log('✅ Approving change order:', changeOrderId);
     applyProjectDataUpdate(prev => {
       const changeOrderToApprove = (prev.changeOrders || []).find(
         co => co.id === changeOrderId
       );
 
       if (!changeOrderToApprove) {
+        console.error('❌ Change order not found:', changeOrderId);
+        console.log('Available change orders:', (prev.changeOrders || []).map(co => co.id));
         return prev;
       }
 
+      console.log('📋 Change order to approve:', {
+        id: changeOrderToApprove.id,
+        title: changeOrderToApprove.title,
+        amount: changeOrderToApprove.amount,
+        currentApproved: changeOrderToApprove.approved,
+        currentStatus: (changeOrderToApprove as any).status,
+      });
+
       // If already approved, don't do anything
       if (changeOrderToApprove.approved || (changeOrderToApprove as any).status === 'Approved') {
+        console.log('⚠️ Change order already approved, skipping');
         return prev;
       }
 
       // Update the change order to approved and add its amount to budget
       const updatedChangeOrders = (prev.changeOrders || []).map(co => {
         if (co.id === changeOrderId) {
-          return {
+          const updated = {
             ...co,
             approved: true,
             status: 'Approved',
           } as any;
+          console.log('✅ Updated change order:', updated);
+          return updated;
         }
         return co;
+      });
+
+      const newBudgeted = prev.budgeted + (changeOrderToApprove.amount || 0);
+      console.log('💰 Budget update:', {
+        oldBudgeted: prev.budgeted,
+        changeOrderAmount: changeOrderToApprove.amount,
+        newBudgeted: newBudgeted,
+        calculation: `${prev.budgeted} + ${changeOrderToApprove.amount} = ${newBudgeted}`,
       });
 
       return {
         ...prev,
         changeOrders: updatedChangeOrders,
-        budgeted: prev.budgeted + (changeOrderToApprove.amount || 0),
+        budgeted: newBudgeted,
         lastUpdated: new Date().toISOString(),
       };
     });
@@ -991,42 +1275,148 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   };
 
   const reloadFromStorage = async () => {
+    console.log('🔄 reloadFromStorage: Starting reload...');
     try {
       const key = `bps.project.${projectId || '1'}`;
       const saved = await AsyncStorage.getItem(key);
+      
+      // ALSO check ProjectListContext for latest data (in case AI updated it directly)
+      const projectFromList = getProjectById(projectId || '1');
+      const listPOs = projectFromList?.projectData?.purchaseOrders || [];
+      const listCommittedPOs = projectFromList?.projectData?.committedPOs || 0;
+      
+      console.log('🔄 reloadFromStorage: Checking sources:', {
+        hasAsyncStorage: !!saved,
+        listPOsCount: listPOs.length,
+        listCommittedPOs,
+        currentPOsCount: (projectData.purchaseOrders || []).length,
+        currentCommittedPOs: projectData.committedPOs || 0
+      });
       
       if (saved) {
         const parsedData = JSON.parse(saved);
         console.log('🔄 Reloading from AsyncStorage, expenses count:', parsedData.expenses?.length || 0);
         
-        // Only reload if the saved data is different from current state
-        // This prevents overwriting in-progress updates
+        // Check if expenses changed
         const currentExpenseIds = (projectData.expenses || []).map((e: any) => e.id).sort().join(',');
         const savedExpenseIds = (parsedData.expenses || []).map((e: any) => e.id).sort().join(',');
+        const expensesChanged = currentExpenseIds !== savedExpenseIds;
         
-        // CRITICAL: If current state has fewer expenses, don't reload (delete might be in progress)
-        // Only reload if saved data has MORE expenses (meaning we're missing something)
-        const currentCount = (projectData.expenses || []).length;
-        const savedCount = (parsedData.expenses || []).length;
+        // Check if buckets changed (compare spent amounts)
+        const currentBucketsSpent = (projectData.buckets || []).map((b: any) => `${b.name}:${b.spent || 0}`).sort().join(',');
+        const savedBucketsSpent = (parsedData.buckets || []).map((b: any) => `${b.name}:${b.spent || 0}`).sort().join(',');
+        const bucketsChanged = currentBucketsSpent !== savedBucketsSpent;
         
-        if (currentExpenseIds !== savedExpenseIds) {
-          // If current state has fewer expenses than saved, it might be a delete in progress
-          // Only reload if saved has more expenses (we're missing data)
-          if (savedCount > currentCount) {
-            replaceProjectDataState(parsedData);
-            console.log('🔄 Reloaded project data from AsyncStorage (saved has more expenses)');
+        // Check if spent amount changed
+        const spentChanged = (projectData.spent || 0) !== (parsedData.spent || 0);
+        
+        // Check if purchase orders changed
+        const currentPOIds = (projectData.purchaseOrders || []).map((po: any) => po.id).sort().join(',');
+        const savedPOIds = (parsedData.purchaseOrders || []).map((po: any) => po.id).sort().join(',');
+        const purchaseOrdersChanged = currentPOIds !== savedPOIds;
+        
+        // Check if committedPOs changed
+        const committedPOsChanged = (projectData.committedPOs || 0) !== (parsedData.committedPOs || 0);
+        
+        // CRITICAL: Also check if ProjectListContext has newer purchase orders
+        // If ProjectListContext has more POs than AsyncStorage, use ProjectListContext as source of truth
+        const listPOIds = listPOs.map((po: any) => po.id).sort().join(',');
+        const listHasNewerPOs = listPOs.length > (parsedData.purchaseOrders || []).length;
+        const listPOsChanged = listPOIds !== currentPOIds;
+        
+        console.log('🔄 reloadFromStorage: Checking for changes:', {
+          expensesChanged,
+          bucketsChanged,
+          spentChanged,
+          purchaseOrdersChanged,
+          committedPOsChanged,
+          listHasNewerPOs,
+          listPOsChanged,
+          currentPOs: (projectData.purchaseOrders || []).length,
+          savedPOs: (parsedData.purchaseOrders || []).length,
+          listPOs: listPOs.length,
+          currentCommittedPOs: projectData.committedPOs || 0,
+          savedCommittedPOs: parsedData.committedPOs || 0,
+          listCommittedPOs
+        });
+        
+        // If ProjectListContext has newer data, merge it with AsyncStorage data
+        let dataToUse = parsedData;
+        if (listHasNewerPOs || (listPOs.length > 0 && listPOsChanged)) {
+          console.log('🔄 ProjectListContext has newer PO data, merging...');
+          // Merge purchase orders from both sources (prefer ProjectListContext for POs)
+          const mergedPOs = [...listPOs];
+          // Add any POs from AsyncStorage that aren't in ProjectListContext
+          (parsedData.purchaseOrders || []).forEach((po: any) => {
+            if (!mergedPOs.find((p: any) => p.id === po.id || p.poNumber === po.poNumber)) {
+              mergedPOs.push(po);
+            }
+          });
+          dataToUse = {
+            ...parsedData,
+            purchaseOrders: mergedPOs,
+            committedPOs: listCommittedPOs > 0 ? listCommittedPOs : parsedData.committedPOs || 0
+          };
+          console.log('🔄 Merged data:', {
+            mergedPOsCount: mergedPOs.length,
+            committedPOs: dataToUse.committedPOs
+          });
+        }
+        
+        // Reload if any of these changed
+        if (expensesChanged || bucketsChanged || spentChanged || purchaseOrdersChanged || committedPOsChanged || listHasNewerPOs || listPOsChanged) {
+          const currentCount = (projectData.expenses || []).length;
+          const savedCount = (dataToUse.expenses || []).length;
+          
+          // If expenses increased, always reload (new expense added)
+          // If expenses decreased, don't reload (delete in progress)
+          // If only buckets/spent/purchaseOrders changed, reload (update from AI Assistant)
+          const savedPOCount = (dataToUse.purchaseOrders || []).length;
+          const currentPOCount = (projectData.purchaseOrders || []).length;
+          
+          if (savedCount > currentCount || 
+              (savedCount === currentCount && (bucketsChanged || spentChanged)) ||
+              savedPOCount > currentPOCount ||
+              (savedPOCount === currentPOCount && (purchaseOrdersChanged || listPOsChanged)) ||
+              committedPOsChanged ||
+              listHasNewerPOs) {
+            replaceProjectDataState(dataToUse);
+            console.log('🔄 Reloaded project data from AsyncStorage/ProjectListContext', {
+              expensesChanged,
+              bucketsChanged,
+              spentChanged,
+              purchaseOrdersChanged,
+              committedPOsChanged,
+              listHasNewerPOs,
+              savedExpenseCount: savedCount,
+              currentExpenseCount: currentCount,
+              savedPOCount,
+              currentPOCount,
+            });
             
             // After reloading, sync back to ProjectListContext to ensure consistency
-            // Use a small delay to ensure state has updated
-            setTimeout(() => {
-              syncProjectList(parsedData);
-            }, 100);
+            // BUT: Don't sync if we're already syncing (prevent infinite loop)
+            // The replaceProjectDataState function will handle syncing
+            // setTimeout(() => {
+            //   syncProjectList(dataToUse);
+            // }, 100);
           } else {
             console.log('🔄 Skipped reload - current state has fewer expenses (delete in progress)');
           }
         } else {
           console.log('🔄 Skipped reload - data is already in sync');
         }
+      } else if (listPOs.length > 0) {
+        // No AsyncStorage data, but ProjectListContext has data - use it
+        console.log('🔄 No AsyncStorage data, using ProjectListContext data');
+        const listData = projectFromList?.projectData || {};
+        const dataToUse = {
+          ...projectData,
+          ...listData,
+          purchaseOrders: listPOs,
+          committedPOs: listCommittedPOs
+        };
+        replaceProjectDataState(dataToUse);
       } else {
         // No saved data, use initial
         const initial = getInitialProjectData(projectId);
@@ -1040,11 +1430,13 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   const value: ProjectDataContextType = {
     addExpense,
     deleteExpense,
+    clearAllExpenses,
     updateExpense,
     addPurchaseOrder,
     updatePurchaseOrder,
     markPOReceived,
     cancelPO,
+    archivePO,
     addChangeOrder,
     updateChangeOrder,
     deleteChangeOrder,

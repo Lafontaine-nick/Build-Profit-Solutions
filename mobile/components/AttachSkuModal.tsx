@@ -197,20 +197,25 @@ export default function AttachSkuModal({
     setLoading(true);
     setError(null);
     setResults([]); // Clear previous results
-    try {
-      const API_BASE = getApiBase(); // Get fresh API base URL each time
-      const url = `${API_BASE}/api/sku/search?store=${store}&zip=${zip}&q=${encodeURIComponent(
-        q
-      )}`;
-      console.log('🔍 ===== SKU SEARCH DEBUG =====');
-      console.log('🔍 API_BASE:', API_BASE);
-      console.log('🔍 Full Search URL:', url);
-      console.log('🔍 Platform.OS:', Platform.OS);
-      console.log('🔍 Search parameters:', { store, zip, q });
-      console.log('🔍 Network check: Phone and Mac should be on same WiFi');
+    
+    const PRODUCTION_API_BASE = 'https://build-profit-solutions-backend.onrender.com';
+    
+    // Helper function to make the actual fetch request
+    const makeRequest = async (apiBase: string, isRetry: boolean = false) => {
+      const url = `${apiBase}/api/sku/search?store=${store}&zip=${zip}&q=${encodeURIComponent(q)}`;
+      
+      if (isRetry) {
+        console.log('🔄 Retrying with production backend:', url);
+      } else {
+        console.log('🔍 ===== SKU SEARCH DEBUG =====');
+        console.log('🔍 API_BASE:', apiBase);
+        console.log('🔍 Full Search URL:', url);
+        console.log('🔍 Platform.OS:', Platform.OS);
+        console.log('🔍 Search parameters:', { store, zip, q });
+        console.log('🔍 Network check: Phone and Mac should be on same WiFi');
+      }
       
       // Add timeout - Backend has 3s global timeout, so frontend should be slightly longer
-      // This ensures we catch backend timeouts properly
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         console.log('⏱️ Request timeout - aborting after 10 seconds (backend timeout is 3s)');
@@ -218,7 +223,6 @@ export default function AttachSkuModal({
       }, 10000); // 10 second timeout (backend has 3s global timeout + 7s buffer)
       
       console.log('🔍 Making fetch request to:', url);
-      console.log('🔍 Network: LAN mode, phone can reach backend (verified via browser test)');
       console.log('🔍 Timeout set to 10 seconds (backend should respond in < 3 seconds)');
       
       const startTime = Date.now();
@@ -239,6 +243,56 @@ export default function AttachSkuModal({
           throw new Error('Request timed out after 10 seconds. The backend may be slow or unreachable.');
         }
         throw fetchError;
+      }
+      
+      return r;
+    };
+    
+    try {
+      // Try local backend first
+      const API_BASE = getApiBase(); // Get fresh API base URL each time
+      let r;
+      let shouldRetryWithProduction = false;
+      let actualApiBase = API_BASE; // Track which API base we actually use
+      
+      try {
+        r = await makeRequest(API_BASE, false);
+        actualApiBase = API_BASE; // Success with local backend
+      } catch (localError: any) {
+        // Check if it's a network error that suggests local backend is unreachable
+        const isNetworkError = localError.message === 'Network request failed' || 
+                              localError.message?.includes('Network request failed') ||
+                              localError.message?.includes('Failed to fetch') ||
+                              localError.name === 'TypeError';
+        
+        // Only retry with production if:
+        // 1. It's a network error (not a server error like 500)
+        // 2. We're not already using production
+        // 3. The local URL is actually a local IP (not production)
+        const isLocalBackend = API_BASE.includes('192.168.') || 
+                              API_BASE.includes('10.0.2.2') || 
+                              API_BASE.includes('localhost') ||
+                              API_BASE.includes('127.0.0.1');
+        
+        if (isNetworkError && isLocalBackend) {
+          console.log('⚠️ Local backend unreachable, retrying with production backend...');
+          shouldRetryWithProduction = true;
+        } else {
+          // Re-throw the error if we shouldn't retry
+          throw localError;
+        }
+      }
+      
+      // If local backend failed with network error, try production
+      if (shouldRetryWithProduction) {
+        try {
+          r = await makeRequest(PRODUCTION_API_BASE, true);
+          actualApiBase = PRODUCTION_API_BASE; // Success with production backend
+          console.log('✅ Production backend request successful');
+        } catch (productionError: any) {
+          // Both failed, throw a clear error message
+          throw new Error('Cannot connect to backend. Please check your network connection and ensure the backend is running.');
+        }
       }
       console.log('✅ Fetch request completed, status:', r.status);
       
@@ -283,6 +337,19 @@ export default function AttachSkuModal({
         // Try multiple possible image field names
         let imageUrl = x.image || x.thumbnail || x.img || x.productImage || null;
         
+        // Debug logging for first few items
+        if (index < 3) {
+          console.log(`🖼️ Item ${index} image fields:`, {
+            image: x.image,
+            thumbnail: x.thumbnail,
+            img: x.img,
+            productImage: x.productImage,
+            sku: x.sku,
+            url: x.url,
+            foundImageUrl: imageUrl
+          });
+        }
+        
         // If image URL is relative, make it absolute
         if (imageUrl && typeof imageUrl === 'string' && !imageUrl.startsWith('http')) {
           if (imageUrl.startsWith('//')) {
@@ -301,14 +368,14 @@ export default function AttachSkuModal({
           if (skuMatch && skuMatch[1]) {
             const productId = skuMatch[1];
             if ((store === 'hd' || x.sku?.toUpperCase().startsWith('HD')) && productId.length >= 6) {
-              // Home Depot product images - try standard pattern
-              // Note: Home Depot uses GUIDs for images, so SKU-based URLs may not always work
+              // Home Depot product images - try multiple patterns
               const first2 = productId.substring(0, 2);
               const next2 = productId.substring(2, 4);
+              
+              // Try standard pattern first (most common)
               imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
               
-              // Also try alternative pattern without subdirectories as fallback
-              // (Will be used if first pattern fails to load)
+              // Note: We'll try alternative patterns if this one fails (handled by onError)
             } else if ((store === 'lowes' || x.sku?.toUpperCase().startsWith('LW')) && productId.length >= 4) {
               // Lowes product images pattern - try multiple sizes
               imageUrl = `https://mobileimages.lowes.com/productimages/${productId}/0.jpg`;
@@ -319,7 +386,8 @@ export default function AttachSkuModal({
           if (!imageUrl && x.url) {
             if ((store === 'hd' || x.url.includes('homedepot.com')) && x.url.includes('homedepot.com')) {
               // Try to extract product ID from various URL patterns
-              let productId = x.url.match(/\/p\/([^\/\?]+)/)?.[1] || 
+              let productId = x.url.match(/\/p\/HD-(\d+)/)?.[1] || 
+                             x.url.match(/\/p\/(\d+)/)?.[1] ||
                              x.url.match(/productId=(\d+)/)?.[1] ||
                              x.url.match(/sku=(\d+)/)?.[1] ||
                              x.url.match(/\/(\d{6,})/)?.[1];
@@ -330,6 +398,7 @@ export default function AttachSkuModal({
                 if (productId.length >= 6) {
                   const first2 = productId.substring(0, 2);
                   const next2 = productId.substring(2, 4);
+                  // Try standard Home Depot image pattern
                   imageUrl = `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/sd/${productId}.jpg`;
                 }
               }
@@ -347,17 +416,35 @@ export default function AttachSkuModal({
           }
         }
         
+        // For Home Depot, if we have an image URL but it might fail, store alternative patterns
+        // This will be used in the Image component's onError handler
+        let alternativeImageUrls = [];
+        if (imageUrl && imageUrl.includes('homedepot-static.com') && x.sku) {
+          const productIdMatch = x.sku.match(/(?:HD-)?(\d{6,})/);
+          if (productIdMatch && productIdMatch[1]) {
+            const productId = productIdMatch[1];
+            const first2 = productId.substring(0, 2);
+            const next2 = productId.substring(2, 4);
+            // Alternative patterns to try if main one fails
+            alternativeImageUrls = [
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/hd/${productId}.jpg`, // HD size
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/lg/${productId}.jpg`, // Large size
+              `https://images.homedepot-static.com/productImages/${productId}/sd/${productId}.jpg`, // No subdirectory
+            ];
+          }
+        }
+        
         // Route ALL external image URLs through our proxy to ensure they load in React Native
         let finalImageUrl = imageUrl;
         if (imageUrl && imageUrl.startsWith('http')) {
-          // Use our backend proxy for all external images to bypass CORS/security restrictions
-          const API_BASE = getApiBase(); // Get fresh API base URL
-          finalImageUrl = `${API_BASE}/api/sku/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+          // Use the SAME API base that was used for the successful search request
+          // This ensures images work when we fallback to production backend
+          finalImageUrl = `${actualApiBase}/api/sku/image-proxy?url=${encodeURIComponent(imageUrl)}`;
           // Log for debugging (first 3 items)
           if (index < 3) {
             console.log('🖼️ Original image URL:', imageUrl.substring(0, 100));
             console.log('🖼️ Proxied image URL:', finalImageUrl.substring(0, 150));
-            console.log('🖼️ API_BASE:', API_BASE);
+            console.log('🖼️ Using API_BASE:', actualApiBase);
           }
         }
         
@@ -453,9 +540,9 @@ export default function AttachSkuModal({
         console.log('   2. Backend is running on', API_BASE);
         console.log('   3. No firewall is blocking port 3001');
         setError('Request timed out. Your phone cannot reach the backend.\n\nMake sure:\n• Phone and Mac are on the same Wi-Fi\n• Backend is running\n• Try using production backend instead');
-      } else if (e.message === 'Network request failed' || e.message?.includes('Network request failed') || e.message?.includes('Failed to fetch')) {
-        console.log('🌐 Network request failed');
-        setError(`Cannot connect to server at ${API_BASE}. Please check:\n1. Your phone and computer are on the same Wi-Fi\n2. The backend is running\n3. Your connection is stable`);
+      } else if (e.message === 'Network request failed' || e.message?.includes('Network request failed') || e.message?.includes('Failed to fetch') || e.message?.includes('Cannot connect to backend')) {
+        console.log('🌐 Network request failed - both local and production backends were tried');
+        setError(`Cannot connect to backend. Please check:\n1. Your internet connection is working\n2. If using local backend, ensure it's running and your phone is on the same Wi-Fi\n3. Try again in a moment`);
       } else if (e.message?.includes('JSON')) {
         console.log('📄 JSON parsing error');
         setError('Invalid response from server. Please try again.');

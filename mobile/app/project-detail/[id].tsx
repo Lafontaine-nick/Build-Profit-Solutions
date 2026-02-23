@@ -4,7 +4,7 @@ import {
   useProjectData,
 } from '../../contexts/ProjectDataContext';
 import { useProjectList, UnifiedProject } from '../../contexts/ProjectListContext';
-import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Modal } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Modal, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -22,6 +22,10 @@ import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import ProjectActivationFlow from '../../components/ProjectActivationFlow';
+import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
+import api from '../../services/BackendAPI';
+import { useAuth } from '@clerk/clerk-expo';
+import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -92,10 +96,11 @@ function ProjectDetailContent() {
   const id = params.id as string;
   const initialTab = (params.activeTab as TabKey) || 'Overview';
   const backToProjects = params.backToProjects === '1';
-  const { projectData: contextProjectData, reloadFromStorage } = useProjectData();
+  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const { getToken } = useAuth();
   
   const user = {
     name: "Nick Lafontaine",
@@ -125,6 +130,13 @@ function ProjectDetailContent() {
     return () => clearInterval(interval);
   }, []);
   
+  // Track when project is opened for last_opened_project_id
+  useEffect(() => {
+    if (id) {
+      setLastOpenedProjectId(id);
+    }
+  }, [id]);
+
   // Debug: Log when project data changes
   useEffect(() => {
     console.log(`🔄 Project data updated - overallProgressPct: ${contextProjectData?.overallProgressPct}`);
@@ -1199,12 +1211,34 @@ function ProjectDetailContent() {
       0
     );
     const adjustedBudget = Number(safeProjectData?.budgeted || 0) + approvedChangeOrdersTotal;
-    const totalSpent =
+    
+    // Calculate Received Purchase Orders total (to include in Actual Expenses)
+    const receivedPOsTotal = (() => {
+      const rawPOs = safeProjectData?.purchaseOrders || [];
+      const receivedPOs = rawPOs.filter((po: any) => po.status === 'Received');
+      
+      return receivedPOs.reduce((sum: number, po: any) => {
+        let amount = 0;
+        if (typeof po.amount === 'string') {
+          amount = parseFloat(po.amount) || 0;
+        } else if (typeof po.amount === 'number') {
+          amount = po.amount;
+        } else {
+          amount = Number(po.amount) || 0;
+        }
+        return sum + amount;
+      }, 0);
+    })();
+    
+    // Total Spent = Regular expenses + Received Purchase Orders
+    const baseSpent =
       expensesTotal > 0
         ? expensesTotal
         : Number(safeProjectData?.spent ?? 0) > 0
         ? Number(safeProjectData?.spent ?? 0)
         : bucketSpentTotal;
+    
+    const totalSpent = baseSpent + receivedPOsTotal;
 
     const budgetProgress = adjustedBudget > 0 ? (totalSpent / adjustedBudget) * 100 : 0;
     const scheduleProgress = safeProjectData?.overallProgressPct || 0;
@@ -1271,9 +1305,11 @@ function ProjectDetailContent() {
     };
 
     const formatCurrency = (amount: number) => {
-      if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
-      if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}K`;
-      return `$${amount.toLocaleString()}`;
+      // Show accurate bid values with 2 decimal places, no rounding
+      return `$${amount.toLocaleString('en-US', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      })}`;
     };
 
     const baseBudget = Number(safeProjectData?.budgeted || 0);
@@ -2131,34 +2167,26 @@ function ProjectDetailContent() {
           <View style={{ height: 32 }} />
         </ScrollView>
 
-        {/* FLOATING ASK PM BADGE - Dashboard Style */}
+        {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
         <Pressable
-          style={styles.askPMFloatingWrapper}
+          style={styles.aiFloatingWrapper}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setShowAIAssistant(true);
           }}
         >
           <LinearGradient
-            colors={showAiSuggestions 
-              ? ["#2DFFC4", "#00A6FF"] // Highlighted gradient for newly activated
-              : ["#22c55e", "#22d3ee"]} // Normal gradient
+            colors={["#22c55e", "#22d3ee"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={[
-              styles.askPMFloating,
-              showAiSuggestions && styles.askPMFloatingHighlighted
-            ]}
+            style={styles.aiFloating}
           >
             <Ionicons
               name="sparkles"
               size={18}
               color="#020617"
             />
-            <Text style={styles.askPMFloatingText}>Ask PM</Text>
-            {showAiSuggestions && (
-              <View style={styles.askPMPulseIndicator} />
-            )}
+            <Text style={styles.aiFloatingText}>Ask PM</Text>
           </LinearGradient>
         </Pressable>
 
@@ -2337,6 +2365,13 @@ function ProjectDetailContent() {
             currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectName: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectId: safeProjectData?.id,
+            status: realProjectData?.status || safeProjectData?.status,
+            bidPrice: realProjectData?.bidPrice || safeProjectData?.bidPrice || 0,
+            estimatedCost: realProjectData?.estimatedCost || safeProjectData?.estimatedCost || 0,
+            actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || 0,
+            totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || 0,
+            expenses: contextProjectData?.expenses || safeProjectData?.expenses || [],
+            expensesCount: (contextProjectData?.expenses || safeProjectData?.expenses || []).length,
             bidTitle: safeProjectData?.title || safeProjectData?.name,
             bidTotal: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
             total: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
@@ -2359,8 +2394,545 @@ function ProjectDetailContent() {
             endDate: safeProjectData?.endDate,
           })}
           onAction={async (action) => {
-            // Handle AI actions if needed
+            console.log('📥 project-detail: Received action from AIAssistantModal:', {
+              type: action.type,
+              action: action
+            });
+            
+            // Handle AI actions
             console.log('AI Action:', action);
+            
+            if (action.type === 'add_material' || action.type === 'add_material_purchase') {
+              try {
+                // First, ensure Clerk token is synced to AsyncStorage
+                const clerkToken = await getToken();
+                if (clerkToken) {
+                  await syncClerkTokenToAsyncStorage(clerkToken);
+                  console.log('✅ Synced Clerk token to AsyncStorage');
+                } else {
+                  console.warn('⚠️ No Clerk token available');
+                }
+                
+                // First, add expense to local state
+                addExpense({
+                  id: `exp-${Date.now()}`,
+                  category: action.category || 'Materials/Equipment',
+                  vendor: action.vendor || '',
+                  amount: action.amount || 0,
+                  date: new Date().toISOString(),
+                  notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+                  receiptUri: null,
+                });
+                
+                // Then, sync to backend API
+                const expenseData = {
+                  amount: action.amount || 0,
+                  category: action.category || 'Materials/Equipment',
+                  vendor: action.vendor || '',
+                  notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+                  date: new Date().toISOString().split('T')[0],
+                };
+                
+                const response = await api.addExpense(id, expenseData);
+                if (response.success) {
+                  console.log('✅ Added expense to backend:', response.data);
+                } else {
+                  console.error('❌ Failed to add expense to backend:', response.error);
+                  // Show error to user
+                  Alert.alert(
+                    'Authentication Error',
+                    'There was an issue adding the expense due to authentication. Please log in again and try again.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              } catch (error: any) {
+                console.error('❌ Error adding expense:', error);
+                // Check if it's an authentication error
+                if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
+                  Alert.alert(
+                    'Authentication Error',
+                    'There was an issue with authentication. Please log in again and we can try adding the expense.',
+                    [{ text: 'OK' }]
+                  );
+                } else {
+                  // Show generic error
+                  Alert.alert(
+                    'Error',
+                    `Failed to add expense: ${error.message || 'Unknown error'}`,
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+              
+              console.log('✅ Added expense:', action.amount, 'for', action.category);
+            } else if (action.type === 'add_labor_expense') {
+              try {
+                // First, ensure Clerk token is synced to AsyncStorage
+                const clerkToken = await getToken();
+                if (clerkToken) {
+                  await syncClerkTokenToAsyncStorage(clerkToken);
+                  console.log('✅ Synced Clerk token to AsyncStorage');
+                } else {
+                  console.warn('⚠️ No Clerk token available');
+                }
+                
+                // First, add expense to local state
+                addExpense({
+                  id: `exp-${Date.now()}`,
+                  category: 'Labor',
+                  vendor: action.vendor || action.laborType || '',
+                  amount: action.amount || 0,
+                  date: new Date().toISOString(),
+                  notes: action.notes || `${action.laborType || 'Labor'} expense`,
+                  receiptUri: null,
+                });
+                
+                // Then, sync to backend API
+                const expenseData = {
+                  amount: action.amount || 0,
+                  category: 'Labor',
+                  vendor: action.vendor || action.laborType || '',
+                  notes: action.notes || `${action.laborType || 'Labor'} expense`,
+                  date: new Date().toISOString().split('T')[0],
+                };
+                
+                const response = await api.addExpense(id, expenseData);
+                if (response.success) {
+                  console.log('✅ Added labor expense to backend:', response.data);
+                } else {
+                  console.error('❌ Failed to add labor expense to backend:', response.error);
+                  Alert.alert(
+                    'Authentication Error',
+                    'There was an issue adding the expense due to authentication. Please log in again and try again.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              } catch (error: any) {
+                console.error('❌ Error adding labor expense:', error);
+                if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
+                  Alert.alert(
+                    'Authentication Error',
+                    'There was an issue with authentication. Please log in again and we can try adding the expense.',
+                    [{ text: 'OK' }]
+                  );
+                } else {
+                  Alert.alert(
+                    'Error',
+                    `Failed to add expense: ${error.message || 'Unknown error'}`,
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+              
+              console.log('✅ Added labor expense:', action.amount);
+            } else if (action.type === 'add_purchase_order') {
+              console.log('📦 Action handler: Received add_purchase_order action', {
+                projectId: action.projectId,
+                currentProjectId: id,
+                match: action.projectId === id,
+                poNumber: action.poNumber,
+                amount: action.amount,
+                vendor: action.vendor,
+                category: action.category
+              });
+              
+              if (action.projectId !== id) {
+                console.warn('⚠️ Action projectId mismatch:', {
+                  actionProjectId: action.projectId,
+                  currentId: id
+                });
+                return;
+              }
+              
+              // Create purchase order with "Pending" status
+              const poData = {
+                vendor: action.vendor || '',
+                amount: Number(action.amount) || 0,
+                category: action.category || 'Materials/Equipment',
+                description: action.description || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
+                poNumber: action.poNumber || `PO-${Date.now().toString().slice(-6)}`,
+                orderDate: new Date().toISOString(),
+                expectedDelivery: action.expectedDelivery || null,
+                status: 'Pending' as const, // CRITICAL: Always create as "Pending" - shows in Committed POs
+              };
+              
+              console.log('📦 Creating purchase order:', {
+                poNumber: poData.poNumber,
+                amount: poData.amount,
+                vendor: poData.vendor,
+                category: poData.category,
+                status: poData.status
+              });
+              
+              // Add purchase order - this updates state and saves to AsyncStorage
+              console.log('📦 Calling addPurchaseOrder with:', poData);
+              addPurchaseOrder(poData);
+              
+              console.log('✅ Called addPurchaseOrder, waiting for state update...');
+              
+              // Wait for AsyncStorage write to complete, then reload
+              // The addPurchaseOrder function saves to AsyncStorage immediately,
+              // but we need to wait a bit for the write to complete before reloading
+              setTimeout(async () => {
+                console.log('🔄 Reloading from storage after PO creation...');
+                
+                // First, verify the PO was saved to AsyncStorage
+                try {
+                  const key = `bps.project.${id}`;
+                  const saved = await AsyncStorage.getItem(key);
+                  if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const savedPOs = parsed.purchaseOrders || [];
+                    const foundPO = savedPOs.find((po: any) => po.poNumber === poData.poNumber);
+                    
+                    console.log('📊 Purchase orders in AsyncStorage before reload:', {
+                      count: savedPOs.length,
+                      pending: savedPOs.filter((po: any) => po.status === 'Pending').length,
+                      committedPOs: parsed.committedPOs || 0,
+                      foundNewPO: !!foundPO,
+                      newPO: foundPO ? { id: foundPO.id, poNumber: foundPO.poNumber, amount: foundPO.amount, status: foundPO.status } : null,
+                      allPOs: savedPOs.map((po: any) => ({
+                        id: po.id,
+                        poNumber: po.poNumber,
+                        amount: po.amount,
+                        status: po.status,
+                        vendor: po.vendor
+                      }))
+                    });
+                    
+                    if (!foundPO) {
+                      console.error('❌ CRITICAL: Purchase order not found in AsyncStorage after save!');
+                      console.error('❌ Expected PO:', poData);
+                      console.error('❌ All POs in storage:', savedPOs);
+                    } else {
+                      console.log('✅ Purchase order found in AsyncStorage, proceeding with reload');
+                    }
+                  } else {
+                    console.error('❌ CRITICAL: No data found in AsyncStorage!');
+                  }
+                } catch (error) {
+                  console.error('❌ Error reading from AsyncStorage:', error);
+                }
+                
+                // Now reload from storage to update all components
+                console.log('🔄 Calling reloadFromStorage...');
+                await reloadFromStorage();
+                console.log('✅ Reloaded from storage');
+                
+                // Verify the state was updated after reload
+                setTimeout(() => {
+                  const currentPOs = contextProjectData?.purchaseOrders || [];
+                  console.log('📊 Purchase orders in contextProjectData after reload:', {
+                    count: currentPOs.length,
+                    pending: currentPOs.filter((po: any) => po.status === 'Pending').length,
+                    committedPOs: contextProjectData?.committedPOs || 0,
+                    allPOs: currentPOs.map((po: any) => ({
+                      id: po.id,
+                      poNumber: po.poNumber,
+                      amount: po.amount,
+                      status: po.status,
+                      vendor: po.vendor
+                    }))
+                  });
+                }, 200);
+              }, 1000); // Increased delay to ensure AsyncStorage write completes
+            } else if (action.type === 'mark_po_received') {
+              console.log('📦 Action handler: Received mark_po_received action', {
+                projectId: action.projectId,
+                currentProjectId: id,
+                match: action.projectId === id,
+                poId: action.poId,
+                poNumber: action.poNumber
+              });
+              
+              if (action.projectId !== id) {
+                console.warn('⚠️ Action projectId mismatch:', {
+                  actionProjectId: action.projectId,
+                  currentId: id
+                });
+                return;
+              }
+              
+              // Find the PO by ID or PO number
+              const currentPOs = contextProjectData?.purchaseOrders || [];
+              let poToMark = null;
+              
+              if (action.poId) {
+                poToMark = currentPOs.find((po: any) => po.id === action.poId);
+              }
+              
+              if (!poToMark && action.poNumber) {
+                poToMark = currentPOs.find((po: any) => po.poNumber === action.poNumber);
+              }
+              
+              if (!poToMark) {
+                console.error('❌ PO not found to mark as received:', {
+                  poId: action.poId,
+                  poNumber: action.poNumber,
+                  availablePOs: currentPOs.map((po: any) => ({ id: po.id, poNumber: po.poNumber, status: po.status }))
+                });
+                Alert.alert(
+                  'PO Not Found',
+                  `Could not find purchase order ${action.poNumber || action.poId} to mark as received.`
+                );
+                return;
+              }
+              
+              if (poToMark.status === 'Received') {
+                console.log('⚠️ PO already marked as received:', poToMark.poNumber);
+                Alert.alert('Already Received', `Purchase order ${poToMark.poNumber} is already marked as received.`);
+                return;
+              }
+              
+              console.log('✅ Marking PO as received:', {
+                poId: poToMark.id,
+                poNumber: poToMark.poNumber,
+                amount: poToMark.amount,
+                currentStatus: poToMark.status
+              });
+              
+              // Mark PO as received - this updates status, creates expense, and updates committedPOs
+              markPOReceived(poToMark.id);
+              
+              console.log('✅ Called markPOReceived, waiting for state update...');
+              
+              // Wait for AsyncStorage write to complete, then reload
+              setTimeout(async () => {
+                console.log('🔄 Reloading from storage after marking PO as received...');
+                
+                // Verify the PO was updated in AsyncStorage
+                try {
+                  const key = `bps.project.${id}`;
+                  const saved = await AsyncStorage.getItem(key);
+                  if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const savedPOs = parsed.purchaseOrders || [];
+                    const foundPO = savedPOs.find((po: any) => 
+                      po.id === poToMark.id || po.poNumber === poToMark.poNumber
+                    );
+                    
+                    if (foundPO) {
+                      console.log('✅ PO status updated in AsyncStorage:', {
+                        poNumber: foundPO.poNumber,
+                        status: foundPO.status,
+                        expectedStatus: 'Received'
+                      });
+                    } else {
+                      console.error('❌ PO not found in AsyncStorage after update!');
+                    }
+                  }
+                } catch (error) {
+                  console.error('❌ Error reading from AsyncStorage:', error);
+                }
+                
+                // Reload from storage to update all components
+                await reloadFromStorage();
+                console.log('✅ Reloaded from storage after marking PO as received');
+                
+                // Verify the state was updated after reload
+                setTimeout(() => {
+                  const updatedPOs = contextProjectData?.purchaseOrders || [];
+                  const updatedPO = updatedPOs.find((po: any) => 
+                    po.id === poToMark.id || po.poNumber === poToMark.poNumber
+                  );
+                  
+                  console.log('📊 PO status after reload:', {
+                    found: !!updatedPO,
+                    status: updatedPO?.status,
+                    committedPOs: contextProjectData?.committedPOs || 0,
+                    totalSpent: contextProjectData?.spent || 0
+                  });
+                }, 200);
+              }, 1000);
+            } else if (action.type === 'project_updated') {
+              // AI assistant updated the project via backend - sync to ProjectDataContext
+              console.log('🔄 Project updated by AI assistant, syncing to ProjectDataContext', {
+                actionProjectId: action.projectId,
+                currentProjectId: id,
+                match: action.projectId === id,
+                expensesCount: action.expenses?.length || 0,
+                purchaseOrdersCount: action.purchaseOrders?.length || 0,
+                totalSpent: action.totalSpent || 0,
+                committedPOs: action.committedPOs,
+                expenseDetails: action.expenses?.map((e: any) => ({ id: e.id, category: e.category, amount: e.amount, vendor: e.vendor })) || [],
+                poDetails: action.purchaseOrders?.map((po: any) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, vendor: po.vendor, status: po.status })) || []
+              });
+              
+              if (action.projectId === id) {
+                // Sync expenses to ProjectDataContext
+                if (action.expenses && action.expenses.length > 0) {
+                  const currentExpenses = contextProjectData?.expenses || [];
+                  const expenseIds = new Set(currentExpenses.map((e: any) => e.id));
+                  
+                  console.log('📊 Current expenses in ProjectDataContext:', {
+                    count: currentExpenses.length,
+                    ids: Array.from(expenseIds)
+                  });
+                  
+                  // Add any new expenses that aren't already in ProjectDataContext
+                  let addedCount = 0;
+                  action.expenses.forEach((newExpense: any) => {
+                    if (!expenseIds.has(newExpense.id)) {
+                      console.log('➕ Adding expense to ProjectDataContext:', {
+                        id: newExpense.id,
+                        category: newExpense.category,
+                        amount: newExpense.amount,
+                        vendor: newExpense.vendor
+                      });
+                      addExpense({
+                        id: newExpense.id,
+                        category: newExpense.category || 'Materials/Equipment',
+                        vendor: newExpense.vendor || '',
+                        amount: newExpense.amount || 0,
+                        date: newExpense.date || new Date().toISOString(),
+                        notes: newExpense.notes || '',
+                        receiptUri: newExpense.receiptUri || null,
+                      });
+                      addedCount++;
+                    } else {
+                      console.log('⏭️ Skipping expense (already exists):', newExpense.id);
+                    }
+                  });
+                  
+                  console.log(`✅ Added ${addedCount} new expenses to ProjectDataContext`);
+                }
+                
+                // Sync purchase orders to ProjectDataContext
+                if (action.purchaseOrders && action.purchaseOrders.length > 0) {
+                  const currentPOs = contextProjectData?.purchaseOrders || [];
+                  const poIds = new Set(currentPOs.map((po: any) => po.id));
+                  const poNumbers = new Set(currentPOs.map((po: any) => po.poNumber).filter(Boolean));
+                  
+                  console.log('📊 Current purchase orders in ProjectDataContext:', {
+                    count: currentPOs.length,
+                    ids: Array.from(poIds),
+                    poNumbers: Array.from(poNumbers)
+                  });
+                  
+                  // Add new purchase orders OR update existing ones (e.g., when status changes to Received)
+                  let addedPOCount = 0;
+                  let updatedPOCount = 0;
+                  action.purchaseOrders.forEach((newPO: any) => {
+                    const existsById = newPO.id && poIds.has(newPO.id);
+                    const existsByNumber = newPO.poNumber && poNumbers.has(newPO.poNumber);
+                    
+                    if (!existsById && !existsByNumber) {
+                      console.log('➕ Adding purchase order to ProjectDataContext:', {
+                        id: newPO.id,
+                        poNumber: newPO.poNumber,
+                        amount: newPO.amount,
+                        vendor: newPO.vendor,
+                        status: newPO.status
+                      });
+                      
+                      // Create PO data with the ID from backend to ensure consistency
+                      const poData = {
+                        poNumber: newPO.poNumber || `PO-${Date.now().toString().slice(-6)}`,
+                        vendor: newPO.vendor || '',
+                        category: newPO.category || 'Materials/Equipment',
+                        amount: newPO.amount || 0,
+                        description: newPO.description || '',
+                        orderDate: newPO.orderDate || new Date().toISOString(),
+                        expectedDelivery: newPO.expectedDelivery || null,
+                        status: (newPO.status || 'Pending') as 'Pending' | 'Received' | 'Cancelled' | 'Archived',
+                        notes: newPO.notes,
+                      };
+                      
+                      addPurchaseOrder(poData);
+                      addedPOCount++;
+                      
+                      // Wait a bit for AsyncStorage write to complete before checking
+                      setTimeout(async () => {
+                        const key = `bps.project.${id}`;
+                        const saved = await AsyncStorage.getItem(key);
+                        if (saved) {
+                          const parsed = JSON.parse(saved);
+                          const savedPOs = parsed.purchaseOrders || [];
+                          const foundPO = savedPOs.find((po: any) => 
+                            po.poNumber === poData.poNumber || po.id === newPO.id
+                          );
+                          console.log('🔍 Verifying PO was saved:', {
+                            found: !!foundPO,
+                            poNumber: poData.poNumber,
+                            savedPOsCount: savedPOs.length
+                          });
+                        }
+                      }, 500);
+                    } else {
+                      // PO already exists - check if status changed (e.g., marked as received)
+                      const existingPO = currentPOs.find((po: any) => 
+                        (newPO.id && po.id === newPO.id) || (newPO.poNumber && po.poNumber === newPO.poNumber)
+                      );
+                      
+                      if (existingPO && existingPO.status !== newPO.status) {
+                        console.log('🔄 Updating existing purchase order status:', {
+                          poNumber: newPO.poNumber,
+                          oldStatus: existingPO.status,
+                          newStatus: newPO.status
+                        });
+                        
+                        // If status changed to Received, use markPOReceived to properly handle expense creation
+                        if (newPO.status === 'Received' && existingPO.status === 'Pending') {
+                          markPOReceived(existingPO.id);
+                          updatedPOCount++;
+                        } else {
+                          // For other status changes, use updatePurchaseOrder
+                          // Note: updatePurchaseOrder might not exist, so we'll need to handle this differently
+                          // For now, just log it
+                          console.log('⚠️ Status change not handled:', {
+                            from: existingPO.status,
+                            to: newPO.status
+                          });
+                        }
+                      } else {
+                        console.log('⏭️ Skipping purchase order (already exists with same status):', {
+                          id: newPO.id,
+                          poNumber: newPO.poNumber,
+                          status: newPO.status
+                        });
+                      }
+                    }
+                  });
+                  
+                  console.log(`✅ Added ${addedPOCount} new purchase orders and updated ${updatedPOCount} existing purchase orders in ProjectDataContext`);
+                  
+                  // Wait for AsyncStorage writes to complete, then reload
+                  setTimeout(async () => {
+                    console.log('🔄 Reloading from storage after PO addition...');
+                    await reloadFromStorage();
+                    console.log('✅ ProjectDataContext reloaded after AI update');
+                    
+                    // Verify the PO is now in context
+                    setTimeout(() => {
+                      const currentPOs = contextProjectData?.purchaseOrders || [];
+                      const foundPO = currentPOs.find((po: any) => 
+                        action.purchaseOrders?.some((newPO: any) => 
+                          po.poNumber === newPO.poNumber || po.id === newPO.id
+                        )
+                      );
+                      console.log('🔍 Verifying PO in context after reload:', {
+                        found: !!foundPO,
+                        totalPOs: currentPOs.length,
+                        committedPOs: contextProjectData?.committedPOs || 0
+                      });
+                    }, 200);
+                  }, 1000);
+                } else {
+                  // No purchase orders to add, but still reload to ensure sync
+                  reloadFromStorage().then(() => {
+                    console.log('✅ ProjectDataContext reloaded after AI update (no POs to add)');
+                  }).catch(err => {
+                    console.error('❌ Error reloading ProjectDataContext:', err);
+                  });
+                }
+              } else {
+                console.warn('⚠️ Project update skipped:', {
+                  reason: 'projectId mismatch',
+                  actionProjectId: action.projectId,
+                  currentId: id
+                });
+              }
+            }
           }}
         />
       </SafeAreaView>
@@ -2822,20 +3394,15 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   spendingHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
   },
-  chartBox: {
-    marginTop: 8,
-  },
-  // FLOATING ASK PM BADGE - Dashboard style
-  askPMFloatingWrapper: {
+  // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
+  aiFloatingWrapper: {
     position: "absolute",
     right: 20,
-    bottom: 70, // Lower on the page, closer to tab bar
+    bottom: 100, // Raised above tab bar with more spacing
     zIndex: 10,
   },
-  askPMFloating: {
+  aiFloating: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
@@ -2847,29 +3414,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 8, // Android shadow
   },
-  askPMFloatingText: {
+  aiFloatingText: {
     marginLeft: 8,
     fontSize: 12,
     fontWeight: "700",
     color: "#020617",
   },
-  askPMFloatingHighlighted: {
-    shadowColor: "#2DFFC4",
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
-  },
-  askPMPulseIndicator: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#2DFFC4',
-    borderWidth: 2,
-    borderColor: '#020617',
+  chartBox: {
+    marginTop: 8,
   },
   // Profile styles
   profileOuter: {

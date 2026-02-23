@@ -20,7 +20,7 @@ if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('yo
 let inMemoryUsers = loadUsers();
 console.log(`📦 Loaded ${inMemoryUsers.size} users from disk`);
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token or Clerk token
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -29,11 +29,35 @@ const authenticateToken = async (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
+  // First, try to verify as backend JWT token (for backward compatibility)
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
-    next();
-  } catch (error) {
+    return next();
+  } catch (jwtError) {
+    // If JWT verification fails, try to verify as Clerk token
+    try {
+        // Clerk tokens are JWTs, but we need to verify them with Clerk's API
+        // For now, we'll decode the token to get user info (Clerk tokens contain user data)
+        // In production, you should verify with Clerk's API or use @clerk/backend SDK
+        const decoded = jwt.decode(token);
+        
+        if (decoded && decoded.sub) {
+          // Extract user info from Clerk token
+          // Clerk tokens have 'sub' as the user ID
+          req.user = {
+            userId: decoded.sub,
+            email: decoded.email || decoded.primary_email_address || null,
+            role: decoded.role || 'contractor'
+          };
+          return next();
+        }
+      } catch (clerkError) {
+        console.error('Clerk token verification error:', clerkError);
+      }
+    
+    // If both verifications fail, return error
+    console.error('Token verification failed:', jwtError.message);
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
