@@ -11,6 +11,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -23,6 +26,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 const BRAND_GREEN = "#22c55e";
@@ -59,12 +63,169 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const [description, setDescription] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [showOCRModal, setShowOCRModal] = useState(false);
 
   const numericAmount = parseFloat(amount.replace(/,/g, "") || "0");
 
   const handlePresetPress = (value: number) => {
     setSelectedPreset(value);
     setAmount(value.toString());
+  };
+
+  // Request camera permission
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Camera permission is required to take receipt photos');
+      return false;
+    }
+    return true;
+  };
+
+  // Request media library permission
+  const requestMediaLibraryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Photo library permission is required to upload receipts');
+      return false;
+    }
+    return true;
+  };
+
+  // Take photo of receipt
+  const takeReceiptPhoto = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return;
+
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.55,
+        base64: true, // Request base64 directly from ImagePicker
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        setReceiptUri(asset.uri);
+        // Trigger OCR processing with URI and base64 if available
+        processOCR(asset.uri, asset.base64);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  // Upload receipt from gallery
+  const uploadReceipt = async () => {
+    const hasPermission = await requestMediaLibraryPermission();
+    if (!hasPermission) return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.55,
+        base64: true, // Request base64 directly from ImagePicker
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        setReceiptUri(asset.uri);
+        // Trigger OCR processing with URI and base64 if available
+        processOCR(asset.uri, asset.base64);
+      }
+    } catch (error) {
+      console.error('Error uploading receipt:', error);
+      Alert.alert('Error', 'Failed to upload receipt. Please try again.');
+    }
+  };
+
+  // Show receipt options
+  const showReceiptOptions = () => {
+    Alert.alert(
+      "Add Receipt",
+      "Capture or upload a receipt",
+      [
+        { text: "📸 Take Photo", onPress: takeReceiptPhoto },
+        { text: "🖼️ Upload from Gallery", onPress: uploadReceipt },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
+  // Process OCR using receiptOCRService
+  const processOCR = async (uri: string, base64Data?: string) => {
+    setIsProcessingOCR(true);
+    setShowOCRModal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      console.log('🔍 Starting OCR processing for receipt:', uri);
+      
+      // Import receiptOCRService dynamically
+      const { receiptOCRService } = await import('@/services/receiptOCRService');
+      
+      // Process receipt with OCR - pass base64 if available, otherwise let service convert
+      // Prefer URI/file upload path for faster network payloads.
+      const ocrResult = await receiptOCRService.processReceipt(uri);
+      
+      console.log('📄 OCR Result:', ocrResult);
+      
+      if (ocrResult.success && ocrResult.data) {
+        const receiptData = ocrResult.data;
+        
+        // Auto-fill form fields from OCR data
+        if (receiptData.vendor) {
+          setVendor(receiptData.vendor);
+        }
+        if (receiptData.amount) {
+          setAmount(receiptData.amount.toString());
+        }
+        if (receiptData.items && receiptData.items.length > 0) {
+          // Create description from receipt items
+          const itemsDescription = receiptData.items
+            .map(item => `${item.description}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`)
+            .join(', ');
+          setDescription(itemsDescription);
+        }
+        
+        // Close modal after a brief delay to show success
+        setTimeout(() => {
+          setShowOCRModal(false);
+          Alert.alert(
+            'Receipt Scanned! 📄',
+            `Vendor: ${receiptData.vendor}\nAmount: $${receiptData.amount.toFixed(2)}\nConfidence: ${receiptData.confidence}%\n\nFields have been auto-filled.`,
+            [{ text: 'OK' }]
+          );
+        }, 500);
+      } else {
+        setShowOCRModal(false);
+        const errorMsg = ocrResult.error || 'Could not extract data automatically';
+        console.warn('⚠️ OCR failed:', errorMsg);
+        Alert.alert(
+          'OCR Processing',
+          `Receipt scanned. ${errorMsg}. Please enter details manually.`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error: any) {
+      console.error('❌ OCR processing error:', error);
+      setShowOCRModal(false);
+      const errorMessage = error?.message || 'Unknown error occurred';
+      Alert.alert(
+        'OCR Processing Error',
+        `Error: ${errorMessage}\n\nPlease enter details manually.`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsProcessingOCR(false);
+    }
   };
 
   const handleSave = () => {
@@ -85,6 +246,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         category: 'Materials/Equipment',
         date: new Date().toISOString(),
         notes: description.trim() || undefined,
+        receiptUri: receiptUri || undefined,
       });
 
       // Also call the onSave callback if provided
@@ -275,7 +437,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               </View>
 
               {/* PO Number */}
-              <View style={[styles.fieldGroup, { marginBottom: 90 }]}>
+              <View style={styles.fieldGroup}>
                 <Text style={styles.label}>PO Number (Optional)</Text>
                 <View style={styles.inputWrapper}>
                   <Feather
@@ -294,7 +456,86 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   />
                 </View>
               </View>
+
+              {/* Receipt Section */}
+              <View style={[styles.fieldGroup, { marginBottom: 90 }]}>
+                <Text style={styles.label}>Receipt (Optional)</Text>
+                {receiptUri ? (
+                  <View style={{ marginTop: 8 }}>
+                    <View style={{ position: 'relative', marginBottom: 8 }}>
+                      <Image 
+                        source={{ uri: receiptUri }} 
+                        style={{ width: '100%', height: 200, borderRadius: 12 }} 
+                        resizeMode="cover" 
+                      />
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setReceiptUri(null);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                          borderRadius: 20,
+                          width: 32,
+                          height: 32,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="close" size={20} color="#FFFFFF" />
+                      </Pressable>
+                    </View>
+                    {isProcessingOCR && (
+                      <Text style={{ color: '#22c55e', fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>
+                        Processing receipt...
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={showReceiptOptions}
+                    style={styles.receiptUploadButton}
+                  >
+                    <MaterialIcons name="receipt" size={32} color="#8DA0B8" />
+                    <Text style={styles.receiptUploadText}>
+                      📸 Take Photo or 📄 Upload Receipt
+                    </Text>
+                    <Text style={styles.receiptUploadSubtext}>
+                      Auto-fill from receipt (OCR)
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </ScrollView>
+
+            {/* OCR Processing Modal */}
+            <Modal
+              visible={showOCRModal}
+              transparent={true}
+              animationType="fade"
+              onRequestClose={() => setShowOCRModal(false)}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>OCR Processing</Text>
+                  <Text style={styles.modalMessage}>
+                    Receipt scanned. Auto-fill available if data detected.
+                  </Text>
+                  {isProcessingOCR && (
+                    <ActivityIndicator size="large" color="#22c55e" style={{ marginTop: 20 }} />
+                  )}
+                  <Pressable
+                    onPress={() => setShowOCRModal(false)}
+                    style={styles.modalButton}
+                  >
+                    <Text style={styles.modalButtonText}>OK</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
 
             {/* BOTTOM ACTION BAR */}
             <View style={styles.bottomBar}>
@@ -540,6 +781,74 @@ const getStyles = (Colors: any) => StyleSheet.create({
     fontWeight: "700",
     color: "#020617",
     letterSpacing: 0.3,
+  },
+
+  /* RECEIPT */
+  receiptUploadButton: {
+    borderWidth: 2,
+    borderColor: "#6B7280",
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface2,
+    marginTop: 8,
+  },
+  receiptUploadText: {
+    color: '#8DA0B8',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  receiptUploadSubtext: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  /* MODAL */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1e293b',
+    borderRadius: 20,
+    padding: 24,
+    width: '80%',
+    maxWidth: 400,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: '#cbd5e1',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  modalButton: {
+    marginTop: 24,
+    backgroundColor: '#22c55e',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    minWidth: 100,
+  },
+  modalButtonText: {
+    color: '#020617',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
 

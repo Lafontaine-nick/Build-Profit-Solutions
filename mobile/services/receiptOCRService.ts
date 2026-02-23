@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
 
 // Type definitions for receipt data
@@ -26,12 +26,66 @@ export interface OCRResult {
   confidence: number;
 }
 
+const isLikelyMockReceiptData = (data: any, confidence?: number): boolean => {
+  if (!data || typeof data !== 'object') return false;
+  const vendor = String(data.vendor || '').toLowerCase().trim();
+  const amount = Number(data.amount || 0);
+  const conf = Number(confidence ?? data.confidence ?? 0);
+  const itemDescriptions = Array.isArray(data.items)
+    ? data.items.map((item: any) => String(item?.description || '').toLowerCase())
+    : [];
+
+  // Signature of the backend demo payload currently causing incorrect autofill.
+  const looksLikeKnownDemoPayload =
+    vendor === 'home depot' &&
+    Math.abs(amount - 127.49) < 0.01 &&
+    Math.abs(conf - 87) <= 1 &&
+    itemDescriptions.some((d) => d.includes('2x4 lumber'));
+
+  return looksLikeKnownDemoPayload;
+};
+
 class ReceiptOCRService {
   private apiBaseUrl: string;
+  private readonly OCR_TIMEOUT_MS = 22000;
+  private readonly ENABLE_MOCK_OCR_FALLBACK = process.env.EXPO_PUBLIC_ENABLE_MOCK_OCR === 'true';
 
   constructor() {
-    this.apiBaseUrl =
-      Constants.expoConfig?.extra?.apiBaseUrl || 'http://localhost:3001';
+    this.apiBaseUrl = this.resolveApiBaseUrl();
+  }
+
+  private resolveApiBaseUrl(): string {
+    const PRODUCTION_URL = 'https://build-profit-solutions-backend.onrender.com';
+    const allowLocalBackend =
+      process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' ||
+      process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true' ||
+      process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
+
+    const normalize = (url: string) => url.trim().replace(/\/api\/?$/, '');
+    const isLocal = (url: string) =>
+      url.includes('localhost') || url.includes('192.168.') || url.includes('10.0.2.2');
+
+    const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+    if (envUrl) {
+      const normalized = normalize(envUrl);
+      if (isLocal(normalized) && !allowLocalBackend) {
+        if (__DEV__) console.log('⚠️ receiptOCRService ignoring local env URL, using production');
+        return PRODUCTION_URL;
+      }
+      return normalized;
+    }
+
+    const configUrl = Constants.expoConfig?.extra?.apiBaseUrl;
+    if (configUrl) {
+      const normalized = normalize(configUrl);
+      if (isLocal(normalized) && !allowLocalBackend) {
+        if (__DEV__) console.log('⚠️ receiptOCRService ignoring local config URL, using production');
+        return PRODUCTION_URL;
+      }
+      return normalized;
+    }
+
+    return PRODUCTION_URL;
   }
 
   /**
@@ -41,23 +95,224 @@ class ReceiptOCRService {
    */
   async processReceipt(imageUri: string): Promise<OCRResult> {
     try {
-      // First, convert image to base64
+      // Fast path: upload image file directly (smaller payload than JSON base64).
+      // If this fails or times out, continue to base64 fallback instead of failing hard.
+      try {
+        const fileResult = await this.callBackendAPIWithFile(imageUri);
+        if (fileResult.success) {
+          return fileResult;
+        }
+      } catch (fileError: any) {
+        console.warn('⚠️ File-upload OCR path failed, trying base64 fallback:', fileError?.message || fileError);
+      }
+
+      // Fallback path: convert to base64 if direct upload fails.
+      console.log('📸 Fallback: converting image to base64 from URI:', imageUri);
       const base64Image = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
-
-      // For now, we'll use a mock OCR service
-      // In production, you would integrate with Google Vision API, AWS Textract, or OpenAI Vision
-      const result = await this.mockOCRService(base64Image);
-
-      return result;
-    } catch (error) {
-      console.error('Error processing receipt:', error);
+      return await this.processBase64Image(base64Image);
+    } catch (error: any) {
+      console.error('❌ Error processing receipt:', error);
       return {
         success: false,
-        error: 'Failed to process receipt',
+        error: error?.message || 'Failed to process receipt',
         confidence: 0,
       };
+    }
+  }
+
+  /**
+   * Process receipt with base64 data directly (from ImagePicker)
+   * @param base64Data - Base64 encoded image data
+   * @returns Extracted receipt data
+   */
+  async processReceiptWithBase64(base64Data: string): Promise<OCRResult> {
+    console.log('📸 Processing receipt with provided base64 data, length:', base64Data.length);
+    return await this.processBase64Image(base64Data);
+  }
+
+  /**
+   * Internal method to process base64 image
+   */
+  private async processBase64Image(base64Image: string): Promise<OCRResult> {
+    // Try to call the real backend API first
+    try {
+      console.log('🌐 Calling backend OCR API...');
+      const result = await this.callBackendAPIWithBase64(base64Image);
+      if (result.success) {
+        console.log('✅ Backend OCR succeeded');
+        return result;
+      }
+      console.warn('⚠️ Backend OCR returned no structured result');
+    } catch (apiError: any) {
+      console.warn('⚠️ Backend OCR API error:', apiError?.message || apiError);
+    }
+
+    // Mock fallback only when explicitly enabled for demos/dev.
+    if (this.ENABLE_MOCK_OCR_FALLBACK) {
+      console.log('🔄 Using mock OCR service (explicitly enabled)');
+      const result = await this.mockOCRService(base64Image);
+      return result;
+    }
+
+    return {
+      success: false,
+      error: 'Could not extract receipt details from image. Please enter vendor and amount manually.',
+      confidence: 0,
+    };
+  }
+
+  /**
+   * POST helper with timeout to avoid long UI hangs.
+   */
+  private async fetchWithTimeout(url: string, options: RequestInit, timeoutMs = this.OCR_TIMEOUT_MS): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async callBackendAPIWithFile(imageUri: string): Promise<OCRResult> {
+    try {
+      const openAiUrl = `${this.apiBaseUrl}/api/ocr/receipt/openai`;
+      const fallbackUrl = `${this.apiBaseUrl}/api/ocr/receipt`;
+      const formData = new FormData();
+      formData.append('image', {
+        uri: imageUri,
+        name: 'receipt.jpg',
+        type: 'image/jpeg',
+      } as any);
+
+      const attempt = async (url: string): Promise<OCRResult> => {
+        const response = await this.fetchWithTimeout(
+          url,
+          {
+            method: 'POST',
+            body: formData,
+            // Let RN set multipart boundary automatically.
+            headers: {
+              Accept: 'application/json',
+            },
+          },
+          this.OCR_TIMEOUT_MS
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`OCR API error: ${response.status} - ${errorText.substring(0, 100)}`);
+        }
+
+        const result = await response.json();
+        const confidence = result.confidence || result?.data?.confidence || 0;
+        if (result?.mock === true || isLikelyMockReceiptData(result?.data, confidence)) {
+          return {
+            success: false,
+            error: 'OCR returned demo/mock data. Real OCR is unavailable.',
+            confidence: 0,
+          };
+        }
+        if (result.success && result.data) {
+          return {
+            success: true,
+            data: result.data,
+            confidence: confidence || 85,
+          };
+        }
+        return {
+          success: false,
+          error: result.error || 'Failed to extract receipt data',
+          confidence: 0,
+        };
+      };
+
+      try {
+        return await attempt(openAiUrl);
+      } catch (openAiErr) {
+        // Compatibility fallback for older backend deployments.
+        return await attempt(fallbackUrl);
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error('OCR request timed out on file upload path.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Call the backend OCR API with JSON base64 payload (fallback).
+   */
+  private async callBackendAPIWithBase64(base64Image: string): Promise<OCRResult> {
+    try {
+      const openAiUrl = `${this.apiBaseUrl}/api/ocr/receipt/openai`;
+      const fallbackUrl = `${this.apiBaseUrl}/api/ocr/receipt`;
+      console.log('🌐 Calling backend at:', openAiUrl);
+      console.log('📊 Image data size:', base64Image.length, 'characters');
+
+      const attempt = async (url: string): Promise<OCRResult> => {
+        const response = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image: base64Image,
+          }),
+        });
+
+        console.log('📡 Response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Backend error response:', errorText);
+          throw new Error(`OCR API error: ${response.status} - ${errorText.substring(0, 100)}`);
+        }
+
+        const result = await response.json();
+        const confidence = result.confidence || result?.data?.confidence || 0;
+        if (result?.mock === true || isLikelyMockReceiptData(result?.data, confidence)) {
+          return {
+            success: false,
+            error: 'OCR returned demo/mock data. Real OCR is unavailable.',
+            confidence: 0,
+          };
+        }
+        console.log('📄 Backend response:', JSON.stringify(result).substring(0, 200));
+        
+        if (result.success && result.data) {
+          return {
+            success: true,
+            data: result.data,
+            confidence: confidence || 85,
+          };
+        }
+        return {
+          success: false,
+          error: result.error || 'Failed to extract receipt data',
+          confidence: 0,
+        };
+      };
+
+      try {
+        return await attempt(openAiUrl);
+      } catch (openAiErr) {
+        // Compatibility fallback for older backend deployments.
+        return await attempt(fallbackUrl);
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Backend OCR API error:', error?.message || error);
+      console.warn('OCR error details:', {
+        message: error?.message,
+        stack: error?.stack?.substring(0, 200),
+      });
+      throw error;
     }
   }
 
@@ -66,8 +321,8 @@ class ReceiptOCRService {
    * Replace this with actual OCR service integration
    */
   private async mockOCRService(base64Image: string): Promise<OCRResult> {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Keep fallback snappy so users can continue manual entry quickly.
+    await new Promise(resolve => setTimeout(resolve, 250));
 
     // Generate realistic mock receipt data
     const mockReceipts = [

@@ -112,16 +112,18 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.55,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
-        const uri = result.assets[0].uri;
+        const asset = result.assets[0];
+        const uri = asset.uri;
         setReceiptUri(uri);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
         // Trigger OCR processing
-        processOCR(uri);
+        processOCR(uri, asset.base64);
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -140,16 +142,18 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.55,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
-        const uri = result.assets[0].uri;
+        const asset = result.assets[0];
+        const uri = asset.uri;
         setReceiptUri(uri);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
         // Trigger OCR processing
-        processOCR(uri);
+        processOCR(uri, asset.base64);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -170,33 +174,62 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     );
   };
 
-  // Process OCR (mock implementation - can be replaced with real OCR service)
-  const processOCR = async (uri: string) => {
+  // Process OCR using receiptOCRService
+  const processOCR = async (uri: string, base64Data?: string) => {
     setIsProcessingOCR(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Simulate OCR processing delay
-    setTimeout(() => {
-      // Mock OCR results - in production, this would call an OCR API
-      // For now, we'll just show a success message
-      // In real implementation, extract: vendor, amount, date from receipt
+    try {
+      // Import receiptOCRService dynamically to avoid circular dependencies
+      const { receiptOCRService } = await import('@/services/receiptOCRService');
+      
+      // Prefer URI/file upload path for faster network payloads.
+      const ocrResult = await receiptOCRService.processReceipt(uri);
+      
+      if (ocrResult.success && ocrResult.data) {
+        const receiptData = ocrResult.data;
+        
+        // Auto-fill form fields from OCR data
+        if (receiptData.vendor) {
+          setVendor(receiptData.vendor);
+        }
+        if (receiptData.amount) {
+          setAmount(receiptData.amount.toString());
+        }
+        if (receiptData.date) {
+          // Date is already set to today by default, but we could parse receipt date if needed
+        }
+        if (receiptData.items && receiptData.items.length > 0) {
+          // Create description from receipt items
+          const itemsDescription = receiptData.items
+            .map(item => `${item.description}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`)
+            .join(', ');
+          setDescription(itemsDescription);
+        }
+        
+        // Show success message with extracted data
+        Alert.alert(
+          'OCR Processing',
+          `Receipt scanned successfully!\n\nVendor: ${receiptData.vendor}\nAmount: $${receiptData.amount.toFixed(2)}\nConfidence: ${receiptData.confidence}%\n\nFields have been auto-filled.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'OCR Processing',
+          'Receipt scanned. Could not extract data automatically. Please enter details manually.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('OCR processing error:', error);
       Alert.alert(
         'OCR Processing',
-        'Receipt scanned. Auto-fill available if data detected.',
+        'Error processing receipt. Please enter details manually.',
         [{ text: 'OK' }]
       );
+    } finally {
       setIsProcessingOCR(false);
-      
-      // In production, you would:
-      // 1. Send image to OCR service
-      // 2. Extract vendor, amount, date
-      // 3. Auto-fill fields if data is found
-      // Example:
-      // const ocrResult = await callOCRService(uri);
-      // if (ocrResult.vendor) setVendor(ocrResult.vendor);
-      // if (ocrResult.amount) setAmount(ocrResult.amount.toString());
-      // if (ocrResult.date) setDate(ocrResult.date);
-    }, 1500);
+    }
   };
 
   const categoryIcon = categoryName === 'Labor' ? '👷' : 
