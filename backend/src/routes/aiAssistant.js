@@ -1148,7 +1148,7 @@ After calling the function, you will receive a result with a "success" field.
     
     // Check if user wants to mark a PO as received
     // Be VERY aggressive in detection - handle typos like "mar" instead of "mark" and "recieved" instead of "received"
-    const lastUserMsgLower = lastUserMessage.toLowerCase();
+    const lastUserMsgLower = (lastUserMessage?.content || '').toLowerCase();
     
     // Normalize common typos: "mar" -> "mark", "recieved" -> "received"
     const normalizedMsg = lastUserMsgLower
