@@ -47,8 +47,6 @@ import { useProjectList } from "@/contexts/ProjectListContext";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
-import ProjectAnalysisCard from "./ProjectAnalysisCard";
-import { parseProjectAnalysisResponse, validateProjectAnalysisResponse } from "@/lib/ai/projectAnalysisTemplate";
 
 function resolveAIBaseUrl(): string {
   const envBase = process.env.EXPO_PUBLIC_AI_API_URL;
@@ -172,6 +170,7 @@ type Message = {
     uri: string;
     name: string;
   };
+  analysisCard?: any;
 };
 
 type Props = {
@@ -196,6 +195,33 @@ const QUICK_ACTIONS = [
   "Check Profit",
   "Find Subcontractors",
 ];
+
+const SUMMARY_REFRESH_KEYWORDS = [
+  "health check",
+  "project health",
+  "budget breakdown",
+  "missing costs",
+  "forecast",
+  "summary",
+];
+
+const HEALTH_REFRESH_KEYWORDS = [
+  "health check",
+  "project health",
+];
+
+const isSummaryLikeMessage = (m: Message) => {
+  if (!m || m.role !== "assistant") return false;
+  if (m.analysisCard) return true;
+  const lc = (m.content || "").toLowerCase();
+  return SUMMARY_REFRESH_KEYWORDS.some((kw) => lc.includes(kw));
+};
+
+const isHealthRefreshMessage = (m: Message) => {
+  if (!m || m.role !== "assistant") return false;
+  const lc = (m.content || "").toLowerCase();
+  return HEALTH_REFRESH_KEYWORDS.some((kw) => lc.includes(kw));
+};
 
 const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction, defaultZip = '89011', initialQuestion }) => {
   const { theme } = useTheme();
@@ -224,6 +250,12 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     projectId: string;
   } | null>(null);
   const [lastOpenedProjectId, setLastOpenedProjectIdState] = useState<string | null>(null);
+  const [recentSummary, setRecentSummary] = useState<{ content: string; timestamp?: Date } | null>(null);
+  const [recentSummaryExpanded, setRecentSummaryExpanded] = useState(false);
+  const autoRefreshInFlightRef = useRef(false);
+  const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastAutoRefreshSnapshotRef = useRef<string>("");
+  const wasVisibleRef = useRef(false);
   
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -411,6 +443,25 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   }, [messages.length]);
 
+  // On close: return to home state on next open, but preserve the latest summary as preview.
+  useEffect(() => {
+    const wasVisible = wasVisibleRef.current;
+    if (wasVisible && !visible) {
+      const latestSummary = [...messages].reverse().find(isSummaryLikeMessage);
+      if (latestSummary) {
+        setRecentSummary({
+          content: latestSummary.content,
+          timestamp: latestSummary.timestamp,
+        });
+      }
+      setRecentSummaryExpanded(false);
+      if (messages.length > 0) {
+        setMessages([]);
+      }
+    }
+    wasVisibleRef.current = visible;
+  }, [visible, messages]);
+
   // Animate typing dots
   useEffect(() => {
     if (isTyping) {
@@ -494,22 +545,43 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       
       // Ensure allProjects is included with budget and expense data
       if (!baseContext.allProjects) {
-        const allProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
-          id: p.id,
-          title: p.title || p.name || 'Untitled Project',
-          status: p.status || 'unknown',
-          lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-          isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
-            ((p.status || '') as string).toLowerCase()
-          ),
-          // Include budget and expense data for AI to use
-          bidPrice: p.bidPrice || 0,
-          estimatedCost: p.estimatedCost || 0,
-          actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
-          totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
-          expenses: p.expenses || p.projectData?.expenses || [],
-          expensesCount: (p.expenses || p.projectData?.expenses || []).length,
-        }));
+        const allProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
+          const ed = p.estimateData || p.projectData?.estimateData || null;
+          const rawExpensesA = Array.isArray(p.expenses) ? p.expenses : [];
+          const rawExpensesB = Array.isArray(p.projectData?.expenses) ? p.projectData.expenses : [];
+          const expenses = [...rawExpensesA, ...rawExpensesB].filter((expense: any, index: number, arr: any[]) => {
+            const key = expense?.id || `${expense?.date || ''}-${expense?.vendor || ''}-${expense?.amount || 0}-${expense?.category || ''}`;
+            return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
+          });
+          const computedActualCost = expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+          return {
+            id: p.id,
+            title: p.title || p.name || 'Untitled Project',
+            status: p.status || 'unknown',
+            lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
+            isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+              ((p.status || '') as string).toLowerCase()
+            ),
+            // Include budget and expense data for AI to use — pull from estimateData if top-level is 0
+            bidPrice: p.bidPrice || ed?.totalBid || 0,
+            estimatedCost: p.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
+            actualCost: p.actualCost || p.totalSpent || computedActualCost || (p.projectData?.actualCost || p.projectData?.spent || 0),
+            totalSpent: p.totalSpent || p.actualCost || computedActualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
+            expenses,
+            expensesCount: expenses.length,
+            // Include buckets (budget breakdown) for AI to calculate material budget
+            buckets: p.buckets || p.projectData?.buckets || [],
+            // Include estimateData for AI to calculate material budget from line items
+            estimateData: ed,
+            // Include key estimate fields directly for AI access
+            materialTotal: ed?.materialTotal || 0,
+            laborTotal: ed?.laborTotal || 0,
+            overheadTotal: ed?.overheadTotal || 0,
+            markupPct: ed?.markupPct || ed?.markup || 0,
+            profit: ed?.profit || 0,
+            marginPct: ed?.marginPct || 0,
+          };
+        });
         
         baseContext.allProjects = allProjects;
       } else {
@@ -518,14 +590,31 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         const updatedProjects = existingProjects.map((existing: any) => {
           const fullProject = [...activeProjects, ...estimates].find(p => p.id === existing.id);
           if (fullProject) {
+            const ed = fullProject.estimateData || fullProject.projectData?.estimateData || null;
+            const rawExpensesA = Array.isArray(fullProject.expenses) ? fullProject.expenses : [];
+            const rawExpensesB = Array.isArray(fullProject.projectData?.expenses) ? fullProject.projectData.expenses : [];
+            const rawExpensesC = Array.isArray(existing.expenses) ? existing.expenses : [];
+            const expenses = [...rawExpensesA, ...rawExpensesB, ...rawExpensesC].filter((expense: any, index: number, arr: any[]) => {
+              const key = expense?.id || `${expense?.date || ''}-${expense?.vendor || ''}-${expense?.amount || 0}-${expense?.category || ''}`;
+              return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
+            });
+            const computedActualCost = expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
             return {
               ...existing,
-              bidPrice: fullProject.bidPrice || existing.bidPrice || 0,
-              estimatedCost: fullProject.estimatedCost || existing.estimatedCost || 0,
-              actualCost: fullProject.actualCost || fullProject.totalSpent || (fullProject.projectData?.actualCost || fullProject.projectData?.spent || existing.actualCost || 0),
-              totalSpent: fullProject.totalSpent || fullProject.actualCost || (fullProject.projectData?.spent || fullProject.projectData?.actualCost || existing.totalSpent || 0),
-              expenses: fullProject.expenses || fullProject.projectData?.expenses || existing.expenses || [],
-              expensesCount: (fullProject.expenses || fullProject.projectData?.expenses || []).length || existing.expensesCount || 0,
+              bidPrice: fullProject.bidPrice || ed?.totalBid || existing.bidPrice || 0,
+              estimatedCost: fullProject.estimatedCost || ed?.totalCost || ed?.baseCost || existing.estimatedCost || 0,
+              actualCost: fullProject.actualCost || fullProject.totalSpent || computedActualCost || (fullProject.projectData?.actualCost || fullProject.projectData?.spent || existing.actualCost || 0),
+              totalSpent: fullProject.totalSpent || fullProject.actualCost || computedActualCost || (fullProject.projectData?.spent || fullProject.projectData?.actualCost || existing.totalSpent || 0),
+              expenses,
+              expensesCount: expenses.length || existing.expensesCount || 0,
+              buckets: fullProject.buckets || fullProject.projectData?.buckets || existing.buckets || [],
+              estimateData: ed || existing.estimateData || null,
+              materialTotal: ed?.materialTotal || existing.materialTotal || 0,
+              laborTotal: ed?.laborTotal || existing.laborTotal || 0,
+              overheadTotal: ed?.overheadTotal || existing.overheadTotal || 0,
+              markupPct: ed?.markupPct || ed?.markup || existing.markupPct || 0,
+              profit: ed?.profit || existing.profit || 0,
+              marginPct: ed?.marginPct || existing.marginPct || 0,
             };
           }
           return existing;
@@ -555,6 +644,250 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       return context || '{}';
     }
   }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject]);
+
+  // Auto-refresh existing summary cards in place when project budgets/expenses/schedule change while chat is open.
+  // Uses a lightweight polling loop + snapshot guard to avoid waiting on navigation/focus cycles.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+
+    const findLatestSummary = (list: Message[]) =>
+      [...list].reverse().find((m) => {
+        return isHealthRefreshMessage(m);
+      });
+
+    const dedupeExpenses = (items: any[]) =>
+      items.filter((expense: any, index: number, arr: any[]) => {
+        const key = expense?.id || `${expense?.date || ""}-${expense?.vendor || ""}-${expense?.amount || 0}-${expense?.category || ""}`;
+        return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ""}-${e?.vendor || ""}-${e?.amount || 0}-${e?.category || ""}`) === key);
+      });
+
+    const normalizeScheduleStatus = (item: any) => {
+      const status = String(item?.status || "").toLowerCase();
+      const progress = Number(item?.progressPct ?? item?.progress ?? 0);
+      if (
+        status.includes("complete") ||
+        status.includes("paid") ||
+        status.includes("collected") ||
+        status.includes("received") ||
+        item?.isComplete === true ||
+        item?.completed === true ||
+        item?.isPaid === true ||
+        item?.paid === true ||
+        item?.collected === true ||
+        progress >= 100
+      ) {
+        return "completed";
+      }
+      if (status.includes("progress") || progress > 0) return "in_progress";
+      return status || "pending";
+    };
+
+    const scheduleScore = (item: any) => {
+      const status = normalizeScheduleStatus(item);
+      const progress = Number(item?.progressPct ?? item?.progress ?? 0);
+      const completionBoost = status === "completed" ? 1000 : status === "in_progress" ? 500 : 0;
+      const dateBoost = item?.completedAt ? 10 : 0;
+      return completionBoost + progress + dateBoost;
+    };
+
+    const dedupeSchedule = (items: any[]) => {
+      const map = new Map<string, any>();
+      items.forEach((item: any, index: number) => {
+        const key =
+          item?.id ||
+          `${item?.title || item?.name || ""}-${item?.plannedDate || item?.dueDate || item?.date || ""}-${index}`;
+        const normalized = {
+          ...item,
+          status: normalizeScheduleStatus(item),
+          progressPct:
+            Number(item?.progressPct ?? item?.progress ?? 0) ||
+            (normalizeScheduleStatus(item) === "completed" ? 100 : 0),
+        };
+        const existing = map.get(key);
+        if (!existing || scheduleScore(normalized) >= scheduleScore(existing)) {
+          map.set(key, normalized);
+        }
+      });
+      return Array.from(map.values());
+    };
+
+    const computeSnapshot = (ctxObj: any) => {
+      const expenses = Array.isArray(ctxObj?.expenses) ? ctxObj.expenses : [];
+      const totalSpent = expenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
+      const laborSpent = expenses
+        .filter((e: any) => String(e?.category || "").toLowerCase().includes("labor"))
+        .reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
+      const materialSpent = expenses
+        .filter((e: any) => !String(e?.category || "").toLowerCase().includes("labor"))
+        .reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
+      const milestoneCount = Array.isArray(ctxObj?.milestones) ? ctxObj.milestones.length : 0;
+      return JSON.stringify({
+        projectId: ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || "",
+        totalSpent,
+        laborSpent,
+        materialSpent,
+        expensesCount: expenses.length,
+        milestoneCount,
+      });
+    };
+
+    const runRefresh = async () => {
+      if (cancelled || loading || isTyping || autoRefreshInFlightRef.current) return;
+      if (messages.length === 0) return;
+
+      const latestSummary = findLatestSummary(messages);
+      if (!latestSummary) return;
+
+      let ctxObj: any = {};
+      try {
+        ctxObj = enhancedContext ? JSON.parse(enhancedContext) : {};
+      } catch {
+        ctxObj = {};
+      }
+
+      // Pull freshest project snapshot directly from context/provider to avoid stale UI snapshots.
+      const targetProjectId = ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || lastOpenedProjectId;
+      if (targetProjectId) {
+        const liveProject: any = getProjectById(targetProjectId);
+        let storageProject: any = null;
+        let timelineItems: any[] = [];
+        try {
+          const storageRaw = await AsyncStorage.getItem(`bps.project.${targetProjectId}`);
+          if (storageRaw) storageProject = JSON.parse(storageRaw);
+          const timelineRaw = await AsyncStorage.getItem(`bps.timeline.v2.${targetProjectId}`);
+          if (timelineRaw) timelineItems = JSON.parse(timelineRaw);
+        } catch (e) {
+          console.warn("Auto-refresh: failed reading project from AsyncStorage:", e);
+        }
+        const mergedSchedule = dedupeSchedule([
+          ...(Array.isArray(ctxObj?.milestones) ? ctxObj.milestones : []),
+          ...(Array.isArray(ctxObj?.weeklyPayments) ? ctxObj.weeklyPayments : []),
+          ...(Array.isArray(ctxObj?.paymentMilestones) ? ctxObj.paymentMilestones : []),
+          ...(Array.isArray(storageProject?.milestones) ? storageProject.milestones : []),
+          ...(Array.isArray(storageProject?.weeklyPayments) ? storageProject.weeklyPayments : []),
+          ...(Array.isArray(storageProject?.paymentMilestones) ? storageProject.paymentMilestones : []),
+          ...(Array.isArray(storageProject?.estimateData?.weeklyPayments) ? storageProject.estimateData.weeklyPayments : []),
+          ...(Array.isArray(storageProject?.estimateData?.paymentMilestones) ? storageProject.estimateData.paymentMilestones : []),
+          ...(Array.isArray(liveProject?.milestones) ? liveProject.milestones : []),
+          ...(Array.isArray(liveProject?.timelineItems) ? liveProject.timelineItems : []),
+          ...(Array.isArray(liveProject?.weeklyPayments) ? liveProject.weeklyPayments : []),
+          ...(Array.isArray(liveProject?.paymentMilestones) ? liveProject.paymentMilestones : []),
+          ...(Array.isArray(liveProject?.projectData?.milestones) ? liveProject.projectData.milestones : []),
+          ...(Array.isArray(liveProject?.projectData?.timelineItems) ? liveProject.projectData.timelineItems : []),
+          ...(Array.isArray(liveProject?.projectData?.weeklyPayments) ? liveProject.projectData.weeklyPayments : []),
+          ...(Array.isArray(liveProject?.projectData?.paymentMilestones) ? liveProject.projectData.paymentMilestones : []),
+          ...(Array.isArray(liveProject?.estimateData?.weeklyPayments) ? liveProject.estimateData.weeklyPayments : []),
+          ...(Array.isArray(liveProject?.estimateData?.paymentMilestones) ? liveProject.estimateData.paymentMilestones : []),
+          ...(Array.isArray(timelineItems) ? timelineItems : []),
+        ]);
+        if (liveProject) {
+          const liveEstimate =
+            storageProject?.estimateData ||
+            liveProject?.estimateData ||
+            liveProject?.projectData?.estimateData ||
+            ctxObj?.estimateData ||
+            null;
+          const mergedExpenses = dedupeExpenses([
+            ...(Array.isArray(ctxObj?.expenses) ? ctxObj.expenses : []),
+            ...(Array.isArray(storageProject?.expenses) ? storageProject.expenses : []),
+            ...(Array.isArray(liveProject?.expenses) ? liveProject.expenses : []),
+            ...(Array.isArray(liveProject?.projectData?.expenses) ? liveProject.projectData.expenses : []),
+          ]);
+
+          ctxObj = {
+            ...ctxObj,
+            projectId: targetProjectId,
+            resolvedProjectId: targetProjectId,
+            estimateData: liveEstimate,
+            expenses: mergedExpenses,
+            expensesCount: mergedExpenses.length,
+            actualCost: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
+            totalSpent: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
+            laborTotal: Number(liveEstimate?.laborTotal || ctxObj?.laborTotal || 0),
+            materialTotal: Number(liveEstimate?.materialTotal || ctxObj?.materialTotal || 0),
+            milestones: mergedSchedule,
+            weeklyPayments: mergedSchedule,
+            paymentMilestones: mergedSchedule,
+          };
+        } else if (storageProject) {
+          const mergedExpenses = dedupeExpenses([
+            ...(Array.isArray(ctxObj?.expenses) ? ctxObj.expenses : []),
+            ...(Array.isArray(storageProject?.expenses) ? storageProject.expenses : []),
+          ]);
+          ctxObj = {
+            ...ctxObj,
+            projectId: targetProjectId,
+            resolvedProjectId: targetProjectId,
+            estimateData: storageProject?.estimateData || ctxObj?.estimateData || null,
+            expenses: mergedExpenses,
+            expensesCount: mergedExpenses.length,
+            actualCost: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
+            totalSpent: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
+            milestones: mergedSchedule,
+            weeklyPayments: mergedSchedule,
+            paymentMilestones: mergedSchedule,
+          };
+        }
+      }
+
+      const snapshot = computeSnapshot(ctxObj);
+      if (snapshot === lastAutoRefreshSnapshotRef.current) return;
+      lastAutoRefreshSnapshotRef.current = snapshot;
+
+      autoRefreshInFlightRef.current = true;
+      try {
+        const AI_API_BASE = resolveAIBaseUrl();
+        const API_URL = `${AI_API_BASE}/api/ai-assistant`;
+        const token = await getToken();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            message:
+              "Refresh this project health check using the SAME detailed format as before (not compressed). Keep section headers and bullet structure. Use this exact style: Budget Overview, Material Budget, Labor Budget, Margin Summary, Key Insights. Update only the numbers and keep the narrative format consistent.",
+            context: JSON.stringify(ctxObj),
+            history: messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
+            user_settings: { ai_project_manager_mode: aiManagerEnabled },
+          }),
+        });
+
+        const data = await response.json();
+        if (!data?.error && data?.reply) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === latestSummary.id
+                ? {
+                    ...m,
+                    content: data.reply,
+                    timestamp: new Date(),
+                  }
+                : m
+            )
+          );
+        }
+      } catch (e) {
+        console.warn("Auto-refresh summary failed:", e);
+      } finally {
+        autoRefreshInFlightRef.current = false;
+      }
+    };
+
+    // Run once immediately, then poll lightly while chat stays open.
+    runRefresh();
+    autoRefreshIntervalRef.current = setInterval(runRefresh, 1800);
+
+    return () => {
+      cancelled = true;
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+        autoRefreshIntervalRef.current = null;
+      }
+    };
+  }, [visible, loading, isTyping, messages, enhancedContext, aiManagerEnabled, getToken, getProjectById, lastOpenedProjectId]);
 
   // Handler for project selection from chips
   const handleProjectSelection = async (projectId: string) => {
@@ -1139,6 +1472,134 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         }
       }
 
+      // Hydrate with freshest persisted project data before every request
+      // so first health-check after reopening reflects latest labor/material/schedule changes.
+      try {
+        const ctxObj: any = JSON.parse(finalContext || "{}");
+        const targetProjectId =
+          resolvedProjectId || ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || null;
+        if (targetProjectId) {
+          const storageRaw = await AsyncStorage.getItem(`bps.project.${targetProjectId}`);
+          const timelineRaw = await AsyncStorage.getItem(`bps.timeline.v2.${targetProjectId}`);
+          const timelineItems = timelineRaw ? JSON.parse(timelineRaw) : [];
+          if (storageRaw) {
+            const storageProject = JSON.parse(storageRaw);
+            const dedupeByKey = (items: any[]) =>
+              items.filter((expense: any, index: number, arr: any[]) => {
+                const key =
+                  expense?.id ||
+                  `${expense?.date || ""}-${expense?.vendor || ""}-${expense?.amount || 0}-${expense?.category || ""}`;
+                return (
+                  index ===
+                  arr.findIndex(
+                    (e: any) =>
+                      (e?.id ||
+                        `${e?.date || ""}-${e?.vendor || ""}-${e?.amount || 0}-${e?.category || ""}`) === key
+                  )
+                );
+              });
+
+            const normalizeScheduleStatus = (item: any) => {
+              const status = String(item?.status || "").toLowerCase();
+              const progress = Number(item?.progressPct ?? item?.progress ?? 0);
+              if (
+                status.includes("complete") ||
+                status.includes("paid") ||
+                status.includes("collected") ||
+                status.includes("received") ||
+                item?.isComplete === true ||
+                item?.completed === true ||
+                item?.isPaid === true ||
+                item?.paid === true ||
+                item?.collected === true ||
+                progress >= 100
+              ) {
+                return "completed";
+              }
+              if (status.includes("progress") || progress > 0) return "in_progress";
+              return status || "pending";
+            };
+
+            const scoreSchedule = (item: any) => {
+              const status = normalizeScheduleStatus(item);
+              const progress = Number(item?.progressPct ?? item?.progress ?? 0);
+              const completionBoost = status === "completed" ? 1000 : status === "in_progress" ? 500 : 0;
+              const dateBoost = item?.completedAt ? 10 : 0;
+              return completionBoost + progress + dateBoost;
+            };
+
+            const dedupeSchedule = (items: any[]) => {
+              const map = new Map<string, any>();
+              items.forEach((item: any, index: number) => {
+                const key =
+                  item?.id ||
+                  `${item?.title || item?.name || ""}-${item?.plannedDate || item?.dueDate || item?.date || ""}-${index}`;
+                const normalized = {
+                  ...item,
+                  status: normalizeScheduleStatus(item),
+                  progressPct:
+                    Number(item?.progressPct ?? item?.progress ?? 0) ||
+                    (normalizeScheduleStatus(item) === "completed" ? 100 : 0),
+                };
+                const existing = map.get(key);
+                if (!existing || scoreSchedule(normalized) >= scoreSchedule(existing)) {
+                  map.set(key, normalized);
+                }
+              });
+              return Array.from(map.values());
+            };
+
+            const mergedExpenses = dedupeByKey([
+              ...(Array.isArray(ctxObj?.expenses) ? ctxObj.expenses : []),
+              ...(Array.isArray(storageProject?.expenses) ? storageProject.expenses : []),
+            ]);
+            const mergedMilestones = dedupeSchedule([
+              ...(Array.isArray(ctxObj?.milestones) ? ctxObj.milestones : []),
+              ...(Array.isArray(storageProject?.milestones) ? storageProject.milestones : []),
+              ...(Array.isArray(ctxObj?.weeklyPayments) ? ctxObj.weeklyPayments : []),
+              ...(Array.isArray(ctxObj?.paymentMilestones) ? ctxObj.paymentMilestones : []),
+              ...(Array.isArray(storageProject?.weeklyPayments) ? storageProject.weeklyPayments : []),
+              ...(Array.isArray(storageProject?.paymentMilestones) ? storageProject.paymentMilestones : []),
+              ...(Array.isArray(storageProject?.estimateData?.weeklyPayments) ? storageProject.estimateData.weeklyPayments : []),
+              ...(Array.isArray(storageProject?.estimateData?.paymentMilestones) ? storageProject.estimateData.paymentMilestones : []),
+              ...(Array.isArray(timelineItems) ? timelineItems : []),
+            ]);
+            const mergedEstimateData = storageProject?.estimateData || ctxObj?.estimateData || null;
+            const mergedTotalSpent = mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
+
+            const hydratedContext = {
+              ...ctxObj,
+              projectId: targetProjectId,
+              resolvedProjectId: targetProjectId,
+              estimateData: mergedEstimateData,
+              expenses: mergedExpenses,
+              expensesCount: mergedExpenses.length,
+              milestones: mergedMilestones,
+              weeklyPayments: mergedMilestones,
+              paymentMilestones: mergedMilestones,
+              actualCost: mergedTotalSpent,
+              totalSpent: mergedTotalSpent,
+              bidPrice: storageProject?.bidPrice || ctxObj?.bidPrice || 0,
+              estimatedCost:
+                storageProject?.estimatedCost ||
+                mergedEstimateData?.totalCost ||
+                mergedEstimateData?.baseCost ||
+                ctxObj?.estimatedCost ||
+                0,
+              laborTotal: Number(
+                mergedEstimateData?.laborTotal || storageProject?.laborTotal || ctxObj?.laborTotal || 0
+              ),
+              materialTotal: Number(
+                mergedEstimateData?.materialTotal || storageProject?.materialTotal || ctxObj?.materialTotal || 0
+              ),
+            };
+            finalContext = JSON.stringify(hydratedContext);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to hydrate fresh context from AsyncStorage:", e);
+      }
+
       // Create AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
@@ -1212,9 +1673,22 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         role: "assistant",
         content: data.reply ?? "Sorry, I couldn't generate a response.",
         timestamp: new Date(),
-        // If show_contract action exists, we'll add the PDF attachment
-        // The PDF will be generated by the action handler, so we'll add it after action execution
+        // Attach server-computed analysis card if present
+        ...(data.analysisCard ? { analysisCard: data.analysisCard } : {}),
       };
+      
+      // Debug: Log if analysisCard was received
+      if (data.analysisCard) {
+        console.log('📊 Frontend: Received analysisCard from backend:', {
+          hasMaterial: data.analysisCard.budgetAndCosting?.materialBudget > 0,
+          hasLabor: data.analysisCard.budgetAndCosting?.laborBudget > 0,
+          materialBudget: data.analysisCard.budgetAndCosting?.materialBudget,
+          laborBudget: data.analysisCard.budgetAndCosting?.laborBudget,
+          laborSpent: data.analysisCard.budgetAndCosting?.laborSpent,
+        });
+      } else {
+        console.log('⚠️ Frontend: No analysisCard in response');
+      }
 
       // Sync project data if expense was added (check for projectUpdate in tool results)
       console.log('🔍 AIAssistantModal: Checking for projectUpdate', {
@@ -1969,52 +2443,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   <Ionicons name="sparkles" size={12} color={Colors.green} />
                   <Text style={styles.assistantLabelText}>AI Assistant</Text>
                 </View>
-                {/* Try to parse as structured project analysis - only if it's actually an analysis response */}
-                {(() => {
-                  // Check if the previous user message was asking for analysis (not an action)
-                  const previousUserMessage = messages.find((m, idx) => 
-                    idx < messages.indexOf(item) && m.role === 'user'
-                  );
-                  const isAnalysisRequest = previousUserMessage && 
-                    !previousUserMessage.content.toLowerCase().includes('add') &&
-                    !previousUserMessage.content.toLowerCase().includes('create') &&
-                    !previousUserMessage.content.toLowerCase().includes('update') &&
-                    !previousUserMessage.content.toLowerCase().includes('record') &&
-                    (previousUserMessage.content.toLowerCase().includes('analyze') ||
-                     previousUserMessage.content.toLowerCase().includes('analysis') ||
-                     previousUserMessage.content.toLowerCase().includes('health') ||
-                     previousUserMessage.content.toLowerCase().includes('status') ||
-                     previousUserMessage.content.toLowerCase().includes('how is'));
-                  
-                  // Only try to parse as analysis if it was an analysis request
-                  if (isAnalysisRequest) {
-                    // Try parsing as JSON first (structured response)
-                    let analysis = null;
-                    try {
-                      if (item.content.trim().startsWith('{')) {
-                        analysis = JSON.parse(item.content);
-                      } else {
-                        // Try parsing from formatted text
-                        analysis = parseProjectAnalysisResponse(item.content);
-                      }
-                    } catch (e) {
-                      // Not JSON, try text parsing
-                      analysis = parseProjectAnalysisResponse(item.content);
-                    }
-                    
-                    if (analysis && validateProjectAnalysisResponse(analysis).valid) {
-                      return (
-                        <ProjectAnalysisCard
-                          analysis={analysis}
-                          darkMode={darkMode}
-                          onAction={onAction}
-                        />
-                      );
-                    }
-                  }
-                  // Fallback to regular formatted text
-                  return renderFormattedText(item.content);
-                })()}
+                {/* Text-first rendering (keeps classic chat format) */}
+                {renderFormattedText(item.content)}
                 {/* Note: Chips are shown outside message bubbles in the main list area */}
                 {(item.pdfUri || item.attachment) && (
                   <View style={styles.pdfAttachmentWrapper}>
@@ -2328,6 +2758,63 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     or protect your profit.
                   </Text>
 
+                  {recentSummary && (
+                    <View style={styles.recentSummaryContainer}>
+                      <LinearGradient
+                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.recentSummaryBorder}
+                      >
+                        <View style={[styles.recentSummaryInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                          <TouchableOpacity
+                            style={styles.recentSummaryHeaderRow}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setRecentSummaryExpanded((v) => !v);
+                            }}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.recentSummaryTitle, !darkMode && { color: ThemeColors.text }]}>
+                                Recent Health Check
+                              </Text>
+                              <Text style={[styles.recentSummaryMeta, !darkMode && { color: ThemeColors.sub }]}>
+                                {recentSummary.timestamp ? formatTimestamp(recentSummary.timestamp) : "Just now"}
+                              </Text>
+                            </View>
+                            <Ionicons
+                              name={recentSummaryExpanded ? "chevron-up" : "chevron-down"}
+                              size={18}
+                              color={darkMode ? Colors.sub : ThemeColors.sub}
+                            />
+                          </TouchableOpacity>
+
+                          {!recentSummaryExpanded ? (
+                            <Text style={[styles.recentSummaryPreview, !darkMode && { color: ThemeColors.sub }]}>
+                              {(recentSummary.content || "").replace(/\s+/g, " ").trim().slice(0, 150)}
+                              {(recentSummary.content || "").length > 150 ? "..." : ""}
+                            </Text>
+                          ) : (
+                            <View style={styles.recentSummaryBody}>
+                              {renderFormattedText(recentSummary.content)}
+                              <View style={styles.recentSummaryActionsRow}>
+                                <TouchableOpacity
+                                  style={styles.recentSummaryAction}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    handleQuickAction("Give me a project health check.");
+                                  }}
+                                >
+                                  <Text style={styles.recentSummaryActionText}>Refresh</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  )}
+
                   {/* Primary AI actions */}
                   <View style={styles.primaryActions}>
                     <View style={styles.primaryButtonWrapper}>
@@ -2405,88 +2892,173 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               left: 0,
               right: 0,
               paddingBottom: Math.max(insets.bottom, 20) + 16,
-              paddingTop: 16,
+              paddingTop: 8,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }]}>
-              <View style={styles.inputInnerWrapper}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.inputInnerBorder}
+              {/* ── QUICK ACTION CHIPS ── */}
+              {messages.length <= 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ paddingHorizontal: 16, marginBottom: 10, maxHeight: 40 }}
+                  contentContainerStyle={{ gap: 8, alignItems: 'center' }}
                 >
-                  <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
-                    <Ionicons
-                      name="chatbox-ellipses-outline"
-                      size={18}
-                      color={Colors.sub}
-                      style={{ marginLeft: 12, marginRight: 8 }}
-                    />
-                    {isRecording ? (
-                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                          <View style={{ 
-                            width: 8, 
-                            height: 8, 
-                            borderRadius: 4, 
-                            backgroundColor: '#ef4444', 
-                            marginRight: 8,
-                            opacity: recordingDuration % 2 === 0 ? 1 : 0.5
-                          }} />
-                          <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
-                            Recording... {recordingDuration}s
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <TextInput
-                        style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                        placeholder="Ask anything about this project…"
-                        placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
-                        value={input}
-                        onChangeText={setInput}
-                        multiline
-                        maxLength={500}
-                        textAlignVertical="center"
-                      />
-                    )}
-                    {/* Microphone button */}
+                  {[
+                    { label: '💰 Log Expense', prompt: 'I need to log an expense' },
+                    { label: '📦 Create PO', prompt: 'Create a purchase order' },
+                    { label: '📋 Add Milestone', prompt: 'Add a payment milestone' },
+                    { label: '✅ Mark Collected', prompt: 'Mark a payment as collected' },
+                    { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
+                    { label: '📊 Budget Check', prompt: 'Show me my material budget breakdown' },
+                    { label: '📐 Generate Estimate', prompt: 'Create an estimate for a kitchen remodel, 250 sqft' },
+                    { label: '🔄 Change Order', prompt: 'Client wants to add a change order' },
+                    { label: '📈 What If?', prompt: 'What if materials go up 10%?' },
+                  ].map((chip) => (
                     <TouchableOpacity
-                      onPress={isRecording ? stopRecording : startRecording}
-                      disabled={loading}
-                      style={styles.micButton}
+                      key={chip.label}
+                      onPress={() => {
+                        setInput(chip.prompt);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 13,
+                        fontWeight: '600',
+                        color: darkMode ? 'rgba(45, 255, 196, 0.9)' : 'rgba(0, 120, 200, 0.9)',
+                      }}>
+                        {chip.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ paddingHorizontal: 16, marginBottom: 10, maxHeight: 36 }}
+                  contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+                >
+                  {[
+                    { label: '✨ Check Health', prompt: 'Give me a project health check.', primary: true },
+                    { label: '🧾 Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+                    { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
+                  ].map((chip) => (
+                    <TouchableOpacity
+                      key={chip.label}
+                      onPress={() => {
+                        setInput(chip.prompt);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      style={[
+                        styles.compactInsightChip,
+                        chip.primary && styles.compactInsightChipPrimary,
+                        !darkMode && { borderColor: ThemeColors.line },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.compactInsightChipText,
+                          chip.primary && styles.compactInsightChipTextPrimary,
+                          !darkMode && { color: ThemeColors.text },
+                        ]}
+                      >
+                        {chip.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+              <View style={styles.inputRow}>
+                <View style={styles.inputInnerWrapper}>
+                  <LinearGradient
+                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={styles.inputInnerBorder}
+                  >
+                    <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                      <Ionicons
+                        name="chatbox-ellipses-outline"
+                        size={18}
+                        color={Colors.sub}
+                        style={{ marginLeft: 12, marginRight: 8 }}
+                      />
+                      {isRecording ? (
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <View style={{ 
+                              width: 8, 
+                              height: 8, 
+                              borderRadius: 4, 
+                              backgroundColor: '#ef4444', 
+                              marginRight: 8,
+                              opacity: recordingDuration % 2 === 0 ? 1 : 0.5
+                            }} />
+                            <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
+                              Recording... {recordingDuration}s
+                            </Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <TextInput
+                          style={[styles.input, !darkMode && { color: "#6B7280" }]}
+                          placeholder="Ask anything about this project…"
+                          placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
+                          value={input}
+                          onChangeText={setInput}
+                          multiline
+                          maxLength={500}
+                          textAlignVertical="center"
+                        />
+                      )}
+                      {/* Microphone button */}
+                      <TouchableOpacity
+                        onPress={isRecording ? stopRecording : startRecording}
+                        disabled={loading}
+                        style={styles.micButton}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={isRecording ? "stop-circle" : "mic"}
+                          size={20}
+                          color={isRecording ? "#ef4444" : Colors.green}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </LinearGradient>
+                </View>
+                <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
+                  <LinearGradient
+                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={styles.sendButtonBorder}
+                  >
+                    <TouchableOpacity
+                      style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                      onPress={sendMessage}
+                      disabled={!input.trim() || loading}
                       activeOpacity={0.7}
                     >
-                      <Ionicons
-                        name={isRecording ? "stop-circle" : "mic"}
-                        size={20}
-                        color={isRecording ? "#ef4444" : Colors.green}
-                      />
+                      {loading ? (
+                        <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
+                      ) : (
+                        <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
+                      )}
                     </TouchableOpacity>
-                  </View>
-                </LinearGradient>
+                  </LinearGradient>
+                </Animated.View>
               </View>
-              <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
-                <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.sendButtonBorder}
-                >
-                  <TouchableOpacity
-                    style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
-                    onPress={sendMessage}
-                    disabled={!input.trim() || loading}
-                    activeOpacity={0.7}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
-                    ) : (
-                      <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
-                    )}
-                  </TouchableOpacity>
-                </LinearGradient>
-              </Animated.View>
             </View>
           </SafeAreaView>
         </View>
@@ -2736,8 +3308,29 @@ const styles = StyleSheet.create({
     color: "#E5E7EB",
     fontSize: 12,
   },
+  compactInsightChip: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.22)",
+    backgroundColor: "rgba(45, 255, 196, 0.07)",
+  },
+  compactInsightChipPrimary: {
+    borderColor: "rgba(45, 255, 196, 0.45)",
+    backgroundColor: "rgba(45, 255, 196, 0.14)",
+  },
+  compactInsightChipText: {
+    color: "rgba(45, 255, 196, 0.9)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  compactInsightChipTextPrimary: {
+    color: "#A7F3D0",
+    fontWeight: "700",
+  },
   inputContainer: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "flex-end",
     paddingHorizontal: 20,
     backgroundColor: Colors.bg,
@@ -2749,6 +3342,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 5,
+  },
+  inputRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
   },
   inputInnerWrapper: {
     flex: 1,
@@ -2850,6 +3449,63 @@ const styles = StyleSheet.create({
   greetingHighlight: {
     fontWeight: "700",
     color: Colors.text,
+  },
+  recentSummaryContainer: {
+    width: "100%",
+    marginTop: 12,
+    marginBottom: 2,
+  },
+  recentSummaryBorder: {
+    borderRadius: 14,
+    padding: 1,
+    overflow: "hidden",
+  },
+  recentSummaryInner: {
+    backgroundColor: Colors.card,
+    borderRadius: 13,
+    padding: 12,
+  },
+  recentSummaryHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  recentSummaryTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  recentSummaryMeta: {
+    color: Colors.sub,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  recentSummaryPreview: {
+    color: Colors.sub,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  recentSummaryBody: {
+    marginTop: 8,
+  },
+  recentSummaryActionsRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  recentSummaryAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.35)",
+    backgroundColor: "rgba(45, 255, 196, 0.08)",
+  },
+  recentSummaryActionText: {
+    color: "#A7F3D0",
+    fontSize: 12,
+    fontWeight: "700",
   },
   primaryActions: {
     marginTop: 14,

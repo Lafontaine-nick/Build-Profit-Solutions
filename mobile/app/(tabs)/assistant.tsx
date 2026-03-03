@@ -328,6 +328,94 @@ export default function AssistantScreen() {
               
               console.log('✅ Added labor expense to project:', action.projectName, action.amount);
             }
+          } else if (action.type === 'mark_payment_collected' && action.projectId) {
+            // Mark a payment milestone as collected
+            try {
+              const storageKey = `timeline_${action.projectId}`;
+              const raw = await AsyncStorage.getItem(storageKey);
+              const items = raw ? JSON.parse(raw) : [];
+              const updated = items.map((item: any) => {
+                if ((action.milestoneId && item.id === action.milestoneId) ||
+                    (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
+                  return { ...item, status: 'collected', collectedAt: action.collectedAt || new Date().toISOString(), collectedAmount: action.amount };
+                }
+                return item;
+              });
+              await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+              console.log('✅ Payment marked as collected from assistant page');
+            } catch (e) {
+              console.error('❌ Error marking payment collected:', e);
+            }
+          } else if (action.type === 'add_daily_log' && action.projectId) {
+            // Save daily log to AsyncStorage
+            try {
+              const logKey = `daily_logs_${action.projectId}`;
+              const raw = await AsyncStorage.getItem(logKey);
+              const logs = raw ? JSON.parse(raw) : [];
+              logs.push({
+                id: action.id || `log-${Date.now()}`,
+                date: action.date || new Date().toISOString().split('T')[0],
+                noteText: action.noteText,
+                weather: action.weather || null,
+                crewCount: action.crewCount || null,
+                hoursWorked: action.hoursWorked || null,
+                createdAt: new Date().toISOString(),
+              });
+              await AsyncStorage.setItem(logKey, JSON.stringify(logs));
+              console.log('✅ Daily log saved from assistant page');
+            } catch (e) {
+              console.error('❌ Error saving daily log:', e);
+            }
+          } else if (action.type === 'create_change_order' && action.projectId) {
+            // Create change order
+            try {
+              const co = action.changeOrder;
+              const project = [...activeProjects, ...estimates].find(p => p.id === action.projectId);
+              if (project) {
+                const existingCOs = project.projectData?.changeOrders || [];
+                updateProject(action.projectId, {
+                  projectData: {
+                    ...project.projectData,
+                    changeOrders: [...existingCOs, co],
+                    changeOrderTotal: [...existingCOs, co].reduce((s: number, c: any) => s + Number(c.cost || 0), 0),
+                  },
+                });
+                console.log('✅ Change order created from assistant page:', co.description);
+              }
+            } catch (e) {
+              console.error('❌ Error creating change order:', e);
+            }
+          } else if (action.type === 'populate_estimate' && action.projectId) {
+            // Populate estimate with AI-generated data
+            try {
+              const est = action.estimate;
+              const project = [...activeProjects, ...estimates].find(p => p.id === action.projectId);
+              if (project) {
+                updateProject(action.projectId, {
+                  projectData: {
+                    ...project.projectData,
+                    estimateData: {
+                      ...(project.projectData?.estimateData || {}),
+                      materialLineItems: est.materialLineItems || [],
+                      laborLineItems: est.laborLineItems || [],
+                      overheadItems: est.overheadItems || [],
+                      materialTotal: est.materialTotal,
+                      laborTotal: est.laborTotal,
+                      overheadTotal: est.overheadTotal,
+                      totalCost: est.baseCost,
+                      markupPct: est.markupPct,
+                      markup: est.markup,
+                      totalBid: est.totalBid,
+                      generatedByAI: true,
+                      generatedAt: new Date().toISOString(),
+                    },
+                  },
+                });
+                console.log('✅ Estimate populated from assistant page');
+              }
+            } catch (e) {
+              console.error('❌ Error populating estimate:', e);
+            }
           }
         }}
       />

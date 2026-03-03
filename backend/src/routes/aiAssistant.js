@@ -2,11 +2,265 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const OpenAI = require('openai');
+const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 
 // Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 1: ROUTER — determines intent and checks required fields before any tool call
+// Returns structured JSON so we skip keyword heuristics entirely.
+// ─────────────────────────────────────────────────────────────────────────────
+async function runRouter(message, history, ctxSummary) {
+  const routerSystem = buildRouterPrompt();
+
+  try {
+    const recentHistory = history.slice(-4).filter(m => ['user','assistant'].includes(m.role));
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: routerSystem },
+        ...recentHistory,
+        { role: 'user', content: `Context: ${JSON.stringify(ctxSummary)}\nUser message: "${message}"` }
+      ],
+      temperature: 0,
+      max_tokens: 350,
+      response_format: { type: 'json_object' }
+    });
+    const raw = completion.choices[0].message.content || '{}';
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('⚠️ Router stage failed, defaulting to auto:', e.message);
+    return { domain: 'general', proposed_tool: null, required_fields_missing: [], clarification_question: null, confidence: 0 };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VALIDATION LAYER — runs before ANY write tool executes
+// Returns { valid: true } or { valid: false, reason, clarificationQuestion }
+// ─────────────────────────────────────────────────────────────────────────────
+function validateAction(toolName, args, context = {}) {
+  const { projectId, allProjects = [], parsedContext = {} } = context;
+
+  // ── Confirm project exists for all write tools ─────────────────────────────
+  const writingTools = ['add_material_expense', 'add_labor_expense', 'add_purchase_order', 'mark_purchase_order_received', 'mark_timeline_item_complete', 'add_timeline_payment', 'mark_payment_collected', 'add_estimate_line_item', 'add_daily_log', 'create_change_order'];
+  if (writingTools.includes(toolName)) {
+    const targetId = args.projectId || projectId;
+    if (!targetId) {
+      return { valid: false, reason: 'no_project_id', clarificationQuestion: 'Which project should I record this for?' };
+    }
+    if (allProjects.length > 0 && !allProjects.find(p => p.id === targetId)) {
+      return { valid: false, reason: 'project_not_found', clarificationQuestion: `I couldn't find a project with ID "${targetId}". Could you confirm the project name?` };
+    }
+  }
+
+  // ── Validate positive amounts ──────────────────────────────────────────────
+  if (['add_material_expense', 'add_labor_expense', 'add_purchase_order', 'add_timeline_payment', 'add_estimate_line_item'].includes(toolName)) {
+    const amount = args.amount || args.unitCost || 0;
+    if (!amount || Number(amount) <= 0 || isNaN(Number(amount))) {
+      return { valid: false, reason: 'invalid_amount', clarificationQuestion: 'What is the dollar amount for this?' };
+    }
+    if (Number(amount) > 2000000) {
+      return { valid: false, reason: 'amount_suspiciously_large', clarificationQuestion: `$${Number(amount).toLocaleString()} seems very large. Can you confirm that amount?` };
+    }
+  }
+
+  // ── Prevent duplicate expenses (same amount + vendor in last 60s) ──────────
+  if (toolName === 'add_material_expense') {
+    const recentExpenses = parsedContext.expenses || [];
+    const sixtySecondsAgo = Date.now() - 60000;
+    const duplicate = recentExpenses.find(e => {
+      const eTime = new Date(e.createdAt || e.date || 0).getTime();
+      return Math.abs(Number(e.amount) - Number(args.amount)) < 0.01 &&
+             (e.vendor || '').toLowerCase() === (args.vendor || '').toLowerCase() &&
+             eTime > sixtySecondsAgo;
+    });
+    if (duplicate) {
+      return { valid: false, reason: 'duplicate_expense', clarificationQuestion: `I just recorded $${Number(args.amount).toFixed(2)} from ${args.vendor || 'that vendor'} a moment ago. Do you want me to record it again?` };
+    }
+  }
+
+  // ── Validate vendor name isn't a placeholder ───────────────────────────────
+  if (toolName === 'add_purchase_order' || toolName === 'add_material_expense') {
+    const vendor = (args.vendor || '').toLowerCase().trim();
+    const placeholders = ['vendor', 'n/a', 'unknown', 'tbd', 'na', 'none', 'supplier', 'store'];
+    if (placeholders.includes(vendor)) {
+      return { valid: false, reason: 'placeholder_vendor', clarificationQuestion: `What's the name of the vendor or supplier you purchased from?` };
+    }
+  }
+
+  return { valid: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG — append every AI action to a JSONL file for replay & compliance
+// ─────────────────────────────────────────────────────────────────────────────
+const fs = require('fs');
+const path = require('path');
+const AUDIT_LOG_PATH = path.join(__dirname, '../../data/ai-audit-log.jsonl');
+
+function writeAuditLog(entry) {
+  try {
+    const line = JSON.stringify({
+      ...entry,
+      ts: new Date().toISOString(),
+    }) + '\n';
+    fs.mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+    fs.appendFileSync(AUDIT_LOG_PATH, line, 'utf8');
+  } catch (e) {
+    console.warn('⚠️ Audit log write failed:', e.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROACTIVE PM INTELLIGENCE ENGINE
+// Runs on every PM Mode request — detects financial and schedule risks.
+// Returns an array of alert strings grounded in real numbers from context.
+// ─────────────────────────────────────────────────────────────────────────────
+function runProactiveIntelligence(ctx) {
+  const alerts = [];
+  if (!ctx) return alerts;
+
+  const bidPrice      = Number(ctx.bidPrice || 0);
+  const estimatedCost = Number(ctx.estimatedCost || 0);
+  const materialBudget = Number(ctx.materialBudgetDirect || 0);
+  const materialSpent  = Number(ctx.materialSpentDirect || 0);
+  const actualCost    = Number(ctx.actualCost || ctx.totalSpent || 0);
+  const progress      = Number(ctx.progress || 0);           // 0–100
+  const committedPOs  = Number(ctx.committedPOs || 0);
+  const expenses      = Array.isArray(ctx.expenses) ? ctx.expenses : [];
+  const milestones    = Array.isArray(ctx.milestones) ? ctx.milestones : [];
+  const buckets       = Array.isArray(ctx.buckets) ? ctx.buckets : [];
+
+  // ① Budget burn > schedule progress (burning faster than building)
+  if (estimatedCost > 0 && progress > 0) {
+    const burnPct = (actualCost / estimatedCost) * 100;
+    if (burnPct > progress + 15) {
+      alerts.push(`🔴 BUDGET BURN ALERT: You've spent ${burnPct.toFixed(1)}% of your estimated cost but the job is only ${progress.toFixed(0)}% complete. You are running ${(burnPct - progress).toFixed(0)} points ahead of schedule — investigate immediately.`);
+    }
+  }
+
+  // ② Committed POs + actual spend approaching or exceeding budget
+  if (estimatedCost > 0) {
+    const totalExposure = actualCost + committedPOs;
+    const exposurePct = (totalExposure / estimatedCost) * 100;
+    if (exposurePct > 90 && exposurePct <= 100) {
+      alerts.push(`⚠️ BUDGET WARNING: Actual spend ($${actualCost.toLocaleString()}) + committed POs ($${committedPOs.toLocaleString()}) = $${totalExposure.toLocaleString()}, which is ${exposurePct.toFixed(1)}% of your estimated cost. You're approaching your budget ceiling.`);
+    } else if (exposurePct > 100) {
+      alerts.push(`🚨 OVER BUDGET: Actual spend + committed POs ($${totalExposure.toLocaleString()}) EXCEEDS your estimated cost ($${estimatedCost.toLocaleString()}) by $${(totalExposure - estimatedCost).toLocaleString()}. Immediate action required.`);
+    }
+  }
+
+  // ③ Materials 80%+ spent but job < 40% complete
+  if (materialBudget > 0 && materialSpent > 0 && progress < 40) {
+    const matBurnPct = (materialSpent / materialBudget) * 100;
+    if (matBurnPct >= 80) {
+      alerts.push(`🔴 MATERIAL RISK: Materials are ${matBurnPct.toFixed(0)}% spent ($${materialSpent.toLocaleString()} of $${materialBudget.toLocaleString()}) but the job is only ${progress.toFixed(0)}% complete. You may run out of material budget before finishing.`);
+    }
+  }
+
+  // ④ Margin erosion — actual margin vs estimated margin
+  if (bidPrice > 0 && estimatedCost > 0 && actualCost > 0) {
+    const estimatedMarginPct = ((bidPrice - estimatedCost) / bidPrice) * 100;
+    const projectedFinalCost = progress > 5 ? (actualCost / (progress / 100)) : 0;
+    if (projectedFinalCost > 0) {
+      const projectedMarginPct = ((bidPrice - projectedFinalCost) / bidPrice) * 100;
+      const marginDrop = estimatedMarginPct - projectedMarginPct;
+      if (marginDrop > 5) {
+        alerts.push(`📉 MARGIN EROSION: Estimated margin was ${estimatedMarginPct.toFixed(1)}%. At your current burn rate, projected final cost is $${projectedFinalCost.toLocaleString()}, dropping margin to ${projectedMarginPct.toFixed(1)}% — a ${marginDrop.toFixed(1)} point loss vs estimate.`);
+      }
+    }
+  }
+
+  // ⑤ Duplicate expenses (same vendor + amount within same day)
+  if (expenses.length > 1) {
+    const seen = {};
+    expenses.forEach(e => {
+      const key = `${(e.vendor||'').toLowerCase()}_${Number(e.amount||0).toFixed(2)}_${(e.date||'').substring(0,10)}`;
+      seen[key] = (seen[key] || 0) + 1;
+    });
+    const dupes = Object.entries(seen).filter(([, count]) => count > 1);
+    if (dupes.length > 0) {
+      alerts.push(`⚠️ DUPLICATE EXPENSES DETECTED: ${dupes.length} expense(s) appear to be recorded twice on the same day for the same amount and vendor. Review your expenses list to avoid double-counting.`);
+    }
+  }
+
+  // ⑥ Overdue payment milestones
+  const today = new Date();
+  const overdue = milestones.filter(m => {
+    if (!m.plannedDate || m.status === 'completed') return false;
+    return new Date(m.plannedDate) < today;
+  });
+  if (overdue.length > 0) {
+    const overdueNames = overdue.map(m => `"${m.title}" ($${Number(m.amount||0).toLocaleString()})`).join(', ');
+    alerts.push(`📅 OVERDUE PAYMENTS: ${overdue.length} milestone(s) are past their due date and not yet collected: ${overdueNames}. Follow up with your client immediately.`);
+  }
+
+  // ⑦ CFO Mode: gross margin summary (always show in PM mode if data available)
+  if (bidPrice > 0 && estimatedCost > 0) {
+    const estimatedMargin  = bidPrice - estimatedCost;
+    const estimatedMarginPct = (estimatedMargin / bidPrice) * 100;
+    const actualMargin     = bidPrice - actualCost;
+    const actualMarginPct  = actualCost > 0 ? (actualMargin / bidPrice) * 100 : null;
+    let marginSummary = `💰 MARGIN SUMMARY: Bid $${bidPrice.toLocaleString()} | Est. Cost $${estimatedCost.toLocaleString()} | Est. Margin $${estimatedMargin.toLocaleString()} (${estimatedMarginPct.toFixed(1)}%)`;
+    if (actualMarginPct !== null) {
+      marginSummary += ` | Actual Spend $${actualCost.toLocaleString()} | Current Margin $${actualMargin.toLocaleString()} (${actualMarginPct.toFixed(1)}%)`;
+    }
+    alerts.push(marginSummary);
+  }
+
+  // ⑧ SPEND SPIKE: today's expenses vs 7-day average
+  if (expenses.length >= 7) {
+    const today = new Date().toISOString().split('T')[0];
+    const todayExpenses = expenses.filter(e => (e.date || '').startsWith(today));
+    const todayTotal = todayExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    
+    // Calculate 7-day average (excluding today)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
+    const recentExpenses = expenses.filter(e => {
+      const d = new Date(e.date || 0);
+      return d >= sevenDaysAgo && !(e.date || '').startsWith(today);
+    });
+    const recentTotal = recentExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const dailyAvg = recentTotal / 7;
+    
+    if (todayTotal > 0 && dailyAvg > 0 && todayTotal > dailyAvg * 2.5) {
+      alerts.push(`🔥 SPEND SPIKE: Today's spend ($${todayTotal.toLocaleString()}) is ${(todayTotal / dailyAvg).toFixed(1)}x your 7-day average ($${dailyAvg.toLocaleString()}/day). Verify these expenses are planned.`);
+    }
+  }
+
+  // ⑨ CATEGORY OVERRUN: any budget category spent over its allocation
+  if (buckets.length > 0) {
+    const overrunCategories = buckets.filter(b => {
+      const budget = Number(b.budget || b.bidBudget || 0);
+      const spent = Number(b.spent || 0);
+      return budget > 0 && spent > budget;
+    });
+    for (const cat of overrunCategories) {
+      const budget = Number(cat.budget || cat.bidBudget || 0);
+      const spent = Number(cat.spent || 0);
+      const overBy = spent - budget;
+      alerts.push(`🚧 CATEGORY OVERRUN: "${cat.name}" is $${overBy.toLocaleString()} over its $${budget.toLocaleString()} budget (spent $${spent.toLocaleString()}). Review line items in this category.`);
+    }
+  }
+
+  // ⑩ UNDERBILLED RISK: work complete but payments not collected
+  if (progress > 0 && milestones.length > 0 && bidPrice > 0) {
+    const totalCollected = milestones
+      .filter(m => m.status === 'completed' || m.status === 'collected')
+      .reduce((s, m) => s + Number(m.amount || 0), 0);
+    const expectedBilled = bidPrice * (progress / 100);
+    const billingGap = expectedBilled - totalCollected;
+    
+    if (billingGap > bidPrice * 0.15 && totalCollected < expectedBilled * 0.7) {
+      alerts.push(`💸 UNDERBILLED RISK: Job is ${progress.toFixed(0)}% complete (expected billing: $${expectedBilled.toLocaleString()}) but only $${totalCollected.toLocaleString()} collected. You may be funding $${billingGap.toLocaleString()} out of pocket. Send an invoice or schedule a draw.`);
+    }
+  }
+
+  return alerts;
+}
 
 /**
  * POST /api/ai-assistant
@@ -105,198 +359,417 @@ router.post('/', async (req, res) => {
     // Extract other context
     const status = parsedContext.status || currentProjectData?.status || 'estimate';
     const location = parsedContext.location || currentProjectData?.location || '';
-    const bidTotal = parsedContext.bidTotal || parsedContext.total || parsedContext.estimatedCost || parsedContext.bidPrice || currentProjectData?.bidTotal || currentProjectData?.bidPrice || currentProjectData?.estimatedCost || 0;
-    const estimatedCost = parsedContext.estimatedCost || parsedContext.bidPrice || currentProjectData?.estimatedCost || currentProjectData?.bidPrice || 0;
-    const actualCost = parsedContext.actualCost || parsedContext.totalSpent || currentProjectData?.actualCost || currentProjectData?.totalSpent || 0;
+    // Pull estimate data early for fallback lookups
+    const estimateData = currentProjectData?.estimateData || parsedContext.estimateData || currentProjectData?.projectData?.estimateData || {};
+    const bidTotal = parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice || currentProjectData?.bidTotal || currentProjectData?.bidPrice || estimateData?.totalBid || 0;
+    const estimatedCost = parsedContext.estimatedCost || currentProjectData?.estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0;
+    // Compute actualCost from expenses if top-level is 0
+    const rawExpenses = parsedContext.expenses || currentProjectData?.expenses || [];
+    const computedActualCost = Array.isArray(rawExpenses) ? rawExpenses.reduce((s, e) => s + Number(e.amount || 0), 0) : 0;
+    const actualCost = parsedContext.actualCost || parsedContext.totalSpent || currentProjectData?.actualCost || currentProjectData?.totalSpent || computedActualCost || 0;
     const expenses = parsedContext.expenses || currentProjectData?.expenses || [];
     const expensesCount = expenses.length;
-    const margin = parsedContext.margin || currentProjectData?.margin || 0;
-    const markup = parsedContext.markup || currentProjectData?.markup || 0;
-    const overhead = parsedContext.overhead || currentProjectData?.overhead || 0;
+    const milestones = parsedContext.milestones || currentProjectData?.milestones || currentProjectData?.timelineItems || [];
+    const margin = parsedContext.margin || parsedContext.marginPct || currentProjectData?.margin || currentProjectData?.marginPct || estimateData?.marginPct || 0;
+    const markup = parsedContext.markup || parsedContext.markupPct || currentProjectData?.markup || currentProjectData?.markupPct || estimateData?.markupPct || estimateData?.markup || 0;
+    const overhead = parsedContext.overhead || parsedContext.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0;
     const progress = parsedContext.progress || currentProjectData?.progress || currentProjectData?.overallProgressPct || 0;
     const activeTab = parsedContext.activeTab || '';
+    
+    // Calculate material budget and remaining budget from available data
+    let materialBudget = 0;
+    let materialSpent = 0;
+    let materialRemaining = 0;
+
+    // === HIGHEST PRIORITY: Use pre-computed direct values from mobile app ===
+    // These are computed client-side from live estimate/cart data and are always correct.
+    // Skip all backend guessing if they are present.
+    if (parsedContext.materialBudgetDirect > 0) {
+      materialBudget = parsedContext.materialBudgetDirect;
+      materialSpent = parsedContext.materialSpentDirect || 0;
+      materialRemaining = Math.max(0, materialBudget - materialSpent);
+      console.log('✅ AI Assistant: Using pre-computed direct budget values:', { materialBudget, materialSpent, materialRemaining });
+    } else {
+    
+    // Get estimate data from currentProjectData or parsedContext
+    const estimateData = currentProjectData?.estimateData || parsedContext.estimateData || currentProjectData?.projectData?.estimateData;
+    
+    // Try to get material budget from estimate data first
+    if (estimateData) {
+      // Calculate material budget from materialLineItems or materialsCart
+      if (estimateData.materialLineItems && Array.isArray(estimateData.materialLineItems)) {
+        materialBudget = estimateData.materialLineItems.reduce((sum, item) => {
+          return sum + (Number(item.total) || Number(item.unitCost) * (Number(item.quantity) || 0) || 0);
+        }, 0);
+      } else if (estimateData.materialsCart && Array.isArray(estimateData.materialsCart)) {
+        materialBudget = estimateData.materialsCart.reduce((sum, item) => {
+          return sum + (Number(item.total) || 0);
+        }, 0);
+      }
+    }
+    
+    // If no estimate data, try to get from buckets (budget breakdown)
+    // IMPORTANT: parsedContext.buckets takes priority - it contains live computed values from the UI
+    // currentProjectData?.buckets may have stale data from the project list
+    if (materialBudget === 0) {
+      const buckets = parsedContext.buckets || currentProjectData?.buckets || currentProjectData?.projectData?.buckets || [];
+      if (Array.isArray(buckets) && buckets.length > 0) {
+        materialBudget = buckets.reduce((sum, bucket) => {
+          const bucketName = (bucket.name || '').toLowerCase();
+          const isMaterialBucket = bucketName.includes('material') || 
+                                   bucketName.includes('equipment') ||
+                                   (bucketName.includes('materials') && !bucketName.includes('labor'));
+          if (isMaterialBucket) {
+            return sum + (Number(bucket.budget) || Number(bucket.bidBudget) || 0);
+          }
+          return sum;
+        }, 0);
+      }
+    }
+    
+    // If still no budget, try to get from projectData nested structure
+    if (materialBudget === 0 && currentProjectData) {
+      // Check nested projectData structure
+      const nestedProjectData = currentProjectData.projectData || currentProjectData.data;
+      if (nestedProjectData) {
+        const nestedBuckets = nestedProjectData.buckets || [];
+        if (Array.isArray(nestedBuckets) && nestedBuckets.length > 0) {
+          materialBudget = nestedBuckets.reduce((sum, bucket) => {
+            const bucketName = (bucket.name || '').toLowerCase();
+            const isMaterialBucket = bucketName.includes('material') || 
+                                     bucketName.includes('equipment') ||
+                                     (bucketName.includes('materials') && !bucketName.includes('labor'));
+            if (isMaterialBucket) {
+              return sum + (Number(bucket.budget) || Number(bucket.bidBudget) || 0);
+            }
+            return sum;
+          }, 0);
+        }
+        
+        // Also check nested estimateData
+        if (materialBudget === 0 && nestedProjectData.estimateData) {
+          const nestedEstimate = nestedProjectData.estimateData;
+          if (nestedEstimate.materialLineItems && Array.isArray(nestedEstimate.materialLineItems)) {
+            materialBudget = nestedEstimate.materialLineItems.reduce((sum, item) => {
+              return sum + (Number(item.total) || Number(item.unitCost) * (Number(item.quantity) || 0) || 0);
+            }, 0);
+          } else if (nestedEstimate.materialsCart && Array.isArray(nestedEstimate.materialsCart)) {
+            materialBudget = nestedEstimate.materialsCart.reduce((sum, item) => {
+              return sum + (Number(item.total) || 0);
+            }, 0);
+          }
+        }
+      }
+    }
+    
+    // Log what we found for debugging
+    if (materialBudget === 0 && materialSpent > 0) {
+      console.log('⚠️ AI Assistant: Material budget is $0 but material spent is $' + materialSpent.toFixed(2) + '. Budget data may be missing from context.', {
+        hasEstimateData: !!estimateData,
+        hasBuckets: !!(currentProjectData?.buckets || parsedContext.buckets),
+        hasProjectData: !!currentProjectData,
+        projectId,
+        expensesCount: expenses.length
+      });
+    }
+    
+    // Calculate material spent from expenses (filter by material categories, exclude labor)
+    if (Array.isArray(expenses)) {
+      materialSpent = expenses.reduce((sum, exp) => {
+        const category = (exp.category || '').toLowerCase();
+        // Exclude labor, include materials and equipment
+        const isMaterial = category !== 'labor' && 
+                          !category.includes('labor') &&
+                          (category.includes('material') || 
+                           category.includes('equipment') ||
+                           category.includes('materials') ||
+                           // If category doesn't explicitly say labor, and it's not empty, assume material
+                           (category && category.length > 0 && !category.includes('labor')));
+        if (isMaterial) {
+          return sum + (Number(exp.amount) || 0);
+        }
+        return sum;
+      }, 0);
+    }
+    
+    materialRemaining = Math.max(0, materialBudget - materialSpent);
+    
+    } // end else (fallback calculations when no direct values)
+    
+    // ── Calculate LABOR budget and spent ──
+    let laborBudgetMain = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0);
+    // Fallback: extract from buckets
+    if (laborBudgetMain === 0) {
+      const lBuckets = parsedContext.buckets || currentProjectData?.buckets || currentProjectData?.projectData?.buckets || [];
+      if (Array.isArray(lBuckets)) {
+        const laborBucket = lBuckets.find(b => (b.name || '').toLowerCase().includes('labor'));
+        if (laborBucket) laborBudgetMain = Number(laborBucket.budget || laborBucket.bidBudget || 0);
+      }
+    }
+    let laborSpentMain = 0;
+    if (Array.isArray(expenses)) {
+      laborSpentMain = expenses.reduce((sum, exp) => {
+        const cat = (exp.category || '').toLowerCase();
+        return cat.includes('labor') ? sum + (Number(exp.amount) || 0) : sum;
+      }, 0);
+    }
+    const laborRemainingMain = Math.max(0, laborBudgetMain - laborSpentMain);
+    
+    console.log('🔧 Labor data for prompt:', { laborBudgetMain, laborSpentMain, laborRemainingMain });
+
+    // ── DETERMINISTIC: Missing cost scan (bypass LLM text variability) ───────
+    const msgLower = (message || '').toLowerCase();
+    const isMissingCostScanRequest =
+      msgLower.includes('missing cost') ||
+      msgLower.includes('missing costs') ||
+      (msgLower.includes('scan') && msgLower.includes('cost')) ||
+      msgLower.includes('cost gaps') ||
+      msgLower.includes('what am i missing');
+
+    if (isMissingCostScanRequest) {
+      const baseEstimateCost = Number(
+        estimatedCost ||
+        estimateData?.totalCost ||
+        estimateData?.baseCost ||
+        bidTotal ||
+        0
+      );
+
+      const materialLineItems = Array.isArray(estimateData?.materialLineItems) ? estimateData.materialLineItems : [];
+      const laborLineItems = Array.isArray(estimateData?.laborLineItems) ? estimateData.laborLineItems : [];
+      const genericLineItems = Array.isArray(estimateData?.lineItems) ? estimateData.lineItems : [];
+
+      const combinedText = [
+        ...materialLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.category || ''}`),
+        ...laborLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.trade || ''} ${i?.category || ''}`),
+        ...genericLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.category || ''}`)
+      ].join(' ').toLowerCase();
+
+      const hasKeyword = (arr) => arr.some(k => combinedText.includes(k));
+      const hasMaterials = materialBudget > 0 || materialLineItems.length > 0 || hasKeyword(['material', 'equipment', 'lumber', 'tile', 'drywall']);
+      const hasLabor = laborBudgetMain > 0 || laborLineItems.length > 0 || laborSpentMain > 0 || hasKeyword(['labor', 'framing', 'electrical', 'plumbing', 'paint']);
+      const hasPermits =
+        Number(estimateData?.permitCost || 0) > 0 ||
+        Number(estimateData?.planCost || 0) > 0 ||
+        hasKeyword(['permit', 'permits', 'inspection', 'plan', 'plans', 'plan check', 'city fee']);
+      const hasOverhead =
+        Number(estimateData?.overheadTotal || 0) > 0 ||
+        Number(estimateData?.insuranceOverhead || 0) > 0 ||
+        Number(estimateData?.facilities || 0) > 0 ||
+        Number(estimateData?.equipment || 0) > 0 ||
+        Number(estimateData?.otherOverhead || 0) > 0 ||
+        hasKeyword(['overhead', 'insurance', 'supervision', 'mobilization']);
+      const hasContingency =
+        Number(estimateData?.contingency || 0) > 0 ||
+        Number(estimateData?.contingencyAmount || 0) > 0 ||
+        Number(estimateData?.contingencyPct || 0) > 0 ||
+        hasKeyword(['contingency', 'allowance', 'unexpected']);
+      const hasDeliveryOrDisposal = hasKeyword(['delivery', 'freight', 'shipping', 'dumpster', 'disposal', 'haul']);
+      const hasTaxesOrFees = hasKeyword(['tax', 'sales tax', 'fee', 'processing fee']);
+
+      const basis = baseEstimateCost > 0 ? baseEstimateCost : (bidTotal > 0 ? bidTotal : 0);
+      const toRange = (minPct, maxPct) => ({
+        min: Math.round(basis * minPct),
+        max: Math.round(basis * maxPct),
+      });
+
+      const gaps = [];
+      if (!hasMaterials) gaps.push({ title: 'Materials/Equipment line items', reason: 'No material/equipment scope found', range: toRange(0.18, 0.35) });
+      if (!hasLabor) gaps.push({ title: 'Labor scope by trade', reason: 'No labor breakdown found', range: toRange(0.2, 0.4) });
+      if (!hasPermits) gaps.push({ title: 'Plans & permits', reason: 'Plans/permit/inspection costs not found', range: toRange(0.01, 0.03) });
+      if (!hasOverhead) gaps.push({ title: 'Overhead allocation', reason: 'Insurance/facilities/other overhead not found', range: toRange(0.06, 0.15) });
+      if (!hasContingency) gaps.push({ title: 'Contingency reserve', reason: 'No contingency buffer found', range: toRange(0.05, 0.1) });
+      if (!hasDeliveryOrDisposal) gaps.push({ title: 'Delivery, disposal, haul-away', reason: 'Logistics/waste costs not found', range: toRange(0.01, 0.04) });
+      if (!hasTaxesOrFees) gaps.push({ title: 'Taxes & processing fees', reason: 'Tax/fee line items not found', range: toRange(0.01, 0.03) });
+
+      const totalMin = gaps.reduce((s, g) => s + Number(g.range?.min || 0), 0);
+      const totalMax = gaps.reduce((s, g) => s + Number(g.range?.max || 0), 0);
+      const totalLineItems = materialLineItems.length + laborLineItems.length + genericLineItems.length;
+
+      let reply = `✅ Scanned ${projectName ? `"${projectName}"` : 'this project'} for missing costs.\n\n`;
+      reply += `📊 Estimate snapshot:\n`;
+      reply += `- Line items found: ${totalLineItems}\n`;
+      reply += `- Estimated Cost: $${Math.round(baseEstimateCost).toLocaleString()}\n`;
+      reply += `- Actual Spent: $${Math.round(actualCost).toLocaleString()}\n\n`;
+
+      if (basis === 0) {
+        reply += `⚠️ I can't run a reliable gap scan yet because no estimate total or line items are in context.\n`;
+        reply += `➡️ Add estimate line items first, then run "Scan for missing costs" again.`;
+      } else if (gaps.length === 0) {
+        reply += `✅ No obvious missing cost categories detected from current estimate data.\n`;
+        reply += `➡️ Next best check: ask me to "Forecast final profit" to stress-test margin risk.`;
+      } else {
+        reply += `⚠️ Potential missing costs:\n`;
+        gaps.forEach((g, i) => {
+          reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`;
+        });
+        reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
+        reply += `➡️ Want me to add these as estimate line items now?`;
+      }
+
+      return res.json({ reply, actions: [] });
+    }
+
+    // ── DETERMINISTIC: Forecast final profit (bypass LLM variability) ─────────
+    const isForecastRequest =
+      msgLower.includes('forecast final profit') ||
+      msgLower.includes('forecast profit') ||
+      msgLower.includes('final profit') ||
+      msgLower.includes('forecast final cost') ||
+      (msgLower.includes('forecast') && msgLower.includes('profit')) ||
+      (msgLower.includes('forecast') && msgLower.includes('cost'));
+
+    if (isForecastRequest) {
+      const changeOrders = parsedContext.changeOrders || currentProjectData?.changeOrders || [];
+      const approvedChangeOrdersTotal = Array.isArray(changeOrders)
+        ? changeOrders.reduce((sum, co) => {
+            const amount = Number(co?.amount || 0);
+            const isApproved =
+              (typeof co?.approved === 'boolean' && co.approved) ||
+              (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+            return isApproved ? sum + amount : sum;
+          }, 0)
+        : 0;
+
+      // Contract value = bid + approved COs (if COs not already reflected in bid).
+      // If bid already contains COs, this still works as long as COs are 0 in that case.
+      const contractValue = Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0);
+      const baseEstimate = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
+      const actual = Number(actualCost || 0);
+      const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
+      const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
+      
+      // Check for completed schedule/payment entries from all known timeline sources.
+      // Some flows store deposit progress as payment milestones/weekly payments with status "paid".
+      const scheduleItems = [
+        ...(Array.isArray(parsedContext.milestones) ? parsedContext.milestones : []),
+        ...(Array.isArray(parsedContext.weeklyPayments) ? parsedContext.weeklyPayments : []),
+        ...(Array.isArray(parsedContext.paymentMilestones) ? parsedContext.paymentMilestones : []),
+        ...(Array.isArray(parsedContext?.estimateData?.weeklyPayments) ? parsedContext.estimateData.weeklyPayments : []),
+        ...(Array.isArray(parsedContext?.estimateData?.paymentMilestones) ? parsedContext.estimateData.paymentMilestones : []),
+        ...(Array.isArray(currentProjectData?.milestones) ? currentProjectData.milestones : []),
+        ...(Array.isArray(currentProjectData?.timelineItems) ? currentProjectData.timelineItems : []),
+        ...(Array.isArray(currentProjectData?.weeklyPayments) ? currentProjectData.weeklyPayments : []),
+        ...(Array.isArray(currentProjectData?.paymentMilestones) ? currentProjectData.paymentMilestones : []),
+        ...(Array.isArray(currentProjectData?.estimateData?.weeklyPayments) ? currentProjectData.estimateData.weeklyPayments : []),
+        ...(Array.isArray(currentProjectData?.estimateData?.paymentMilestones) ? currentProjectData.estimateData.paymentMilestones : []),
+        ...(Array.isArray(currentProjectData?.projectData?.milestones) ? currentProjectData.projectData.milestones : []),
+        ...(Array.isArray(currentProjectData?.projectData?.timelineItems) ? currentProjectData.projectData.timelineItems : []),
+      ];
+      const hasCompletedMilestones = scheduleItems.some((item) => {
+        const status = String(item?.status || '').toLowerCase();
+        const progressPctRaw = Number(item?.progressPct ?? item?.progress ?? 0);
+        const isCompletedStatus =
+          status.includes('complete') ||
+          status.includes('paid') ||
+          status.includes('collected') ||
+          status.includes('received');
+        return (
+          isCompletedStatus ||
+          progressPctRaw >= 100 ||
+          item?.isComplete === true ||
+          item?.completed === true ||
+          item?.isPaid === true ||
+          item?.paid === true ||
+          item?.collected === true
+        );
+      });
+      const committedPOs = Number(parsedContext.committedPOs || currentProjectData?.committedPOs || 0);
+      const unreceivedPOs = Array.isArray(currentProjectData?.purchaseOrders)
+        ? currentProjectData.purchaseOrders
+            .filter(po => (po?.status || '').toLowerCase() === 'pending')
+            .reduce((sum, po) => sum + Number(po?.amount || 0), 0)
+        : 0;
+      const committedNotInActual = Math.max(committedPOs, unreceivedPOs);
+
+      // Burn-rate-based forecast when progress exists; otherwise fallback to estimate baseline.
+      let likelyFinalCost = 0;
+      let forecastMethod = '';
+      if (progressRatio > 0.01 && actual > 0) {
+        const cpiForecast = actual / progressRatio; // EAC using CPI
+        const remainingByEstimate = Math.max(0, baseEstimate - actual);
+        const blended = (cpiForecast * 0.7) + ((actual + remainingByEstimate) * 0.3);
+        likelyFinalCost = Math.max(actual, blended, actual + committedNotInActual);
+        forecastMethod = 'progress-adjusted burn rate (CPI blend)';
+      } else if (baseEstimate > 0) {
+        likelyFinalCost = Math.max(actual + committedNotInActual, baseEstimate);
+        forecastMethod = 'estimate baseline (insufficient progress data)';
+      } else {
+        likelyFinalCost = actual + committedNotInActual;
+        forecastMethod = 'actuals + committed costs only (no estimate baseline)';
+      }
+
+      // Simple risk band: best / likely / worst
+      const costRiskPct =
+        progressRatio > 0.01
+          ? (actual > (baseEstimate * progressRatio * 1.1) ? 0.12 : 0.08)
+          : 0.1;
+      const optimisticFinalCost = Math.max(actual, likelyFinalCost * (1 - costRiskPct));
+      const conservativeFinalCost = likelyFinalCost * (1 + costRiskPct);
+
+      const likelyProfit = contractValue - likelyFinalCost;
+      const optimisticProfit = contractValue - optimisticFinalCost;
+      const conservativeProfit = contractValue - conservativeFinalCost;
+
+      const optimisticDelta = optimisticFinalCost - contractValue;
+      const likelyDelta = likelyFinalCost - contractValue;
+      const conservativeDelta = conservativeFinalCost - contractValue;
+      const fmtDelta = (delta) => {
+        if (Math.abs(delta) < 1) return 'On budget';
+        return delta > 0
+          ? `Over budget by $${Math.round(delta).toLocaleString()}`
+          : `Under budget by $${Math.round(Math.abs(delta)).toLocaleString()}`;
+      };
+
+      const likelyMarginPct = contractValue > 0 ? (likelyProfit / contractValue) * 100 : 0;
+      const optimisticMarginPct = contractValue > 0 ? (optimisticProfit / contractValue) * 100 : 0;
+      const conservativeMarginPct = contractValue > 0 ? (conservativeProfit / contractValue) * 100 : 0;
+
+      const drivers = [];
+      if (committedNotInActual > 0) drivers.push(`$${Math.round(committedNotInActual).toLocaleString()} in committed POs may convert to actual costs.`);
+      if (laborBudgetMain > 0 && laborSpentMain / laborBudgetMain > 0.75) {
+        drivers.push(`Labor burn is high (${Math.round((laborSpentMain / laborBudgetMain) * 100)}% used).`);
+      }
+      if (materialBudget > 0 && materialSpent / materialBudget > 0.75) {
+        drivers.push(`Material burn is high (${Math.round((materialSpent / materialBudget) * 100)}% used).`);
+      }
+      if (drivers.length === 0) drivers.push('Current burn appears consistent with the budget baseline.');
+
+      let reply = `📈 Forecast final cost & profit for ${projectName ? `"${projectName}"` : 'this project'}:\n\n`;
+      reply += `📊 Baseline:\n`;
+      reply += `- Contract Value (Bid + approved COs): $${Math.round(contractValue).toLocaleString()}\n`;
+      reply += `- Estimated Cost Baseline: $${Math.round(baseEstimate).toLocaleString()}\n`;
+      reply += `- Actual Spent to Date: $${Math.round(actual).toLocaleString()}\n`;
+      reply += `- Progress: ${progressPct.toFixed(0)}%\n`;
+      reply += `- Method: ${forecastMethod}\n\n`;
+
+      reply += `💰 Forecast (EAC):\n`;
+      reply += `- Optimistic Final Cost: $${Math.round(optimisticFinalCost).toLocaleString()} (${fmtDelta(optimisticDelta)}) → Profit: $${Math.round(optimisticProfit).toLocaleString()} (${optimisticMarginPct.toFixed(1)}%)\n`;
+      reply += `- Likely Final Cost: $${Math.round(likelyFinalCost).toLocaleString()} (${fmtDelta(likelyDelta)}) → Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)\n`;
+      reply += `- Worst-case (risk-adjusted) Final Cost: $${Math.round(conservativeFinalCost).toLocaleString()} (${fmtDelta(conservativeDelta)}) → Profit: $${Math.round(conservativeProfit).toLocaleString()} (${conservativeMarginPct.toFixed(1)}%)\n\n`;
+
+      reply += `⚠️ Key drivers:\n`;
+      drivers.slice(0, 3).forEach((d, i) => {
+        reply += `${i + 1}. ${d}\n`;
+      });
+      reply += `\n➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this forecast?`;
+
+      return res.json({ reply, actions: [] });
+    }
     
     const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes(status.toLowerCase());
     const isActiveProject = ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes(status.toLowerCase());
 
-    // SIMPLIFIED SYSTEM PROMPT - Focus on extraction and action
-    let systemPrompt = `You are an AI assistant for Build Profit Solutions construction project management app.
-
-**🚨 CRITICAL RULE - NEVER MENTION AMOUNTS UNLESS USER PROVIDED THEM 🚨**
-**NEVER mention any dollar amount ($350, $500, $1000, etc.) in your response unless the user explicitly provided that amount in their message. If the user didn't mention an amount, DO NOT say any number. Simply ask "How much is [the purchase order/expense/etc.] for?" without mentioning any specific dollar amount.**
-
-**YOUR JOB: Extract information and call functions to perform actions.**
-
-**🚨 CRITICAL: ALWAYS ASK FOR MISSING INFORMATION 🚨**
-**BEFORE CALLING ANY FUNCTION, CHECK IF ALL REQUIRED FIELDS ARE PRESENT:**
-- **Amount:** If NO number is in the user's message → ALWAYS ask "How much is this for?" or "What is the amount?"
-- **Category/Material:** If NO material name or "labor" mentioned → ALWAYS ask "What is this for?" or "What material is this for?"
-- **Vendor:** For MATERIALS, if NO vendor mentioned → ALWAYS ask "Where was it purchased?" or "Where did you buy this from?"
-- **Notes:** For LABOR, if NO description of what labor was for → ALWAYS ask "What was the labor expense for?"
-
-**BEFORE YOU ASK ANY QUESTIONS - READ THE USER'S MESSAGE CAREFULLY:**
-- For EXPENSES (material purchases, labor): If the message contains a number (like "500", "$300", "1200"), that number IS the amount - extract it immediately
-- Example: "Let's add 500 material spent" → amount = 500 (DO NOT ask "How much?" - the number is right there!)
-- Example: "add 1200 for labor" → amount = 1200 (DO NOT ask "How much?" - the number is right there!)
-- For PURCHASE ORDERS: ALWAYS ask for amount if not explicitly provided with indicators ($, "dollars", etc.)
-- **CRITICAL: If ANY required field is missing, you MUST ask for it BEFORE calling the function**
-
-**STEP 1: EXTRACT INFORMATION FROM USER MESSAGE**
-Read the user's ENTIRE message CAREFULLY and extract ALL information:
-
-**AMOUNT EXTRACTION - CRITICAL (FOR EXPENSES ONLY):**
-For material purchases and labor expenses, look for ANY number in the message. The number IS the amount. Examples:
-  * "Let's add 500 material spent" → amount = 500 (the number "500" is in the message)
-  * "add 1200" → amount = 1200
-  * "1200 material" → amount = 1200
-  * "1200 for" → amount = 1200
-  * "$1200" → amount = 1200
-  * "spent 500" → amount = 500
-  * "500 spent" → amount = 500
-  * "Let's add 800 for labor" → amount = 800 (the number "800" is in the message)
-  
-**CRITICAL RULE FOR EXPENSES:** If the user's message contains ANY number (like "500", "1200", "$300"), that number IS the amount. DO NOT ask "How much did you spend?" if you see a number in their message. Extract it immediately.
-
-**CRITICAL RULE FOR PURCHASE ORDERS:** NEVER extract amounts for purchase orders unless the user explicitly provides them with clear indicators ($, "dollars", "for $X"). If the user says "Create me a purchase order" without an amount, you MUST ask "How much is the purchase order for?" first.
-- Category/Type: 
-  * If user says "labor", "labor expense", "for labor", "on labor" → category is "Labor"
-  * If user says "material", "materials", "drywall", "lumber", "tile" → category is the material name (e.g., "Drywall", "Lumber")
-- Vendor: 
-  * For MATERIALS: Look for "Home Depot", "at home depot", "from lowes" → extract "Home Depot" or "Lowe's". REQUIRED - if missing, ask "Where was it purchased?"
-  * For LABOR: Vendor is NOT required. Instead, ask "What was the labor expense for?" to get details about what the labor was for (e.g., "framing", "drywall installation", "painting")
-- Project: ${projectName ? `You're in project "${projectName}" (ID: ${projectId || 'lookup needed'}) - USE THIS PROJECT. DO NOT ask which project.` : 'If no project, ask "Which project is this for?"'}
-
-**STEP 2: DO NOT CALL FUNCTION UNTIL YOU HAVE ALL REQUIRED INFO**
-REQUIRED FIELDS:
-- For MATERIALS: amount (NUMBER) + category (material name) + ${projectId ? `projectId "${projectId}"` : 'projectId (STRING)'} + vendor (STRING)
-- For LABOR: amount (NUMBER) + category ("Labor") + ${projectId ? `projectId "${projectId}"` : 'projectId (STRING)'} + notes (STRING - what the labor was for, e.g., "framing", "drywall installation")
-
-**🚨 CRITICAL RULES - ALWAYS ASK FOR MISSING INFORMATION:**
-→ **STEP 1:** Check if amount is in the message (any number like "500", "1200", "$300") - if YES, extract it. If NO number at all → **ALWAYS ask "How much is this for?" or "What is the amount?"** - DO NOT call function without amount
-→ **STEP 2:** Check if category/material is in the message - if NO material name and NO "labor" → **ALWAYS ask "What is this for?" or "What material is this for?"** - DO NOT call function without category
-→ **STEP 3:** For MATERIALS: Check if vendor is in the message - if NO vendor mentioned → **ALWAYS ask "Where was it purchased?" or "Where did you buy this from?"** - DO NOT call function without vendor
-→ **STEP 4:** For LABOR: Check if notes (what labor was for) is in the message - if NO description → **ALWAYS ask "What was the labor expense for?"** - DO NOT call function without notes (vendor is NOT required for labor)
-→ **STEP 5:** Only AFTER you have ALL required fields → call the function ONCE with ALL information
-→ For PURCHASE ORDERS, only extract if amount has explicit indicators ($, "dollars", "for $X"). If missing → **ALWAYS ask "How much is the purchase order for?"**
-→ DO NOT call any function if required fields are missing - ALWAYS ask for missing information first
-→ DO NOT confirm anything until the function is called AND returns success: true
-→ DO NOT say "I've recorded" or "Got it!" before calling the function
-→ DO NOT say "I've recorded" if you haven't seen success: true in the function result
-
-**ONLY CALL FUNCTION WHEN:**
-- You have amount (number) - extract ANY number from the message (e.g., "add 500", "500 material", "$500", "spent 500", "500 for", "Let's add 500 material spent" → extract 500)
-- You have category (string) - "Labor" for labor expenses, or material name for materials
-- You have ${projectId ? `projectId "${projectId}"` : 'projectId (from get_project_by_name if needed)'} - ${projectId ? `ALWAYS use "${projectId}" from context` : 'lookup if needed'}
-- For MATERIALS: You have vendor (string) - extract from message or ask "Where was it purchased?"
-- For LABOR: You have notes (string) describing what the labor was for - ask "What was the labor expense for?" if missing (vendor is NOT required for labor)
-→ Then call add_material_expense ONCE with ALL information
-
-${projectId ? `**CRITICAL: The projectId is "${projectId}" - you MUST include this in the function call. DO NOT call the function without projectId.**` : ''}
-
-**WHEN TO ASK FOR INFORMATION:**
-- No amount → ask "How much did you spend?" or "What is the amount?" (DO NOT call function without amount)
-- No category (no material and no "labor") → ask "What is this for?" or "What material is this for?" (DO NOT call function without category)
-- For MATERIALS: No vendor → ask "Where was it purchased?" or "Where did you buy this from?" (DO NOT call function without vendor)
-- For LABOR: No notes (what labor was for) → ask "What was the labor expense for?" (DO NOT call function without notes - vendor is NOT required for labor)
-- No project → ${projectId ? `You have projectId "${projectId}" - USE IT, DO NOT ask` : 'ask "Which project is this for?" or use get_project_by_name'}
-
-**CURRENT PROJECT:**
-${projectName ? `- Project: "${projectName}" (ID: ${projectId || 'lookup needed'})` : '- No project in context'}
-${status ? `- Status: ${status}` : ''}
-${bidTotal > 0 ? `- Budget: $${bidTotal.toLocaleString()}` : ''}
-
-**WHEN USER SAYS "PURCHASE ORDER", "PO", "ORDER", "PLACE AN ORDER", "CREATE A PO", "CREATE ME A PURCHASE ORDER":**
-→ **🚨 HARD RULE: NEVER INVENT OR ASSUME MISSING VALUES (amount, vendor, category) 🚨**
-→ **REQUIRED FIELDS TO CREATE A PO: category (string), amount (number > 0), vendor (string)**
-→ **STEP 1: Check if amount is explicitly in the CURRENT user message - if NO amount mentioned → ALWAYS ask "How much is the purchase order for?" - DO NOT call function**
-→ **STEP 2: Check if category is explicitly in the CURRENT user message - if NO category mentioned → ALWAYS ask "What category is this for?" - DO NOT call function**
-→ **STEP 3: Check if vendor is explicitly in the CURRENT user message - if NO vendor mentioned → ALWAYS ask "Which vendor is this from?" - DO NOT call function**
-→ **STEP 4: Only AFTER you have ALL required fields explicitly provided in user messages → call add_purchase_order ONCE**
-→ **NEVER extract amounts from previous messages or conversation context - ONLY use amounts explicitly stated in the current message**
-→ **NEVER use placeholder amounts (350, 500, 1000, etc.) - if user doesn't provide amount, ask for it**
-→ **NEVER mention any dollar amount in your response unless the user explicitly provided it in their message**
-→ **NEVER guess or assume - if any required field is missing, ask for it before calling the function**
-→ **DO NOT say you created a PO unless the function call succeeded (success: true)**
-→ Purchase orders start as "Pending" and show in "Committed POs" in the budget
-→ When received, they convert to actual expenses
-
-**WHEN USER SAYS "MARK AS RECEIVED", "MARK PO AS RECEIVED", "RECEIVED", "GOT IT", "DELIVERED", "MARK [PO NUMBER] AS RECEIVED", "OK GREAT CAN YOU MARK AS RECEIVED", "CAN YOU MARK THIS RECEIVED", "MAR THIS PURCHASE ORDER AS RECIEVED" (typos like "mar" and "recieved"), "OK CAN YOU MARK THIS PO AS RECIEVED", "CAN YOU MARK AS RECIEVED", "MARK IT AS RECIEVED":**
-→ **CRITICAL: DO NOT CREATE A NEW PURCHASE ORDER - the user wants to mark an EXISTING one as received**
-→ **CRITICAL: DO NOT call add_purchase_order when user says "mark as received" - that creates a NEW PO, which is wrong**
-→ **YOU MUST CALL mark_purchase_order_received function when user says "mark as received"**
-→ **CRITICAL: DO NOT say "I've created purchase order" when user asks to mark one as received - that's creating a NEW PO, which is WRONG**
-→ **If the user says "mar" or "recieved" (typos), they still mean "mark as received" - call mark_purchase_order_received**
-→ **NEVER call add_purchase_order when user asks to mark something as received**
-→ **ALWAYS call mark_purchase_order_received when user asks to mark something as received**
-→ **NEVER say you created a purchase order when user asks to mark one as received**
-
-**WHEN USER SAYS "SPENT", "BOUGHT", "PURCHASED", "PAID", "EXPENSE", "ADD", "FOR LABOR", "LABOR EXPENSE":**
-→ Use add_material_expense function (creates expense transaction - actual money spent)
-→ For labor: category = "Labor", vendor = extract from message or ask "Where was it purchased?"
-→ For materials: category = material name (e.g., "Drywall"), vendor = extract from message or ask "Where was it purchased?"
-→ This appears in expense transactions immediately
-→ DO NOT use add_purchase_order for expenses - use add_material_expense
-→ Call the function ONCE with ALL information (amount, category, vendor, projectId)
-→ DO NOT call the function multiple times - gather all info first, then call once
-→ ${projectId ? `ALWAYS use projectId "${projectId}" from context - DO NOT ask which project` : ''}
-
-**CRITICAL: NEVER CONFIRM BEFORE FUNCTION SUCCEEDS**
-→ DO NOT say "I've recorded" or "Got it!" until you see success: true in the function result
-→ DO NOT confirm anything before calling the function
-→ DO NOT say you did something if you haven't called the function yet
-→ DO NOT say "I've recorded the material spend" if you haven't called the function
-→ Call the function, wait for the result, check success: true, THEN confirm
-
-**AFTER FUNCTION SUCCEEDS (success: true):**
-→ ONLY THEN say: "Got it! I've recorded $X for [material] from [vendor]."
-→ If you already confirmed something worked (success: true), DO NOT say there's an issue later
-→ If success: true, the expense was added - trust it, don't check again
-
-**CRITICAL: READING FUNCTION RESULTS**
-→ Check the "success" field in the function result
-→ Check the "status" field: "success" means it worked, "error" means it failed
-
-**STEP 3: READ FUNCTION RESULT AND RESPOND**
-After calling the function, you will receive a result with a "success" field.
-
-**IF success: true:**
-→ The expense was added successfully
-→ Say: "Got it! I've recorded $X for [material] from [vendor]."
-→ DO NOT say there's an issue - it worked!
-→ DO NOT check again - trust the result
-
-**IF success: false:**
-→ Read the "error" field to see what went wrong
-→ Explain the specific error to the user
-→ If error says "Project ID is missing", use get_project_by_name to find the project, then retry
-→ DO NOT say "there was an issue" - explain the actual error
-
-**IF FUNCTION FAILS (success: false, status: "error"):**
-→ Read the EXACT error message from the "error" or "errorMessage" field
-→ If the error says "requiresProjectLookup: true", you MUST call get_project_by_name FIRST with the projectName, then call add_material_expense again with the projectId you got
-→ Tell the user what went wrong in plain language
-→ If it's a project ID issue, use get_project_by_name to find the project, then retry add_material_expense
-→ If it's authentication, tell them to log in again
-→ NEVER say "there was an issue" or "there is an issue" - always explain the specific error and what you're doing to fix it
-→ If you need to look up a project, say: "Let me find the project first..." then call get_project_by_name, then proceed
-
-**NEVER CONTRADICT YOURSELF - CRITICAL RULES:**
-→ If a function returns success: true, the action worked - don't say it failed
-→ If you just confirmed something worked (success: true), NEVER say there's an issue in the next message
-→ If you said "I've recorded $X", that means success: true - don't then say there's an issue
-→ If you already confirmed "Got it! I've recorded...", the expense was added - don't check again
-→ If the function result has confirmed: true, the action is done - don't call the function again
-→ Trust the function results - if success: true, proceed confidently
-→ Only report errors when success: false
-→ If you already confirmed something worked, don't check again or say there's an issue - it worked!
-→ NEVER say "there was an issue" or "there is an issue" after you already said "I've recorded" - that's a contradiction
-→ NEVER call the same function twice for the same expense - if you already called add_material_expense and got success: true, don't call it again
-
-**NEVER:**
-- Ask for information already in the message
-- Give instructions instead of calling functions
-- Say you did something before calling the function
-- Say "there was an issue" without explaining the actual error`;
+    // ── BUILD SYSTEM PROMPT using modular prompt system ──
+    const pmAlerts = aiPmMode ? runProactiveIntelligence(parsedContext) : [];
+    let systemPrompt = buildSystemPrompt({
+      projectName, projectId, status,
+      bidTotal, estimatedCost, actualCost,
+      materialBudget, materialSpent, materialRemaining,
+      laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
+      progress, aiPmMode, pmAlerts,
+      screen: parsedContext.screen || 'assistant_tab',
+    });
 
     // Build messages array from history + new message
     const messages = [
@@ -305,8 +778,8 @@ After calling the function, you will receive a result with a "success" field.
       { role: 'user', content: message },
     ];
 
-    // Define available functions for the AI
-    const functions = [
+    // ── Tool allowlist: PM OFF = 4 core tools, PM ON = 4 core + timeline + estimates ──
+    const coreTools = [
       {
         type: 'function',
         function: {
@@ -435,6 +908,215 @@ After calling the function, you will receive a result with a "success" field.
         },
       },
     ];
+
+    // ── PM Mode extended tools: timeline + estimates ──────────────────────────
+    const pmTools = aiPmMode ? [
+      {
+        type: 'function',
+        function: {
+          name: 'get_timeline_items',
+          description: 'Get the timeline/milestone items for the current project. Use when user asks about milestones, schedule, what tasks are left, what\'s next, or progress.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+            },
+            required: projectId ? [] : ['projectId'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mark_timeline_item_complete',
+          description: 'Mark a milestone as complete OR update its progress percentage. Use when user says "mark [item] complete", "done with [phase]", "framing is 50% done", "update progress to 75%".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              itemId: { type: 'string', description: 'The ID of the milestone/timeline item. Get this from get_timeline_items first if needed.' },
+              itemName: { type: 'string', description: 'The name/title of the item (used for display if itemId is unknown).' },
+              progressPct: { type: 'number', description: 'Progress percentage 0-100. If set to 100, the item is marked complete. If user says "halfway done" use 50, "almost done" use 90, etc.' },
+              completedAt: { type: 'string', description: 'ISO date string for completion. Defaults to now if progress is 100.' },
+            },
+            required: ['itemName'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_timeline_payment',
+          description: 'Add a payment milestone to the project timeline. Use when user says "add payment", "schedule a payment", "add milestone payment".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              title: { type: 'string', description: 'Name/title of the payment milestone (e.g., "Payment 1 - Deposit", "Final Payment").' },
+              amount: { type: 'number', description: 'Payment amount in dollars.' },
+              dueDate: { type: 'string', description: 'Due date in ISO format (YYYY-MM-DD).' },
+            },
+            required: ['title', 'amount'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_estimate',
+          description: 'Get the estimate line items for the current project. Use when user asks "show estimate", "what\'s in the estimate?", "show line items", "what materials are in the bid?".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_estimate_line_item',
+          description: 'Add a line item to the project estimate. Use when user says "add [item] to the estimate", "put [item] on the bid", "add line item".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              name: { type: 'string', description: 'Name/description of the line item (e.g., "Drywall", "Framing Labor").' },
+              qty: { type: 'number', description: 'Quantity. Default 1 if not specified.' },
+              unitCost: { type: 'number', description: 'Cost per unit in dollars.' },
+              category: { type: 'string', description: 'Category: "Materials/Equipment" or "Labor". Infer from context.' },
+            },
+            required: ['name', 'unitCost'],
+          },
+        },
+      },
+      // ── SCENARIO + CHANGE ORDER TOOLS ──────────────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'run_scenario_analysis',
+          description: 'Run a what-if scenario analysis on the project. Use when user asks "what if materials go up 10%?", "what if labor increases?", "bad remodel scenario", "smooth job scenario", "what happens if costs rise?".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              scenario: { type: 'string', enum: ['labor_up_10', 'labor_down_10', 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'typical_friction', 'bad_remodel', 'smooth_job', 'custom'], description: 'The scenario to run. Use "custom" for arbitrary adjustments.' },
+              customAdjustments: {
+                type: 'object',
+                description: 'For "custom" scenario only. Specify percentage changes.',
+                properties: {
+                  laborPctChange: { type: 'number', description: 'Labor cost % change (e.g., 15 means +15%)' },
+                  materialsPctChange: { type: 'number', description: 'Materials cost % change' },
+                  overheadPctChange: { type: 'number', description: 'Overhead cost % change' },
+                  bidPctChange: { type: 'number', description: 'Bid price % change' },
+                },
+              },
+            },
+            required: ['scenario'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'create_change_order',
+          description: 'Create a change order for a project. Use when user says "client wants to add...", "scope change", "change order for...", "add a change order". This creates the CO, adjusts the budget, and optionally adds a payment milestone.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              description: { type: 'string', description: 'Description of the scope change (e.g., "Add half bathroom to master suite"). REQUIRED.' },
+              amount: { type: 'number', description: 'Cost of the change order in dollars. REQUIRED.' },
+              addPaymentMilestone: { type: 'boolean', description: 'Whether to add a payment milestone for this CO. Default true.' },
+              markupPct: { type: 'number', description: 'Markup percentage to apply to the CO cost. Defaults to the project markup (e.g., 20%).' },
+            },
+            required: ['description', 'amount'],
+          },
+        },
+      },
+      // ── AI ESTIMATE GENERATOR ──────────────────────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'generate_estimate',
+          description: 'Generate a full project estimate with materials, labor, overhead, and markup from a description. Use when user says "create an estimate for...", "bid a kitchen remodel", "estimate a bathroom renovation", "how much would it cost to...".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectType: { type: 'string', enum: ['kitchen', 'bathroom', 'room_addition', 'home_addition', 'new_build', 'landscaping', 'other'], description: 'Type of project. Infer from description.' },
+              squareFootage: { type: 'number', description: 'Square footage if mentioned. Required for accurate pricing.' },
+              description: { type: 'string', description: 'Full description of the scope of work. Include all details the user mentioned.' },
+              quality: { type: 'string', enum: ['budget', 'mid_range', 'high_end', 'luxury'], description: 'Quality tier. Default "mid_range". Infer from context — "basic" = budget, "nice"/"good" = mid_range, "high end"/"premium" = high_end, "luxury"/"custom" = luxury.' },
+              location: { type: 'string', description: 'City/state or ZIP code for regional pricing if mentioned.' },
+              markupPct: { type: 'number', description: 'Desired markup percentage. Default 20.' },
+            },
+            required: ['projectType', 'description'],
+          },
+        },
+      },
+      // ── EXPENSE + LOG TOOLS ──────────────────────────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'add_labor_expense',
+          description: 'Add a labor expense to the project. Use when user says "labor expense", "paid crew", "labor cost", "paid for framing", etc. More specific than add_material_expense for labor tracking.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              amount: { type: 'number', description: 'The labor cost in dollars. REQUIRED.' },
+              trade: { type: 'string', description: 'The trade/skill (e.g., "Framing", "Electrical", "Plumbing", "General Labor", "Painting"). REQUIRED.' },
+              description: { type: 'string', description: 'Description of the work performed (e.g., "Install drywall in master bedroom"). REQUIRED.' },
+              date: { type: 'string', description: 'Date of the work in YYYY-MM-DD format. Defaults to today.' },
+              workerName: { type: 'string', description: 'Name of worker or subcontractor if mentioned.' },
+            },
+            required: ['amount', 'trade', 'description'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mark_payment_collected',
+          description: 'Mark a payment milestone as collected from the client. Use when user says "got paid", "payment collected", "client paid", "received payment", "collected deposit".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              milestoneId: { type: 'string', description: 'The ID of the payment milestone.' },
+              milestoneName: { type: 'string', description: 'The name of the milestone (e.g., "Payment 1 - Deposit"). Used if milestoneId is unknown.' },
+              amount: { type: 'number', description: 'Amount collected. If different from the milestone amount.' },
+              collectedAt: { type: 'string', description: 'Date collected in ISO format. Defaults to now.' },
+            },
+            required: ['milestoneName'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_daily_log',
+          description: 'Add a daily job log / site note to the project. Use when user says "daily log", "job log", "site note", "add note", "log for today", "record what happened".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              noteText: { type: 'string', description: 'The log entry text. Capture what the user said about the day\'s work.' },
+              date: { type: 'string', description: 'Date for the log in YYYY-MM-DD. Defaults to today.' },
+              weather: { type: 'string', description: 'Weather conditions if mentioned (e.g., "sunny", "rain delay").' },
+              crewCount: { type: 'number', description: 'Number of workers on site if mentioned.' },
+              hoursWorked: { type: 'number', description: 'Hours worked if mentioned.' },
+            },
+            required: ['noteText'],
+          },
+        },
+      },
+    ] : [];
+
+    // Final tool list: core always included, PM tools added when mode is on
+    const functions = [...coreTools, ...pmTools];
 
     // Helper function to execute get_project_by_name
     async function executeGetProjectByName(args) {
@@ -1068,198 +1750,62 @@ After calling the function, you will receive a result with a "success" field.
 
     // Track actions from function calls (for purchase orders, etc.) - declare BEFORE use
     let actions = [];
-    
-    // Check if user is asking for a purchase order - check ALL user messages, not just the last one
-    // This handles multi-turn conversations where the user says "add a purchase order" first,
-    // then provides details in subsequent messages
     const allUserMessages = messages.filter(m => m.role === 'user');
     const lastUserMessage = allUserMessages[allUserMessages.length - 1];
+    const lastUserContent = (lastUserMessage?.content || '').toLowerCase();
+    const allMessagesText = messages.map(m => m.content || '').join(' ').toLowerCase();
+
+    // ── STAGE 1: ROUTER ──────────────────────────────────────────────────────
+    // Replaces keyword heuristics. GPT decides intent + whether required fields are present.
+    const routerResult = await runRouter(
+      message,
+      history,
+      { projectName, projectId, activeTab, pmMode: aiPmMode }
+    );
+    console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
+
+    // Gate: if required fields are missing → ask the clarification question and stop
+    if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
+      const question = routerResult.clarification_question || `I need a few more details. Could you provide the ${routerResult.required_fields_missing.join(' and ')}?`;
+      console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing, '→ asking clarification');
+      return res.json({ reply: question, actions: [], projectUpdateData: null });
+    }
+
+    // Map router proposed_tool to finalToolChoice
+    const validTools = functions.map(f => f.function.name);
+    let finalToolChoice = 'auto';
+    if (routerResult.proposed_tool && validTools.includes(routerResult.proposed_tool)) {
+      // Force on high-confidence actionable intents (not for budget queries or general chat)
+      if (routerResult.domain !== 'general' && routerResult.domain !== 'budget') {
+        finalToolChoice = { type: 'function', function: { name: routerResult.proposed_tool } };
+        console.log(`🔧 Router forcing tool: ${routerResult.proposed_tool}`);
+      }
+    } else if (routerResult.domain === 'budget' || routerResult.domain === 'general') {
+      finalToolChoice = 'none'; // Let the assistant answer conversationally
+    }
+
+    // Safety guard: if user said "mark received" but router picked add_purchase_order → correct it
+    const userSaidMarkThisPO = lastUserContent.includes('mark') &&
+                               (lastUserContent.includes('received') || lastUserContent.includes('recieved'));
+    if (userSaidMarkThisPO && finalToolChoice?.function?.name === 'add_purchase_order') {
+      console.log('🔴 Safety guard: correcting add_purchase_order → mark_purchase_order_received');
+      finalToolChoice = { type: 'function', function: { name: 'mark_purchase_order_received' } };
+    }
+
+    // Legacy compat: keep allAssistantMessages for post-processing checks below
     const allAssistantMessages = messages.filter(m => m.role === 'assistant');
     const lastAssistantMessage = allAssistantMessages[allAssistantMessages.length - 1];
-    const previousAssistantMessage = allAssistantMessages[allAssistantMessages.length - 2]; // The one before the last
-    
-    // Check if user originally asked for a PO (in any previous message)
     const userEverAskedForPO = allUserMessages.some(msg => {
       const content = msg.content?.toLowerCase() || '';
-      return content.includes('purchase order') ||
-             content.match(/\bpo\b/i) ||
-             content.includes('place an order') ||
-             content.includes('create a po') ||
-             content.includes('add a purchase order');
+      return content.includes('purchase order') || content.match(/\bpo\b/i) || content.includes('create a po');
     });
     
-    // Check if AI is asking for PO-related info (vendor, category, amount)
-    const aiAskingForPOInfo = lastAssistantMessage?.content?.toLowerCase().includes('vendor') ||
-                              lastAssistantMessage?.content?.toLowerCase().includes('category') ||
-                              lastAssistantMessage?.content?.toLowerCase().includes('amount') ||
-                              lastAssistantMessage?.content?.toLowerCase().includes('purchase order');
+    // (Legacy compat vars — kept for post-processing checks below that still reference them)
+    const lastUserMsgLower = lastUserContent;
+    const userProvidedAnswer = lastUserContent.length > 0 && !lastUserContent.includes('?');
     
-    // Check if user just provided an answer (not asking a question)
-    const lastUserContent = lastUserMessage?.content?.toLowerCase() || '';
-    const userProvidedAnswer = lastUserContent.length > 0 && 
-                              !lastUserContent.includes('?') &&
-                              !lastUserContent.includes('what') &&
-                              !lastUserContent.includes('which') &&
-                              !lastUserContent.includes('how');
-    
-    // Check if AI asked for vendor or category in recent messages (check both last and previous)
-    const lastAssistantContent = lastAssistantMessage?.content?.toLowerCase() || '';
-    const previousAssistantContent = previousAssistantMessage?.content?.toLowerCase() || '';
-    const combinedAssistantContent = (lastAssistantContent + ' ' + previousAssistantContent).toLowerCase();
-    
-    const aiAskedForVendor = combinedAssistantContent.includes('vendor') ||
-                            combinedAssistantContent.includes('which vendor');
-    const aiAskedForCategory = combinedAssistantContent.includes('category') ||
-                              combinedAssistantContent.includes('what category');
-    const aiAskedForAmount = combinedAssistantContent.includes('amount') ||
-                            combinedAssistantContent.includes('how much');
-    
-    // Check if we have info in the conversation - be more aggressive
-    const allMessagesText = messages.map(m => m.content || '').join(' ').toLowerCase();
-    const hasAmountInConversation = /\$?\d+/.test(allMessagesText);
-    
-    // Check for vendor in user messages (more reliable than all messages)
-    const userMessagesText = allUserMessages.map(m => m.content?.toLowerCase() || '').join(' ');
-    const hasVendorInConversation = userMessagesText.includes('jones') ||
-                                   userMessagesText.includes('home depot') ||
-                                   userMessagesText.includes('lowes') ||
-                                   userMessagesText.includes('paint') ||
-                                   userMessagesText.includes('glass') ||
-                                   // Check if last user message looks like a vendor name
-                                   (lastUserContent.length > 2 && lastUserContent.length < 30 && 
-                                    !lastUserContent.includes('?') && !lastUserContent.includes('what') &&
-                                    !lastUserContent.includes('which') && !lastUserContent.match(/^\d+$/));
-    
-    const hasCategoryInConversation = allMessagesText.includes('windows') ||
-                                     allMessagesText.includes('materials') ||
-                                     allMessagesText.includes('labor') ||
-                                     allMessagesText.includes('equipment');
-    
-    // Force function call if:
-    // 1. User asked for a PO at some point, AND
-    // 2. (AI just asked for vendor/category/amount AND user provided answer) OR (we have amount AND vendor), AND
-    // 3. We have at least amount and vendor in the conversation, AND
-    // 4. We haven't already created a PO action
-    const hasPOAction = actions.some(a => a.type === 'add_purchase_order');
-    
-    // More aggressive: if we have amount and vendor, force the call
-    const hasEnoughInfo = hasAmountInConversation && hasVendorInConversation;
-    const aiAskedAndUserAnswered = (aiAskedForVendor || aiAskedForCategory || aiAskedForAmount) && userProvidedAnswer;
-    
-    // Check if user wants to mark a PO as received
-    // Be VERY aggressive in detection - handle typos like "mar" instead of "mark" and "recieved" instead of "received"
-    const lastUserMsgLower = (lastUserMessage?.content || '').toLowerCase();
-    
-    // Normalize common typos: "mar" -> "mark", "recieved" -> "received"
-    const normalizedMsg = lastUserMsgLower
-      .replace(/\bmar\b/g, 'mark')  // "mar" -> "mark"
-      .replace(/\brecieved\b/g, 'received')  // "recieved" -> "received"
-      .replace(/\brecieve\b/g, 'receive');  // "recieve" -> "receive"
-    
-    // CRITICAL: Check for "mark this PO" or "mark this po" - this is a common pattern
-    const hasMarkThisPO = (normalizedMsg.includes('mark') && normalizedMsg.includes('this') && (normalizedMsg.includes('po') || normalizedMsg.includes('purchase order'))) ||
-                          (lastUserMsgLower.includes('mark') && lastUserMsgLower.includes('this') && (lastUserMsgLower.includes('po') || lastUserMsgLower.includes('purchase order')));
-    
-    const userSaidMarkReceived = normalizedMsg.includes('mark as received') ||
-                                 normalizedMsg.includes('mark received') ||
-                                 normalizedMsg.includes('mark this received') ||
-                                 normalizedMsg.includes('mark this as received') ||  // Explicitly check "mark this as received"
-                                 normalizedMsg.includes('mark it received') ||
-                                 normalizedMsg.includes('mark it as received') ||  // Explicitly check "mark it as received" - THIS IS THE KEY PATTERN
-                                 normalizedMsg.includes('mark this po as received') ||
-                                 normalizedMsg.includes('mark the po as received') ||
-                                 normalizedMsg.includes('mark purchase order as received') ||
-                                 normalizedMsg.includes('mark po as received') ||
-                                 (normalizedMsg.includes('can you mark') && normalizedMsg.includes('received')) ||
-                                 (normalizedMsg.includes('can you mark') && (normalizedMsg.includes('this') || normalizedMsg.includes('it')) && normalizedMsg.includes('received')) ||  // "can you mark this as received"
-                                 (normalizedMsg.includes('can you mark') && hasMarkThisPO && (normalizedMsg.includes('received') || normalizedMsg.includes('recieved'))) ||  // "can you mark this PO as recieved"
-                                 (normalizedMsg.includes('mark') && (normalizedMsg.includes('this') || normalizedMsg.includes('it')) && normalizedMsg.includes('received') && 
-                                  !normalizedMsg.includes('create') &&
-                                  !normalizedMsg.includes('add') &&
-                                  !normalizedMsg.includes('record')) ||
-                                 // Also check original message for "received" or "recieved" with "mar" or "mark"
-                                 (lastUserMsgLower.includes('mar') && (lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 (lastUserMsgLower.includes('mark') && (lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 // CRITICAL: Check for "mark it as" with received/recieved (even with typo) - this catches "mark it as recieved"
-                                 (normalizedMsg.includes('mark') && (normalizedMsg.includes('this') || normalizedMsg.includes('it')) && normalizedMsg.includes('as') && (normalizedMsg.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 // CRITICAL: If user says "mark this PO" and mentions "received" or "recieved", they want to mark as received
-                                 (hasMarkThisPO && (normalizedMsg.includes('received') || normalizedMsg.includes('recieved') || lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 // CRITICAL: Explicit check for "can you mark this PO as recieved" - this is the exact pattern the user is using
-                                 (normalizedMsg.includes('can you mark') && hasMarkThisPO && (normalizedMsg.includes('received') || normalizedMsg.includes('recieved') || lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 // Also check original message for this pattern
-                                 (lastUserMsgLower.includes('can you mark') && lastUserMsgLower.includes('this') && (lastUserMsgLower.includes('po') || lastUserMsgLower.includes('purchase order')) && (lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'))) ||
-                                 // CRITICAL: Simple pattern - "mark it" + "recieved" (with typo) - this is what the user is saying
-                                 (normalizedMsg.includes('mark') && (normalizedMsg.includes('it') || normalizedMsg.includes('this')) && (lastUserMsgLower.includes('recieved') || normalizedMsg.includes('received')));
-    
-    // Also check if the last assistant message was about creating a PO, and now user says "received"
-    const lastAssistantMsgLower = lastAssistantMessage?.content?.toLowerCase() || '';
-    const aiJustCreatedPO = lastAssistantMsgLower.includes('created purchase order') || 
-                           lastAssistantMsgLower.includes('recorded a purchase order') ||
-                           lastAssistantMsgLower.includes('purchase order') && 
-                           (lastAssistantMsgLower.includes('po-') || lastAssistantMsgLower.includes('$'));
-    const userSaysReceivedAfterPO = aiJustCreatedPO && 
-                                    (normalizedMsg.includes('received') || 
-                                     normalizedMsg.includes('mark') ||
-                                     normalizedMsg.includes('mar') ||  // Handle "mar" typo
-                                     lastUserMsgLower.includes('received') || 
-                                     lastUserMsgLower.includes('recieved') ||  // Handle "recieved" typo
-                                     lastUserMsgLower.includes('mark') ||
-                                     lastUserMsgLower.includes('mar'));  // Handle "mar" typo
-    
-    const shouldDetectMarkReceived = userSaidMarkReceived || userSaysReceivedAfterPO;
-    
-    // Check for "mark this PO" pattern - declare once here
-    const userSaidMarkThisPO = lastUserMsgLower.includes('mark') && lastUserMsgLower.includes('this') && 
-                                (lastUserMsgLower.includes('po') || lastUserMsgLower.includes('purchase order')) &&
-                                (lastUserMsgLower.includes('received') || lastUserMsgLower.includes('recieved'));
-    
-    // Reduced logging to prevent terminal glitching
-    if (shouldDetectMarkReceived) {
-      console.log('🔍 Mark as received detected:', lastUserMsgLower.substring(0, 50));
-    }
-    
-    const hasMarkReceivedAction = actions.some(a => a.type === 'mark_po_received');
-    const hasAddPOAction = actions.some(a => a.type === 'add_purchase_order');
-    
-    // CRITICAL: If user wants to mark as received, don't create a new PO
-    const shouldForceMarkReceived = shouldDetectMarkReceived && !hasMarkReceivedAction && !hasAddPOAction;
-    
-    // CRITICAL: Don't force PO creation if user wants to mark as received
-    // NEVER create a new PO if user said "mark as received" or "received" after a PO was created
-    const shouldForcePO = userEverAskedForPO && 
-                         (hasEnoughInfo || aiAskedAndUserAnswered) &&
-                         !hasPOAction &&
-                         !shouldForceMarkReceived && // Don't create PO if marking as received
-                         !shouldDetectMarkReceived && // Double check - don't create if user said "received"
-                         !userSaidMarkReceived && // Triple check - don't create if user explicitly said "mark received"
-                         !userSaysReceivedAfterPO; // Quadruple check - don't create if user said received after PO was created
-    
-    // Priority: Mark as received takes ABSOLUTE precedence over creating a new PO
-    // CRITICAL: If we detected mark as received, FORCE mark_purchase_order_received function call
-    let toolChoice;
-    if (shouldDetectMarkReceived && !hasMarkReceivedAction) {
-      console.log('🔴 CRITICAL: User wants to mark PO as received - FORCING mark_purchase_order_received function call!');
-      // Force the mark_purchase_order_received function call
-      toolChoice = { type: 'function', function: { name: 'mark_purchase_order_received' } };
-    } else if (shouldForceMarkReceived) {
-      // Block all function calls - AI should respond with manual instructions
-      toolChoice = 'none';
-    } else if (shouldForcePO) {
-      toolChoice = { type: 'function', function: { name: 'add_purchase_order' } };
-    } else {
-      toolChoice = 'auto';
-    }
-    
-    // Reduced logging - only log when forcing a function call
-    if (toolChoice !== 'auto' && toolChoice !== 'none') {
-      const functionName = typeof toolChoice === 'object' ? toolChoice.function?.name : 'unknown';
-      console.log(`🔧 Forcing ${functionName} function call`);
-    }
-    
-    // Call OpenAI with function calling
-    // CRITICAL: If user wants to mark as received, allow mark_purchase_order_received (already forced above)
-    // Only block if we're forcing mark_purchase_order_received (it's already set in toolChoice)
-    const finalToolChoice = toolChoice;
+    // ── STAGE 2: EXECUTION ────────────────────────────────────────────────────
+    // finalToolChoice is already set by the router above
     
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
     let completion = await openai.chat.completions.create({
@@ -1274,41 +1820,15 @@ After calling the function, you will receive a result with a "success" field.
     let reply = completion.choices[0].message.content || '';
     let toolCalls = completion.choices[0].message.tool_calls || [];
 
-    // Reduced logging - only log if there's an issue
-    if (toolChoice !== 'auto' && toolCalls.length === 0) {
-      console.error('❌ Forced function call ignored by AI');
+    // Log if a forced tool call was ignored by the AI
+    if (finalToolChoice !== 'auto' && finalToolChoice !== 'none' && toolCalls.length === 0) {
+      console.error('❌ Router-forced tool call was ignored by AI:', typeof finalToolChoice === 'object' ? finalToolChoice.function?.name : 'unknown');
     }
     
-    // CRITICAL: If we forced the function call but AI didn't call it, log a warning
-    if (toolChoice !== 'auto' && toolCalls.length === 0) {
-      console.error('❌ CRITICAL: Forced function call was ignored by AI!', {
-        forcedFunction: typeof toolChoice === 'object' ? toolChoice.function?.name : 'unknown',
-        aiResponse: reply?.substring(0, 200),
-        toolCallsReceived: toolCalls.length
-      });
-    }
-    
-    // CRITICAL: If user wants to mark as received, ALLOW mark_purchase_order_received but BLOCK add_purchase_order
-    // userSaidMarkThisPO is already declared above
-    if ((shouldDetectMarkReceived || userSaidMarkThisPO) && toolCalls.length > 0) {
-      // Filter out add_purchase_order calls but allow mark_purchase_order_received
-      const hasAddPO = toolCalls.some(tc => tc.function?.name === 'add_purchase_order');
-      const hasMarkReceived = toolCalls.some(tc => tc.function?.name === 'mark_purchase_order_received');
-      
-      if (hasAddPO) {
-        console.error('❌ BLOCKING add_purchase_order - user wants to mark as received, not create new PO');
-        // Remove add_purchase_order calls but keep mark_purchase_order_received
+    // Safety guard: block add_purchase_order if user's message is about marking as received
+    if (userSaidMarkThisPO && toolCalls.length > 0) {
         toolCalls = toolCalls.filter(tc => tc.function?.name !== 'add_purchase_order');
-        console.log('✅ Blocked add_purchase_order, allowing mark_purchase_order_received');
-      }
-      
-      if (hasMarkReceived) {
-        console.log('✅ Allowing mark_purchase_order_received function call');
-      }
     }
-    
-    // CRITICAL: Do NOT force any function call - AI should just respond with instructions
-    // The system prompt already tells AI to give manual instructions
     
     // CRITICAL FALLBACK: If AI says it can't mark PO as received but user asked for it, manually call the function
     const replyLower = reply?.toLowerCase() || '';
@@ -1320,7 +1840,7 @@ After calling the function, you will receive a result with a "success" field.
     // CRITICAL: If user asked to mark as received but AI's reply says it created/recorded a PO, that's wrong!
     const aiSaidCreatedPO = (replyLower.includes('created') || replyLower.includes('recorded')) && 
                             (replyLower.includes('purchase order') || replyLower.includes('po-'));
-    const userAskedToMarkReceived = shouldDetectMarkReceived || userSaidMarkThisPO;
+    const userAskedToMarkReceived = (routerResult.proposed_tool === 'mark_purchase_order_received') || userSaidMarkThisPO;
     
     if (aiSaidCreatedPO && userAskedToMarkReceived) {
       console.error('❌ AI created PO when user asked to mark as received - updating reply to give manual instructions');
@@ -1375,13 +1895,38 @@ After calling the function, you will receive a result with a "success" field.
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
         
-        console.log('🔧 AI Assistant: Executing tool call', {
-          functionName,
-          functionArgs: {
-            ...functionArgs,
-            token: functionArgs.token ? '***' : undefined
-          }
+        console.log('🔧 AI Assistant: Executing tool call', { functionName, args: { ...functionArgs, token: undefined } });
+
+        // ── VALIDATION LAYER: run before any write tool ────────────────────
+        const validation = validateAction(functionName, functionArgs, {
+          projectId,
+          allProjects,
+          parsedContext,
         });
+        if (!validation.valid) {
+          console.warn(`🛑 validateAction blocked ${functionName}:`, validation.reason);
+          writeAuditLog({
+            event: 'validation_blocked',
+            tool: functionName,
+            args: functionArgs,
+            reason: validation.reason,
+            projectId,
+            userId: req.user?.userId,
+            pmMode: aiPmMode,
+            userMessage: message,
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({
+              success: false,
+              status: 'validation_error',
+              error: validation.clarificationQuestion,
+              blocked: true,
+            }),
+          });
+          continue; // Skip execution — AI will ask the clarification question
+        }
 
         // ✅ WORKING LOGIC - DO NOT CHANGE: Pre-validation prevents placeholder amounts and missing fields
         // PRE-VALIDATION: Check for missing required fields for purchase orders (same logic as materials)
@@ -1954,6 +2499,444 @@ After calling the function, you will receive a result with a "success" field.
               projectId: functionResult.action.projectId
             });
           }
+        // ── PM MODE: TIMELINE TOOLS ──────────────────────────────────────────
+        } else if (functionName === 'get_timeline_items') {
+          const targetPid = functionArgs.projectId || projectId;
+          // Pull milestone/timeline data from context (already sent by mobile app)
+          const currentProject = parsedContext?.currentProject || parsedContext || {};
+          const milestones = currentProject.milestones || currentProject.timelineItems || [];
+          if (milestones.length > 0) {
+            functionResult = {
+              success: true,
+              projectId: targetPid,
+              milestones,
+              message: `Found ${milestones.length} timeline items for the project.`,
+            };
+          } else {
+            functionResult = {
+              success: true,
+              projectId: targetPid,
+              milestones: [],
+              message: 'No timeline items found in context. The user should check the Timeline tab in the app for milestones.',
+            };
+          }
+
+        } else if (functionName === 'mark_timeline_item_complete') {
+          const targetPid = functionArgs.projectId || projectId;
+          const progressPct = functionArgs.progressPct != null ? Number(functionArgs.progressPct) : 100;
+          const isComplete = progressPct >= 100;
+          const completedAt = isComplete ? (functionArgs.completedAt || new Date().toISOString()) : null;
+          try {
+            const axios = require('axios');
+            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+            const response = await axios.patch(
+              `${baseUrl}/api/projects/${targetPid}/milestones/complete`,
+              { itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct },
+              { headers: { Authorization: `Bearer ${authToken}` } }
+            );
+            const label = functionArgs.itemName || functionArgs.itemId || 'Milestone';
+            functionResult = response.data?.success
+              ? { success: true, message: isComplete ? `✅ Marked "${label}" as complete.` : `✅ Updated "${label}" to ${progressPct}% progress.`, projectId: targetPid }
+              : { success: false, error: response.data?.error || 'Failed to update milestone.' };
+          } catch (e) {
+            // Fallback: return an action for the mobile app to handle
+            const action = { type: 'mark_timeline_complete', projectId: targetPid, itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct };
+            actions.push(action);
+            const label = functionArgs.itemName || 'Milestone';
+            functionResult = { success: true, message: isComplete ? `✅ "${label}" marked complete.` : `✅ "${label}" updated to ${progressPct}%.`, action };
+          }
+
+        } else if (functionName === 'add_timeline_payment') {
+          const targetPid = functionArgs.projectId || projectId;
+          try {
+            const axios = require('axios');
+            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+            const response = await axios.post(
+              `${baseUrl}/api/projects/${targetPid}/milestones`,
+              { title: functionArgs.title, amount: functionArgs.amount, dueDate: functionArgs.dueDate, type: 'payment' },
+              { headers: { Authorization: `Bearer ${authToken}` } }
+            );
+            functionResult = response.data?.success
+              ? { success: true, message: `✅ Added payment milestone "${functionArgs.title}" for $${functionArgs.amount?.toLocaleString()}.`, projectId: targetPid }
+              : { success: false, error: response.data?.error || 'Failed to add payment milestone.' };
+          } catch (e) {
+            const action = { type: 'add_timeline_payment', projectId: targetPid, title: functionArgs.title, amount: functionArgs.amount, dueDate: functionArgs.dueDate };
+            actions.push(action);
+            functionResult = { success: true, message: `✅ Payment milestone "${functionArgs.title}" ($${functionArgs.amount?.toLocaleString()}) queued. The app will add it to your timeline.`, action };
+          }
+
+        // ── PM MODE: ESTIMATE TOOLS ──────────────────────────────────────────
+        } else if (functionName === 'get_estimate') {
+          const currentProject = parsedContext?.currentProject || parsedContext || {};
+          const estimate = currentProject.estimate || currentProject.estimateData || {};
+          const lineItems = estimate.lineItems || estimate.materialLineItems || currentProject.materialLineItems || [];
+          const laborItems = estimate.laborLineItems || currentProject.laborLineItems || [];
+          const allItems = [...lineItems, ...laborItems];
+          functionResult = {
+            success: true,
+            estimateName: estimate.name || currentProject.estimateName || 'Current Estimate',
+            lineItems: allItems,
+            totalCost: allItems.reduce((sum, item) => sum + (Number(item.totalCost) || Number(item.unitCost) || 0), 0),
+            message: allItems.length > 0
+              ? `Found ${allItems.length} line items in the estimate.`
+              : 'No estimate line items found in context. The user should check the Estimate tab in the app.',
+          };
+
+        } else if (functionName === 'add_estimate_line_item') {
+          const targetPid = functionArgs.projectId || projectId;
+          try {
+            const axios = require('axios');
+            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+            const totalCost = (functionArgs.qty || 1) * functionArgs.unitCost;
+            const response = await axios.post(
+              `${baseUrl}/api/projects/${targetPid}/estimate/line-items`,
+              { name: functionArgs.name, qty: functionArgs.qty || 1, unitCost: functionArgs.unitCost, totalCost, category: functionArgs.category || 'Materials/Equipment' },
+              { headers: { Authorization: `Bearer ${authToken}` } }
+            );
+            functionResult = response.data?.success
+              ? { success: true, message: `✅ Added "${functionArgs.name}" ($${totalCost.toLocaleString()}) to the estimate.`, projectId: targetPid }
+              : { success: false, error: response.data?.error || 'Failed to add line item.' };
+          } catch (e) {
+            const action = { type: 'add_estimate_line_item', projectId: targetPid, name: functionArgs.name, qty: functionArgs.qty || 1, unitCost: functionArgs.unitCost, category: functionArgs.category || 'Materials/Equipment' };
+            actions.push(action);
+            functionResult = { success: true, message: `✅ "${functionArgs.name}" ($${((functionArgs.qty || 1) * functionArgs.unitCost).toLocaleString()}) queued to be added to the estimate.`, action };
+          }
+
+        // ── SCENARIO ANALYSIS EXECUTOR ─────────────────────────────────────────
+        } else if (functionName === 'run_scenario_analysis') {
+          // Pull project financials from context
+          const ctx = parsedContext || {};
+          const currentProject = ctx.currentProject || ctx;
+          const estimateData = currentProject.estimateData || currentProject.estimate || {};
+          const materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || 0);
+          const laborCost = Number(estimateData.laborTotal || 5000);
+          const overheadCost = Number(estimateData.overheadTotal || 0);
+          const baseCost = materialCost + laborCost + overheadCost;
+          const markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+          const markup = baseCost * (markupPct / 100);
+          const originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
+          const originalProfit = originalBid - baseCost;
+          const originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+
+          // Define scenario adjustments
+          const scenarioMap = {
+            labor_up_10:       { labor: 10, materials: 0, overhead: 0, bid: 0, label: 'Labor +10%' },
+            labor_down_10:     { labor: -10, materials: 0, overhead: 0, bid: 0, label: 'Labor -10%' },
+            materials_up_5:    { labor: 0, materials: 5, overhead: 0, bid: 0, label: 'Materials +5%' },
+            materials_up_10:   { labor: 0, materials: 10, overhead: 0, bid: 0, label: 'Materials +10%' },
+            materials_down_5:  { labor: 0, materials: -5, overhead: 0, bid: 0, label: 'Materials -5%' },
+            overhead_up_10:    { labor: 0, materials: 0, overhead: 10, bid: 0, label: 'Overhead +10%' },
+            overhead_down_10:  { labor: 0, materials: 0, overhead: -10, bid: 0, label: 'Overhead -10%' },
+            bid_up_2:          { labor: 0, materials: 0, overhead: 0, bid: 2, label: 'Bid +2%' },
+            bid_down_2:        { labor: 0, materials: 0, overhead: 0, bid: -2, label: 'Bid -2%' },
+            typical_friction:  { labor: 8, materials: 5, overhead: 3, bid: 0, label: 'Typical Friction (labor +8%, mat +5%, OH +3%)' },
+            bad_remodel:       { labor: 20, materials: 15, overhead: 10, bid: 0, label: 'Bad Remodel (labor +20%, mat +15%, OH +10%)' },
+            smooth_job:        { labor: -5, materials: -3, overhead: 0, bid: 0, label: 'Smooth Job (labor -5%, mat -3%)' },
+          };
+
+          const scenario = functionArgs.scenario;
+          let adj;
+          if (scenario === 'custom' && functionArgs.customAdjustments) {
+            const ca = functionArgs.customAdjustments;
+            adj = { labor: ca.laborPctChange || 0, materials: ca.materialsPctChange || 0, overhead: ca.overheadPctChange || 0, bid: ca.bidPctChange || 0, label: 'Custom Scenario' };
+          } else {
+            adj = scenarioMap[scenario] || scenarioMap.typical_friction;
+          }
+
+          const newLabor = laborCost * (1 + adj.labor / 100);
+          const newMaterials = materialCost * (1 + adj.materials / 100);
+          const newOverhead = overheadCost * (1 + adj.overhead / 100);
+          const newBaseCost = newLabor + newMaterials + newOverhead;
+          const newMarkup = newBaseCost * (markupPct / 100);
+          const newBid = (originalBid * (1 + adj.bid / 100));
+          const newProfit = newBid - newBaseCost;
+          const newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+          const profitChange = newProfit - originalProfit;
+
+          functionResult = {
+            success: true,
+            scenario: adj.label,
+            original: {
+              materialCost, laborCost, overheadCost, baseCost, markup, bid: originalBid,
+              profit: originalProfit, marginPct: Math.round(originalMarginPct * 10) / 10,
+            },
+            adjusted: {
+              materialCost: Math.round(newMaterials), laborCost: Math.round(newLabor), overheadCost: Math.round(newOverhead),
+              baseCost: Math.round(newBaseCost), markup: Math.round(newMarkup), bid: Math.round(newBid),
+              profit: Math.round(newProfit), marginPct: Math.round(newMarginPct * 10) / 10,
+            },
+            impact: {
+              profitChange: Math.round(profitChange),
+              marginChange: Math.round((newMarginPct - originalMarginPct) * 10) / 10,
+              costIncrease: Math.round(newBaseCost - baseCost),
+              breakEvenCostIncrease: originalProfit > 0 ? `${Math.round((originalProfit / baseCost) * 100)}%` : 'N/A',
+            },
+            message: `📊 ${adj.label}: Profit ${profitChange >= 0 ? '+' : ''}$${Math.round(profitChange).toLocaleString()} → Margin ${Math.round(newMarginPct * 10) / 10}% (was ${Math.round(originalMarginPct * 10) / 10}%)`,
+          };
+
+        // ── CHANGE ORDER EXECUTOR ─────────────────────────────────────────────
+        } else if (functionName === 'create_change_order') {
+          const targetPid = functionArgs.projectId || projectId;
+          const ctx = parsedContext || {};
+          const currentProject = ctx.currentProject || ctx;
+          const estimateData = currentProject.estimateData || currentProject.estimate || {};
+          const markupPct = functionArgs.markupPct || Number(estimateData.markupPct || estimateData.markup || 20);
+          const coCost = Number(functionArgs.amount);
+          const coMarkup = coCost * (markupPct / 100);
+          const coClientPrice = coCost + coMarkup;
+
+          // Build change order object
+          const changeOrder = {
+            id: `co-${Date.now()}`,
+            description: functionArgs.description,
+            cost: coCost,
+            markupPct,
+            markup: Math.round(coMarkup * 100) / 100,
+            clientPrice: Math.round(coClientPrice * 100) / 100,
+            status: 'approved',
+            createdAt: new Date().toISOString(),
+            createdByAI: true,
+          };
+
+          // Create the CO action
+          const coAction = {
+            type: 'create_change_order',
+            projectId: targetPid,
+            changeOrder,
+          };
+          actions.push(coAction);
+
+          // Optionally create a payment milestone for the CO
+          if (functionArgs.addPaymentMilestone !== false) {
+            const paymentAction = {
+              type: 'add_timeline_payment',
+              projectId: targetPid,
+              title: `CO: ${functionArgs.description}`,
+              amount: changeOrder.clientPrice,
+              dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 weeks out
+            };
+            actions.push(paymentAction);
+          }
+
+          // Calculate new totals
+          const currentBudget = Number(ctx.materialBudgetDirect || estimateData.totalCost || 0);
+          const currentBid = Number(estimateData.totalBid || currentProject.bidPrice || 0);
+          const newBudget = currentBudget + coCost;
+          const newBid = currentBid + changeOrder.clientPrice;
+
+          functionResult = {
+            success: true,
+            message: `✅ Change order created: "${functionArgs.description}" — Cost: $${coCost.toLocaleString()} + ${markupPct}% markup = $${changeOrder.clientPrice.toLocaleString()} to client.`,
+            changeOrder,
+            budgetImpact: {
+              previousBudget: currentBudget,
+              coCost,
+              newBudget,
+              previousBid: currentBid,
+              coClientPrice: changeOrder.clientPrice,
+              newBid,
+            },
+            projectId: targetPid,
+          };
+
+        // ── AI ESTIMATE GENERATOR EXECUTOR ──────────────────────────────────────
+        } else if (functionName === 'generate_estimate') {
+          const targetPid = functionArgs.projectId || projectId;
+          const sqft = functionArgs.squareFootage || 1000;
+          const quality = functionArgs.quality || 'mid_range';
+          const projectType = functionArgs.projectType || 'kitchen';
+          const markupPct = functionArgs.markupPct || 20;
+
+          // Use GPT to generate realistic line items based on the scope
+          try {
+            const estimatePrompt = `You are a construction estimator. Generate a detailed estimate for this project.
+
+PROJECT: ${functionArgs.description}
+TYPE: ${projectType}
+SQFT: ${sqft}
+QUALITY: ${quality}
+LOCATION: ${functionArgs.location || 'US average'}
+
+Return ONLY valid JSON with this exact structure:
+{
+  "materialLineItems": [
+    { "name": "Item name", "qty": 1, "unit": "each", "unitCost": 100.00, "totalCost": 100.00, "category": "Materials/Equipment" }
+  ],
+  "laborLineItems": [
+    { "name": "Trade description", "qty": 40, "unit": "hours", "unitCost": 45.00, "totalCost": 1800.00, "category": "Labor", "trade": "Framing" }
+  ],
+  "overheadItems": [
+    { "name": "Permits", "amount": 500.00 },
+    { "name": "Dumpster rental", "amount": 350.00 }
+  ]
+}
+
+RULES:
+- Use realistic 2025-2026 pricing for ${quality} quality
+- Include ALL materials needed (don't skip small items like fasteners, adhesives, etc.)
+- Include labor for each trade needed
+- Labor rates: budget $35-45/hr, mid_range $45-65/hr, high_end $65-85/hr, luxury $85-120/hr
+- Material pricing should reflect ${quality} quality fixtures and finishes
+- Include permits, dumpster, cleanup in overhead
+- Be thorough — a real contractor would include 15-30 line items for a ${projectType}
+- Return ONLY the JSON, no markdown, no explanation`;
+
+            const estimateCompletion = await openai.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: estimatePrompt }],
+              temperature: 0.3,
+              max_tokens: 3000,
+              response_format: { type: 'json_object' },
+            });
+
+            const estimateData = JSON.parse(estimateCompletion.choices[0].message.content);
+            const materials = estimateData.materialLineItems || [];
+            const labor = estimateData.laborLineItems || [];
+            const overhead = estimateData.overheadItems || [];
+
+            const materialTotal = materials.reduce((s, i) => s + Number(i.totalCost || 0), 0);
+            const laborTotal = labor.reduce((s, i) => s + Number(i.totalCost || 0), 0);
+            const overheadTotal = overhead.reduce((s, i) => s + Number(i.amount || 0), 0);
+            const baseCost = materialTotal + laborTotal + overheadTotal;
+            const markup = baseCost * (markupPct / 100);
+            const totalBid = baseCost + markup;
+            const profit = markup;
+            const marginPct = totalBid > 0 ? (profit / totalBid * 100) : 0;
+            const perSqft = sqft > 0 ? (totalBid / sqft) : 0;
+
+            // Build the action to populate the estimate builder
+            const action = {
+              type: 'populate_estimate',
+              projectId: targetPid,
+              estimate: {
+                projectType,
+                squareFootage: sqft,
+                quality,
+                description: functionArgs.description,
+                materialLineItems: materials,
+                laborLineItems: labor,
+                overheadItems: overhead,
+                materialTotal: Math.round(materialTotal * 100) / 100,
+                laborTotal: Math.round(laborTotal * 100) / 100,
+                overheadTotal: Math.round(overheadTotal * 100) / 100,
+                baseCost: Math.round(baseCost * 100) / 100,
+                markupPct,
+                markup: Math.round(markup * 100) / 100,
+                totalBid: Math.round(totalBid * 100) / 100,
+                profit: Math.round(profit * 100) / 100,
+                marginPct: Math.round(marginPct * 10) / 10,
+                perSqft: Math.round(perSqft * 100) / 100,
+              },
+            };
+            actions.push(action);
+
+            functionResult = {
+              success: true,
+              message: `✅ Estimate generated for ${projectType} (${sqft} sqft, ${quality})`,
+              summary: {
+                materials: `$${Math.round(materialTotal).toLocaleString()} (${materials.length} items)`,
+                labor: `$${Math.round(laborTotal).toLocaleString()} (${labor.length} trades)`,
+                overhead: `$${Math.round(overheadTotal).toLocaleString()}`,
+                baseCost: `$${Math.round(baseCost).toLocaleString()}`,
+                markup: `$${Math.round(markup).toLocaleString()} (${markupPct}%)`,
+                totalBid: `$${Math.round(totalBid).toLocaleString()}`,
+                profit: `$${Math.round(profit).toLocaleString()}`,
+                margin: `${Math.round(marginPct * 10) / 10}%`,
+                perSqft: `$${perSqft.toFixed(2)}/sqft`,
+              },
+              lineItemCount: materials.length + labor.length,
+              action,
+            };
+          } catch (e) {
+            console.error('❌ Error generating estimate:', e);
+            functionResult = {
+              success: false,
+              error: 'Failed to generate estimate. Please try again with more details about the project scope.',
+            };
+          }
+
+        // ── EXPENSE + LOG TOOL EXECUTORS ────────────────────────────────────────
+        } else if (functionName === 'add_labor_expense') {
+          // Reuse add_material_expense logic but with labor-specific fields
+          const targetPid = functionArgs.projectId || projectId;
+          const laborExpense = {
+            id: `exp-${Date.now()}`,
+            category: 'Labor',
+            vendor: functionArgs.workerName || '',
+            amount: functionArgs.amount,
+            date: functionArgs.date || new Date().toISOString().split('T')[0],
+            notes: `${functionArgs.trade}: ${functionArgs.description}`,
+            trade: functionArgs.trade,
+          };
+          const action = {
+            type: 'add_material',
+            projectId: targetPid,
+            amount: functionArgs.amount,
+            category: 'Labor',
+            vendor: functionArgs.workerName || '',
+            notes: laborExpense.notes,
+          };
+          actions.push(action);
+          functionResult = {
+            success: true,
+            message: `✅ Recorded $${functionArgs.amount.toLocaleString()} labor expense for ${functionArgs.trade} — "${functionArgs.description}"`,
+            projectId: targetPid,
+            action,
+          };
+
+        } else if (functionName === 'mark_payment_collected') {
+          const targetPid = functionArgs.projectId || projectId;
+          const milestones = parsedContext.milestones || [];
+          const match = milestones.find(m =>
+            (functionArgs.milestoneId && m.id === functionArgs.milestoneId) ||
+            (functionArgs.milestoneName && (m.title || '').toLowerCase().includes(functionArgs.milestoneName.toLowerCase()))
+          );
+          const collectedAmount = functionArgs.amount || (match?.amount) || 0;
+          const action = {
+            type: 'mark_payment_collected',
+            projectId: targetPid,
+            milestoneId: functionArgs.milestoneId || match?.id,
+            milestoneName: functionArgs.milestoneName || match?.title,
+            amount: collectedAmount,
+            collectedAt: functionArgs.collectedAt || new Date().toISOString(),
+          };
+          actions.push(action);
+          functionResult = {
+            success: true,
+            message: match
+              ? `✅ Marked "${match.title}" as collected ($${collectedAmount.toLocaleString()}).`
+              : `✅ Recorded payment collection: "${functionArgs.milestoneName}" ($${collectedAmount.toLocaleString()}).`,
+            projectId: targetPid,
+            action,
+          };
+
+        } else if (functionName === 'add_daily_log') {
+          const targetPid = functionArgs.projectId || projectId;
+          const logEntry = {
+            id: `log-${Date.now()}`,
+            date: functionArgs.date || new Date().toISOString().split('T')[0],
+            noteText: functionArgs.noteText,
+            weather: functionArgs.weather || null,
+            crewCount: functionArgs.crewCount || null,
+            hoursWorked: functionArgs.hoursWorked || null,
+            createdAt: new Date().toISOString(),
+          };
+          const action = {
+            type: 'add_daily_log',
+            projectId: targetPid,
+            ...logEntry,
+          };
+          actions.push(action);
+          let confirmMsg = `✅ Daily log recorded for ${logEntry.date}: "${functionArgs.noteText}"`;
+          if (functionArgs.crewCount) confirmMsg += ` | Crew: ${functionArgs.crewCount}`;
+          if (functionArgs.weather) confirmMsg += ` | Weather: ${functionArgs.weather}`;
+          functionResult = {
+            success: true,
+            message: confirmMsg,
+            projectId: targetPid,
+            action,
+          };
+
         } else {
           functionResult = { success: false, error: `Unknown function: ${functionName}` };
         }
@@ -1994,6 +2977,19 @@ After calling the function, you will receive a result with a "success" field.
           role: 'tool',
           tool_call_id: toolCall.id,
           content: JSON.stringify(cleanResult),
+        });
+
+        // ── AUDIT LOG: record every tool execution ─────────────────────────
+        writeAuditLog({
+          event: cleanResult.success ? 'tool_success' : 'tool_error',
+          tool: functionName,
+          args: { ...functionArgs, token: undefined },
+          result: { success: cleanResult.success, message: cleanResult.message, error: cleanResult.error },
+          projectId: functionArgs.projectId || projectId,
+          userId: req.user?.userId,
+          pmMode: aiPmMode,
+          userMessage: message,
+          routerOutput: routerResult,
         });
       }
 
@@ -2077,7 +3073,7 @@ After calling the function, you will receive a result with a "success" field.
 
     // CRITICAL FINAL CHECK: If user asked to mark as received but AI created a PO, block it
     const finalReplyLower = reply?.toLowerCase() || '';
-    const finalUserAskedToMarkReceived = shouldDetectMarkReceived || userSaidMarkThisPO;
+    const finalUserAskedToMarkReceived = (routerResult.proposed_tool === 'mark_purchase_order_received') || userSaidMarkThisPO;
     const finalAISaidCreatedPO = (finalReplyLower.includes('created') || finalReplyLower.includes('recorded')) && 
                                   (finalReplyLower.includes('purchase order') || finalReplyLower.includes('po-'));
     const hasMarkReceivedActionInResponse = actions.some(a => a.type === 'mark_po_received');
@@ -2114,11 +3110,151 @@ After calling the function, you will receive a result with a "success" field.
     // Return response in format expected by mobile app
     // Reduced logging to prevent terminal glitching
     
+    // ── BUILD ANALYSIS CARD for health check requests ──────────────────────
+    // Compute structured data server-side so the frontend doesn't rely on text parsing
+    let analysisCard = null;
+    const currentMsg = (message || '').toLowerCase();
+    const lastUserMsg = (lastUserMessage?.content || '').toLowerCase();
+    // Check both current message and last user message for health check keywords
+    const isHealthCheck = currentMsg.includes('health') || currentMsg.includes('analyze') || currentMsg.includes('analysis') || currentMsg.includes('status') || currentMsg.includes('how is') ||
+                          lastUserMsg.includes('health') || lastUserMsg.includes('analyze') || lastUserMsg.includes('analysis') || lastUserMsg.includes('status') || lastUserMsg.includes('how is');
+    
+    console.log('🔍 Health check detection:', { 
+      currentMsg: currentMsg.substring(0, 50), 
+      lastUserMsg: lastUserMsg.substring(0, 50), 
+      isHealthCheck,
+      hasData: !!(bidTotal > 0 || estimatedCost > 0 || materialBudget > 0)
+    });
+    
+    if (isHealthCheck && (bidTotal > 0 || estimatedCost > 0 || materialBudget > 0)) {
+      const estMarginPct = bidTotal > 0 && estimatedCost > 0 ? ((bidTotal - estimatedCost) / bidTotal * 100) : 0;
+      const curMarginPct = bidTotal > 0 && actualCost > 0 ? ((bidTotal - actualCost) / bidTotal * 100) : estMarginPct;
+      const forecastProfit = bidTotal > 0 ? bidTotal - (actualCost > 0 ? actualCost : estimatedCost) : 0;
+      const spentPct = estimatedCost > 0 ? (actualCost / estimatedCost * 100) : 0;
+      const progressNum = Number(progress) || 0;
+      
+      // Get expenses array once for all calculations
+      const allExp = Array.isArray(expenses) ? expenses : [];
+      
+      // Calculate labor budget and spent
+      // Try multiple sources: estimateData, parsedContext, buckets (budget breakdown), currentProjectData
+      let laborBudget = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0);
+      
+      // Fallback: extract from buckets if estimateData doesn't have it
+      if (laborBudget === 0) {
+        const buckets = parsedContext.buckets || currentProjectData?.buckets || currentProjectData?.projectData?.buckets || [];
+        const laborBucket = buckets.find(b => (b.name || '').toLowerCase().includes('labor'));
+        if (laborBucket) {
+          laborBudget = Number(laborBucket.budget || laborBucket.bidBudget || 0);
+        }
+      }
+      
+      const laborSpent = allExp
+        .filter(e => (e.category || '').toLowerCase().includes('labor'))
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      const laborRemaining = Math.max(0, laborBudget - laborSpent);
+      const laborSpentPct = laborBudget > 0 ? (laborSpent / laborBudget * 100) : 0;
+      
+      console.log('🔍 Labor calculation:', { laborBudget, laborSpent, laborRemaining, laborSpentPct, hasEstimateData: !!estimateData, estimateDataLaborTotal: estimateData?.laborTotal });
+      
+      // Determine risk
+      let riskLevel = 'Low';
+      let riskReason = 'Project financials look healthy.';
+      if (spentPct > progressNum + 20) { riskLevel = 'High'; riskReason = `Spent ${spentPct.toFixed(0)}% of budget but only ${progressNum}% complete.`; }
+      else if (spentPct > progressNum + 10) { riskLevel = 'Medium'; riskReason = `Spending is ${(spentPct - progressNum).toFixed(0)} points ahead of progress.`; }
+      else if (curMarginPct < 10 && bidTotal > 0) { riskLevel = 'Medium'; riskReason = `Current margin (${curMarginPct.toFixed(1)}%) is below 10% target.`; }
+      
+      // Budget status
+      let budgetStatus = estimatedCost > 0 ? (spentPct < 50 ? 'On Track' : spentPct < 90 ? 'Watch' : 'Over') : 'Data needed';
+      let marginStatus = bidTotal > 0 ? `${curMarginPct.toFixed(1)}%` : 'Data needed';
+      let scheduleStatus = progressNum > 0 ? `${progressNum}% complete` : (milestones.length > 0 ? `${milestones.length} milestones` : 'No schedule data');
+
+      // Top cost drivers from expenses
+      const expensesByCategory = {};
+      allExp.forEach(e => {
+        const cat = e.category || 'Other';
+        expensesByCategory[cat] = (expensesByCategory[cat] || 0) + Number(e.amount || 0);
+      });
+      const topDrivers = Object.entries(expensesByCategory)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name, amount]) => ({ name, amount: Math.round(amount), percentage: actualCost > 0 ? Math.round(amount / actualCost * 100) : 0 }));
+
+      // Milestones at risk
+      const now = new Date();
+      const atRiskMilestones = (Array.isArray(milestones) ? milestones : [])
+        .filter(m => m.status !== 'completed' && m.status !== 'complete' && m.plannedDate && new Date(m.plannedDate) < now)
+        .map(m => ({ name: m.title || 'Unnamed', risk: 'Overdue' }));
+
+      analysisCard = {
+        summary: { budgetStatus, marginStatus, scheduleStatus },
+        budgetAndCosting: {
+          planned: Math.round(estimatedCost),
+          actual: Math.round(actualCost),
+          materialBudget: Math.round(materialBudget * 100) / 100,
+          materialSpent: Math.round(materialSpent * 100) / 100,
+          materialRemaining: Math.round(Math.max(0, materialBudget - materialSpent) * 100) / 100,
+          materialSpentPct: materialBudget > 0 ? Math.round((materialSpent / materialBudget) * 100 * 10) / 10 : 0,
+          laborBudget: Math.round(laborBudget * 100) / 100,
+          laborSpent: Math.round(laborSpent * 100) / 100,
+          laborRemaining: Math.round(laborRemaining * 100) / 100,
+          laborSpentPct: Math.round(laborSpentPct * 10) / 10,
+          topCostDrivers: topDrivers,
+          missingCosts: [],
+          suspiciousEntries: [],
+        },
+        profitability: {
+          currentMargin: Math.round(curMarginPct * 10) / 10,
+          targetMargin: Math.round(estMarginPct * 10) / 10,
+          forecastAtCompletion: Math.round(forecastProfit),
+          riskLevel,
+          riskReason,
+        },
+        schedule: {
+          milestonesAtRisk: atRiskMilestones,
+          next7DayActions: [],
+        },
+        risksAndRecommendations: {
+          prioritizedActions: [
+            ...(spentPct > progressNum + 15 ? [{ action: 'Review recent expenses for overruns', priority: 'High', reason: `Spending ${spentPct.toFixed(0)}% ahead of ${progressNum}% progress` }] : []),
+            ...(materialBudget > 0 && materialSpent > materialBudget * 0.8 ? [{ action: 'Review material budget usage', priority: 'High', reason: `${Math.round(materialSpent / materialBudget * 100)}% of material budget used` }] : []),
+            ...(laborBudget > 0 && laborSpent > laborBudget * 0.8 ? [{ action: 'Review labor budget usage', priority: 'High', reason: `${Math.round(laborSpentPct)}% of labor budget used` }] : []),
+            ...(atRiskMilestones.length > 0 ? [{ action: `Follow up on ${atRiskMilestones.length} overdue milestone(s)`, priority: 'Medium', reason: 'Past due dates' }] : []),
+          ],
+        },
+        nextBestActions: [
+          { label: 'Run Scenario Analysis', action: 'run_scenario', params: {} },
+          { label: 'View Budget Breakdown', action: 'view_budget', params: {} },
+        ],
+        dataNeeded: [
+          ...(estimatedCost === 0 ? [{ section: 'Budget', missingData: 'No estimated cost set', nextStep: 'Set a budget in the Estimate tab' }] : []),
+          ...(progressNum === 0 ? [{ section: 'Schedule', missingData: 'No progress tracked', nextStep: 'Update milestone progress in the Timeline tab' }] : []),
+        ],
+      };
+    }
+    
     const responseData = {
       reply,
       ...(projectUpdateData ? { projectUpdate: projectUpdateData } : {}),
       ...(actions.length > 0 ? { actions: actions } : {}),
+      ...(analysisCard ? { analysisCard } : {}),
     };
+    
+    // Debug: Log if analysisCard was built
+    if (analysisCard) {
+      console.log('📊 Analysis card built and attached to response:', {
+        hasMaterial: analysisCard.budgetAndCosting.materialBudget > 0,
+        hasLabor: analysisCard.budgetAndCosting.laborBudget > 0,
+        materialBudget: analysisCard.budgetAndCosting.materialBudget,
+        materialSpent: analysisCard.budgetAndCosting.materialSpent,
+        laborBudget: analysisCard.budgetAndCosting.laborBudget,
+        laborSpent: analysisCard.budgetAndCosting.laborSpent,
+        laborRemaining: analysisCard.budgetAndCosting.laborRemaining,
+        laborSpentPct: analysisCard.budgetAndCosting.laborSpentPct,
+      });
+    } else {
+      console.log('⚠️ No analysis card built:', { isHealthCheck, hasData: !!(bidTotal > 0 || estimatedCost > 0 || materialBudget > 0) });
+    }
     
     console.log('📤 AI Assistant: Final response data being sent:', {
       hasReply: !!responseData.reply,

@@ -942,4 +942,121 @@ router.get('/:id/analytics', authenticateToken, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PM MODE: MILESTONE / TIMELINE ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/projects/:id/milestones — add a payment milestone
+router.post('/:id/milestones', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    projects = loadProjects();
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
+    if (projectIndex === -1) return res.status(404).json({ success: false, error: 'Project not found' });
+
+    const { title, amount, dueDate, type = 'payment' } = req.body;
+    if (!title || !amount) return res.status(400).json({ success: false, error: 'title and amount are required' });
+
+    const milestone = {
+      id: `ms-${Date.now()}`,
+      title,
+      amount: parseFloat(amount),
+      dueDate: dueDate || null,
+      type,
+      status: 'pending',
+      progressPct: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (!projects[projectIndex].milestones) projects[projectIndex].milestones = [];
+    projects[projectIndex].milestones.push(milestone);
+    projects[projectIndex].updatedAt = new Date().toISOString();
+    saveProjects(projects);
+
+    res.status(201).json({ success: true, data: milestone, message: `Milestone "${title}" added.` });
+  } catch (error) {
+    console.error('Error adding milestone:', error);
+    res.status(500).json({ success: false, error: 'Failed to add milestone' });
+  }
+});
+
+// PATCH /api/projects/:id/milestones/complete — mark a milestone complete
+router.patch('/:id/milestones/complete', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    projects = loadProjects();
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
+    if (projectIndex === -1) return res.status(404).json({ success: false, error: 'Project not found' });
+
+    const { itemId, itemName, completedAt } = req.body;
+    const milestones = projects[projectIndex].milestones || [];
+
+    let found = false;
+    projects[projectIndex].milestones = milestones.map(m => {
+      const matchId = itemId && m.id === itemId;
+      const matchName = itemName && (m.title || '').toLowerCase().includes(itemName.toLowerCase());
+      if (matchId || matchName) {
+        found = true;
+        return { ...m, status: 'completed', progressPct: 100, completedAt: completedAt || new Date().toISOString() };
+      }
+      return m;
+    });
+
+    if (!found) {
+      // Soft success — milestone may be stored client-side only (AsyncStorage)
+      return res.json({ success: true, message: 'Milestone not found in backend storage (may be client-side only)', clientSideOnly: true });
+    }
+
+    projects[projectIndex].updatedAt = new Date().toISOString();
+    saveProjects(projects);
+    res.json({ success: true, message: `Milestone marked complete.`, data: projects[projectIndex].milestones });
+  } catch (error) {
+    console.error('Error marking milestone complete:', error);
+    res.status(500).json({ success: false, error: 'Failed to mark milestone complete' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PM MODE: ESTIMATE LINE ITEM ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/projects/:id/estimate/line-items — add a line item to the estimate
+router.post('/:id/estimate/line-items', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { id } = req.params;
+    projects = loadProjects();
+    const projectIndex = projects.findIndex(p => p.id === id && p.userId === userId);
+    if (projectIndex === -1) return res.status(404).json({ success: false, error: 'Project not found' });
+
+    const { name, qty = 1, unitCost, totalCost, category = 'Materials/Equipment' } = req.body;
+    if (!name || !unitCost) return res.status(400).json({ success: false, error: 'name and unitCost are required' });
+
+    const lineItem = {
+      id: `li-${Date.now()}`,
+      name,
+      qty: parseFloat(qty),
+      unitCost: parseFloat(unitCost),
+      totalCost: parseFloat(totalCost || (qty * unitCost)),
+      category,
+      addedByAI: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Store in estimateData.materialLineItems
+    if (!projects[projectIndex].estimateData) projects[projectIndex].estimateData = {};
+    if (!projects[projectIndex].estimateData.materialLineItems) projects[projectIndex].estimateData.materialLineItems = [];
+    projects[projectIndex].estimateData.materialLineItems.push(lineItem);
+    projects[projectIndex].updatedAt = new Date().toISOString();
+    saveProjects(projects);
+
+    res.status(201).json({ success: true, data: lineItem, message: `"${name}" added to estimate.` });
+  } catch (error) {
+    console.error('Error adding estimate line item:', error);
+    res.status(500).json({ success: false, error: 'Failed to add estimate line item' });
+  }
+});
+
 module.exports = router;

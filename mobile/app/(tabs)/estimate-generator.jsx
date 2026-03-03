@@ -2139,6 +2139,8 @@ const blankState = (isFirstTime = false) => ({
   scopeDescription: '',
   
   // Developer
+  planCost: 0,
+  planCostText: '',
   permitCost: 0,
   permitCostText: '',
   zoning: 'residential',
@@ -4616,7 +4618,7 @@ export default function EstimateGeneratorScreen() {
       (bid.equipment || 0) +
       (bid.facilities || 0) +
       (bid.otherOverhead || 0);
-    const permitCosts = bid.permitCost || 0;
+    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
     const calculatedSubtotal = materials + labor + overhead + permitCosts;
     const markup = Number(bid.markupPct) || 0;
     const profit = (calculatedSubtotal * markup) / 100;
@@ -4979,7 +4981,7 @@ export default function EstimateGeneratorScreen() {
     const rentals = rentalCart.length; // Count of rental items for tracking
     
     const overhead = bid.insuranceOverhead + bid.equipment + bid.facilities + bid.otherOverhead;
-    const permitCosts = bid.permitCost || 0;
+    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
     const subtotal = materials + labor + overhead + permitCosts;
     const contingency = Math.round((subtotal * bid.contingencyPct) / 100);
     const profit = (subtotal * bid.markupPct) / 100;
@@ -5821,7 +5823,7 @@ export default function EstimateGeneratorScreen() {
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
       const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
       const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0);
-      const permitCosts = bid.permitCost || 0;
+      const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
       const subtotal = materials + labor + overhead + permitCosts;
       const profit = (subtotal * (bid.markupPct || 0)) / 100;
       const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || bid.grandTotal || bid.total || 0;
@@ -6234,7 +6236,7 @@ export default function EstimateGeneratorScreen() {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
           const overhead = totalOverhead;
-          const permitCosts = bidData.permitCost || 0;
+          const permitCosts = (bidData.planCost || 0) + (bidData.permitCost || 0);
           const subtotal = materials + labor + overhead + permitCosts;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup) / bidData.sqft;
@@ -6243,7 +6245,7 @@ export default function EstimateGeneratorScreen() {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
           const overhead = totalOverhead;
-          const permitCosts = bidData.permitCost || 0;
+          const permitCosts = (bidData.planCost || 0) + (bidData.permitCost || 0);
           const subtotal = materials + labor + overhead + permitCosts;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup);
@@ -6947,7 +6949,7 @@ export default function EstimateGeneratorScreen() {
     const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0);
     const totalMaterials = Number(calc.materials || 0);
     const totalLabor = Number(calc.labor || 0);
-    const totalPermitCosts = Number(bid.permitCost || 0);
+    const totalPermitCosts = Number(bid.planCost || 0) + Number(bid.permitCost || 0);
     const subtotal = totalMaterials + totalLabor + totalPermitCosts;
     const overheadPct = subtotal > 0 ? Math.round((totalOverhead / subtotal) * 100) : 0;
     
@@ -9179,7 +9181,9 @@ export default function EstimateGeneratorScreen() {
         const totalOverhead = (bid.insuranceOverhead || 0) + 
                               (bid.equipment || 0) + 
                               (bid.facilities || 0) + 
-                              (bid.otherOverhead || 0);
+                              (bid.otherOverhead || 0) +
+                              (bid.planCost || 0) +
+                              (bid.permitCost || 0);
         
         // Calculate overhead as percentage of job total
         const jobTotal = calc?.grandTotal || calc?.total || 0;
@@ -9598,6 +9602,56 @@ export default function EstimateGeneratorScreen() {
                       const num = parseFloat(cleaned);
                       if (!isNaN(num)) {
                         updateBid('otherOverhead', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Plans</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('planCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('planCost', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Permits</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('permitCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('permitCost', num);
                       }
                     }
                   }}

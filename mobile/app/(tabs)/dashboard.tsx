@@ -242,38 +242,71 @@ const DashboardScreen: React.FC = () => {
           const status = (p.status || '').toString().toLowerCase();
           return validStatuses.includes(status);
         })
-        .map((p) => ({
-          id: String(p.id),
-          userId: userId,
-          name: p.title,
-          title: p.title,
-          status: p.status,
-          bidPrice: p.bidPrice || 0,
-          estimatedCost: p.estimatedCost || 0,
-          actualCost: p.actualCost || 0,
-          margin: p.margin || 0,
-          markup: p.markup || 0,
-          location: p.location || '',
-          city: p.city,
-          state: p.state,
-          projectType: p.projectType,
-          startDate: p.startDate,
-          endDate: p.endDate,
-          progress: p.progress || 0,
-          overallProgressPct: p.overallProgressPct || p.progress || 0,
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt,
-          lineItems: p.estimateData?.materialLineItems || p.projectData?.buckets || [],
-          receipts: p.projectData?.receipts || [],
-          hasReceiptsAttached: Boolean(p.projectData?.receipts?.length),
-          hasPermitFees: Boolean(p.estimateData?.hasPermitFees || p.projectData?.hasPermitFees),
-          permitFeesIncluded: Boolean(p.estimateData?.permitFeesIncluded || p.projectData?.permitFeesIncluded),
-        }));
+        .map((p) => {
+          const bidPrice = Number(p.bidPrice || 0);
+          const estimatedCost = Number(p.estimatedCost || 0);
+
+          // Compute actualCost from expenses if not directly available
+          const expensesList: any[] = p.projectData?.expenses || p.expenses || [];
+          const expensesTotal = expensesList.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
+          const actualCost = Number(p.actualCost || p.projectData?.totalSpent || p.totalSpent || expensesTotal || 0);
+
+          // Compute margin % from financials (don't trust a stored 0 when we can calculate it)
+          const computedMarginPct = bidPrice > 0 && estimatedCost > 0
+            ? ((bidPrice - estimatedCost) / bidPrice) * 100
+            : Number(p.margin || 0);
+
+          return {
+            id: String(p.id),
+            userId: userId,
+            name: p.title,
+            title: p.title,
+            status: p.status,
+            bidPrice,
+            estimatedCost,
+            actualCost,
+            margin: computedMarginPct,
+            markup: p.markup || 0,
+            location: p.location || '',
+            city: p.city,
+            state: p.state,
+            projectType: p.projectType,
+            startDate: p.startDate,
+            endDate: p.endDate,
+            progress: p.progress || 0,
+            overallProgressPct: p.overallProgressPct || p.progress || 0,
+            createdAt: p.createdAt,
+            updatedAt: p.updatedAt,
+            lineItems: p.estimateData?.materialLineItems || p.projectData?.buckets || [],
+            receipts: p.projectData?.receipts || [],
+            hasReceiptsAttached: Boolean(p.projectData?.receipts?.length),
+            hasPermitFees: Boolean(p.estimateData?.hasPermitFees || p.projectData?.hasPermitFees),
+            permitFeesIncluded: Boolean(p.estimateData?.permitFeesIncluded || p.projectData?.permitFeesIncluded),
+            // Extra fields for PM intelligence engine
+            expenses: expensesList,
+            expensesCount: expensesList.length,
+            committedPOs: Number(p.projectData?.committedPOs || 0),
+          };
+        });
 
       const response = await apiService.post<AiDashboardResponse>(
         "/api/ai/dashboard-insights",
-        { userId, projects: allProjects, forceRefresh }
+        { userId, projects: allProjects, forceRefresh },
+        {
+          // This endpoint supports optional auth and can use userId from body.
+          // Force-empty Authorization to avoid stale/expired token failures.
+          headers: { Authorization: '' },
+        }
       );
+
+      if (__DEV__) {
+        console.log('📊 AI Dashboard Response:', {
+          insightsCount: response.data?.insights?.length || 0,
+          nextStepsCount: response.data?.nextSteps?.length || 0,
+          projectsSent: allProjects.length,
+          firstInsight: response.data?.insights?.[0],
+        });
+      }
 
       // Convert project IDs to strings for consistent comparison
       // Reuse validStatuses from above (line 226)
@@ -288,65 +321,36 @@ const DashboardScreen: React.FC = () => {
         currentProjects.map(p => String(p.title || p.name || '').toLowerCase().trim())
       );
       
-      // Aggressively filter out insights for deleted projects before storing
+      // Filter out insights for deleted/invalid projects, keep everything else
       const filteredData = {
         ...response.data,
         insights: (response.data.insights || []).filter((insight: any) => {
+          // If the insight is tied to a specific project, only keep it if that project still exists
           if (insight.projectId) {
-            const insightProjectId = String(insight.projectId);
-            if (!currentProjectIds.has(insightProjectId)) {
-              return false;
-            }
+            return currentProjectIds.has(String(insight.projectId));
           }
-          
-          const insightText = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
-          
-          if (insightText.includes('josh')) {
-            return false;
-          }
-          
-          for (const proj of currentProjects) {
-            const projName = String(proj.title || proj.name || '').toLowerCase().trim();
-            if (projName && insightText.includes(projName)) {
-              return true;
-            }
-          }
-          
-          if (insight.projectId && currentProjectIds.has(String(insight.projectId))) {
-            return true;
-          }
-          
-          if (!insight.projectId && !insightText.match(/\b(josh|remodel|project|estimate)\b/i)) {
-            return true;
-          }
-          
-          return false;
+          // General insights (no projectId) are always kept
+          return true;
         }),
         nextSteps: (response.data.nextSteps || []).filter((step: any) => {
+          // If the next step is tied to a specific project, only keep it if that project still exists
           if (step.projectId) {
-            const stepProjectId = String(step.projectId);
-            if (!currentProjectIds.has(stepProjectId)) {
-              return false;
-            }
+            return currentProjectIds.has(String(step.projectId));
           }
-          
-          const stepText = String(step.label || '').toLowerCase();
-          
-          if (stepText.includes('josh')) {
-            return false;
-          }
-          
-          if (step.projectId && currentProjectIds.has(String(step.projectId))) {
-            return true;
-          }
-          
-          if (!step.projectId && !stepText.includes('josh')) {
-            return true;
-          }
-          
-          return false;
+          // General next steps (no projectId) are always kept
+          return true;
         }),
       };
+      
+      if (__DEV__) {
+        console.log('📊 After filtering:', {
+          originalInsights: response.data?.insights?.length || 0,
+          filteredInsights: filteredData.insights.length,
+          originalNextSteps: response.data?.nextSteps?.length || 0,
+          filteredNextSteps: filteredData.nextSteps.length,
+        });
+      }
+      
       setAiData(filteredData);
     } catch (err: any) {
       // Check for route not found first
@@ -394,7 +398,11 @@ const DashboardScreen: React.FC = () => {
           errorMessage = "AI service not configured. Please set up OpenAI API key.";
         } else if (err.message.includes("status: 500")) {
           errorMessage = "Server error. Please try again later.";
-        } else if (err.message.includes("status: 401") || err.message.includes("status: 403")) {
+        } else if (
+          err.message.includes("status: 401") ||
+          err.message.includes("status: 403") ||
+          err.message.toLowerCase().includes("invalid or expired token")
+        ) {
           errorMessage = "Authentication error. Please sign in again.";
         } else {
           setAiError(null);
@@ -474,10 +482,11 @@ const DashboardScreen: React.FC = () => {
     fetchAiData(true); // Force refresh
   }, [fetchAiData]);
 
-  // Filter AI insights and next steps to exclude deleted projects and invalid statuses
+  // Filter AI insights to exclude deleted projects only
   const filteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
-    // Only include projects with valid statuses (active, submitted, in-progress)
+    
+    // Get current valid project IDs
     const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
     const currentProjects = [...activeProjects, ...estimates].filter(p => {
       const status = (p.status || '').toString().toLowerCase();
@@ -486,41 +495,15 @@ const DashboardScreen: React.FC = () => {
     const currentProjectIds = new Set(
       currentProjects.map(p => String(p.id))
     );
-    const currentProjectNames = new Set(
-      currentProjects.map(p => String(p.title || p.name || '').toLowerCase().trim())
-    );
     
+    // Simple filter: if insight has a projectId, only keep if that project exists
+    // General insights (no projectId) are always kept
     return aiData.insights.filter((insight) => {
-      if (!insight.projectId) {
-        // For insights without projectId, check if title/body mentions a deleted project
-        const insightText = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
-        // Only keep if it doesn't mention any deleted project names (crude check)
-        // If it mentions a project name that's not in current projects, filter it out
-        for (const proj of currentProjects) {
-          const projName = String(proj.title || proj.name || '').toLowerCase().trim();
-          if (projName && insightText.includes(projName)) {
-            return true; // Mentions a current project, keep it
-          }
-        }
-        // Check if it mentions "josh" (the deleted project) - filter it out
-        if (insightText.includes('josh')) {
-          return false; // Filter out insights mentioning "josh"
-        }
-        return true; // Keep general insights that don't mention projects
+      if (insight.projectId) {
+        return currentProjectIds.has(String(insight.projectId));
       }
-      // Convert insight.projectId to string for comparison
-      const insightProjectId = String(insight.projectId);
-      if (currentProjectIds.has(insightProjectId)) {
-        return true; // Project ID matches, keep it
-      }
-      
-      // Fallback: Check if insight mentions a deleted project by name
-      const insightText = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
-      if (insightText.includes('josh')) {
-        return false; // Filter out insights mentioning "josh remodel"
-      }
-      
-      return false; // Project doesn't exist, filter it out
+      // General insights always shown
+      return true;
     });
   }, [aiData?.insights, activeProjects, estimates]);
 

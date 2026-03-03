@@ -22,6 +22,7 @@ import { formatMoneyFull } from '../src/lib/budgetUtils';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { useProjectData } from '../contexts/ProjectDataContext';
+import { useProjectList } from '../contexts/ProjectListContext';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
@@ -204,6 +205,7 @@ export default function BudgetTab({
 
   const router = useRouter();
   const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
+  const { projects } = useProjectList();
   
   
   // Track if we've already reloaded to prevent infinite loops
@@ -586,6 +588,30 @@ export default function BudgetTab({
       };
 
   const hasExpenses = (projectData?.expenses || []).length > 0;
+  const hasEverLoggedCosts = useMemo(() => {
+    const currentProjectHasCosts = (projectData?.expenses || []).some((exp: any) => Number(exp?.amount || 0) > 0);
+    if (currentProjectHasCosts) return true;
+
+    return (projects || []).some((project: any) => {
+      const expenseSources = [
+        project?.projectData?.expenses,
+        project?.expenses,
+        project?.estimateData?.expenses,
+      ];
+      const hasExpenseEntries = expenseSources.some((entries: any) =>
+        Array.isArray(entries) && entries.some((exp: any) => Number(exp?.amount || 0) > 0)
+      );
+      if (hasExpenseEntries) return true;
+
+      const spentCandidates = [
+        project?.actualCost,
+        project?.projectData?.spent,
+        project?.projectData?.totalSpent,
+        project?.projectData?.actualCost,
+      ];
+      return spentCandidates.some((value: any) => Number(value || 0) > 0);
+    });
+  }, [projectData?.expenses, projects]);
   const totalSpent = actual;
   const quickAddPulse = useRef(new Animated.Value(1)).current;
   const hasPulsedRef = useRef(false);
@@ -648,7 +674,7 @@ export default function BudgetTab({
               </View>
 
               {/* Zero-State Budget Callout - Enhanced with Quick Add */}
-              {actual === 0 && (projectData?.expenses || []).length === 0 && (
+              {actual === 0 && (projectData?.expenses || []).length === 0 && !hasEverLoggedCosts && (
                 <View style={[styles.zeroStateCallout, { 
                   backgroundColor: Colors.surface2, 
                   borderColor: Colors.line 

@@ -172,6 +172,45 @@ function ProjectDetailContent() {
   const [showActivationCelebration, setShowActivationCelebration] = useState(false);
   const celebrationAnim = useRef(new Animated.Value(0)).current;
   const [showCommandCenter, setShowCommandCenter] = useState(false);
+  const [liveTimelineMilestones, setLiveTimelineMilestones] = useState<any[]>([]);
+
+  // Load live timeline milestones from AsyncStorage (this is where TimelineTabV2 saves completed statuses)
+  useEffect(() => {
+    if (!id) return;
+    const loadTimeline = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`bps.timeline.v2.${id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setLiveTimelineMilestones(parsed);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading live timeline:', error);
+      }
+    };
+    loadTimeline();
+  }, [id]);
+
+  // Re-load live timeline when AI assistant opens or tab changes (to catch recent completions)
+  useEffect(() => {
+    if (!id) return;
+    const refreshTimeline = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(`bps.timeline.v2.${id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setLiveTimelineMilestones(parsed);
+          }
+        }
+      } catch (error) {
+        // silent
+      }
+    };
+    refreshTimeline();
+  }, [id, showAIAssistant, activeTab]);
 
   // Load activation checklist from AsyncStorage on mount
   useEffect(() => {
@@ -735,12 +774,29 @@ function ProjectDetailContent() {
     ]
   );
 
+  // Calculate approved change orders total
+  const approvedChangeOrdersTotal = React.useMemo(() => {
+    const changeOrders = realProjectData?.changeOrders || contextProjectData?.changeOrders || [];
+    return changeOrders.reduce((sum: number, co: any) => {
+      const amount = Number(co.amount || 0);
+      const isApproved =
+        (typeof co.approved === 'boolean' && co.approved) ||
+        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
+      return isApproved ? sum + amount : sum;
+    }, 0);
+  }, [realProjectData?.changeOrders, contextProjectData?.changeOrders]);
+
   const budgetedValue = React.useMemo(() => {
-    if (resolvedBidPrice !== null) return resolvedBidPrice;
-    if (recalculatedBudget !== null) return recalculatedBudget;
-    const estimatedCost = toPositiveNumber(realProjectData?.estimatedCost);
-    return estimatedCost ?? 0;
-  }, [resolvedBidPrice, recalculatedBudget, realProjectData?.estimatedCost]);
+    let base = 0;
+    if (resolvedBidPrice !== null) base = resolvedBidPrice;
+    else if (recalculatedBudget !== null) base = recalculatedBudget;
+    else {
+      const estimatedCost = toPositiveNumber(realProjectData?.estimatedCost);
+      base = estimatedCost ?? 0;
+    }
+    // Add approved change orders to match Overview screen
+    return base + approvedChangeOrdersTotal;
+  }, [resolvedBidPrice, recalculatedBudget, realProjectData?.estimatedCost, approvedChangeOrdersTotal]);
 
   // Sync recalculated budget back to ProjectListContext only when missing
   useEffect(() => {
@@ -898,8 +954,9 @@ function ProjectDetailContent() {
       { id: '3', name: 'Subs', spent: 0, budget: 0, bidBudget: 0 },
       { id: '4', name: 'Misc', spent: 0, budget: 0, bidBudget: 0 },
     ],
-    milestones: realProjectData.estimateData?.paymentMilestones ? 
-      realProjectData.estimateData.paymentMilestones.map((milestone: any, index: number) => ({
+    milestones: (() => {
+      // Start with estimate payment milestones as base
+      const baseMilestones = (realProjectData.estimateData?.paymentMilestones || []).map((milestone: any, index: number) => ({
         id: milestone.id || `milestone-${index}`,
         title: milestone.name || `Payment ${index + 1}`,
         description: milestone.description || milestone.workDescription || '',
@@ -907,7 +964,28 @@ function ProjectDetailContent() {
         status: 'pending' as const,
         amount: Number(milestone.paymentAmount) || 0,
         percentage: Number(milestone.percentage) || 0,
-      })) : [],
+      }));
+      // CRITICAL: Merge live timeline data (from bps.timeline.v2.<id>) which has completed statuses.
+      // Without this, all milestones are hardcoded as 'pending' and the AI never sees completions.
+      if (liveTimelineMilestones.length > 0) {
+        return baseMilestones.map((base: any) => {
+          const liveMatch = liveTimelineMilestones.find((live: any) =>
+            live.id === base.id ||
+            (live.title || '').toLowerCase() === (base.title || '').toLowerCase()
+          );
+          if (liveMatch) {
+            return {
+              ...base,
+              status: liveMatch.status || base.status,
+              progressPct: liveMatch.progressPct ?? base.progressPct ?? 0,
+              completedAt: liveMatch.completedAt,
+            };
+          }
+          return base;
+        });
+      }
+      return baseMilestones;
+    })(),
     team: { pmAssigned: false },
     expenses: contextProjectData?.expenses || [],
     changeOrders: contextProjectData?.changeOrders || [],
@@ -1052,16 +1130,34 @@ function ProjectDetailContent() {
         : Math.max(materialsSpent, bucketMaterialsBudget, 0)
       : 0;
 
+    // Calculate total budget (base + change orders) for capping materials budget
+    const baseBudget = estimate?.totalBid || estimate?.grandTotal || estimate?.total || project?.bidPrice || project?.budgeted || 0;
+    const changeOrders = project?.changeOrders || [];
+    const approvedCOs = changeOrders.reduce((sum: number, co: any) => {
+      const amount = Number(co.amount || 0);
+      const isApproved = (typeof co.approved === 'boolean' && co.approved) ||
+                         (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
+      return isApproved ? sum + amount : sum;
+    }, 0);
+    const totalBudgetCap = baseBudget + approvedCOs;
+
     // Add one Materials/Equipment card with total derived from estimate sources
     // CRITICAL: Use materialsCart first (current state), then fall back to estimate.materialLineItems
     // This ensures we use the same source as the Overview tab
     if (shouldIncludeMaterials) {
       // PREFER materialsCart (same as Overview tab), then estimate.materialLineItems, then calculated budget
-      const finalMaterialsBudget = materialsFromCart > 0 
+      let finalMaterialsBudget = materialsFromCart > 0 
         ? materialsFromCart 
         : (materialsFromLineItems > 0 
           ? materialsFromLineItems 
           : materialsBudget);
+      
+      // SAFETY: Cap materials budget at total budget to prevent materials exceeding total
+      // This handles cases where materialsCart has stale data from a previous estimate
+      if (totalBudgetCap > 0 && finalMaterialsBudget > totalBudgetCap) {
+        console.warn(`⚠️ Materials budget ($${finalMaterialsBudget}) exceeds total budget ($${totalBudgetCap}). Capping to total budget.`);
+        finalMaterialsBudget = totalBudgetCap;
+      }
       
       lines.push({
         id: 'materials',
@@ -1069,13 +1165,13 @@ function ProjectDetailContent() {
         description: 'Materials & Equipment',
         qty: 1,
         unit: 'lump sum',
-        unitCost: finalMaterialsBudget, // Use materialsCart total (matches Overview tab)
+        unitCost: finalMaterialsBudget, // Use materialsCart total (matches Overview tab), capped at total budget
         markupPct: 0, // No markup for spending tracking
         spent: materialsSpent,
         aiSuggested: false,
       });
       
-      console.log(`📊 Materials budget: materialsCart=$${materialsFromCart}, materialLineItems=$${materialsFromLineItems}, final=$${finalMaterialsBudget}`);
+      console.log(`📊 Materials budget: materialsCart=$${materialsFromCart}, materialLineItems=$${materialsFromLineItems}, final=$${finalMaterialsBudget}, totalBudgetCap=$${totalBudgetCap}`);
     }
 
     // Add one Labor card - PREFER estimate.laborLineItems (same as Overview tab), then bucket budget
@@ -2359,40 +2455,162 @@ function ProjectDetailContent() {
             setInitialAIQuestion(undefined); // Reset when closing
           }}
           initialQuestion={initialAIQuestion}
-          context={JSON.stringify({
+          context={JSON.stringify((() => {
+            // Pull estimate data for fallback financial values
+            const ed = (realProjectData as any)?.estimateData || (safeProjectData as any)?.estimateData || {};
+            const contextExpenses: any[] = Array.isArray(contextProjectData?.expenses) ? contextProjectData.expenses : [];
+            const safeExpenses: any[] = Array.isArray(safeProjectData?.expenses) ? safeProjectData.expenses : [];
+            // Merge both sources to avoid stale snapshots while chat is open.
+            const allExpenses: any[] = [...contextExpenses, ...safeExpenses].filter((expense: any, index: number, arr: any[]) => {
+              const key = expense?.id || `${expense?.date || ''}-${expense?.vendor || ''}-${expense?.amount || 0}-${expense?.category || ''}`;
+              return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
+            });
+            const computedSpent = allExpenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
+            return {
             screen: 'Project Detail',
-            // Current project context - AI should assume all questions are about this project
             currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectName: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectId: safeProjectData?.id,
-            status: realProjectData?.status || safeProjectData?.status,
-            bidPrice: realProjectData?.bidPrice || safeProjectData?.bidPrice || 0,
-            estimatedCost: realProjectData?.estimatedCost || safeProjectData?.estimatedCost || 0,
-            actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || 0,
-            totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || 0,
-            expenses: contextProjectData?.expenses || safeProjectData?.expenses || [],
-            expensesCount: (contextProjectData?.expenses || safeProjectData?.expenses || []).length,
+            status: realProjectData?.status || safeProjectData?.status || 'estimate',
+            // Financial data — pull from estimateData when top-level is 0
+            bidPrice: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
+            estimatedCost: realProjectData?.estimatedCost || safeProjectData?.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
+            actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || computedSpent || 0,
+            totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || computedSpent || 0,
+            expenses: allExpenses,
+            expensesCount: allExpenses.length,
             bidTitle: safeProjectData?.title || safeProjectData?.name,
-            bidTotal: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
-            total: safeProjectData?.bidPrice || safeProjectData?.budgeted || 0,
-            status: safeProjectData?.status,
+            bidTotal: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
+            total: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
             location: safeProjectData?.location || '',
             projectType: safeProjectData?.projectType || '',
-            estimatedCost: safeProjectData?.estimatedCost || 0,
-            actualCost: safeProjectData?.actualCost || safeProjectData?.spent || 0,
-            margin: safeProjectData?.margin || 0,
-            markup: safeProjectData?.markup || 0,
-            overheadPct: 12, // Default overhead
+            margin: safeProjectData?.margin || ed?.marginPct || 0,
+            markup: safeProjectData?.markup || ed?.markupPct || ed?.markup || 0,
+            overheadPct: ed?.overheadPct || 12,
             progress: safeProjectData?.overallProgressPct || safeProjectData?.progress || 0,
+            // Include full estimateData so backend can access all fields
+            estimateData: ed,
+            materialTotal: ed?.materialTotal || 0,
+            laborTotal: ed?.laborTotal || 0,
+            overheadTotal: ed?.overheadTotal || 0,
+            profit: ed?.profit || 0,
             activeTab: activeTab,
-            // Send summary data only (not full objects) to reduce payload size
-            bucketCount: (safeProjectData?.buckets || []).length,
+            // Send computed buckets from budgetData (these are the correct/live values from estimate)
+            buckets: budgetData.lines.map((line: any) => ({
+              name: line.category,
+              budget: Number(line.unitCost) || 0,
+              bidBudget: Number(line.unitCost) || 0,
+              spent: Number(line.spent) || 0,
+            })),
+            // Pre-computed budget values — use these directly, no backend guessing needed
+            materialBudgetDirect: (() => {
+              const matLine = budgetData.lines.find((l: any) =>
+                (l.category || '').toLowerCase().includes('material')
+              );
+              return Number(matLine?.unitCost) || 0;
+            })(),
+            materialSpentDirect: (() => {
+              return allExpenses
+                .filter((e: any) => !(e.category || '').toLowerCase().includes('labor'))
+                .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+            })(),
             milestoneCount: (safeProjectData?.milestones || []).length,
-            expenseCount: (safeProjectData?.expenses || []).length,
+            expenseCount: allExpenses.length,
             changeOrderCount: (safeProjectData?.changeOrders || []).length,
             startDate: safeProjectData?.startDate,
             endDate: safeProjectData?.endDate,
-          })}
+            // PM Mode: send live milestone data from AsyncStorage (loaded by TimelineTabV2)
+            milestones: (() => {
+              try {
+                const normalizeStatus = (m: any) => {
+                  const status = String(m?.status || '').toLowerCase();
+                  const progress = Number(m?.progressPct ?? m?.progress ?? 0);
+                  if (
+                    status.includes('complete') ||
+                    status.includes('paid') ||
+                    status.includes('collected') ||
+                    status.includes('received') ||
+                    m?.isComplete === true ||
+                    m?.completed === true ||
+                    m?.isPaid === true ||
+                    m?.paid === true ||
+                    m?.collected === true ||
+                    progress >= 100
+                  ) return 'completed';
+                  if (status.includes('progress') || progress > 0) return 'in_progress';
+                  return status || 'pending';
+                };
+                const milestoneScore = (m: any) => {
+                  const status = normalizeStatus(m);
+                  const progress = Number(m?.progressPct ?? m?.progress ?? 0);
+                  const completionBoost = status === 'completed' ? 1000 : status === 'in_progress' ? 500 : 0;
+                  const dateBoost = m?.completedAt ? 10 : 0;
+                  return completionBoost + progress + dateBoost;
+                };
+
+                // Merge milestone sources so schedule summaries stay live while assistant is open.
+                // CRITICAL: liveTimelineMilestones comes from bps.timeline.v2.<id> (AsyncStorage)
+                // which is where TimelineTabV2 saves completed/in_progress statuses.
+                // This MUST be included first so completed statuses win in dedup.
+                const rawMilestones = [
+                  ...((liveTimelineMilestones || []) as any[]),
+                  ...(((safeProjectData as any)?.milestones || []) as any[]),
+                  ...(((realProjectData as any)?.milestones || []) as any[]),
+                  ...(((contextProjectData as any)?.milestones || []) as any[]),
+                  ...(((safeProjectData as any)?.weeklyPayments || []) as any[]),
+                  ...(((realProjectData as any)?.weeklyPayments || []) as any[]),
+                  ...(((contextProjectData as any)?.weeklyPayments || []) as any[]),
+                  ...((((safeProjectData as any)?.paymentMilestones || []) as any[])),
+                  ...((((realProjectData as any)?.paymentMilestones || []) as any[])),
+                  ...((((contextProjectData as any)?.paymentMilestones || []) as any[])),
+                  ...((((safeProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
+                  ...((((realProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
+                  ...((((contextProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
+                  ...((((safeProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
+                  ...((((realProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
+                  ...((((contextProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
+                ];
+
+                // Deduplicate by id/title-date but keep the most complete/latest variant.
+                const dedupedMap = new Map<string, any>();
+                rawMilestones.forEach((m: any, index: number) => {
+                  const key =
+                    m?.id ||
+                    `${m?.title || m?.name || ""}-${m?.plannedDate || m?.dueDate || m?.date || ""}-${index}`;
+                  const existing = dedupedMap.get(key);
+                  if (!existing || milestoneScore(m) >= milestoneScore(existing)) {
+                    dedupedMap.set(key, m);
+                  }
+                });
+
+                return Array.from(dedupedMap.values()).map((m: any) => ({
+                  id: m.id,
+                  title: m.title || m.name || `Payment ${m.index || ''}`,
+                  amount: m.amount || m.paymentAmount || 0,
+                  plannedDate: m.plannedDate || m.dueDate || m.date,
+                  status: normalizeStatus(m),
+                  progressPct:
+                    Number(m.progressPct ?? m.progress ?? 0) ||
+                    (normalizeStatus(m) === 'completed' ? 100 : 0),
+                }));
+              } catch { return []; }
+            })(),
+            // PM Mode: send estimate line items for AI context
+            estimateLineItems: (() => {
+              try {
+                const est = (realProjectData as any)?.estimateData || {};
+                const materials = est.materialLineItems || est.lineItems || (realProjectData as any)?.materialLineItems || [];
+                const labor = est.laborLineItems || (realProjectData as any)?.laborLineItems || [];
+                return [...materials, ...labor].map((li: any) => ({
+                  name: li.name,
+                  qty: li.qty || li.quantity || 1,
+                  unitCost: li.unitCost || li.cost || 0,
+                  totalCost: li.totalCost || (li.qty || 1) * (li.unitCost || 0),
+                  category: li.category || 'Materials/Equipment',
+                }));
+              } catch { return []; }
+            })(),
+          };})())}
           onAction={async (action) => {
             console.log('📥 project-detail: Received action from AIAssistantModal:', {
               type: action.type,
@@ -2744,6 +2962,197 @@ function ProjectDetailContent() {
                   });
                 }, 200);
               }, 1000);
+            // ── PM MODE: TIMELINE ACTIONS ────────────────────────────────────
+            } else if (action.type === 'mark_timeline_complete') {
+              try {
+                const storageKey = `bps.timeline.v2.${id}`;
+                const saved = await AsyncStorage.getItem(storageKey);
+                const milestones = saved ? JSON.parse(saved) : [];
+                const pct = action.progressPct != null ? Number(action.progressPct) : 100;
+                const isComplete = pct >= 100;
+                const updated = milestones.map((m: any) => {
+                  const matchId = action.itemId && m.id === action.itemId;
+                  const matchName = action.itemName && (m.title || '').toLowerCase().includes((action.itemName || '').toLowerCase());
+                  if (matchId || matchName) {
+                    return {
+                      ...m,
+                      status: isComplete ? 'completed' : (pct > 0 ? 'in_progress' : m.status),
+                      progressPct: pct,
+                      ...(isComplete ? { completedAt: action.completedAt || new Date().toISOString() } : {}),
+                    };
+                  }
+                  return m;
+                });
+                await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+                const label = action.itemName || 'Milestone';
+                if (isComplete) {
+                  console.log('✅ Milestone marked complete in AsyncStorage');
+                  Alert.alert('✅ Done', `"${label}" marked as complete.`);
+                } else {
+                  console.log(`✅ Milestone updated to ${pct}% in AsyncStorage`);
+                  Alert.alert('✅ Updated', `"${label}" updated to ${pct}% progress.`);
+                }
+              } catch (e) {
+                console.error('❌ Error updating milestone:', e);
+                Alert.alert('Error', 'Could not update timeline. Please update it in the Timeline tab.');
+              }
+
+            } else if (action.type === 'add_timeline_payment') {
+              try {
+                const storageKey = `bps.timeline.v2.${id}`;
+                const saved = await AsyncStorage.getItem(storageKey);
+                const milestones = saved ? JSON.parse(saved) : [];
+                const newMilestone = {
+                  id: `pm-${Date.now()}`,
+                  title: action.title || 'Payment Milestone',
+                  amount: Number(action.amount) || 0,
+                  plannedDate: action.dueDate || new Date().toISOString().split('T')[0],
+                  progressPct: 0,
+                  status: 'pending',
+                  createdAt: new Date().toISOString(),
+                };
+                milestones.push(newMilestone);
+                await AsyncStorage.setItem(storageKey, JSON.stringify(milestones));
+                console.log('✅ Payment milestone added to AsyncStorage');
+                Alert.alert('✅ Added', `Payment milestone "${newMilestone.title}" ($${Number(action.amount).toLocaleString()}) added to your timeline.`);
+              } catch (e) {
+                console.error('❌ Error adding timeline payment:', e);
+                Alert.alert('Error', 'Could not add milestone. Please add it in the Timeline tab.');
+              }
+
+            // ── PM MODE: ESTIMATE ACTIONS ─────────────────────────────────────
+            } else if (action.type === 'add_estimate_line_item') {
+              try {
+                const newItem = {
+                  id: `li-${Date.now()}`,
+                  name: action.name || 'New Item',
+                  qty: Number(action.qty) || 1,
+                  unitCost: Number(action.unitCost) || 0,
+                  totalCost: (Number(action.qty) || 1) * (Number(action.unitCost) || 0),
+                  category: action.category || 'Materials/Equipment',
+                  addedByAI: true,
+                  createdAt: new Date().toISOString(),
+                };
+                // Update the project's materialLineItems via updateProject
+                const currentProject = realProjectData as any;
+                const existingItems = currentProject?.estimateData?.materialLineItems || currentProject?.materialLineItems || [];
+                const updatedItems = [...existingItems, newItem];
+                updateProject(id, {
+                  estimateData: {
+                    ...(currentProject?.estimateData || {}),
+                    materialLineItems: updatedItems,
+                  },
+                });
+                console.log('✅ Estimate line item added');
+                Alert.alert('✅ Added', `"${newItem.name}" ($${newItem.totalCost.toLocaleString()}) added to your estimate.`);
+              } catch (e) {
+                console.error('❌ Error adding estimate line item:', e);
+                Alert.alert('Error', 'Could not add line item. Please add it in the Estimate tab.');
+              }
+
+            } else if (action.type === 'create_change_order') {
+              try {
+                console.log('🔄 Action handler: create_change_order', action);
+                const co = action.changeOrder;
+                const currentProject = realProjectData as any;
+                const existingCOs = currentProject?.changeOrders || [];
+                const updatedCOs = [...existingCOs, co];
+                // Update budget with CO
+                const currentBudget = Number(currentProject?.estimatedCost || currentProject?.estimateData?.totalCost || 0);
+                const newBudget = currentBudget + co.cost;
+                updateProject(id, {
+                  changeOrders: updatedCOs,
+                  estimatedCost: newBudget,
+                  changeOrderTotal: updatedCOs.reduce((s: number, c: any) => s + Number(c.cost || 0), 0),
+                });
+                console.log('✅ Change order created:', co.description, '$' + co.clientPrice);
+                Alert.alert('✅ Change Order Created', `"${co.description}"\nCost: $${co.cost.toLocaleString()}\nClient Price: $${co.clientPrice.toLocaleString()} (${co.markupPct}% markup)`);
+              } catch (e) {
+                console.error('❌ Error creating change order:', e);
+                Alert.alert('Error', 'Could not create change order. Please add it manually.');
+              }
+
+            } else if (action.type === 'populate_estimate') {
+              try {
+                console.log('📋 Action handler: populate_estimate', action);
+                const est = action.estimate;
+                const currentProject = realProjectData as any;
+                updateProject(id, {
+                  estimateData: {
+                    ...(currentProject?.estimateData || {}),
+                    materialLineItems: est.materialLineItems || [],
+                    laborLineItems: est.laborLineItems || [],
+                    overheadItems: est.overheadItems || [],
+                    materialTotal: est.materialTotal,
+                    laborTotal: est.laborTotal,
+                    overheadTotal: est.overheadTotal,
+                    totalCost: est.baseCost,
+                    markupPct: est.markupPct,
+                    markup: est.markup,
+                    totalBid: est.totalBid,
+                    profit: est.profit,
+                    marginPct: est.marginPct,
+                    perSqft: est.perSqft,
+                    generatedByAI: true,
+                    generatedAt: new Date().toISOString(),
+                  },
+                  projectType: est.projectType,
+                  squareFootage: est.squareFootage,
+                });
+                console.log('✅ Estimate populated with AI-generated data');
+                Alert.alert(
+                  '✅ Estimate Generated',
+                  `${est.materialLineItems?.length || 0} materials + ${est.laborLineItems?.length || 0} labor items\n\nTotal Bid: $${est.totalBid?.toLocaleString()}\nProfit: $${est.profit?.toLocaleString()} (${est.marginPct}%)`,
+                  [{ text: 'View Estimate', style: 'default' }]
+                );
+              } catch (e) {
+                console.error('❌ Error populating estimate:', e);
+                Alert.alert('Error', 'Could not populate estimate. Please try again.');
+              }
+
+            } else if (action.type === 'mark_payment_collected') {
+              try {
+                console.log('💸 Action handler: mark_payment_collected', action);
+                const storageKey = `timeline_${id}`;
+                const raw = await AsyncStorage.getItem(storageKey);
+                const items = raw ? JSON.parse(raw) : [];
+                const updated = items.map((item: any) => {
+                  if ((action.milestoneId && item.id === action.milestoneId) ||
+                      (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
+                    return { ...item, status: 'collected', collectedAt: action.collectedAt || new Date().toISOString(), collectedAmount: action.amount };
+                  }
+                  return item;
+                });
+                await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+                console.log('✅ Payment marked as collected');
+                Alert.alert('✅ Payment Collected', `"${action.milestoneName}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`);
+              } catch (e) {
+                console.error('❌ Error marking payment collected:', e);
+              }
+
+            } else if (action.type === 'add_daily_log') {
+              try {
+                console.log('📝 Action handler: add_daily_log', action);
+                const logKey = `daily_logs_${id}`;
+                const raw = await AsyncStorage.getItem(logKey);
+                const logs = raw ? JSON.parse(raw) : [];
+                const newLog = {
+                  id: action.id || `log-${Date.now()}`,
+                  date: action.date || new Date().toISOString().split('T')[0],
+                  noteText: action.noteText,
+                  weather: action.weather || null,
+                  crewCount: action.crewCount || null,
+                  hoursWorked: action.hoursWorked || null,
+                  createdAt: new Date().toISOString(),
+                };
+                logs.push(newLog);
+                await AsyncStorage.setItem(logKey, JSON.stringify(logs));
+                console.log('✅ Daily log saved');
+                Alert.alert('✅ Log Saved', `Daily log for ${newLog.date} recorded.`);
+              } catch (e) {
+                console.error('❌ Error saving daily log:', e);
+              }
+
             } else if (action.type === 'project_updated') {
               // AI assistant updated the project via backend - sync to ProjectDataContext
               console.log('🔄 Project updated by AI assistant, syncing to ProjectDataContext', {

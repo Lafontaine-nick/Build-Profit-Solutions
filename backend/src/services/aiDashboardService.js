@@ -586,6 +586,16 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
         .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5),
     };
 
+    console.log('[AI Dashboard] Calling OpenAI with:', {
+      projectCount: aiSummary.projectCount,
+      baseInsightsCount: baseInsights.length,
+      baseNextStepsCount: baseNextSteps.length,
+      totalBid: aiSummary.totals.totalBid,
+      totalEstimatedCost: aiSummary.totals.totalEstimatedCost,
+      totalActualCost: aiSummary.totals.totalActualCost,
+      sampleProject: aiSummary.projects[0] || null,
+    });
+
     let rawContent = '{}';
 
     try {
@@ -600,13 +610,24 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
 
 You receive:
 - "summary": roll-up stats and compact project summaries with key metrics.
-- "baseInsights" and "baseNextSteps": rule-based findings already detected.
+- "baseInsights" and "baseNextSteps": rule-based findings already detected (may be empty).
 - "materials": materialStats with significant price changes (5%+).
 
 Your job:
-1) Add 2–5 additional high-value "insights" that build on top of the base ones.
-2) Add 2–5 additional "nextSteps" that are concrete, actionable, and profit-focused.
-3) Do NOT duplicate baseInsights/baseNextSteps; complement them.
+1) Generate 3–6 high-value "insights" by analyzing the project data.
+   - If baseInsights exist, add insights that complement them (don't duplicate).
+   - If baseInsights is empty, generate insights from scratch by analyzing the projects.
+   - Look for: margin trends, budget health, progress vs spend, collection risks, opportunities.
+2) Generate 3–6 concrete "nextSteps" that are actionable and profit-focused.
+   - If baseNextSteps exist, add steps that complement them.
+   - If baseNextSteps is empty, generate steps from scratch.
+
+CRITICAL: You MUST always return at least 3 insights and 3 nextSteps, even if projects look healthy.
+If everything looks good, generate positive insights like:
+- "Portfolio margin is strong at X%"
+- "All projects are on track"
+- "Consider optimizing material costs"
+- "Review upcoming milestones"
 
 Rules:
 - ONLY talk about data from the payload.
@@ -614,7 +635,7 @@ Rules:
 - "type" for insights:
    - "alert" for risk/overrun/serious issues
    - "opportunity" for savings or extra profit
-   - "info" for neutral useful context
+   - "info" for neutral useful context or positive status
 - "impactScore" is 1–10 (10 = biggest impact on profit/risk).
 - "chip" for nextSteps is a short tag like "5 min", "Save 3–7%", "Prevent margin loss".
 - "priority" is "low" | "medium" | "high".
@@ -674,6 +695,26 @@ Return ONLY JSON in this shape:
 
     aiInsights = Array.isArray(parsed.insights) ? parsed.insights : [];
     aiNextSteps = Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [];
+    
+    console.log('[AI Dashboard] AI returned:', {
+      insightsCount: aiInsights.length,
+      nextStepsCount: aiNextSteps.length,
+      firstInsight: aiInsights[0] || null,
+    });
+
+    // If AI returned empty insights but we have projects, generate a fallback
+    if (aiInsights.length === 0 && projectsForModel.length > 0) {
+      console.warn('[AI Dashboard] AI returned no insights, adding fallback');
+      aiInsights.push({
+        id: 'ai-fallback-portfolio',
+        type: 'info',
+        title: 'Portfolio overview',
+        body: `You have ${projectsForModel.length} active project${projectsForModel.length > 1 ? 's' : ''} with a total bid value of $${summary.totals.totalBid.toLocaleString()}. Continue tracking expenses and progress for personalized insights.`,
+        projectId: null,
+        impactScore: 1,
+      });
+    }
+
     aiUpdatedAt = new Date().toISOString();
 
     // Store in cache
@@ -682,15 +723,35 @@ Return ONLY JSON in this shape:
 
   // ---------- Combine rule-based + AI insights ---------- //
 
+  const allInsights = [...baseInsights, ...aiInsights];
+  const allNextSteps = [...baseNextSteps, ...aiNextSteps];
+
+  console.log('[AI Dashboard] Final insights count:', {
+    baseInsights: baseInsights.length,
+    aiInsights: aiInsights.length,
+    total: allInsights.length,
+    projectsCount: projectsForModel.length,
+    totalBid: summary.totals.totalBid,
+    totalActualCost: summary.totals.totalActualCost,
+  });
+
+  // Final fallback: If we have projects but STILL no insights after all checks, show a message
+  // This should rarely trigger now that we have AI fallbacks, but it's a safety net
+  if (projectsForModel.length > 0 && allInsights.length === 0) {
+    console.warn('[AI Dashboard] No insights generated at all, adding final fallback');
+    allInsights.push({
+      id: 'final-fallback-healthy',
+      type: 'info',
+      title: 'Projects look healthy',
+      body: `You have ${projectsForModel.length} active project${projectsForModel.length > 1 ? 's' : ''} with a total bid value of $${summary.totals.totalBid.toLocaleString()}. Continue tracking expenses and progress to get personalized insights.`,
+      projectId: null,
+      impactScore: 1,
+    });
+  }
+
   const result = {
-    insights: [
-      ...baseInsights,
-      ...aiInsights,
-    ],
-    nextSteps: [
-      ...baseNextSteps,
-      ...aiNextSteps,
-    ],
+    insights: allInsights,
+    nextSteps: allNextSteps,
     ruleBasedUpdatedAt,
     aiUpdatedAt,
     lastUpdated: aiUpdatedAt || ruleBasedUpdatedAt,

@@ -95,6 +95,37 @@ export default function ProjectAnalysisCard({
           </View>
         </View>
         
+        {/* Material & Labor Breakdown */}
+        {(analysis.budgetAndCosting.materialBudget > 0 || analysis.budgetAndCosting.laborBudget > 0) && (
+          <View style={styles.breakdownContainer}>
+            {/* Materials */}
+            {analysis.budgetAndCosting.materialBudget > 0 && (
+              <View style={styles.breakdownItem}>
+                <Text style={[styles.breakdownLabel, { color: Colors.subtext }]}>Materials</Text>
+                <Text style={[styles.breakdownValue, { color: Colors.text }]}>
+                  ${analysis.budgetAndCosting.materialSpent?.toLocaleString() || '0'} / ${analysis.budgetAndCosting.materialBudget.toLocaleString()}
+                </Text>
+                <Text style={[styles.breakdownRemaining, { color: Colors.subtext }]}>
+                  ${analysis.budgetAndCosting.materialRemaining?.toLocaleString() || '0'} remaining ({analysis.budgetAndCosting.materialSpentPct?.toFixed(1) || '0'}% used)
+                </Text>
+              </View>
+            )}
+            
+            {/* Labor */}
+            {analysis.budgetAndCosting.laborBudget > 0 && (
+              <View style={styles.breakdownItem}>
+                <Text style={[styles.breakdownLabel, { color: Colors.subtext }]}>Labor</Text>
+                <Text style={[styles.breakdownValue, { color: Colors.text }]}>
+                  ${analysis.budgetAndCosting.laborSpent?.toLocaleString() || '0'} / ${analysis.budgetAndCosting.laborBudget.toLocaleString()}
+                </Text>
+                <Text style={[styles.breakdownRemaining, { color: Colors.subtext }]}>
+                  ${analysis.budgetAndCosting.laborRemaining?.toLocaleString() || '0'} remaining ({analysis.budgetAndCosting.laborSpentPct?.toFixed(1) || '0'}% used)
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+        
         {analysis.budgetAndCosting.topCostDrivers.length > 0 && (
           <View style={styles.driversContainer}>
             <Text style={[styles.driversTitle, { color: Colors.subtext }]}>Top Cost Drivers</Text>
@@ -292,6 +323,31 @@ const styles = StyleSheet.create({
   budgetValue: {
     fontSize: 18,
     fontWeight: '700',
+  },
+  breakdownContainer: {
+    marginTop: 16,
+    marginBottom: 12,
+    gap: 12,
+  },
+  breakdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(148, 163, 184, 0.05)',
+    borderRadius: 8,
+  },
+  breakdownLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  breakdownValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  breakdownRemaining: {
+    fontSize: 12,
   },
   driversContainer: {
     marginTop: 12,
