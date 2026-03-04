@@ -109,15 +109,19 @@ Required for MATERIALS: amount + category + vendor + ${hasProject ? `projectId "
 Required for LABOR: amount + category("Labor") + notes(what labor was for) + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
 → Vendor is NOT required for labor expenses
 → Call add_material_expense (covers both materials and labor)
-→ Call add_labor_expense for labor with trade/description fields`;
+→ Call add_labor_expense for labor with trade/description fields
+→ CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for." DO NOT proceed until you know the expense type.`;
 
   // Purchase order domain
   const poBlock = `
 PURCHASE ORDER RULES:
-Required: amount + vendor + category + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
-→ NEVER extract PO amounts without explicit $ indicator
+Required: amount + vendor + category + expectedDelivery + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
+→ Extract amounts from ANY number in user message: "1000", "$1000", "1000 dollars", "for 1000" all work. Be smart - if user says "1000" or "March 10th", extract the number (1000) as the amount. Don't require "$" or "dollars" - plain numbers are fine.
+→ CRITICAL: If expectedDelivery is missing, ALWAYS ask: "What is the expected delivery or received date?" before calling add_purchase_order. The delivery date is required for the purchase order card.
 → POs start as "Pending" → show in Committed POs → convert to expenses when received
-→ "Mark as received" / "mark PO received" → call mark_purchase_order_received (NOT add_purchase_order)`;
+→ "Mark as received" / "mark PO received" → call mark_purchase_order_received (NOT add_purchase_order)
+→ CRITICAL: When mark_purchase_order_received succeeds, ALWAYS say "I've marked purchase order [PO-XXXXX] as received" or "Purchase order [PO-XXXXX] has been marked as received" in your response. Be explicit and clear.
+→ When creating a PO, always mention: "You can mark this purchase order as received in the Purchase Orders page when you receive it."`;
 
   // Timeline domain (PM mode only but include basic info always)
   const timelineBlock = aiPmMode ? `
@@ -263,7 +267,9 @@ Change order detection:
 Required-field rules:
 - add_material_expense: amount, category, vendor (vendor only required for non-labor)
 - add_labor_expense: amount, trade, description
-- add_purchase_order: amount, vendor, category
+- CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → set required_fields_missing = ["expense_type"] and clarification_question = "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for."
+- add_purchase_order: amount, vendor, category, expectedDelivery (if missing, ask "What is the expected delivery or received date?")
+- For add_purchase_order multi-turn flows: if prior user messages already include amount/vendor/category/date, DO NOT ask for them again; only ask for truly missing fields.
 - mark_purchase_order_received: no required fields
 - add_timeline_payment: title, amount
 - mark_payment_collected: milestoneId or milestoneName

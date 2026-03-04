@@ -12,6 +12,7 @@ import {
   Modal,
   TouchableOpacity,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
@@ -208,25 +209,17 @@ export default function BudgetTab({
   const { projects } = useProjectList();
   
   
-  // Track if we've already reloaded to prevent infinite loops
-  const hasReloadedRef = React.useRef(false);
-  
-  // Reload from storage when the Budget tab is focused to get latest expenses and purchase orders
+  // Reload from storage when Budget tab is focused, but defer until nav interactions complete
+  // to avoid visible shuttering during screen/modal transitions.
   useFocusEffect(
     React.useCallback(() => {
-      // Always reload when Budget tab is focused to ensure we have latest data
-      // This is especially important when expenses are added from AI Assistant
       if (reloadFromStorage) {
-        hasReloadedRef.current = true;
-        reloadFromStorage().then(() => {
-        // Reduced logging to prevent terminal glitching
+        const task = InteractionManager.runAfterInteractions(() => {
+          reloadFromStorage().catch(() => {});
         });
-        
-        // Reset the flag after a delay so it can reload again if needed
-        setTimeout(() => {
-          hasReloadedRef.current = false;
-        }, 2000); // Increased delay to allow for AsyncStorage writes
+        return () => task.cancel();
       }
+      return undefined;
     }, [reloadFromStorage])
   );
   

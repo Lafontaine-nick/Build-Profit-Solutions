@@ -16,6 +16,7 @@ import {
   ScrollView,
   StatusBar,
   Keyboard,
+  Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -73,7 +74,25 @@ function resolveAIBaseUrl(): string {
     return "http://10.0.2.2:3001";
   }
 
-  // PRIORITY 3: For physical devices, try to detect network IP from Expo
+  // PRIORITY 3: Use configured API base URL first (stable for physical devices)
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 
+                     process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
+                     (Constants.expoConfig?.extra?.devApiBaseUrl);
+  
+  if (apiBaseUrl) {
+    // Extract base URL without /api suffix if present
+    const base = apiBaseUrl.replace(/\/api\/?$/, '');
+    // Guard against stale hardcoded LAN IPs from older app config/runtime cache.
+    // If this matches a known legacy IP, skip it and fall through to hostUri detection.
+    if (base.includes("192.168.1.115")) {
+      console.warn("⚠️ Ignoring stale configured API base URL:", base);
+    } else {
+    console.log('📱 Using API base URL from config:', base);
+    return base;
+    }
+  }
+
+  // PRIORITY 4: For physical devices, try to detect network IP from Expo
   // Expo often provides hostUri like "192.168.x.x:8081"
   const expoConfig: any = (Constants as any).expoConfig || (Constants as any).manifest;
   const hostUri: string | undefined =
@@ -90,39 +109,61 @@ function resolveAIBaseUrl(): string {
     }
   }
 
-  // PRIORITY 4: Use the same base URL logic as the main API (for physical devices)
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 
-                     process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
-                     (Constants.expoConfig?.extra?.devApiBaseUrl);
+  // Final fallback: avoid stale hardcoded LAN IPs.
+  // On physical devices, require explicit env config when hostUri cannot be resolved.
+  const localhostFallback = "http://localhost:3001";
+  console.warn('⚠️ Could not resolve LAN IP from Expo hostUri.');
+  console.warn('💡 Set EXPO_PUBLIC_AI_API_URL (or EXPO_PUBLIC_API_BASE_URL) to your Mac IP, e.g. http://192.168.x.x:3001');
+  console.warn('⚠️ Falling back to localhost (works for simulator/web, not physical devices):', localhostFallback);
+  return localhostFallback;
+}
+
+// Helper function to try multiple URLs with fallback
+async function fetchWithFallback(urls: string[], options: RequestInit, timeout = 10000): Promise<Response> {
+  const errors: Error[] = [];
   
-  if (apiBaseUrl) {
-    // Extract base URL without /api suffix if present
-    const base = apiBaseUrl.replace(/\/api\/?$/, '');
-    console.log('📱 Using API base URL from config:', base);
-    return base;
-  }
-
-  // PRIORITY 5: Fallback to common dev IPs (try multiple)
-  const fallbackIPs = [
-    "192.168.1.115",  // Common home network
-    "192.168.0.201",  // Alternative network
-    "192.168.68.115", // Another common network
-  ];
-
-  // Try to detect which network we're on by checking Expo hostUri patterns
-  for (const ip of fallbackIPs) {
-    if (hostUri && hostUri.includes(ip.split('.').slice(0, 3).join('.'))) {
-      const url = `http://${ip}:3001`;
-      console.log('📱 Using detected network IP:', url);
-      return url;
+  for (const url of urls) {
+    let timeoutId: NodeJS.Timeout | null = null;
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => {
+        console.warn(`⏱️ Request to ${url} timed out after ${timeout}ms`);
+        controller.abort();
+      }, timeout);
+      
+      console.log(`🔄 Attempting connection to: ${url} (timeout: ${timeout}ms)`);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      
+      if (timeoutId) clearTimeout(timeoutId);
+      const elapsed = Date.now() - startTime;
+      
+      if (response.ok) {
+        console.log(`✅ Successfully connected to: ${url} (${elapsed}ms)`);
+        return response;
+      }
+      
+      // If response is not ok, try next URL
+      console.warn(`⚠️ HTTP ${response.status} from ${url}`);
+      errors.push(new Error(`HTTP ${response.status} from ${url}`));
+    } catch (error: any) {
+      if (timeoutId) clearTimeout(timeoutId);
+      const elapsed = Date.now() - startTime;
+      const errorMsg = error.message || error.toString();
+      console.warn(`⚠️ Failed to connect to ${url} after ${elapsed}ms:`, errorMsg);
+      errors.push(error);
+      // Continue to next URL
     }
   }
-
-  // Final fallback
-  const fallbackUrl = "http://192.168.1.115:3001";
-  console.warn('⚠️ Using fallback AI API URL:', fallbackUrl);
-  console.warn('💡 Set EXPO_PUBLIC_AI_API_URL env variable to override');
-  return fallbackUrl;
+  
+  // If all URLs failed, provide detailed error
+  const lastError = errors[errors.length - 1];
+  const allErrors = errors.map((e, i) => `  ${i + 1}. ${urls[i]}: ${e.message}`).join('\n');
+  console.warn(`❌ All connection attempts failed:\n${allErrors}`);
+  throw lastError || new Error('All connection attempts failed');
 }
 
 function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 'project' | 'general' {
@@ -196,6 +237,8 @@ const QUICK_ACTIONS = [
   "Find Subcontractors",
 ];
 
+const AI_REQUEST_TIMEOUT_MS = 45000;
+
 const SUMMARY_REFRESH_KEYWORDS = [
   "health check",
   "project health",
@@ -256,6 +299,17 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastAutoRefreshSnapshotRef = useRef<string>("");
   const wasVisibleRef = useRef(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const isUserScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Calculate minimum content height to ensure scrolling is always possible
+  const minContentHeight = useMemo(() => {
+    const screenHeight = Dimensions.get('window').height;
+    const headerHeight = 120; // Approximate header height
+    const inputHeight = keyboardHeight > 0 ? 100 + keyboardHeight : 120; // Input container + keyboard
+    return screenHeight - headerHeight - inputHeight + 50; // Add 50px extra to ensure scrollability
+  }, [keyboardHeight]);
   
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -268,6 +322,36 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   useEffect(() => {
     getLastOpenedProjectId().then(setLastOpenedProjectIdState);
   }, []);
+
+  // Track keyboard height for proper scrolling
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+        // Scroll to bottom when keyboard opens (only if user isn't manually scrolling)
+        setTimeout(() => {
+          if (flatListRef.current && messages.length > 0 && !isUserScrollingRef.current) {
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }, Platform.OS === 'ios' ? 250 : 100);
+      }
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [messages.length]);
   
   // Timer effect - ensure timer runs when recording starts
   useEffect(() => {
@@ -347,12 +431,21 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             (async () => {
               try {
                 const AI_API_BASE = resolveAIBaseUrl();
-                const API_URL = `${AI_API_BASE}/api/ai-assistant`;
-                console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
+                const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
                 
-                // Create AbortController for timeout
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
+                // Build fallback URLs: only use localhost for simulators/web, not physical devices
+                const urlsToTry = [primaryUrl];
+                const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
+                const isWeb = Platform.OS === "web";
+                const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
+                
+                // Only add localhost fallback for simulators/web, not physical devices
+                if (!primaryUrl.includes('localhost') && !primaryUrl.includes('127.0.0.1') && (isSimulator || isWeb || isAndroidEmulator)) {
+                  urlsToTry.push('http://localhost:3001/api/ai-assistant');
+                  console.log('🔄 Will fallback to localhost if primary URL fails (simulator/web detected)');
+                }
+                
+                console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
                 
                 // Get auth token from Clerk
                 const token = await getToken();
@@ -361,21 +454,22 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   headers["Authorization"] = `Bearer ${token}`;
                 }
                 
-                const response = await fetch(API_URL, {
-                  method: "POST",
-                  headers,
-                  body: JSON.stringify({
-                    message: initialQuestion.trim(),
-                    context,
-                    history: [],
-                    user_settings: {
-                      ai_project_manager_mode: aiManagerEnabled,
-                    },
-                  }),
-                  signal: controller.signal,
-                });
-                
-                clearTimeout(timeoutId);
+                const response = await fetchWithFallback(
+                  urlsToTry,
+                  {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                      message: initialQuestion.trim(),
+                      context,
+                      history: [],
+                      user_settings: {
+                        ai_project_manager_mode: aiManagerEnabled,
+                      },
+                    }),
+                  },
+                  AI_REQUEST_TIMEOUT_MS
+                );
                 const data = await response.json();
                 if (data.error) {
                   const errorMsg: Message = {
@@ -403,7 +497,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 let errorMessage = "I ran into a connection issue talking to the AI.";
                 
                 if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
-                  errorMessage = "The request timed out. This usually means:\n\n1. The backend isn't running\n2. Network connection is slow\n\nTo start the backend:\ncd backend && npm start\n\nOr check: http://localhost:3001/health";
+                  errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
                 } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
                   const AI_API_BASE = resolveAIBaseUrl();
                   errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
@@ -442,6 +536,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       }, 150);
     }
   }, [messages.length]);
+
+  // Scroll to bottom when keyboard opens (only if user isn't manually scrolling)
+  useEffect(() => {
+    if (keyboardHeight > 0 && flatListRef.current && messages.length > 0 && !isUserScrollingRef.current) {
+      // Wait for keyboard animation to complete before scrolling
+      const timeout = Platform.OS === 'ios' ? 350 : 150;
+      setTimeout(() => {
+        if (!isUserScrollingRef.current && flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, timeout);
+    }
+  }, [keyboardHeight, messages.length]);
 
   // On close: return to home state on next open, but preserve the latest summary as preview.
   useEffect(() => {
@@ -1374,9 +1481,21 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       // - All mobile (simulator/device): use Mac's LAN IP (most reliable)
       // - You can override with EXPO_PUBLIC_AI_API_URL env variable
       const AI_API_BASE = resolveAIBaseUrl();
+      const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
       
-      const API_URL = `${AI_API_BASE}/api/ai-assistant`;
-      console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
+      // Build fallback URLs: only use localhost for simulators/web, not physical devices
+      const urlsToTry = [primaryUrl];
+      const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
+      const isWeb = Platform.OS === "web";
+      const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
+      
+      // Only add localhost fallback for simulators/web, not physical devices
+      if (!primaryUrl.includes('localhost') && !primaryUrl.includes('127.0.0.1') && (isSimulator || isWeb || isAndroidEmulator)) {
+        urlsToTry.push('http://localhost:3001/api/ai-assistant');
+        console.log('🔄 Will fallback to localhost if primary URL fails (simulator/web detected)');
+      }
+      
+      console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
 
       // Use project context resolver for queries that need project context
       let finalContext = enhancedContext;
@@ -1600,10 +1719,6 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         console.warn("Failed to hydrate fresh context from AsyncStorage:", e);
       }
 
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
-
       // Get auth token from Clerk
       const token = await getToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -1617,25 +1732,27 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         }
       }
       
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          message: newMessage.content,
-          context: finalContext,
-          history: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          user_settings: {
-            ai_project_manager_mode: aiManagerEnabled,
-          },
-        }),
-        signal: controller.signal,
-      });
+      const response = await fetchWithFallback(
+        urlsToTry,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            message: newMessage.content,
+            context: finalContext,
+            history: messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            user_settings: {
+              ai_project_manager_mode: aiManagerEnabled,
+            },
+          }),
+        },
+        AI_REQUEST_TIMEOUT_MS
+      );
 
       const data = await response.json();
-      clearTimeout(timeoutId);
 
       // Check for error response
       if (data.error) {
@@ -2038,12 +2155,12 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
-      console.error("AI error", error);
+      console.warn("AI request failed", error);
       let errorMessage = "I ran into a connection issue talking to the AI.";
       
       // Provide more specific error messages
       if (error?.name === 'AbortError' || error?.message?.includes("aborted") || error?.message?.includes("timeout")) {
-        errorMessage = "The request timed out. This usually means:\n\n1. The backend isn't running\n2. Network connection is slow\n\nTo start the backend:\ncd backend && npm start\n\nOr check: http://localhost:3001/health";
+        errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
       } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
         const AI_API_BASE = resolveAIBaseUrl();
         errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
@@ -2091,70 +2208,74 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       messageToSend = suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`;
     }
     
-    // Set input and auto-send after a brief delay
-    setInput(messageToSend);
-    setTimeout(() => {
-      // Trigger send by calling sendMessage logic directly
-      if (messageToSend.trim() && !loading) {
-        // Haptic feedback
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        
-        // Dismiss keyboard
-        Keyboard.dismiss();
-        
-        const newMessage: Message = {
-          id: Date.now().toString(),
-          role: "user",
-          content: messageToSend.trim(),
-          timestamp: new Date(),
-        };
-        
-        setMessages((prev) => [...prev, newMessage]);
-        setInput("");
-        setLoading(true);
-        setIsTyping(true);
-        
-        // Scroll to bottom
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 50);
-        
-        // Make API call
-        (async () => {
+    // Auto-send immediately without setting input field
+    if (messageToSend.trim() && !loading) {
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      // Dismiss keyboard
+      Keyboard.dismiss();
+      
+      const newMessage: Message = {
+        id: Date.now().toString(),
+        role: "user",
+        content: messageToSend.trim(),
+        timestamp: new Date(),
+      };
+      
+      setMessages((prev) => [...prev, newMessage]);
+      setInput("");
+      setLoading(true);
+      setIsTyping(true);
+      
+      // Scroll to bottom
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+      
+      // Make API call
+      (async () => {
           try {
             const AI_API_BASE = resolveAIBaseUrl();
-            const API_URL = `${AI_API_BASE}/api/ai-assistant`;
-            console.log('🤖 AI Assistant connecting to:', API_URL, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
-            
-            // Create AbortController for timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced for faster feedback)
-            
+            const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
+
+            // Build fallback URLs: only use localhost for simulators/web, not physical devices
+            const urlsToTry = [primaryUrl];
+            const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
+            const isWeb = Platform.OS === "web";
+            const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
+            if (!primaryUrl.includes('localhost') && !primaryUrl.includes('127.0.0.1') && (isSimulator || isWeb || isAndroidEmulator)) {
+              urlsToTry.push('http://localhost:3001/api/ai-assistant');
+            }
+            console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
+
             // Get auth token from Clerk
             const token = await getToken();
             const headers: Record<string, string> = { "Content-Type": "application/json" };
             if (token) {
               headers["Authorization"] = `Bearer ${token}`;
             }
-            
-            const response = await fetch(API_URL, {
-              method: "POST",
-              headers,
-              body: JSON.stringify({
-                message: messageToSend.trim(),
-                context,
-                history: messages.map((m) => ({
-                  role: m.role,
-                  content: m.content,
-                })),
-                user_settings: {
-                  ai_project_manager_mode: aiManagerEnabled,
-                },
-              }),
-              signal: controller.signal,
-            });
-            
-            clearTimeout(timeoutId);
+
+            const response = await fetchWithFallback(
+              urlsToTry,
+              {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                  message: messageToSend.trim(),
+                  context,
+                  history: messages.map((m) => ({
+                    role: m.role,
+                    content: m.content,
+                  })),
+                  user_settings: {
+                    ai_project_manager_mode: aiManagerEnabled,
+                  },
+                }),
+              },
+              AI_REQUEST_TIMEOUT_MS
+            );
+
             const data = await response.json();
             
             console.log('📥 AIAssistantModal: Received response from backend (second handler):', {
@@ -2272,8 +2393,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             setLoading(false);
           }
         })();
-      }
-    }, 100);
+    }
   };
 
   const handleSubcontractorSelect = async (subcontractor: any) => {
@@ -2538,6 +2658,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         style={[styles.flex, { backgroundColor: darkMode ? Colors.bg : ThemeColors.bg }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        enabled={true}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.gradient, !darkMode && { backgroundColor: ThemeColors.bg }]}>
           <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -2586,27 +2708,52 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             </View>
 
             {/* Messages - Everything scrolls together */}
-            <FlatList
-              ref={flatListRef}
-              style={styles.messageList}
-              data={messages}
-              keyExtractor={(item) => item.id}
-              renderItem={renderMessage}
-              contentContainerStyle={[styles.messagesContainer, { paddingBottom: 200 }]}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={true}
-              nestedScrollEnabled={true}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              onScrollBeginDrag={() => Keyboard.dismiss()}
-              maintainVisibleContentPosition={{
-                minIndexForVisible: 0,
-              }}
-              ListFooterComponent={renderTypingIndicator}
-              onContentSizeChange={() => {
-                if (flatListRef.current) {
+            <View style={{ flex: 1, minHeight: 0 }}>
+              <FlatList
+                ref={flatListRef}
+                style={styles.messageList}
+                data={messages}
+                keyExtractor={(item) => item.id}
+                renderItem={renderMessage}
+                contentContainerStyle={[
+                  styles.messagesContainer, 
+                  { 
+                    paddingBottom: keyboardHeight > 0 
+                      ? (messages.length <= 1 ? 110 : 90) + keyboardHeight + 30
+                      : 200,
+                    minHeight: minContentHeight
+                  }
+                ]}
+                showsVerticalScrollIndicator={true}
+                scrollEnabled={true}
+                nestedScrollEnabled={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                removeClippedSubviews={false}
+                bounces={Platform.OS === 'ios'}
+                alwaysBounceVertical={false}
+                scrollEventThrottle={16}
+                ListFooterComponent={renderTypingIndicator}
+                onScrollBeginDrag={() => {
+                  isUserScrollingRef.current = true;
+                }}
+                onScrollEndDrag={() => {
                   setTimeout(() => {
-                    flatListRef.current?.scrollToEnd({ animated: true });
+                    isUserScrollingRef.current = false;
+                  }, 1000);
+                }}
+                onMomentumScrollEnd={() => {
+                  setTimeout(() => {
+                    isUserScrollingRef.current = false;
+                  }, 500);
+                }}
+              onContentSizeChange={() => {
+                // Only auto-scroll if user is not manually scrolling
+                if (flatListRef.current && !isUserScrollingRef.current) {
+                  setTimeout(() => {
+                    if (!isUserScrollingRef.current && flatListRef.current) {
+                      flatListRef.current.scrollToEnd({ animated: true });
+                    }
                   }, 100);
                 }
               }}
@@ -2883,7 +3030,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   </View>
                 </View>
               }
-            />
+              />
+            </View>
 
             {/* Input bar - Fixed at bottom */}
             <View style={[styles.inputContainer, { 
@@ -2891,8 +3039,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               bottom: 0,
               left: 0,
               right: 0,
-              paddingBottom: Math.max(insets.bottom, 20) + 16,
-              paddingTop: 8,
+              paddingBottom: Math.max(insets.bottom, 8) + 8,
+              paddingTop: 4,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }]}>
               {/* ── QUICK ACTION CHIPS ── */}
@@ -2900,7 +3048,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  style={{ paddingHorizontal: 16, marginBottom: 10, maxHeight: 40 }}
+                  style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 40 }}
                   contentContainerStyle={{ gap: 8, alignItems: 'center' }}
                 >
                   {[
@@ -2917,8 +3065,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
-                        setInput(chip.prompt);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        handleQuickAction(chip.prompt);
                       }}
                       style={{
                         flexDirection: 'row',
@@ -2945,7 +3092,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  style={{ paddingHorizontal: 16, marginBottom: 10, maxHeight: 36 }}
+                  style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 36 }}
                   contentContainerStyle={{ gap: 8, alignItems: 'center' }}
                 >
                   {[
@@ -2956,8 +3103,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
-                        setInput(chip.prompt);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        handleQuickAction(chip.prompt);
                       }}
                       style={[
                         styles.compactInsightChip,
@@ -3019,6 +3165,15 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                           multiline
                           maxLength={500}
                           textAlignVertical="center"
+                          onFocus={() => {
+                            // Scroll to bottom when input is focused (only if user isn't manually scrolling)
+                            const timeout = Platform.OS === 'ios' ? 350 : 150;
+                            setTimeout(() => {
+                              if (flatListRef.current && messages.length > 0 && !isUserScrollingRef.current) {
+                                flatListRef.current.scrollToEnd({ animated: true });
+                              }
+                            }, timeout);
+                          }}
                         />
                       )}
                       {/* Microphone button */}
@@ -3151,12 +3306,12 @@ const styles = StyleSheet.create({
   },
   messageList: {
     flex: 1,
+    minHeight: 0,
   },
   messagesContainer: {
     paddingBottom: 180,
     paddingTop: 12,
     paddingHorizontal: 16,
-    flexGrow: 1,
   },
   messageRow: {
     flexDirection: "row",
@@ -3334,7 +3489,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 20,
     backgroundColor: Colors.bg,
-    gap: 8,
+    gap: 4,
     width: "100%",
     zIndex: 100,
     shadowColor: "#000",

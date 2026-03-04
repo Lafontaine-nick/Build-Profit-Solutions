@@ -19,34 +19,20 @@ type Props = {
 };
 
 export default function CategoryDetailModal({ visible, categoryName, onClose, theme: _theme }: Props) {
+  const DEBUG_MODAL = false;
+  const debugLog = (...args: any[]) => { if (DEBUG_MODAL) console.log(...args); };
   const { theme: appTheme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(appTheme), [appTheme]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [markingPOReceivedId, setMarkingPOReceivedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [activePOTab, setActivePOTab] = useState<'total' | 'committed' | 'received'>('total');
   const previousDataRef = useRef<any[]>([]);
-  const { projectData, addExpense, deleteExpense, updateExpense, reloadFromStorage, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO } = useProjectData();
-  
-  // Force re-render when expenses change
-  // Use both the count and IDs to ensure we catch all changes
-  const expensesKey = useMemo(() => {
-    const expenses = projectData.expenses || [];
-    const ids = expenses.map(e => e.id).join(',');
-    const count = expenses.length;
-    return `${count}:${ids}`;
-  }, [projectData.expenses]);
-  
-  // Force re-render when purchase orders change
-  const purchaseOrdersKey = useMemo(() => {
-    const pos = projectData.purchaseOrders || [];
-    const ids = pos.map((po: any) => po.id).join(',');
-    const count = pos.length;
-    const pendingCount = pos.filter((po: any) => po.status === 'Pending').length;
-    return `${count}:${pendingCount}:${ids}`;
-  }, [projectData.purchaseOrders]);
+  const actionButtonTapRef = useRef(false);
+  const { projectData, addExpense, deleteExpense, updateExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO } = useProjectData();
 
   // Special handling for Change Orders and Purchase Orders - show actual objects, not expenses
   const isChangeOrdersCategory = categoryName.toLowerCase().includes('change order');
@@ -59,8 +45,8 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     // If this is the Purchase Orders category, show purchase order objects
     if (isPurchaseOrdersCategory) {
       const purchaseOrders = projectData.purchaseOrders || [];
-      console.log('📊 CategoryDetailModal: Showing purchase orders. Total:', purchaseOrders.length);
-      console.log('📊 CategoryDetailModal: PO statuses:', purchaseOrders.map((po: any) => ({ id: po.id, status: po.status, vendor: po.vendor })));
+      debugLog('📊 CategoryDetailModal: Showing purchase orders. Total:', purchaseOrders.length);
+      debugLog('📊 CategoryDetailModal: PO statuses:', purchaseOrders.map((po: any) => ({ id: po.id, status: po.status, vendor: po.vendor })));
       
       const poData = purchaseOrders
         .filter((po: any) => {
@@ -115,7 +101,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     // If this is the Change Orders category, show change order objects
     if (isChangeOrdersCategory) {
       const changeOrders = projectData.changeOrders || [];
-      console.log('📊 CategoryDetailModal: Showing change orders. Total:', changeOrders.length);
+      debugLog('📊 CategoryDetailModal: Showing change orders. Total:', changeOrders.length);
       
       const coData = changeOrders.map((co: any) => {
         // Determine status
@@ -160,8 +146,8 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     const expenses = projectData.expenses || [];
     const categoryLower = categoryName.toLowerCase();
     
-    console.log('📊 CategoryDetailModal: Filtering expenses. Total:', expenses.length, 'Category:', categoryName);
-    console.log('📊 CategoryDetailModal: All expenses:', expenses.map((e: any) => ({ 
+    debugLog('📊 CategoryDetailModal: Filtering expenses. Total:', expenses.length, 'Category:', categoryName);
+    debugLog('📊 CategoryDetailModal: All expenses:', expenses.map((e: any) => ({ 
       id: e.id, 
       category: e.category, 
       vendor: e.vendor, 
@@ -172,11 +158,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       .filter(exp => {
         const expCategory = (exp.category || '').toLowerCase();
         
-        console.log(`🔍 Checking expense: category="${expCategory}" vs categoryName="${categoryLower}"`);
+        debugLog(`🔍 Checking expense: category="${expCategory}" vs categoryName="${categoryLower}"`);
         
         // Exact match
         if (expCategory === categoryLower) {
-          console.log(`✅ Exact match: ${expCategory} === ${categoryLower}`);
+          debugLog(`✅ Exact match: ${expCategory} === ${categoryLower}`);
           return true;
         }
         
@@ -192,17 +178,17 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                     'decking', 'fencing', 'landscaping'].includes(expCategory);
         
         if (isMaterialsCategory && isMaterialExpense) {
-          console.log(`✅ Materials match: isMaterialsCategory=${isMaterialsCategory}, isMaterialExpense=${isMaterialExpense}`);
+          debugLog(`✅ Materials match: isMaterialsCategory=${isMaterialsCategory}, isMaterialExpense=${isMaterialExpense}`);
           return true;
         }
         
         // Flexible match for Labor
         if (categoryLower.includes('labor') && expCategory.includes('labor')) {
-          console.log(`✅ Labor match`);
+          debugLog(`✅ Labor match`);
           return true;
         }
         
-        console.log(`❌ No match for expense category="${expCategory}"`);
+        debugLog(`❌ No match for expense category="${expCategory}"`);
         return false;
       })
       .map(exp => {
@@ -229,7 +215,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Most recent first
     
-    console.log('📊 CategoryDetailModal: Filtered expenses count:', filtered.length);
+    debugLog('📊 CategoryDetailModal: Filtered expenses count:', filtered.length);
     
     // Store previous data for smooth transitions (only when we have data)
     if (filtered.length > 0) {
@@ -240,13 +226,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     return filtered;
   }, [projectData.expenses, projectData.changeOrders, projectData.purchaseOrders, categoryName, isChangeOrdersCategory, isPurchaseOrdersCategory, showArchived, activePOTab]);
   
-  // Debug: Log when purchase orders change
-  useEffect(() => {
-    if (isPurchaseOrdersCategory) {
-      console.log('🔄 CategoryDetailModal: projectData.purchaseOrders changed, count:', projectData.purchaseOrders?.length || 0);
-      console.log('🔄 CategoryDetailModal: PO statuses:', projectData.purchaseOrders?.map((po: any) => ({ id: po.id, status: po.status, vendor: po.vendor })));
-    }
-  }, [projectData.purchaseOrders, isPurchaseOrdersCategory]);
 
   const total = useMemo(() => {
     // For Purchase Orders, calculate total based on active tab
@@ -263,10 +242,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     previousDataRef.current = data;
   }, [data]);
   
-  // Debug: Log when projectData.expenses changes
-  useEffect(() => {
-    console.log('🔄 CategoryDetailModal: projectData.expenses changed, count:', projectData.expenses?.length || 0);
-  }, [projectData.expenses]);
 
   const categoryIcon = categoryName.toLowerCase().includes('labor') ? '👷' : 
                        categoryName.toLowerCase().includes('materials') || categoryName.toLowerCase().includes('equipment') ? '🧱' :
@@ -685,6 +660,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           <View style={[styles.transactionCard, { padding: 16 }]}>
                             <Pressable 
                               onPress={() => {
+                                if (actionButtonTapRef.current) return;
                                 if (isItemDeleting) return;
                                 setEditingPurchaseOrder(po);
                               }}
@@ -776,8 +752,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                               {po.status === 'Pending' && (
                                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.08)' }}>
                                   <TouchableOpacity
+                                    onPressIn={() => { actionButtonTapRef.current = true; }}
+                                    onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
+                                      if (markingPOReceivedId === po.id) return;
                                       Alert.alert(
                                         'Mark as Received?',
                                         `${po.poNumber} from ${po.vendor} will be added to expenses.`,
@@ -785,16 +764,35 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                           { text: 'Cancel', style: 'cancel' },
                                           {
                                             text: 'Received',
-                                            onPress: () => markPOReceived(po.id)
+                                            onPress: () => {
+                                              setMarkingPOReceivedId(po.id);
+                                              markPOReceived(po.id);
+                                              // Clear temporary button loading state after state propagation.
+                                              setTimeout(() => {
+                                                setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
+                                              }, 250);
+                                            }
                                           }
                                         ]
                                       );
                                     }}
-                                    style={{ flex: 1, backgroundColor: '#22c55e', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}
+                                    disabled={markingPOReceivedId === po.id}
+                                    style={{ 
+                                      flex: 1, 
+                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#22c55e', 
+                                      paddingVertical: 8, 
+                                      borderRadius: 8, 
+                                      alignItems: 'center',
+                                      opacity: markingPOReceivedId === po.id ? 0.6 : 1
+                                    }}
                                   >
-                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>✓ Received</Text>
+                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>
+                                      {markingPOReceivedId === po.id ? '...' : '✓ Received'}
+                                    </Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity
+                                    onPressIn={() => { actionButtonTapRef.current = true; }}
+                                    onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
                                       Alert.alert(
@@ -829,6 +827,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           }]}>
                             <Pressable 
                               onPress={() => {
+                                if (actionButtonTapRef.current) return;
                                 if (isItemDeleting) return;
                                 setEditingPurchaseOrder(po);
                               }}
@@ -917,8 +916,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                               {po.status === 'Pending' && (
                                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.line }}>
                                   <TouchableOpacity
+                                    onPressIn={() => { actionButtonTapRef.current = true; }}
+                                    onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
+                                      if (markingPOReceivedId === po.id) return;
                                       Alert.alert(
                                         'Mark as Received?',
                                         `${po.poNumber} from ${po.vendor} will be added to expenses.`,
@@ -926,16 +928,35 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                           { text: 'Cancel', style: 'cancel' },
                                           {
                                             text: 'Received',
-                                            onPress: () => markPOReceived(po.id)
+                                            onPress: () => {
+                                              setMarkingPOReceivedId(po.id);
+                                              markPOReceived(po.id);
+                                              // Clear temporary button loading state after state propagation.
+                                              setTimeout(() => {
+                                                setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
+                                              }, 250);
+                                            }
                                           }
                                         ]
                                       );
                                     }}
-                                    style={{ flex: 1, backgroundColor: '#22c55e', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}
+                                    disabled={markingPOReceivedId === po.id}
+                                    style={{ 
+                                      flex: 1, 
+                                      backgroundColor: markingPOReceivedId === po.id ? '#64748b' : '#22c55e', 
+                                      paddingVertical: 8, 
+                                      borderRadius: 8, 
+                                      alignItems: 'center',
+                                      opacity: markingPOReceivedId === po.id ? 0.6 : 1
+                                    }}
                                   >
-                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>✓ Received</Text>
+                                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '700' }}>
+                                      {markingPOReceivedId === po.id ? '...' : '✓ Received'}
+                                    </Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity
+                                    onPressIn={() => { actionButtonTapRef.current = true; }}
+                                    onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
                                       Alert.alert(
@@ -1652,13 +1673,13 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           setEditingTransaction(null);
         }}
         onDelete={(id) => {
-          console.log('🗑️ CategoryDetailModal: Deleting expense ID:', id);
-          console.log('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
-          console.log('🗑️ Current filtered data IDs:', data.map(d => d.id));
+          debugLog('🗑️ CategoryDetailModal: Deleting expense ID:', id);
+          debugLog('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
+          debugLog('🗑️ Current filtered data IDs:', data.map(d => d.id));
           
           // Verify the ID exists in the actual expenses
           const expenseExists = projectData.expenses?.some((e: any) => e.id === id);
-          console.log('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
+          debugLog('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
           
           if (!expenseExists) {
             console.error('❌ Expense ID not found in projectData.expenses!');
@@ -1675,7 +1696,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           
           // Delete expense - use a small delay to ensure modal closes first
           setTimeout(() => {
-            console.log('🗑️ Calling deleteExpense with ID:', id);
+            debugLog('🗑️ Calling deleteExpense with ID:', id);
             deleteExpense(id);
             
             // Reset deleting state after a short delay to allow state to update
@@ -1683,7 +1704,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
             // The useEffect in ProjectDataContext will save to AsyncStorage automatically
             setTimeout(() => {
               setDeletingId(null);
-              console.log('✅ Delete complete, resetting deletingId');
+              debugLog('✅ Delete complete, resetting deletingId');
             }, 300);
           }, 50);
         }}

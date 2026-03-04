@@ -17,7 +17,8 @@ async function runRouter(message, history, ctxSummary) {
   const routerSystem = buildRouterPrompt();
 
   try {
-    const recentHistory = history.slice(-4).filter(m => ['user','assistant'].includes(m.role));
+    // Keep more context so multi-turn PO flows don't lose earlier amount/vendor/category/date.
+    const recentHistory = history.slice(-12).filter(m => ['user','assistant'].includes(m.role));
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -100,6 +101,122 @@ function validateAction(toolName, args, context = {}) {
 const fs = require('fs');
 const path = require('path');
 const AUDIT_LOG_PATH = path.join(__dirname, '../../data/ai-audit-log.jsonl');
+const TOOL_EXEC_TIMEOUT_MS = Number(process.env.AI_TOOL_TIMEOUT_MS || 12000);
+
+function withTimeout(promise, ms, label = 'operation') {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${label} timed out after ${ms}ms`);
+      err.name = 'TimeoutError';
+      reject(err);
+    }, ms);
+  });
+
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    timeoutPromise,
+  ]);
+}
+
+function toISODate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function inferExpectedDeliveryFromUserMessages(userMessages = []) {
+  const monthMap = {
+    january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+    july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+  };
+
+  for (const msg of [...userMessages].reverse()) {
+    const text = String(msg?.content || '').toLowerCase();
+    if (!text) continue;
+
+    if (/\btoday\b/.test(text)) return toISODate(new Date());
+    if (/\btomorrow\b/.test(text)) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() + 1);
+      return toISODate(dt);
+    }
+
+    const iso = text.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+    if (iso) return `${iso[1]}-${String(Number(iso[2])).padStart(2, '0')}-${String(Number(iso[3])).padStart(2, '0')}`;
+
+    const mdY = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (mdY) {
+      const now = new Date();
+      let year = mdY[3] ? Number(mdY[3]) : now.getFullYear();
+      if (year < 100) year += 2000;
+      const parsed = new Date(year, Number(mdY[1]) - 1, Number(mdY[2]));
+      if (!isNaN(parsed.getTime())) return toISODate(parsed);
+    }
+
+    const monthDay = text.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*(20\d{2}))?\b/);
+    if (monthDay) {
+      const now = new Date();
+      const month = monthMap[monthDay[1]];
+      const day = Number(monthDay[2]);
+      let year = monthDay[3] ? Number(monthDay[3]) : now.getFullYear();
+      let parsed = new Date(year, month, day);
+      if (!monthDay[3] && parsed < now) parsed = new Date(year + 1, month, day);
+      if (!isNaN(parsed.getTime())) return toISODate(parsed);
+    }
+  }
+  return null;
+}
+
+function getPOFlowUserMessages(messages = []) {
+  const poIntentRegex = /\b(purchase order|create.*\bpo\b|create.*purchase order|add.*purchase order|create.*order)\b/i;
+  let startIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role === 'user' && poIntentRegex.test(String(m?.content || ''))) {
+      startIdx = i;
+      break;
+    }
+  }
+  const sliced = startIdx >= 0 ? messages.slice(startIdx) : messages.slice(-14);
+  return sliced.filter((m) => m.role === 'user');
+}
+
+function inferPOFieldsFromUserMessages(userMessages = []) {
+  const vendorPatterns = [
+    /home depot/i, /lowe'?s/i, /menards/i, /ace/i, /sherwin/i, /walmart/i, /amazon/i,
+  ];
+  const categoryPatterns = [
+    'tile','drywall','lumber','concrete','paint','electrical','plumbing','hardware',
+    'roofing','insulation','flooring','cabinets','appliances','windows','doors',
+    'siding','decking','fencing','landscaping','labor','materials','equipment'
+  ];
+
+  let amount = null;
+  let vendor = null;
+  let category = null;
+
+  for (const msg of userMessages) {
+    const raw = String(msg?.content || '');
+    const text = raw.toLowerCase();
+    if (!vendor) {
+      const v = vendorPatterns.find((p) => p.test(text));
+      if (v) vendor = raw.match(v)?.[0] || null;
+    }
+    if (!amount) {
+      const num = text.match(/\b(\d+(?:\.\d+)?)\b/);
+      if (num) amount = Number(num[1]);
+    }
+    if (!category) {
+      const c = categoryPatterns.find((x) => new RegExp(`\\b${x}\\b`, 'i').test(text));
+      if (c) category = c === 'materials' || c === 'equipment' ? 'Materials/Equipment' : (c[0].toUpperCase() + c.slice(1));
+    }
+  }
+
+  const expectedDelivery = inferExpectedDeliveryFromUserMessages(userMessages);
+  return { amount, vendor, category, expectedDelivery };
+}
 
 function writeAuditLog(entry) {
   try {
@@ -268,6 +385,14 @@ function runProactiveIntelligence(ctx) {
  */
 router.post('/', async (req, res) => {
   try {
+    const requestId = `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const requestStartedAt = Date.now();
+    const logPhase = (phase, extra = {}) => {
+      console.log(`⏱️ [${requestId}] ${phase}`, { elapsedMs: Date.now() - requestStartedAt, ...extra });
+    };
+
+    logPhase('request_start');
+
     // Check for OpenAI API key
     if (!process.env.OPENAI_API_KEY) {
       return res.status(503).json({
@@ -827,10 +952,10 @@ router.post('/', async (req, res) => {
               },
               expectedDelivery: {
                 type: 'string',
-                description: 'Expected delivery date in ISO format (YYYY-MM-DD). Optional.',
+                description: 'Expected delivery date in ISO format (YYYY-MM-DD). REQUIRED - you MUST ask the user "What is the expected delivery or received date?" if not provided. Do not create the PO without this date.',
               },
             },
-            required: projectId ? ['amount', 'vendor', 'category', 'projectId'] : ['amount', 'vendor', 'category'],
+            required: projectId ? ['amount', 'vendor', 'category', 'expectedDelivery', 'projectId'] : ['amount', 'vendor', 'category', 'expectedDelivery'],
           },
         },
       },
@@ -1233,15 +1358,18 @@ router.post('/', async (req, res) => {
           // Check each user message for explicit mention of this amount
           for (const userMsg of allUserMessages) {
             const msgContent = (userMsg.content || '').toLowerCase();
-            // Check for explicit patterns: "$350", "350 dollars", "for $350", "350", etc.
-            const amountPattern = new RegExp(`(?:\\$|dollars?|for\\s+\\$?)\\s*${args.amount}\\b|\\b${args.amount}\\s*(?:dollars?|\\$)`, 'i');
+            // Check for explicit patterns: "$350", "350 dollars", "for $350", "350", or just plain "350" as a standalone number
+            const amountPattern = new RegExp(`(?:\\$|dollars?|for\\s+\\$?)\\s*${args.amount}\\b|\\b${args.amount}\\s*(?:dollars?|\\$)|\\b${args.amount}\\b`, 'i');
             const isPlainNumber = msgContent.trim() === String(args.amount);
+            // Check if the number appears anywhere in the message (smart extraction - no need for $ or "dollars")
+            const hasNumber = new RegExp(`\\b${args.amount}\\b`).test(msgContent);
             // Check if previous assistant message asked for amount
             const msgIndex = messages.indexOf(userMsg);
             const prevAssistantMsg = messages.slice(0, msgIndex).reverse().find(m => m.role === 'assistant');
             const prevAssistantAsked = prevAssistantMsg?.content?.toLowerCase().includes('how much');
             
-            if (amountPattern.test(msgContent) || (isPlainNumber && prevAssistantAsked)) {
+            // Accept if: has $/dollars pattern, is plain number, or number appears in message (smart extraction)
+            if (amountPattern.test(msgContent) || (isPlainNumber && prevAssistantAsked) || (hasNumber && prevAssistantAsked)) {
               userMentionedAmount = true;
               console.log('✅ Found explicit amount', args.amount, 'in user message:', msgContent.substring(0, 50));
               break;
@@ -1310,7 +1438,7 @@ router.post('/', async (req, res) => {
             purchaseOrders: [newPurchaseOrder], // Include the new PO in projectUpdate
             committedPOs: args.amount, // Update committed POs amount
           },
-          message: `I've created purchase order ${poNumber} for $${args.amount.toFixed(2)} from ${args.vendor}. It will appear in "Committed POs" in your budget. When you receive it, mark it as received and it will be added to your actual expenses.`,
+          message: `I've created purchase order ${poNumber} for $${args.amount.toFixed(2)} from ${args.vendor}. It will appear in "Committed POs" in your budget. When you receive it, mark the purchase order as received in the Purchase Orders page and it will be added to your actual expenses.`,
         };
       } catch (error) {
         console.error('❌ Error creating purchase order:', error);
@@ -1757,11 +1885,31 @@ router.post('/', async (req, res) => {
 
     // ── STAGE 1: ROUTER ──────────────────────────────────────────────────────
     // Replaces keyword heuristics. GPT decides intent + whether required fields are present.
-    const routerResult = await runRouter(
+    logPhase('router_start');
+    const poFlowContext = inferPOFieldsFromUserMessages(
+      getPOFlowUserMessages([
+        ...history.filter(m => m?.role && m?.content),
+        { role: 'user', content: message },
+      ])
+    );
+
+    const routerResult = await withTimeout(runRouter(
       message,
       history,
-      { projectName, projectId, activeTab, pmMode: aiPmMode }
-    );
+      {
+        projectName,
+        projectId,
+        activeTab,
+        pmMode: aiPmMode,
+        poFlow: {
+          hasAmount: !!poFlowContext.amount,
+          hasVendor: !!poFlowContext.vendor,
+          hasCategory: !!poFlowContext.category,
+          hasExpectedDelivery: !!poFlowContext.expectedDelivery,
+        },
+      }
+    ), 12000, 'router_stage');
+    logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
     console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
 
     // Gate: if required fields are missing → ask the clarification question and stop
@@ -1808,14 +1956,16 @@ router.post('/', async (req, res) => {
     // finalToolChoice is already set by the router above
     
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
-    let completion = await openai.chat.completions.create({
+    logPhase('executor_llm_start', { toolChoice: typeof finalToolChoice === 'string' ? finalToolChoice : finalToolChoice?.function?.name });
+    let completion = await withTimeout(openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: messages,
       tools: functions,
       tool_choice: finalToolChoice,
       temperature: 0.3, // Lower temperature for more deterministic behavior - DO NOT increase
       max_tokens: 2000, // Increased to prevent truncation - DO NOT decrease
-    });
+    }), 30000, 'executor_llm');
+    logPhase('executor_llm_done');
 
     let reply = completion.choices[0].message.content || '';
     let toolCalls = completion.choices[0].message.tool_calls || [];
@@ -1932,8 +2082,18 @@ router.post('/', async (req, res) => {
         // PRE-VALIDATION: Check for missing required fields for purchase orders (same logic as materials)
         if (functionName === 'add_purchase_order') {
           const allUserMessages = messages.filter(m => m.role === 'user');
+          const poFlowUserMessages = getPOFlowUserMessages(messages);
           const lastUserMessage = allUserMessages[allUserMessages.length - 1];
           const lastUserContent = (lastUserMessage?.content || '').toLowerCase();
+          const inferredPO = inferPOFieldsFromUserMessages(poFlowUserMessages);
+
+          // Backfill missing args from the current PO flow context so we don't re-ask answered questions.
+          if ((!functionArgs.amount || Number(functionArgs.amount) <= 0) && inferredPO.amount) functionArgs.amount = inferredPO.amount;
+          if ((!functionArgs.vendor || !String(functionArgs.vendor).trim()) && inferredPO.vendor) functionArgs.vendor = inferredPO.vendor;
+          if ((!functionArgs.category || !String(functionArgs.category).trim()) && inferredPO.category) functionArgs.category = inferredPO.category;
+          if ((!functionArgs.expectedDelivery || !String(functionArgs.expectedDelivery).trim()) && inferredPO.expectedDelivery) {
+            functionArgs.expectedDelivery = inferredPO.expectedDelivery;
+          }
           
           // HARD VALIDATION: Amount must be provided and valid
           if (!functionArgs.amount || functionArgs.amount <= 0 || isNaN(functionArgs.amount)) {
@@ -1956,21 +2116,24 @@ router.post('/', async (req, res) => {
           const commonPlaceholders = [350, 500, 1000, 100, 250, 750, 1500, 2000];
           if (commonPlaceholders.includes(functionArgs.amount)) {
             // CRITICAL: Check ALL user messages in the conversation to see if user ever mentioned this amount
-            const allUserMessages = messages.filter(m => m.role === 'user');
+            const allUserMessages = poFlowUserMessages;
             let userMentionedAmount = false;
             
             // Check each user message for explicit mention of this amount
             for (const userMsg of allUserMessages) {
               const msgContent = (userMsg.content || '').toLowerCase();
-              // Check for explicit patterns: "$350", "350 dollars", "for $350", "350", etc.
-              const amountPattern = new RegExp(`(?:\\$|dollars?|for\\s+\\$?)\\s*${functionArgs.amount}\\b|\\b${functionArgs.amount}\\s*(?:dollars?|\\$)`, 'i');
+              // Check for explicit patterns: "$350", "350 dollars", "for $350", "350", or just plain "350" as a standalone number
+              const amountPattern = new RegExp(`(?:\\$|dollars?|for\\s+\\$?)\\s*${functionArgs.amount}\\b|\\b${functionArgs.amount}\\s*(?:dollars?|\\$)|\\b${functionArgs.amount}\\b`, 'i');
               const isPlainNumber = msgContent.trim() === String(functionArgs.amount);
+              // Check if the number appears anywhere in the message (smart extraction - no need for $ or "dollars")
+              const hasNumber = new RegExp(`\\b${functionArgs.amount}\\b`).test(msgContent);
               // Check if previous assistant message asked for amount
               const msgIndex = messages.indexOf(userMsg);
               const prevAssistantMsg = messages.slice(0, msgIndex).reverse().find(m => m.role === 'assistant');
               const prevAssistantAsked = prevAssistantMsg?.content?.toLowerCase().includes('how much');
               
-              if (amountPattern.test(msgContent) || (isPlainNumber && prevAssistantAsked)) {
+              // Accept if: has $/dollars pattern, is plain number, or number appears in message (smart extraction)
+              if (amountPattern.test(msgContent) || (isPlainNumber && prevAssistantAsked) || (hasNumber && prevAssistantAsked)) {
                 userMentionedAmount = true;
                 break;
               }
@@ -2054,6 +2217,46 @@ router.post('/', async (req, res) => {
               });
               continue; // Skip executing this function call
             }
+          }
+          
+          // Expected delivery is REQUIRED and must be derived from USER messages in this PO flow.
+          // Do not trust AI-provided expectedDelivery unless user actually said a date.
+          const inferredDate = inferExpectedDeliveryFromUserMessages(poFlowUserMessages);
+          if (!inferredDate) {
+            console.error('🚫 PRE-VALIDATION: Missing user-provided expected delivery/pickup date - blocking function call');
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                success: false,
+                status: 'error',
+                error: `What is the expected delivery or pickup date?`,
+                requiresExpectedDelivery: true,
+                message: `What is the expected delivery or pickup date?`
+              })
+            });
+            continue; // Ask date first, then continue flow
+          }
+          // Canonicalize to parsed user date (prevents hallucinated dates from slipping through).
+          functionArgs.expectedDelivery = inferredDate;
+
+          // Require explicit user confirmation before creating any PO.
+          // This enforces a confirm step after amount/vendor/category/date are gathered.
+          const confirmRegex = /\b(yes|yep|confirm|confirmed|go ahead|create it|do it|proceed|sounds good|ok create)\b/i;
+          const hasExplicitConfirmation = confirmRegex.test(lastUserContent);
+          if (!hasExplicitConfirmation) {
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                success: false,
+                status: 'error',
+                requiresConfirmation: true,
+                error: `Confirmation is required before creating a purchase order.`,
+                message: `Before I create it, please confirm: create this purchase order now? Reply "Yes, create it" to confirm.`
+              })
+            });
+            continue; // Skip executing this function call until user confirms
           }
         }
         
@@ -2145,7 +2348,13 @@ router.post('/', async (req, res) => {
 
         let functionResult;
         if (functionName === 'get_project_by_name') {
-          functionResult = await executeGetProjectByName(functionArgs);
+          logPhase('tool_start', { functionName });
+          functionResult = await withTimeout(executeGetProjectByName(functionArgs), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
+            success: false,
+            error: e.message,
+            status: 'timeout_error',
+          }));
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
           if (functionResult.success) {
             resolvedProjectInfo = {
               projectId: functionResult.projectId,
@@ -2217,7 +2426,17 @@ router.post('/', async (req, res) => {
               allUserMessages: userMessages.map(m => m.content?.substring(0, 50))
             });
             // Instead of creating a new PO, mark the most recent one as received
-            functionResult = await executeMarkPOReceived({ projectId: projectId || functionArgs.projectId, poNumber: '' }, req);
+            logPhase('tool_start', { functionName: 'mark_purchase_order_received_redirect' });
+            functionResult = await withTimeout(
+              executeMarkPOReceived({ projectId: projectId || functionArgs.projectId, poNumber: '' }, req),
+              TOOL_EXEC_TIMEOUT_MS,
+              'mark_purchase_order_received_redirect'
+            ).catch((e) => ({
+              success: false,
+              error: e.message,
+              status: 'timeout_error',
+            }));
+            logPhase('tool_done', { functionName: 'mark_purchase_order_received_redirect', success: !!functionResult?.success });
             console.log('✅ Redirected to mark_purchase_order_received instead');
           } else {
             console.log('📦 Backend: add_purchase_order function called with args:', functionArgs);
@@ -2229,7 +2448,13 @@ router.post('/', async (req, res) => {
               functionArgs.projectId = projectId;
               console.log('📦 Backend: Using projectId from context:', projectId);
             }
-            functionResult = await executeAddPurchaseOrder(functionArgs, req);
+            logPhase('tool_start', { functionName });
+            functionResult = await withTimeout(executeAddPurchaseOrder(functionArgs, req), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
+              success: false,
+              error: e.message,
+              status: 'timeout_error',
+            }));
+            logPhase('tool_done', { functionName, success: !!functionResult?.success });
           }
           console.log('📦 Backend: executeAddPurchaseOrder returned:', {
             success: functionResult.success,
@@ -2268,7 +2493,13 @@ router.post('/', async (req, res) => {
             functionArgs.projectId = projectId;
             console.log('📦 Backend: Using projectId from context:', projectId);
           }
-          functionResult = await executeMarkPOReceived(functionArgs, req);
+          logPhase('tool_start', { functionName });
+          functionResult = await withTimeout(executeMarkPOReceived(functionArgs, req), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
+            success: false,
+            error: e.message,
+            status: 'timeout_error',
+          }));
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
           console.log('📦 Backend: executeMarkPOReceived returned:', {
             success: functionResult.success,
             hasAction: !!functionResult.action,
@@ -2426,7 +2657,13 @@ router.post('/', async (req, res) => {
               functionArgs.projectInfo = currentProjectData;
               console.log('✅ Passing currentProjectData as projectInfo for add_material_expense');
             }
-            functionResult = await executeAddMaterialExpense(functionArgs, req);
+            logPhase('tool_start', { functionName });
+            functionResult = await withTimeout(executeAddMaterialExpense(functionArgs, req), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
+              success: false,
+              error: e.message,
+              status: 'timeout_error',
+            }));
+            logPhase('tool_done', { functionName, success: !!functionResult?.success });
           }
           
           // Mark as successful if it worked
@@ -2781,13 +3018,15 @@ RULES:
 - Be thorough — a real contractor would include 15-30 line items for a ${projectType}
 - Return ONLY the JSON, no markdown, no explanation`;
 
-            const estimateCompletion = await openai.chat.completions.create({
+            logPhase('estimate_llm_start');
+            const estimateCompletion = await withTimeout(openai.chat.completions.create({
               model: 'gpt-4o-mini',
               messages: [{ role: 'user', content: estimatePrompt }],
               temperature: 0.3,
               max_tokens: 3000,
               response_format: { type: 'json_object' },
-            });
+            }), 30000, 'estimate_llm');
+            logPhase('estimate_llm_done');
 
             const estimateData = JSON.parse(estimateCompletion.choices[0].message.content);
             const materials = estimateData.materialLineItems || [];
@@ -2941,6 +3180,35 @@ RULES:
           functionResult = { success: false, error: `Unknown function: ${functionName}` };
         }
 
+        // Store project updates/actions for PO flows too (these branches return them but previously were not persisted).
+        if ((functionName === 'add_purchase_order' || functionName === 'mark_purchase_order_received') && functionResult) {
+          if (functionResult.projectUpdate) {
+            if (projectUpdateData) {
+              projectUpdateData = {
+                ...projectUpdateData,
+                ...functionResult.projectUpdate,
+                expenses: [
+                  ...(projectUpdateData.expenses || []),
+                  ...(functionResult.projectUpdate.expenses || [])
+                ],
+                purchaseOrders: [
+                  ...(projectUpdateData.purchaseOrders || []),
+                  ...(functionResult.projectUpdate.purchaseOrders || [])
+                ],
+                totalSpent: functionResult.projectUpdate.totalSpent ?? projectUpdateData.totalSpent,
+                actualCost: functionResult.projectUpdate.actualCost ?? projectUpdateData.actualCost,
+                committedPOs: functionResult.projectUpdate.committedPOs ?? projectUpdateData.committedPOs,
+              };
+            } else {
+              projectUpdateData = functionResult.projectUpdate;
+            }
+          }
+
+          if (functionResult.action) {
+            actions.push(functionResult.action);
+          }
+        }
+
         // Add function result to messages (without projectUpdate to keep response clean)
         const { projectUpdate, ...cleanResult } = functionResult;
         
@@ -3022,9 +3290,15 @@ RULES:
         const allFailed = functionResultsSummary.every(r => r.success === false);
         
         if (allSucceeded) {
+          // Special instruction for PO received actions
+          const hasPOReceived = functionResultsSummary.some(r => r.functionName === 'mark_purchase_order_received');
+          const poReceivedInstruction = hasPOReceived 
+            ? ' CRITICAL: If mark_purchase_order_received succeeded, you MUST say "I\'ve marked purchase order [PO-XXXXX] as received" or "Purchase order [PO-XXXXX] has been marked as received" - be explicit and clear about the PO number.'
+            : '';
+          
           messages.push({
             role: 'system',
-            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue.`
+            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue.${poReceivedInstruction}`
           });
         } else if (allFailed) {
           const errors = functionResultsSummary.map(r => r.error || r.message).filter(Boolean);
@@ -3040,14 +3314,17 @@ RULES:
         }
       }
       
-      completion = await openai.chat.completions.create({
+      // PERF FIX: Don't send tools/functions on the final LLM call — we only need
+      // a text summary of tool results, not another tool invocation.  Removing the
+      // tools list cuts thousands of prompt tokens and prevents OpenAI from hanging.
+      logPhase('final_llm_start');
+      completion = await withTimeout(openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: messages,
-        tools: functions,
-        tool_choice: 'auto',
         temperature: 0.3,
         max_tokens: 2000,
-      });
+      }), 30000, 'final_llm');
+      logPhase('final_llm_done');
 
       reply = completion.choices[0].message.content || 'Sorry, I could not generate a response.';
       
@@ -3266,8 +3543,9 @@ RULES:
       replyMentionsRecorded: reply?.toLowerCase().includes('recorded') || reply?.toLowerCase().includes('created')
     });
     
-    // CRITICAL: If AI says it recorded a PO but no action was created, create it ourselves
-    // BUT: DO NOT create a new PO if the user wanted to mark one as received
+    // If AI says it recorded a PO but no action was created, NEVER auto-create from text.
+    // Auto-creating here bypasses required delivery-date and explicit-confirmation rules.
+    // Instead, ask the user to confirm and provide missing fields.
     const lastUserMsgForFallback = lastUserMessage?.content?.toLowerCase() || '';
     // Normalize typos for fallback check too
     const normalizedFallbackMsg = lastUserMsgForFallback
@@ -3291,117 +3569,19 @@ RULES:
         (reply?.toLowerCase().includes('recorded') || reply?.toLowerCase().includes('created')) &&
         actions.length === 0 &&
         !userWantsToMarkReceived) { // CRITICAL: Don't create PO if user wants to mark as received
-      console.error('❌ CRITICAL ERROR: AI said it recorded a purchase order but NO ACTION was created!');
-      console.error('❌ Attempting to create action from conversation history...');
-      
-      // Extract information from conversation
-      const allMessagesText = messages.map(m => m.content || '').join(' ');
-      const allMessagesLower = allMessagesText.toLowerCase();
-      
-      // CRITICAL: Only extract amount from USER messages, NOT from AI's reply
-      // The AI might assume an amount, but we should only use what the user actually said
-      let extractedAmount = null;
-      
-      // Get all user messages once
-      const allUserMessages = messages.filter(m => m.role === 'user');
-      
-      // Check ALL user messages for an amount (in reverse order, most recent first)
-      // CRITICAL: DO NOT extract placeholder amounts (350, 500, 1000) unless user explicitly provided them
-      const commonPlaceholders = [350, 500, 1000, 100, 250, 750, 1500, 2000];
-      for (const msg of allUserMessages.slice().reverse()) {
-        const content = msg.content || '';
-        // Look for clear amount patterns: "$350", "for $350", "350 dollars", "purchase order for 350"
-        const amountMatch = content.match(/(?:\$|for\s+\$?|dollars?|purchase\s+order\s+for\s+)\s*(\d+(?:\.\d+)?)/i) ||
-                            // Also check if it's clearly an amount in PO context
-                            (content.includes('purchase order') || content.includes('po') || content.includes('order')) &&
-                            content.match(/\$?(\d+(?:\.\d+)?)/);
-        if (amountMatch) {
-          const candidateAmount = parseFloat(amountMatch[1]);
-          // CRITICAL: Skip placeholder amounts unless explicitly mentioned with $ or "dollars"
-          if (commonPlaceholders.includes(candidateAmount)) {
-            // Only accept if it has explicit indicators ($, "dollars", "for $X")
-            const hasExplicitIndicators = /(?:\$|dollars?|for\s+\$?)/i.test(content);
-            if (!hasExplicitIndicators) {
-              console.log('⚠️ Skipping placeholder amount', candidateAmount, '- not explicitly provided by user');
-              continue; // Skip this amount, look for another
-            }
-          }
-          extractedAmount = candidateAmount;
-          console.log('✅ Extracted amount from user message:', extractedAmount, 'from:', content.substring(0, 50));
-          break;
+      console.error('❌ AI claimed PO created, but no PO action exists. Blocking auto-create fallback.');
+      const replyLower = (responseData.reply || '').toLowerCase();
+      const alreadyAskingDate = replyLower.includes('expected delivery') || replyLower.includes('pickup date');
+      const alreadyAskingConfirm = replyLower.includes('confirm') || replyLower.includes('yes, create it');
+      if (!alreadyAskingDate && !alreadyAskingConfirm) {
+        const userMsgs = messages.filter(m => m.role === 'user');
+        const hasDate = !!inferExpectedDeliveryFromUserMessages(userMsgs);
+        const hasConfirm = /\b(yes|yep|confirm|confirmed|go ahead|create it|do it|proceed|sounds good|ok create)\b/i.test(lastUserMsgForFallback);
+        if (!hasDate) {
+          responseData.reply = `What is the expected delivery or pickup date?`;
+        } else if (!hasConfirm) {
+          responseData.reply = `Please confirm before I create it. Reply "Yes, create it" to proceed.`;
         }
-      }
-      
-      // CRITICAL: If no amount found in user messages, DO NOT create the PO
-      // The AI should have asked for the amount instead of assuming one
-      if (!extractedAmount) {
-        console.error('❌ Cannot create PO: No amount found in user messages. AI should have asked for amount.');
-        // Don't create the action - the AI's reply already said it recorded it, but we can't create it without an amount
-        // The user will see the AI's message, but no actual PO will be created
-        return;
-      }
-      
-      // Extract vendor from user messages
-      let extractedVendor = null;
-      for (const msg of allUserMessages.slice(-5)) {
-        const content = msg.content?.toLowerCase() || '';
-        if (content.includes('jones') || content.includes('paint') || content.includes('glass')) {
-          extractedVendor = msg.content.trim();
-          break;
-        } else if (content.includes('home depot')) {
-          extractedVendor = 'Home Depot';
-          break;
-        } else if (content.length > 3 && content.length < 30 && !content.includes('?') && !content.includes('what') && !content.includes('which')) {
-          extractedVendor = msg.content.trim();
-        }
-      }
-      
-      // Extract category
-      let extractedCategory = 'Materials/Equipment'; // Default
-      for (const msg of allUserMessages.slice(-5)) {
-        const content = msg.content?.toLowerCase() || '';
-        if (content.includes('windows')) {
-          extractedCategory = 'Materials/Equipment';
-          break;
-        } else if (content.includes('labor')) {
-          extractedCategory = 'Labor';
-          break;
-        } else if (content.includes('materials') || content.includes('equipment')) {
-          extractedCategory = 'Materials/Equipment';
-          break;
-        }
-      }
-      
-      // If we have enough info, create the action manually
-      if (extractedAmount && extractedVendor && projectId) {
-        const poNumber = `PO-${Date.now().toString().slice(-6)}`;
-        const manualAction = {
-          type: 'add_purchase_order',
-          projectId: projectId,
-          amount: extractedAmount,
-          vendor: extractedVendor,
-          category: extractedCategory,
-          description: `${extractedCategory} from ${extractedVendor}`,
-          expectedDelivery: null,
-          poNumber: poNumber,
-        };
-        
-        actions.push(manualAction);
-        console.log('✅ Created purchase order action manually from conversation:', manualAction);
-        
-        // CRITICAL: Update responseData to include the manually created action
-        responseData.actions = actions;
-        console.log('✅ Updated responseData with manually created action');
-      } else {
-        console.error('❌ Could not extract enough info to create action manually:', {
-          hasAmount: !!extractedAmount,
-          hasVendor: !!extractedVendor,
-          hasProjectId: !!projectId,
-          extractedAmount,
-          extractedVendor,
-          extractedCategory,
-          allMessagesText: allMessagesText.substring(0, 200)
-        });
       }
     }
     
@@ -3411,10 +3591,22 @@ RULES:
       console.log('✅ Added actions to responseData:', actions.length);
     }
     
+    logPhase('request_done', {
+      hasActions: Array.isArray(responseData?.actions) ? responseData.actions.length : 0,
+      hasProjectUpdate: !!responseData?.projectUpdateData,
+      replyChars: (responseData?.reply || '').length,
+    });
     return res.json(responseData);
 
   } catch (err) {
     console.error('Error in /api/ai-assistant:', err);
+
+    if (err?.name === 'TimeoutError') {
+      return res.status(504).json({
+        error: 'AI request timeout',
+        message: err.message || 'AI request timed out',
+      });
+    }
 
     // Handle OpenAI-specific errors
     if (err.response) {
