@@ -191,19 +191,67 @@ export default function OverviewScreen({
     0
   );
 
-  const approvedChangeOrdersTotal = (project.changeOrders || []).reduce(
+  // Get base budget (original budget without change orders) - matching BudgetTab and Projects page priority order
+  // CRITICAL: Must use estimate's grandTotal (what user saw in estimate), NOT budgeted (may include COs)
+  const getBaseBudget = (proj: any): number => {
+    // Priority order matches BudgetTab and Projects page to ensure consistency:
+    // 1. estimateData.grandTotal (PRIMARY - this is what shows in estimate, e.g. $7,200)
+    // 2. estimateData.bidPrice (secondary estimate field)
+    // 3. estimateData.total (tertiary estimate field)
+    // 4. bidPrice (project-level, should match estimate)
+    // 5. projectData.bidPrice (projectData level)
+    // 6. estimatedCost (fallback)
+    // DO NOT use budgeted or projectData.budgeted as they may already include approved change orders
+    const budgetCandidates: any[] = [
+      proj?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal ($7,200)
+      proj?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
+      proj?.estimateData?.total,          // Tertiary: estimate's total
+      proj?.bidPrice,                     // Fallback: project bidPrice
+      proj?.projectData?.bidPrice,         // Fallback: projectData bidPrice
+      proj?.projectData?.totalBidPrice,   // Fallback: projectData totalBidPrice
+      proj?.estimatedCost,                // Fallback: estimatedCost
+      proj?.projectData?.estimatedCost,   // Fallback: projectData estimatedCost
+      proj?.total,                        // Fallback: project total
+      proj?.totalRevenue,                 // Fallback: totalRevenue
+      proj?.contractValue,                // Fallback: contractValue
+    ];
+    
+    for (const candidate of budgetCandidates) {
+      const sanitized = candidate != null ? Number(candidate) : 0;
+      if (sanitized > 0) {
+        return sanitized;
+      }
+    }
+    return 0;
+  };
+
+  // Collect change orders from all possible locations (matching Projects page logic)
+  const changeOrderSources = [
+    project?.projectData?.changeOrders,
+    project?.changeOrders,
+  ];
+  
+  let changeOrders: any[] = [];
+  for (const source of changeOrderSources) {
+    if (Array.isArray(source) && source.length > 0) {
+      changeOrders = source;
+      break;
+    }
+  }
+
+  const approvedChangeOrdersTotal = changeOrders.reduce(
     (sum, co) => {
-      const amount = Number(co.amount || 0);
+      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
       const isApproved =
         (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof (co as any).status === 'string' &&
-          (co as any).status.toLowerCase() === 'approved');
+        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
       return isApproved ? sum + amount : sum;
     },
     0
   );
 
-  const adjustedBudget = Number(project.budgeted || 0) + approvedChangeOrdersTotal;
+  const baseBudget = getBaseBudget(project);
+  const adjustedBudget = baseBudget + approvedChangeOrdersTotal;
 
   // Calculate Purchase Orders total - ONLY includes PENDING POs (matches BudgetTab logic)
   // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing

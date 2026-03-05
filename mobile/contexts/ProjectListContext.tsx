@@ -264,6 +264,8 @@ const toIsoDate = (value: any, fallback: string): string => {
   return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
 };
 
+const normalizeProjectId = (id: any): string => String(id ?? '');
+
 const mapBackendProjectToUnified = (project: any): UnifiedProject => {
   const nowIso = new Date().toISOString();
   const title = project?.title || project?.name || 'Untitled Project';
@@ -370,7 +372,37 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: UnifiedProject[] = JSON.parse(saved);
-        const normalized = parsed.map((project) => {
+        
+        // Hydrate each project with latest projectData from individual storage keys
+        // This ensures change orders and other projectData are up-to-date
+        const hydratedProjects = await Promise.all(
+          parsed.map(async (project) => {
+            try {
+              const projectDataKey = `bps.project.${project.id}`;
+              const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
+              if (projectDataRaw) {
+                const projectData = JSON.parse(projectDataRaw);
+                // Use projectData from storage as source of truth (includes change orders)
+                // Merge with existing projectData to preserve any fields not in storage
+                return {
+                  ...project,
+                  projectData: {
+                    ...project.projectData,
+                    ...projectData, // Storage projectData takes precedence (has latest change orders)
+                  },
+                };
+              }
+            } catch (e) {
+              // If individual project data load fails, continue with original project
+              if (__DEV__) {
+                console.warn(`Failed to load projectData for ${project.id}:`, e);
+              }
+            }
+            return project;
+          })
+        );
+        
+        const normalized = hydratedProjects.map((project) => {
           const progressValue =
             project.overallProgressPct ??
             project.progress ??
@@ -393,6 +425,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           // If we need to fix corrupted data, do it manually or with a one-time migration script
           let fixedProject = {
             ...project,
+            id: normalizeProjectId(project?.id || `${Date.now()}`),
             status: nextStatus,
             progress: project.progress ?? progressValue,
             overallProgressPct: project.overallProgressPct ?? progressValue,
@@ -470,7 +503,36 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       // simulator and physical device can converge on shared server data.
       try {
         const backendProjects = await listBackendProjects();
-        const hydrated = backendProjects.map(mapBackendProjectToUnified);
+        const mapped = backendProjects.map(mapBackendProjectToUnified);
+        
+        // Hydrate each project with latest projectData from individual storage keys
+        // This ensures change orders and other projectData are up-to-date
+        const hydrated = await Promise.all(
+          mapped.map(async (project) => {
+            try {
+              const projectDataKey = `bps.project.${project.id}`;
+              const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
+              if (projectDataRaw) {
+                const projectData = JSON.parse(projectDataRaw);
+                // Use projectData from storage as source of truth (includes change orders)
+                // Merge with existing projectData to preserve any fields not in storage
+                return {
+                  ...project,
+                  projectData: {
+                    ...project.projectData,
+                    ...projectData, // Storage projectData takes precedence (has latest change orders)
+                  },
+                };
+              }
+            } catch (e) {
+              // If individual project data load fails, continue with original project
+              if (__DEV__) {
+                console.warn(`Failed to load projectData for ${project.id}:`, e);
+              }
+            }
+            return project;
+          })
+        );
 
         setProjects(hydrated);
         if (__DEV__) {
@@ -700,7 +762,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
   // Generic operations
   const getProjectById = (id: string) => {
-    const project = projects.find(p => p.id === id);
+    const targetId = normalizeProjectId(id);
+    const project = projects.find(p => normalizeProjectId(p.id) === targetId);
     if (!project) return undefined;
     
     // DISABLED: Auto-fix logic was incorrectly modifying project amounts
@@ -733,9 +796,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProject = (id: string, updates: Partial<UnifiedProject>) => {
+    const targetId = normalizeProjectId(id);
     setProjects(prev =>
       prev.map(p => {
-        if (p.id !== id) return p;
+        if (normalizeProjectId(p.id) !== targetId) return p;
 
         // DISABLED: Auto-fix logic was incorrectly modifying project amounts
         // This was causing project amounts to drop on every update
@@ -753,7 +817,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
         //   }
         // }
 
-        // Deep merge projectData if it exists in updates, ensuring expenses array is properly replaced
+        // Deep merge projectData if it exists in updates, ensuring expenses and changeOrders arrays are properly replaced
         let finalProjectData = p.projectData;
         if (updates.projectData) {
           finalProjectData = {
@@ -763,6 +827,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
             expenses: updates.projectData.expenses !== undefined
               ? updates.projectData.expenses  // Use the new expenses array (even if empty)
               : (p.projectData?.expenses || []), // Only fallback if not provided
+            // CRITICAL: If changeOrders is in updates.projectData, use it directly (don't merge arrays)
+            changeOrders: updates.projectData.changeOrders !== undefined
+              ? updates.projectData.changeOrders  // Use the new changeOrders array (even if empty)
+              : (p.projectData?.changeOrders || []), // Only fallback if not provided
           };
           console.log('🔄 updateProject: expenses count in finalProjectData:', finalProjectData.expenses?.length || 0);
         }

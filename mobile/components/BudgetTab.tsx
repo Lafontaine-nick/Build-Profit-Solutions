@@ -305,19 +305,26 @@ export default function BudgetTab({
   }, [projectData?.buckets]);
 
   // Calculate base budget (ORIGINAL contract amount, WITHOUT change orders)
-  // IMPORTANT: projectData.budgeted may include approved change orders, so we should NOT use it
-  // We need the original contract amount before any change orders
+  // CRITICAL: Must use estimate's grandTotal (what user saw in estimate), NOT projectData.budgeted (may include COs)
+  // Priority order matches Projects page logic to ensure consistency
   const baseBudget = useMemo(() => {
     // Priority order for finding the original contract amount:
-    // 1. data.plannedBudget (from props - this should be the original estimate)
-    // 2. bidPrice or estimatedCost (original bid amounts)
-    // 3. plannedFromBuckets (sum of bucket budgets - original estimate breakdown)
-    // DO NOT use projectData.budgeted as it may already include approved change orders
+    // 1. estimateData.grandTotal (PRIMARY - this is what shows in estimate, e.g. $7,200)
+    // 2. estimateData.bidPrice (secondary estimate field)
+    // 3. estimateData.total (tertiary estimate field)
+    // 4. bidPrice (project-level, should match estimate)
+    // 5. projectData.bidPrice (projectData level)
+    // 6. estimatedCost (fallback)
+    // 7. plannedFromBuckets (sum of bucket budgets - original estimate breakdown)
+    // DO NOT use data.plannedBudget or projectData.budgeted as they may already include approved change orders
     
     const budgetCandidates = [
-      data?.plannedBudget,
-      (projectData as any)?.bidPrice,
-      (projectData as any)?.estimatedCost,
+      (projectData as any)?.estimateData?.grandTotal,  // PRIMARY: estimate's grandTotal ($7,200)
+      (projectData as any)?.estimateData?.bidPrice,    // Secondary: estimate's bidPrice
+      (projectData as any)?.estimateData?.total,       // Tertiary: estimate's total
+      (projectData as any)?.bidPrice,                   // Fallback: project bidPrice
+      (projectData as any)?.estimatedCost,             // Fallback: estimatedCost
+      data?.plannedBudget,                             // Last resort: from props (may be wrong)
     ];
     const explicitBudget = firstPositiveNumber(...budgetCandidates);
     if (explicitBudget !== null) {

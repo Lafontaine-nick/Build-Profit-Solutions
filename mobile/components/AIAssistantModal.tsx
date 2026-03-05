@@ -457,16 +457,16 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 const response = await fetchWithFallback(
                   urlsToTry,
                   {
-                    method: "POST",
-                    headers,
-                    body: JSON.stringify({
-                      message: initialQuestion.trim(),
-                      context,
-                      history: [],
-                      user_settings: {
-                        ai_project_manager_mode: aiManagerEnabled,
-                      },
-                    }),
+                  method: "POST",
+                  headers,
+                  body: JSON.stringify({
+                    message: initialQuestion.trim(),
+                    context,
+                    history: [],
+                    user_settings: {
+                      ai_project_manager_mode: aiManagerEnabled,
+                    },
+                  }),
                   },
                   AI_REQUEST_TIMEOUT_MS
                 );
@@ -662,13 +662,13 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
           });
           const computedActualCost = expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
           return {
-            id: p.id,
-            title: p.title || p.name || 'Untitled Project',
-            status: p.status || 'unknown',
-            lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-            isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
-              ((p.status || '') as string).toLowerCase()
-            ),
+          id: p.id,
+          title: p.title || p.name || 'Untitled Project',
+          status: p.status || 'unknown',
+          lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
+          isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+            ((p.status || '') as string).toLowerCase()
+          ),
             // Include budget and expense data for AI to use — pull from estimateData if top-level is 0
             bidPrice: p.bidPrice || ed?.totalBid || 0,
             estimatedCost: p.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
@@ -1130,6 +1130,14 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       case 'add_change_order':
         return `Create change order: "${action.title}" for $${action.amount.toLocaleString()}?`;
       
+      case 'create_change_order': {
+        const co = action.changeOrder || {};
+        const coAmount = co.clientPrice || co.cost || co.amount || action.amount || 0;
+        const coDesc = co.description || action.description || 'Change Order';
+        const coVendor = co.vendor || action.vendor || '';
+        return `Approve Change Order?\n\nDo you want to approve this change order for $${Number(coAmount).toLocaleString()}?\n\n"${coDesc}"${coVendor ? ` from ${coVendor}` : ''}\n\nApproved change orders will be added to your budget.`;
+      }
+      
       case 'add_material':
         return `Record material purchase: $${action.amount.toLocaleString()} from ${action.vendor}?`;
       
@@ -1435,8 +1443,9 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = async (messageOverride?: string) => {
+    const messageToSend = messageOverride || input.trim();
+    if (!messageToSend || loading) return;
 
     // Haptic feedback on send
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1461,7 +1470,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     const newMessage: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: input.trim(),
+      content: messageToSend,
       timestamp: new Date(),
     };
 
@@ -1735,19 +1744,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       const response = await fetchWithFallback(
         urlsToTry,
         {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            message: newMessage.content,
-            context: finalContext,
-            history: messages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-            user_settings: {
-              ai_project_manager_mode: aiManagerEnabled,
-            },
-          }),
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          message: newMessage.content,
+          context: finalContext,
+          history: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          user_settings: {
+            ai_project_manager_mode: aiManagerEnabled,
+          },
+        }),
         },
         AI_REQUEST_TIMEOUT_MS
       );
@@ -2071,14 +2080,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
           });
           
           if (actionDescription) {
-            // Show confirmation alert
+            // Show confirmation alert - use "Approve" for change orders
+            const isChangeOrder = action.type === 'create_change_order';
+            const alertTitle = isChangeOrder ? 'Approve Change Order?' : 'Confirm AI Action';
+            const confirmText = isChangeOrder ? 'Approve' : 'Confirm';
+            const cancelText = isChangeOrder ? 'Not Now' : 'Cancel';
+            
             setTimeout(() => {
               Alert.alert(
-                'Confirm AI Action',
+                alertTitle,
                 actionDescription,
                 [
                   {
-                    text: 'Cancel',
+                    text: cancelText,
                     style: 'cancel',
                     onPress: () => {
                       // Add a message that action was cancelled
@@ -2087,13 +2101,13 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                         {
                           id: Date.now().toString() + '-cancelled',
                           role: 'assistant',
-                          content: 'Action cancelled.',
+                          content: isChangeOrder ? 'Change order not approved.' : 'Action cancelled.',
                         },
                       ]);
                     },
                   },
                   {
-                    text: 'Confirm',
+                    text: confirmText,
                     style: 'default',
                     onPress: async () => {
                       console.log('✅ AIAssistantModal: User confirmed action:', {
@@ -2204,195 +2218,15 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         "Check project health": "Give me a project health check.",
         "Scan for missing costs": "Scan this estimate for missing costs.",
         "Forecast final profit": "Forecast the final cost and profit for this project.",
+        "Create me a change order": "Create me a change order",
       };
       messageToSend = suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`;
     }
     
-    // Auto-send immediately without setting input field
+    // Send message directly using sendMessage() to ensure identical behavior
     if (messageToSend.trim() && !loading) {
-      // Haptic feedback
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
-      // Dismiss keyboard
-      Keyboard.dismiss();
-      
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        role: "user",
-        content: messageToSend.trim(),
-        timestamp: new Date(),
-      };
-      
-      setMessages((prev) => [...prev, newMessage]);
-      setInput("");
-      setLoading(true);
-      setIsTyping(true);
-      
-      // Scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 50);
-      
-      // Make API call
-      (async () => {
-          try {
-            const AI_API_BASE = resolveAIBaseUrl();
-            const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
-
-            // Build fallback URLs: only use localhost for simulators/web, not physical devices
-            const urlsToTry = [primaryUrl];
-            const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
-            const isWeb = Platform.OS === "web";
-            const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
-            if (!primaryUrl.includes('localhost') && !primaryUrl.includes('127.0.0.1') && (isSimulator || isWeb || isAndroidEmulator)) {
-              urlsToTry.push('http://localhost:3001/api/ai-assistant');
-            }
-            console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
-
-            // Get auth token from Clerk
-            const token = await getToken();
-            const headers: Record<string, string> = { "Content-Type": "application/json" };
-            if (token) {
-              headers["Authorization"] = `Bearer ${token}`;
-            }
-
-            const response = await fetchWithFallback(
-              urlsToTry,
-              {
-                method: "POST",
-                headers,
-                body: JSON.stringify({
-                  message: messageToSend.trim(),
-                  context,
-                  history: messages.map((m) => ({
-                    role: m.role,
-                    content: m.content,
-                  })),
-                  user_settings: {
-                    ai_project_manager_mode: aiManagerEnabled,
-                  },
-                }),
-              },
-              AI_REQUEST_TIMEOUT_MS
-            );
-
-            const data = await response.json();
-            
-            console.log('📥 AIAssistantModal: Received response from backend (second handler):', {
-              hasReply: !!data.reply,
-              replyPreview: data.reply?.substring(0, 100),
-              hasActions: !!data.actions,
-              actionsCount: data.actions?.length || 0,
-              actions: data.actions || [],
-              hasProjectUpdate: !!data.projectUpdate,
-              hasError: !!data.error
-            });
-            
-            if (data.error) {
-              let errorMessage = data.message || "Sorry, I couldn't generate a response.";
-              if (data.details && data.details.includes("Rate limit")) {
-                errorMessage = "I've hit the API rate limit. Please wait about 20 seconds and try again.";
-              }
-              const errorMsg: Message = {
-                id: Date.now().toString() + "-error",
-                role: "assistant",
-                content: errorMessage,
-                timestamp: new Date(),
-              };
-              setMessages((prev) => [...prev, errorMsg]);
-              setIsTyping(false);
-              setLoading(false);
-            } else {
-              const assistantMessage: Message = {
-                id: Date.now().toString() + "-ai",
-                role: "assistant",
-                content: data.reply ?? "Sorry, I couldn't generate a response.",
-                timestamp: new Date(),
-              };
-              
-              setIsTyping(false);
-              setMessages((prev) => [...prev, assistantMessage]);
-              
-              // Smooth scroll to bottom
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 100);
-              
-              // Handle AI actions if any
-              console.log('🔍 AIAssistantModal: Checking for actions (second handler):', {
-                hasActions: !!data.actions,
-                isArray: Array.isArray(data.actions),
-                actionsCount: data.actions?.length || 0,
-                hasOnAction: !!onAction,
-                actions: data.actions
-              });
-              
-              if (data.actions && Array.isArray(data.actions) && onAction) {
-                console.log('✅ AIAssistantModal: Processing actions, count:', data.actions.length);
-                const seenActions = new Set<string>();
-                const uniqueActions: any[] = [];
-                
-                data.actions.forEach((action: any) => {
-                  console.log('📋 AIAssistantModal: Processing action:', {
-                    type: action.type,
-                    projectId: action.projectId,
-                    amount: action.amount,
-                    vendor: action.vendor
-                  });
-                  const actionKey = `${action.type}-${JSON.stringify(action.params || {})}`;
-                  if (!seenActions.has(actionKey)) {
-                    seenActions.add(actionKey);
-                    uniqueActions.push(action);
-                    console.log('✅ AIAssistantModal: Added unique action:', action.type);
-                  } else {
-                    console.log('⚠️ AIAssistantModal: Skipped duplicate action:', action.type);
-                  }
-                });
-                
-                console.log('📋 AIAssistantModal: Unique actions to process:', uniqueActions.length);
-                
-                uniqueActions.forEach((action) => {
-                  const confirmationMessage = getActionDescription(action);
-                  if (confirmationMessage) {
-                    Alert.alert("Confirm Action", confirmationMessage, [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Confirm",
-                        onPress: () => {
-                          onAction(action);
-                        },
-                      },
-                    ]);
-                  } else {
-                    onAction(action);
-                  }
-                });
-              }
-              
-              setLoading(false);
-            }
-          } catch (error: any) {
-            if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-              const timeoutMsg: Message = {
-                id: Date.now().toString() + "-timeout",
-                role: "assistant",
-                content: "The request took too long. Please try again or check your connection.",
-                timestamp: new Date(),
-              };
-              setMessages((prev) => [...prev, timeoutMsg]);
-            } else {
-              const errorMsg: Message = {
-                id: Date.now().toString() + "-error",
-                role: "assistant",
-                content: "Sorry, I encountered an error. Please try again.",
-                timestamp: new Date(),
-              };
-              setMessages((prev) => [...prev, errorMsg]);
-            }
-            setIsTyping(false);
-            setLoading(false);
-          }
-        })();
+      // Pass message directly to sendMessage to avoid state update delay
+      sendMessage(messageToSend.trim());
     }
   };
 
@@ -2709,12 +2543,12 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
 
             {/* Messages - Everything scrolls together */}
             <View style={{ flex: 1, minHeight: 0 }}>
-              <FlatList
-                ref={flatListRef}
-                style={styles.messageList}
-                data={messages}
-                keyExtractor={(item) => item.id}
-                renderItem={renderMessage}
+            <FlatList
+              ref={flatListRef}
+              style={styles.messageList}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              renderItem={renderMessage}
                 contentContainerStyle={[
                   styles.messagesContainer, 
                   { 
@@ -2725,15 +2559,15 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   }
                 ]}
                 showsVerticalScrollIndicator={true}
-                scrollEnabled={true}
+              scrollEnabled={true}
                 nestedScrollEnabled={false}
-                keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
                 removeClippedSubviews={false}
                 bounces={Platform.OS === 'ios'}
                 alwaysBounceVertical={false}
                 scrollEventThrottle={16}
-                ListFooterComponent={renderTypingIndicator}
+              ListFooterComponent={renderTypingIndicator}
                 onScrollBeginDrag={() => {
                   isUserScrollingRef.current = true;
                 }}
@@ -3030,7 +2864,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   </View>
                 </View>
               }
-              />
+            />
             </View>
 
             {/* Input bar - Fixed at bottom */}
@@ -3053,13 +2887,13 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 >
                   {[
                     { label: '💰 Log Expense', prompt: 'I need to log an expense' },
+                    { label: '🔄 Change Order', prompt: 'Create me a change order' },
                     { label: '📦 Create PO', prompt: 'Create a purchase order' },
                     { label: '📋 Add Milestone', prompt: 'Add a payment milestone' },
                     { label: '✅ Mark Collected', prompt: 'Mark a payment as collected' },
                     { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
                     { label: '📊 Budget Check', prompt: 'Show me my material budget breakdown' },
                     { label: '📐 Generate Estimate', prompt: 'Create an estimate for a kitchen remodel, 250 sqft' },
-                    { label: '🔄 Change Order', prompt: 'Client wants to add a change order' },
                     { label: '📈 What If?', prompt: 'What if materials go up 10%?' },
                   ].map((chip) => (
                     <TouchableOpacity
@@ -3125,46 +2959,46 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 </ScrollView>
               )}
               <View style={styles.inputRow}>
-                <View style={styles.inputInnerWrapper}>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.inputInnerBorder}
-                  >
-                    <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
-                      <Ionicons
-                        name="chatbox-ellipses-outline"
-                        size={18}
-                        color={Colors.sub}
-                        style={{ marginLeft: 12, marginRight: 8 }}
-                      />
-                      {isRecording ? (
-                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                            <View style={{ 
-                              width: 8, 
-                              height: 8, 
-                              borderRadius: 4, 
-                              backgroundColor: '#ef4444', 
-                              marginRight: 8,
-                              opacity: recordingDuration % 2 === 0 ? 1 : 0.5
-                            }} />
-                            <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
-                              Recording... {recordingDuration}s
-                            </Text>
-                          </View>
+              <View style={styles.inputInnerWrapper}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.inputInnerBorder}
+                >
+                  <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                    <Ionicons
+                      name="chatbox-ellipses-outline"
+                      size={18}
+                      color={Colors.sub}
+                      style={{ marginLeft: 12, marginRight: 8 }}
+                    />
+                    {isRecording ? (
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                          <View style={{ 
+                            width: 8, 
+                            height: 8, 
+                            borderRadius: 4, 
+                            backgroundColor: '#ef4444', 
+                            marginRight: 8,
+                            opacity: recordingDuration % 2 === 0 ? 1 : 0.5
+                          }} />
+                          <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
+                            Recording... {recordingDuration}s
+                          </Text>
                         </View>
-                      ) : (
-                        <TextInput
-                          style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                          placeholder="Ask anything about this project…"
-                          placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
-                          value={input}
-                          onChangeText={setInput}
-                          multiline
-                          maxLength={500}
-                          textAlignVertical="center"
+                      </View>
+                    ) : (
+                      <TextInput
+                        style={[styles.input, !darkMode && { color: "#6B7280" }]}
+                        placeholder="Ask anything about this project…"
+                        placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
+                        value={input}
+                        onChangeText={setInput}
+                        multiline
+                        maxLength={500}
+                        textAlignVertical="center"
                           onFocus={() => {
                             // Scroll to bottom when input is focused (only if user isn't manually scrolling)
                             const timeout = Platform.OS === 'ios' ? 350 : 150;
@@ -3174,45 +3008,45 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                               }
                             }, timeout);
                           }}
-                        />
-                      )}
-                      {/* Microphone button */}
-                      <TouchableOpacity
-                        onPress={isRecording ? stopRecording : startRecording}
-                        disabled={loading}
-                        style={styles.micButton}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name={isRecording ? "stop-circle" : "mic"}
-                          size={20}
-                          color={isRecording ? "#ef4444" : Colors.green}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </LinearGradient>
-                </View>
-                <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={styles.sendButtonBorder}
-                  >
+                      />
+                    )}
+                    {/* Microphone button */}
                     <TouchableOpacity
-                      style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
-                      onPress={sendMessage}
-                      disabled={!input.trim() || loading}
+                      onPress={isRecording ? stopRecording : startRecording}
+                      disabled={loading}
+                      style={styles.micButton}
                       activeOpacity={0.7}
                     >
-                      {loading ? (
-                        <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
-                      ) : (
-                        <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
-                      )}
+                      <Ionicons
+                        name={isRecording ? "stop-circle" : "mic"}
+                        size={20}
+                        color={isRecording ? "#ef4444" : Colors.green}
+                      />
                     </TouchableOpacity>
-                  </LinearGradient>
-                </Animated.View>
+                  </View>
+                </LinearGradient>
+              </View>
+              <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
+                <LinearGradient
+                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.sendButtonBorder}
+                >
+                  <TouchableOpacity
+                    style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                    onPress={() => sendMessage()}
+                    disabled={!input.trim() || loading}
+                    activeOpacity={0.7}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
+                    ) : (
+                      <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
+                    )}
+                  </TouchableOpacity>
+                </LinearGradient>
+              </Animated.View>
               </View>
             </View>
           </SafeAreaView>

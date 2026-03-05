@@ -96,7 +96,7 @@ function ProjectDetailContent() {
   const id = params.id as string;
   const initialTab = (params.activeTab as TabKey) || 'Overview';
   const backToProjects = params.backToProjects === '1';
-  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived } = useProjectData();
+  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
@@ -880,8 +880,10 @@ function ProjectDetailContent() {
     status: String(realProjectData.status || 'In Progress'),
     // Add estimate data if available
     estimateData: realProjectData.estimateData || null,
-    // Ensure all required fields for OverviewScreen - use recalculated budget or stored value
-    budgeted: budgetedValue,
+    // CRITICAL: Use originalBudget (without change orders) for OverviewScreen
+    // OverviewScreen will add change orders separately to get adjusted budget
+    // budgetedValue includes change orders, which would cause double-counting
+    budgeted: originalBudget,
     spent: Number(realProjectData.actualCost) || contextProjectData?.spent || 0,
     overallProgressPct: Number(realProjectData.progress) || 0,
     startISO: realProjectData.estimateData?.projectStartDate || realProjectData.startDate || new Date().toISOString().split('T')[0],
@@ -1219,11 +1221,36 @@ function ProjectDetailContent() {
     return budgetData;
   };
 
+  // CRITICAL: Calculate original budget WITHOUT change orders for BudgetTab
+  // budgetedValue includes change orders, but plannedBudget should be the original estimate amount
+  const originalBudget = React.useMemo(() => {
+    // Priority: estimate's grandTotal (what user saw in estimate), then bidPrice, then estimatedCost
+    return firstPositiveNumber(
+      realProjectData?.estimateData?.grandTotal,  // PRIMARY: estimate's grandTotal ($7,200)
+      realProjectData?.estimateData?.bidPrice,    // Secondary: estimate's bidPrice
+      realProjectData?.estimateData?.total,       // Tertiary: estimate's total
+      realProjectData?.bidPrice,                   // Fallback: project bidPrice
+      realProjectData?.estimatedCost,              // Fallback: estimatedCost
+      resolvedBidPrice ?? 0,                       // Last resort: resolved bid price
+    ) ?? 0;
+  }, [
+    realProjectData?.estimateData?.grandTotal,
+    realProjectData?.estimateData?.bidPrice,
+    realProjectData?.estimateData?.total,
+    realProjectData?.bidPrice,
+    realProjectData?.estimatedCost,
+    resolvedBidPrice,
+  ]);
+
   const budgetData = (() => {
     const base = convertToBudgetData(projectData);
     return {
       ...base,
-      plannedBudget: budgetedValue ?? base.lines.reduce((sum: number, line: any) => sum + (Number(line?.unitCost) || 0), 0),
+      // CRITICAL: Use originalBudget (without change orders), NOT budgetedValue (includes COs)
+      // BudgetTab will add change orders separately to get adjusted budget
+      plannedBudget: originalBudget > 0 
+        ? originalBudget 
+        : (base.lines.reduce((sum: number, line: any) => sum + (Number(line?.unitCost) || 0), 0)),
       expenses: (base.expenses || []).map((e: any) => ({
         ...e,
         date: e?.date ?? new Date().toISOString(),
@@ -1262,11 +1289,13 @@ function ProjectDetailContent() {
   }
   
   // Ensure all critical properties are defined
+  // CRITICAL: Use originalBudget (without change orders) for safeProjectData
+  // This ensures OverviewScreen and other components see the correct original budget
   const safeProjectData = {
     ...projectData,
     title: String(projectData.title || 'Untitled Project'),
     status: String(projectData.status || 'In Progress'),
-    budgeted: Number(projectData.budgeted || 0),
+    budgeted: originalBudget, // Use originalBudget (without COs), not projectData.budgeted (may include COs)
     spent: Number(projectData.spent || 0),
     // Ensure all nested objects are defined
     health: {
@@ -3053,20 +3082,35 @@ function ProjectDetailContent() {
             } else if (action.type === 'create_change_order') {
               try {
                 console.log('🔄 Action handler: create_change_order', action);
-                const co = action.changeOrder;
-                const currentProject = realProjectData as any;
-                const existingCOs = currentProject?.changeOrders || [];
-                const updatedCOs = [...existingCOs, co];
-                // Update budget with CO
-                const currentBudget = Number(currentProject?.estimatedCost || currentProject?.estimateData?.totalCost || 0);
-                const newBudget = currentBudget + co.cost;
-                updateProject(id, {
-                  changeOrders: updatedCOs,
-                  estimatedCost: newBudget,
-                  changeOrderTotal: updatedCOs.reduce((s: number, c: any) => s + Number(c.cost || 0), 0),
-                });
-                console.log('✅ Change order created:', co.description, '$' + co.clientPrice);
-                Alert.alert('✅ Change Order Created', `"${co.description}"\nCost: $${co.cost.toLocaleString()}\nClient Price: $${co.clientPrice.toLocaleString()} (${co.markupPct}% markup)`);
+                const co = action.changeOrder || {};
+                
+                // Map backend CO fields to the format expected by ProjectDataContext
+                // Backend sends: description, cost, vendor, clientPrice, markupPct, status
+                // Context expects: title, amount, approved, notes, status
+                const mappedCO = {
+                  id: co.id || `co-${Date.now()}`,
+                  title: co.description || co.title || 'Change Order',
+                  amount: co.clientPrice || co.cost || co.amount || 0,
+                  approved: true, // User already approved via the dialog
+                  notes: co.vendor ? `Vendor: ${co.vendor}` : '',
+                  status: 'Approved',
+                  date: co.createdAt || new Date().toISOString(),
+                  // Preserve extra fields for display
+                  materialsAmount: co.cost || co.amount || 0,
+                  laborAmount: 0,
+                };
+                
+                console.log('📋 Mapped CO for context:', mappedCO);
+                
+                // Use the proper addChangeOrder from ProjectDataContext
+                // This handles budget adjustment, persistence, and PM events
+                addChangeOrder(mappedCO);
+                
+                console.log('✅ Change order approved and added:', mappedCO.title, '$' + mappedCO.amount);
+                Alert.alert(
+                  '✅ Change Order Approved',
+                  `"${mappedCO.title}"\nAmount: $${mappedCO.amount.toLocaleString()}\n\nThis has been added to your budget and change orders.`
+                );
               } catch (e) {
                 console.error('❌ Error creating change order:', e);
                 Alert.alert('Error', 'Could not create change order. Please add it manually.');

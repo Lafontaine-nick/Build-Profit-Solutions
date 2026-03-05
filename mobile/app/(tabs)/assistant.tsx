@@ -367,20 +367,35 @@ export default function AssistantScreen() {
               console.error('❌ Error saving daily log:', e);
             }
           } else if (action.type === 'create_change_order' && action.projectId) {
-            // Create change order
+            // Create change order - map backend fields to expected format
             try {
-              const co = action.changeOrder;
+              const co = action.changeOrder || {};
               const project = [...activeProjects, ...estimates].find(p => p.id === action.projectId);
               if (project) {
+                // Map backend CO fields to the format expected by the change orders page
+                const mappedCO = {
+                  id: co.id || `co-${Date.now()}`,
+                  title: co.description || co.title || 'Change Order',
+                  amount: co.clientPrice || co.cost || co.amount || 0,
+                  approved: true,
+                  notes: co.vendor ? `Vendor: ${co.vendor}` : '',
+                  status: 'Approved',
+                  materialsAmount: co.cost || co.amount || 0,
+                  laborAmount: 0,
+                  date: co.createdAt || new Date().toISOString(),
+                };
                 const existingCOs = project.projectData?.changeOrders || [];
+                const updatedCOs = [...existingCOs, mappedCO];
+                const currentBudget = Number(project.projectData?.budgeted || 0);
                 updateProject(action.projectId, {
                   projectData: {
                     ...project.projectData,
-                    changeOrders: [...existingCOs, co],
-                    changeOrderTotal: [...existingCOs, co].reduce((s: number, c: any) => s + Number(c.cost || 0), 0),
+                    changeOrders: updatedCOs,
+                    changeOrderTotal: updatedCOs.reduce((s: number, c: any) => s + Number(c.amount || c.cost || 0), 0),
+                    budgeted: currentBudget + mappedCO.amount,
                   },
                 });
-                console.log('✅ Change order created from assistant page:', co.description);
+                console.log('✅ Change order created from assistant page:', mappedCO.title, '$' + mappedCO.amount);
               }
             } catch (e) {
               console.error('❌ Error creating change order:', e);

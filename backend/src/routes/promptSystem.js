@@ -153,7 +153,10 @@ SCENARIO ANALYSIS RULES:
   const changeOrderBlock = aiPmMode ? `
 CHANGE ORDER RULES:
 → "client wants to add..." / "scope change" / "change order for..." → call create_change_order
-→ REQUIRED: description + amount (cost, not bid price — markup is applied automatically)
+→ REQUIRED FIELDS: description (what it's for) + amount + vendor. That's it. Nothing else.
+→ Extract amount from ANY number in user message: "Concrete for 3000" → description="Concrete", amount=3000.
+→ ABSOLUTELY DO NOT ask for expected delivery date, received date, or pickup date. Change orders NEVER need dates.
+→ DO NOT re-ask for fields the user already provided - check conversation history.
 → Flow: create CO → adjust budget → add payment milestone → show margin impact
 → Default: adds a payment milestone for the CO (client price = cost + markup)
 → After CO: "📊 Budget updated: $X → $Y | New bid: $X → $Y | Margin: X%"` : '';
@@ -250,6 +253,8 @@ Return ONLY a valid JSON object (no markdown, no extra text) with this exact str
   "is_change_order": false
 }
 
+CRITICAL: The Context object contains pre-extracted field information. ALWAYS check context.coFlow and context.poFlow before asking for fields.
+
 Intent rules:
 - "expenses": log a material purchase, labor expense, or general expense
 - "purchase_orders": create a PO or mark one as received
@@ -263,6 +268,8 @@ Intent rules:
 Change order detection:
 - If user says "client wants to add", "scope change", "extra work", "added X to the job", "change order" → set is_change_order = true, domain = "change_order"
 - This triggers a multi-step flow — the router should identify what info is available vs missing
+- ALWAYS check context.coFlow.hasDescription, context.coFlow.hasAmount, context.coFlow.hasVendor before asking for fields
+- NEVER ask for "expected delivery" or "received date" for change orders - they don't need delivery dates
 
 Required-field rules:
 - add_material_expense: amount, category, vendor (vendor only required for non-labor)
@@ -276,7 +283,10 @@ Required-field rules:
 - add_estimate_line_item: name, unitCost
 - add_daily_log: noteText
 - run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, etc.)
-- create_change_order: description, amount
+- create_change_order: description, amount, vendor
+  * CRITICAL: Change orders need ONLY description + amount + vendor. NO delivery dates. NO received dates. NEVER.
+  * Check context.coFlow: hasDescription, hasAmount, hasVendor. Only ask for fields that are still false.
+  * NEVER add "expectedDelivery", "delivery date", "received date", or "pickup date" to required_fields_missing for change orders.
 - generate_estimate: projectType, description (sqft is highly recommended)
 - mark_timeline_item_complete: itemName (if user gives a %, set progressPct in tool_args_draft)
 - If any required fields are missing, set clarification_question to the exact question to ask

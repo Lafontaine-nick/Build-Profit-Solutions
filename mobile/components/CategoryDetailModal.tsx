@@ -11,6 +11,12 @@ import { useProjectData } from "../contexts/ProjectDataContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 
+// Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
+function parseLocalDate(dateString: string): Date {
+  // Append "T00:00:00" to force local time parsing instead of UTC
+  return new Date(dateString + "T00:00:00");
+}
+
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -645,7 +651,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   const po = projectData.purchaseOrders?.find((p: any) => p.id === item.id);
                   if (!po) return null;
                   
-                  const daysUntilDelivery = Math.ceil((new Date(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  const daysUntilDelivery = Math.ceil((parseLocalDate(po.expectedDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                   const categoryIcon = po.category === 'Labor' ? '👷' : po.category === 'Materials' ? '🧱' : po.category === 'Equipment' ? '🔧' : '👥';
                   
                   return (
@@ -732,7 +738,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                   fontSize: 12,
                                   fontWeight: '600'
                                 }}>
-                                  {new Date(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {parseLocalDate(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                   {po.status === 'Pending' && (
                                     <Text style={{ color: 'rgba(255,255,255,0.6)', fontWeight: '400' }}>
                                       {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
@@ -898,7 +904,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                   fontSize: 12,
                                   fontWeight: '600'
                                 }}>
-                                  {new Date(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {parseLocalDate(po.expectedDelivery).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                   {po.status === 'Pending' && (
                                     <Text style={{ color: Colors.sub, fontWeight: '400' }}>
                                       {' '}({daysUntilDelivery > 0 ? `${daysUntilDelivery} days` : 'Today!'})
@@ -1186,7 +1192,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
                                 <Text style={{ color: '#8DA0B8', fontSize: 11, fontWeight: '600', marginBottom: 3 }}>Expected Delivery</Text>
                                 <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>
-                                  {new Date(item.expectedDelivery).toLocaleDateString('en-US', { 
+                                  {parseLocalDate(item.expectedDelivery).toLocaleDateString('en-US', { 
                                     month: 'short', 
                                     day: 'numeric', 
                                     year: 'numeric' 

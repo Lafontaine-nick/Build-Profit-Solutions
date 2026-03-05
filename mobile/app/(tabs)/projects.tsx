@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
@@ -22,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIAssistantModal from '@/components/AIAssistantModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Utility functions (same as dashboard)
 const formatCurrencyShort = (value: number) => {
@@ -59,24 +61,92 @@ const sanitizePositiveNumber = (value: any): number => {
 
 const getProjectRevenue = (project: any): number => {
   if (!project) return 0;
-  const candidates: any[] = [
-    project?.bidPrice,
-    project?.projectData?.bidPrice,
-    project?.projectData?.totalBidPrice,
-    project?.estimateData?.bidPrice,
-    project?.estimateData?.grandTotal,
-    project?.total,
-    project?.totalRevenue,
-    project?.contractValue,
-    project?.estimatedCost,
+
+  // CRITICAL: Original budget MUST come from estimate/contract fields ONLY
+  // NEVER use projectData.budgeted or project.budgeted - these may already include change orders!
+  // Priority order matches BudgetTab and OverviewScreen to ensure consistency across all pages
+  const originalBudgetCandidates: any[] = [
+    project?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal (what user sees in estimate, e.g. $7,200)
+    project?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
+    project?.estimateData?.total,           // Tertiary: estimate's total
+    project?.bidPrice,                      // Fallback: project's bidPrice (should match estimate)
+    project?.projectData?.bidPrice,         // Fallback: projectData bidPrice
+    project?.projectData?.totalBidPrice,    // Fallback: projectData totalBidPrice
+    project?.estimatedCost,                 // Fallback: estimatedCost
+    project?.projectData?.estimatedCost,    // Fallback: projectData estimatedCost
+    project?.total,                         // Fallback: project total
+    project?.totalRevenue,                  // Fallback: totalRevenue
+    project?.contractValue,                 // Fallback: contractValue
   ];
-  for (const candidate of candidates) {
+
+  let originalBudget = 0;
+  for (const candidate of originalBudgetCandidates) {
     const sanitized = sanitizePositiveNumber(candidate);
     if (sanitized > 0) {
-      return sanitized;
+      originalBudget = sanitized;
+      break;
     }
   }
-  return 0;
+
+  // CRITICAL: Do NOT use projectData.budgeted or project.budgeted as fallback
+  // These fields may already include approved change orders, which would cause double-counting
+  // If no original estimate value exists, return 0 (better to show 0 than wrong value)
+  if (originalBudget <= 0) {
+    if (__DEV__) {
+      const projectName = project?.title || project?.name || 'Unknown';
+      console.warn(`⚠️ No original budget found for ${projectName}. Estimate fields missing.`);
+    }
+    return 0;
+  }
+
+  // Collect change orders from all possible locations and compute approved total.
+  const changeOrderSources: any[] = [
+    project?.projectData?.changeOrders,
+    project?.changeOrders,
+    (project as any)?.rawProject?.projectData?.changeOrders,
+    (project as any)?.rawProject?.changeOrders,
+  ];
+
+  const collected: any[] = [];
+  for (const source of changeOrderSources) {
+    if (Array.isArray(source) && source.length > 0) {
+      collected.push(...source);
+    }
+  }
+
+  // Deduplicate by id when available, otherwise by title+amount signature.
+  const seen = new Set<string>();
+  const uniqueChangeOrders = collected.filter((co: any) => {
+    const key = co?.id != null
+      ? `id:${String(co.id)}`
+      : `sig:${String(co?.title || '')}:${String(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  let approvedChangeOrdersTotal = uniqueChangeOrders.reduce(
+    (sum, co) => {
+      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
+      const isApproved =
+        (typeof co.approved === 'boolean' && co.approved) ||
+        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
+      return isApproved ? sum + amount : sum;
+    },
+    0
+  );
+
+  // Legacy fallback: some records persist only aggregate CO total.
+  if (approvedChangeOrdersTotal <= 0) {
+    approvedChangeOrdersTotal = sanitizePositiveNumber(
+      project?.projectData?.changeOrderTotal ??
+      (project as any)?.changeOrderTotal ??
+      (project as any)?.rawProject?.projectData?.changeOrderTotal
+    );
+  }
+
+  // Core rule: adjusted budget = original budget + approved COs.
+  return originalBudget + approvedChangeOrdersTotal;
 };
 
 // Palette aligned with key metric cards
@@ -113,6 +183,57 @@ export default function ProjectsScreen() {
   );
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
+
+  const loadProjectDataOverrides = React.useCallback(async () => {
+    const all = [...activeProjects, ...estimates];
+    const next: Record<string, any> = {};
+
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const projectKeys = allKeys.filter((k) => k.startsWith('bps.project.'));
+      const entries = await AsyncStorage.multiGet(projectKeys);
+
+      const byId: Record<string, any> = {};
+      const byTitle: Record<string, any> = {};
+
+      for (const [key, value] of entries) {
+        if (!value) continue;
+        try {
+          const parsed = JSON.parse(value);
+          const idFromKey = key.replace('bps.project.', '');
+          const idFromData = String(parsed?.id ?? '');
+          const title = String(parsed?.title ?? '').trim().toLowerCase();
+          if (idFromKey) byId[idFromKey] = parsed;
+          if (idFromData) byId[idFromData] = parsed;
+          if (title) byTitle[title] = parsed;
+        } catch {
+          // Ignore malformed per-project storage entries.
+        }
+      }
+
+      for (const project of all) {
+        const pid = String(project?.id ?? '');
+        const titleKey = String(project?.title ?? '').trim().toLowerCase();
+        const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
+        if (override) next[pid] = override;
+      }
+    } catch {
+      // Keep UI responsive if storage read fails.
+    }
+
+    setProjectDataOverrides(next);
+  }, [activeProjects, estimates]);
+
+  useEffect(() => {
+    loadProjectDataOverrides();
+  }, [loadProjectDataOverrides]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProjectDataOverrides();
+    }, [loadProjectDataOverrides])
+  );
 
   // Update tab if route param changes
   useEffect(() => {
@@ -149,6 +270,26 @@ export default function ProjectsScreen() {
                 status === 'completed');
       })
       .map((p) => {
+        const pid = String(p?.id ?? '');
+        const override = projectDataOverrides[pid];
+
+        const mergedProject = override
+          ? {
+              ...p,
+              budgeted: override?.budgeted ?? p?.budgeted,
+              changeOrders: Array.isArray(override?.changeOrders)
+                ? override.changeOrders
+                : (Array.isArray(p?.changeOrders) ? p.changeOrders : []),
+              projectData: {
+                ...(p?.projectData || {}),
+                ...override,
+                changeOrders: Array.isArray(override?.changeOrders)
+                  ? override.changeOrders
+                  : (Array.isArray(p?.projectData?.changeOrders) ? p.projectData.changeOrders : []),
+              },
+            }
+          : p;
+
         const status = p.status || 'draft';
         let displayStatus = 'Draft';
         if (status === 'estimate') displayStatus = 'Draft';
@@ -158,7 +299,7 @@ export default function ProjectsScreen() {
         else if (status === 'completed') displayStatus = 'Completed';
         else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
 
-      const revenue = getProjectRevenue(p);
+      const revenue = getProjectRevenue(mergedProject);
       const margin = p.margin || 0;
       const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
       
@@ -179,11 +320,11 @@ export default function ProjectsScreen() {
             ? `Completed ${new Date(p.endDate).toISOString().split('T')[0]}`
             : `Due ${new Date(p.endDate).toISOString().split('T')[0]}`
           : 'No due date',
-        rawProject: p,
+        rawProject: mergedProject,
         rawStatus: status,
       };
     });
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, projectDataOverrides]);
 
   // Filter projects by active tab
   const projects = useMemo(() => {
