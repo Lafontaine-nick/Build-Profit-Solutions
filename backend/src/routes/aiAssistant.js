@@ -323,18 +323,26 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     // Check if this is a standalone vendor name (known store or answer to "vendor" question)
     const isJustNumber = /^\d+(?:,\d{3})*(?:\.\d+)?\s*$/.test(raw);
     if (!isJustNumber) {
-      // PRIORITY 1: If we already have description and amount, and this is a multi-word response,
-      // it's almost certainly the vendor (user answering "What is the vendor?")
-      // This MUST come before description extraction to prevent "Floor and decor" from being treated as description
-      if (description && amount && raw.split(/\s+/).length >= 2 && raw.length > 5 && !isIntentOnly(raw)) {
-        // Multi-word response when description/amount already set → definitely vendor
+      // PRIORITY 1: If we already have description and amount, ANY response is likely the vendor
+      // (user answering "What is the vendor?" - could be single word like "Lowe's" or multi-word)
+      // This MUST come before description extraction to prevent vendor from being treated as description
+      if (description && amount && !isIntentOnly(raw) && raw.length > 2) {
+        // Check if it's a known vendor first
+        if (knownVendors.test(raw)) {
+          vendor = raw.trim();
+          console.log('✅ Vendor matched from knownVendors (description/amount already present):', vendor);
+          continue;
+        }
+        // Even if not in knownVendors, if description/amount exist, this is likely the vendor
         vendor = raw.trim();
         console.log('✅ Vendor inferred from context (description/amount already present):', vendor);
         continue; // Skip description extraction for this message
       }
       
       // PRIORITY 2: Check if entire message is a known vendor (using word boundaries, so "Floor and decor" will match)
-      if (knownVendors.test(raw)) {
+      // CRITICAL: Test both with and without word boundaries for apostrophes like "Lowe's"
+      const rawForTest = raw.replace(/['"]/g, ''); // Remove apostrophes/quotes for testing
+      if (knownVendors.test(raw) || knownVendors.test(rawForTest)) {
         vendor = raw.trim();
         console.log('✅ Vendor matched from knownVendors:', vendor);
         continue;
@@ -399,21 +407,51 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     // CRITICAL: Only extract description if we don't already have one AND we don't have vendor
     // This prevents "Floor and decor" from being treated as description when description/amount already exist
     if (!description && !vendor) {
-      // "Concrete for 3000" pattern
-      let match = raw.match(/^(.+?)\s+for\s+\d+/i);
+      // "Concrete for 3000" pattern - PRIORITY: Check this first as it's the most common
+      let match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
       if (match && match[1].trim().length > 0) {
         let d = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
-        if (d.length > 0 && !isIntentOnly(d)) { description = d; continue; }
+        if (d.length > 0 && !isIntentOnly(d)) { 
+          description = d; 
+          // Also extract amount from this pattern if not already set
+          if (!amount && match[2]) {
+            const num = parseFloat(match[2].replace(/,/g, ''));
+            if (num >= 1) amount = num;
+          }
+          continue; 
+        }
+      }
+      // "Concrete for 3000" pattern (without end anchor, in case there's more text)
+      match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)/i);
+      if (match && match[1].trim().length > 0 && !description) {
+        let d = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
+        if (d.length > 0 && !isIntentOnly(d)) { 
+          description = d; 
+          // Also extract amount from this pattern if not already set
+          if (!amount && match[2]) {
+            const num = parseFloat(match[2].replace(/,/g, ''));
+            if (num >= 1) amount = num;
+          }
+          continue; 
+        }
       }
       // "Concrete 3000" pattern
       match = raw.match(/^(.+?)\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
-      if (match && match[1].trim().length > 0) {
+      if (match && match[1].trim().length > 0 && !description) {
         let d = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
-        if (d.length > 0 && !isIntentOnly(d)) { description = d; continue; }
+        if (d.length > 0 && !isIntentOnly(d)) { 
+          description = d; 
+          // Also extract amount from this pattern if not already set
+          if (!amount && match[2]) {
+            const num = parseFloat(match[2].replace(/,/g, ''));
+            if (num >= 1) amount = num;
+          }
+          continue; 
+        }
       }
       // Pure text — only set as description if we don't already have one
       // (prevents vendor answers from overwriting description)
-      if (!isJustNumber && raw.length > 2 && !isIntentOnly(raw)) {
+      if (!isJustNumber && raw.length > 2 && !isIntentOnly(raw) && !description) {
         let d = raw.replace(/\s+(from|at)\s+.+$/i, '').trim();
         d = d.replace(/\s+\d+(?:,\d{3})*(?:\.\d+)?\s*$/, '').trim();
         if (d.length > 1 && !isIntentOnly(d) && !knownVendors.test(d)) {
@@ -2401,6 +2439,17 @@ router.post('/', async (req, res) => {
       console.log('🛡️ CO filter: cleaned reply:', reply.substring(0, 120));
     }
 
+    // CRITICAL: Block add_timeline_payment if we're in a change order flow
+    // Change orders should NOT create separate payment milestones unless explicitly requested
+    if (isChangeOrderFlow && toolCalls.some(tc => tc.function?.name === 'add_timeline_payment')) {
+      console.log('🛡️ CO guard: Blocking add_timeline_payment - change orders should not create separate payment milestones');
+      // Remove add_timeline_payment tool calls from the list
+      toolCalls = toolCalls.filter(tc => tc.function?.name !== 'add_timeline_payment');
+      // Update reply to remove any mention of adding payment milestone
+      reply = reply.replace(/[^.!?\n]*(?:add.*payment|payment.*milestone|schedule.*payment)[^.!?\n]*[.!?]?/gi, '');
+      reply = reply.replace(/\n{2,}/g, '\n').trim();
+    }
+
     // Log if a forced tool call was ignored by the AI
     if (finalToolChoice !== 'auto' && finalToolChoice !== 'none' && toolCalls.length === 0) {
       console.error('❌ Router-forced tool call was ignored by AI:', typeof finalToolChoice === 'object' ? finalToolChoice.function?.name : 'unknown');
@@ -2494,6 +2543,13 @@ router.post('/', async (req, res) => {
           if ((!functionArgs.vendor || !String(functionArgs.vendor).trim()) && inferredCO.vendor) {
             functionArgs.vendor = inferredCO.vendor;
             console.log('✅ CO backfill: set vendor from context:', inferredCO.vendor);
+          }
+          
+          // CRITICAL: Default addPaymentMilestone to false unless explicitly set to true
+          // Only add payment milestone if user explicitly asks for it
+          if (functionArgs.addPaymentMilestone !== true) {
+            functionArgs.addPaymentMilestone = false;
+            console.log('✅ CO: Setting addPaymentMilestone to false (default)');
           }
           
           // CRITICAL: Strip any delivery-date fields the AI may have hallucinated

@@ -159,8 +159,9 @@ CHANGE ORDER RULES:
 → Extract amount from ANY number in user message: "Concrete for 3000" → description="Concrete", amount=3000.
 → ABSOLUTELY DO NOT ask for expected delivery date, received date, or pickup date. Change orders NEVER need dates.
 → DO NOT re-ask for fields the user already provided - check conversation history.
-→ Flow: create CO → adjust budget → add payment milestone → show margin impact
-→ Default: adds a payment milestone for the CO (client price = cost + markup)
+→ Flow: create CO → adjust budget → show margin impact
+→ CRITICAL: Do NOT add a payment milestone unless the user explicitly asks for one. Set addPaymentMilestone=false by default.
+→ DO NOT call add_timeline_payment separately - only create the change order action.
 → After CO: "📊 Budget updated: $X → $Y | New bid: $X → $Y | Margin: X%"` : '';
 
   // Daily log domain
