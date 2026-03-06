@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, RefreshControl, Platform } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -322,11 +323,45 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       setDailyLogs([]);
     }
   }, [project?.id]);
+
+  // Delete daily log
+  const deleteDailyLog = useCallback(async (logId: string) => {
+    if (!project?.id) {
+      console.log('⚠️ Cannot delete daily log: no project ID');
+      return;
+    }
+    try {
+      const logKey = `daily_logs_${project.id}`;
+      const raw = await AsyncStorage.getItem(logKey);
+      if (raw) {
+        const logs = JSON.parse(raw);
+        const filtered = Array.isArray(logs) ? logs.filter((log: any) => log.id !== logId) : [];
+        await AsyncStorage.setItem(logKey, JSON.stringify(filtered));
+        console.log('🗑️ Deleted daily log:', logId);
+        // Reload logs
+        setReloadTrigger(prev => prev + 1);
+        // Haptic feedback
+        if (Platform.OS === 'ios') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error deleting daily log:', error);
+      Alert.alert('Error', 'Failed to delete daily log');
+    }
+  }, [project?.id]);
   
   // Load daily logs on mount and when reloadTrigger changes
   useEffect(() => {
     loadDailyLogs();
   }, [loadDailyLogs, reloadTrigger]);
+
+  // Reload daily logs when screen comes into focus (e.g., after adding a log via AI)
+  useFocusEffect(
+    useCallback(() => {
+      loadDailyLogs();
+    }, [loadDailyLogs])
+  );
   
   useEffect(() => {
     if (!project?.id) return;
@@ -758,25 +793,60 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   )}
                 </View>
                 {dailyLogs.length > 0 ? (
-                  <View style={styles.logsList}>
+                  <ScrollView 
+                    style={styles.logsList}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={dailyLogs.length > 3 ? { paddingBottom: 8 } : {}}
+                  >
                     {dailyLogs.map((log) => (
                       <View
                         key={log.id}
                         style={[
                           styles.logCard,
-                          { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
+                          styles.logCardIOS,
+                          {
+                            backgroundColor: darkMode ? Colors.surface2 : "#FFFFFF",
+                            borderColor: darkMode ? Colors.line : "rgba(15, 23, 42, 0.08)",
+                          },
                         ]}
                       >
                         <View style={styles.logHeader}>
-                          <Text style={[styles.logDate, { color: darkMode ? COLORS.text : Colors.text }]}>
+                          <Text style={[styles.logDate, { color: darkMode ? "rgba(226, 232, 240, 0.85)" : "#475569" }]}>
                             {formatDate(log.date || log.createdAt)}
                           </Text>
-                          {log.weather && (
-                            <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 211, 238, 0.15)" : "#E0F2FE", borderColor: "#22d3ee" }]}>
-                              <MaterialIcons name="wb-sunny" size={14} color="#22d3ee" />
-                              <Text style={[styles.logBadgeText, { color: "#22d3ee" }]}>{log.weather}</Text>
-                            </View>
-                          )}
+                          <View style={styles.logHeaderRight}>
+                            {log.weather && (
+                              <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 211, 238, 0.15)" : "#E0F2FE", borderColor: "#22d3ee" }]}>
+                                <MaterialIcons name="wb-sunny" size={14} color="#22d3ee" />
+                                <Text style={[styles.logBadgeText, { color: "#22d3ee" }]}>{log.weather}</Text>
+                              </View>
+                            )}
+                            <TouchableOpacity
+                              onPress={() => {
+                                Alert.alert(
+                                  'Delete Daily Log',
+                                  'Are you sure you want to delete this log entry?',
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Delete',
+                                      style: 'destructive',
+                                      onPress: () => deleteDailyLog(log.id),
+                                    },
+                                  ]
+                                );
+                              }}
+                              style={styles.deleteButton}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <MaterialIcons 
+                                name="delete-outline" 
+                                size={20} 
+                                color={darkMode ? "rgba(226, 232, 240, 0.6)" : "#94a3b8"} 
+                              />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                         {log.noteText && (
                           <Text style={[styles.logText, { color: darkMode ? COLORS.text : Colors.text }]}>
@@ -786,7 +856,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         {(log.crewCount || log.hoursWorked) && (
                           <View style={styles.logMeta}>
                             {log.crewCount && (
-                              <View style={styles.logMetaItem}>
+                              <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
                                 <MaterialIcons name="people" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
                                 <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
                                   {log.crewCount} {log.crewCount === 1 ? 'person' : 'people'}
@@ -794,7 +864,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                               </View>
                             )}
                             {log.hoursWorked && (
-                              <View style={styles.logMetaItem}>
+                              <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
                                 <MaterialIcons name="schedule" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
                                 <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
                                   {log.hoursWorked} {log.hoursWorked === 1 ? 'hour' : 'hours'}
@@ -805,7 +875,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         )}
                       </View>
                     ))}
-                  </View>
+                  </ScrollView>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
                     <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
@@ -1229,25 +1299,46 @@ const styles = StyleSheet.create({
   },
   logsList: {
     marginTop: 16,
-    gap: 12,
+    gap: 20, // Increased spacing between log cards
+    maxHeight: 340, // Adjusted for larger spacing
   },
   emptyLogsContainer: {
     paddingVertical: 24,
     paddingHorizontal: 16,
   },
   logCard: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     marginBottom: 0,
+    borderWidth: 1,
+    borderRadius: 16,
+    marginVertical: 2, // Small additional margin for extra spacing
+  },
+  logCardIOS: {
+    shadowColor: "#000",
+    shadowOpacity: Platform.OS === "ios" ? 0.16 : 0.12,
+    shadowRadius: Platform.OS === "ios" ? 14 : 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: Platform.OS === "android" ? 4 : 0,
   },
   logHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  logHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteButton: {
+    padding: 4,
+    marginLeft: 4,
   },
   logDate: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: COLORS.text,
   },
   logBadge: {
@@ -1264,22 +1355,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   logText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 18,
+    lineHeight: 26,
+    letterSpacing: 0.2,
     color: COLORS.text,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   logMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 16,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(34, 197, 94, 0.15)',
+    borderTopColor: 'rgba(148, 163, 184, 0.2)',
   },
   logMetaItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     gap: 6,
   },
   logMetaText: {

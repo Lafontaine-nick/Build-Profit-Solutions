@@ -2906,8 +2906,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
+                  scrollEnabled={true}
+                  directionalLockEnabled={true}
+                  nestedScrollEnabled={false}
                   style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 40 }}
-                  contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+                  contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
                 >
                   {[
                     { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
@@ -2915,7 +2918,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     { label: '📦 Create PO', prompt: 'Create a purchase order' },
                     { label: '📋 Payments', prompt: 'Mark a payment as collected' },
                     { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
-                    { label: '📊 Budget Check', prompt: 'Show me my material budget breakdown' },
+                    { label: '📊 Budget Check', prompt: 'Give me a project health check.' },
                     { label: '📐 Generate Estimate', prompt: 'Create an estimate for a kitchen remodel, 250 sqft' },
                     { label: '📈 What If?', prompt: 'What if materials go up 10%?' },
                   ].map((chip) => (
@@ -2949,8 +2952,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
+                  scrollEnabled={true}
+                  directionalLockEnabled={true}
+                  nestedScrollEnabled={false}
                   style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 36 }}
-                  contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+                  contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
                 >
                   {[
                     { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
