@@ -289,6 +289,45 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   // Force reload trigger for payment collection updates
   const [reloadTrigger, setReloadTrigger] = useState(0);
   
+  // Daily logs state
+  const [dailyLogs, setDailyLogs] = useState<any[]>([]);
+  
+  // Load daily logs from AsyncStorage
+  const loadDailyLogs = useCallback(async () => {
+    if (!project?.id) {
+      console.log('⚠️ Cannot load daily logs: no project ID');
+      return;
+    }
+    try {
+      const logKey = `daily_logs_${project.id}`;
+      console.log('📝 Loading daily logs with key:', logKey);
+      const raw = await AsyncStorage.getItem(logKey);
+      if (raw) {
+        const logs = JSON.parse(raw);
+        console.log('📝 Found logs:', logs.length);
+        // Sort by date (newest first)
+        const sorted = Array.isArray(logs) ? logs.sort((a, b) => {
+          const dateA = new Date(a.date || a.createdAt || 0).getTime();
+          const dateB = new Date(b.date || b.createdAt || 0).getTime();
+          return dateB - dateA;
+        }) : [];
+        console.log('📝 Sorted logs:', sorted.length);
+        setDailyLogs(sorted);
+      } else {
+        console.log('📝 No logs found in AsyncStorage');
+        setDailyLogs([]);
+      }
+    } catch (error) {
+      console.error('❌ Error loading daily logs:', error);
+      setDailyLogs([]);
+    }
+  }, [project?.id]);
+  
+  // Load daily logs on mount and when reloadTrigger changes
+  useEffect(() => {
+    loadDailyLogs();
+  }, [loadDailyLogs, reloadTrigger]);
+  
   useEffect(() => {
     if (!project?.id) return;
     if (isLoadingRef.current) return;
@@ -566,8 +605,10 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         console.error('Error refreshing milestones:', error);
       }
     }
+    // Reload daily logs
+    await loadDailyLogs();
     setTimeout(() => setRefreshing(false), 500);
-  }, [project?.id, collectPaymentMilestones]);
+  }, [project?.id, collectPaymentMilestones, loadDailyLogs]);
 
   const syncWithEstimate = () => {
     if (Platform.OS === 'ios') {
@@ -693,39 +734,130 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                 </View>
               </View>
             </View>
+            </View>
+          </LinearGradient>
 
-            {/* Upcoming Milestones Section */}
-            <View style={styles.sectionCardContainer}>
-              <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
+          {/* Daily Logs Section - At the top for recent activity */}
+          <View style={{ marginTop: 12 }}>
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.overviewBorder}
+            >
+              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
                 <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
-                  <MaterialIcons name="event" size={22} color="#22c55e" />
+                  <MaterialIcons name="description" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                    Upcoming (next 3)
+                    Daily Logs
                   </Text>
-                </View>
-                <View style={styles.upcomingContent}>
-                  {upcoming.length > 0 ? (
-                    upcoming.map((u) => (
-                      <View key={u.id} style={styles.upcomingItem}>
-                        <Text style={[styles.upcomingBullet, { color: darkMode ? COLORS.subtext : Colors.sub }]}>•</Text>
-                        <Text style={[styles.upcomingText, { color: darkMode ? COLORS.text : Colors.text }]}>
-                          {u.title}{" "}
-                          <Text style={[styles.upcomingDate, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
-                            — {formatDate(u.plannedDate)}
-                          </Text>
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
-                      No upcoming milestones
+                  {dailyLogs.length > 0 && (
+                    <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.subtext : Colors.sub, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
+                      {dailyLogs.length} {dailyLogs.length === 1 ? 'entry' : 'entries'}
                     </Text>
                   )}
                 </View>
+                {dailyLogs.length > 0 ? (
+                  <View style={styles.logsList}>
+                    {dailyLogs.map((log) => (
+                      <View
+                        key={log.id}
+                        style={[
+                          styles.logCard,
+                          { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
+                        ]}
+                      >
+                        <View style={styles.logHeader}>
+                          <Text style={[styles.logDate, { color: darkMode ? COLORS.text : Colors.text }]}>
+                            {formatDate(log.date || log.createdAt)}
+                          </Text>
+                          {log.weather && (
+                            <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 211, 238, 0.15)" : "#E0F2FE", borderColor: "#22d3ee" }]}>
+                              <MaterialIcons name="wb-sunny" size={14} color="#22d3ee" />
+                              <Text style={[styles.logBadgeText, { color: "#22d3ee" }]}>{log.weather}</Text>
+                            </View>
+                          )}
+                        </View>
+                        {log.noteText && (
+                          <Text style={[styles.logText, { color: darkMode ? COLORS.text : Colors.text }]}>
+                            {log.noteText}
+                          </Text>
+                        )}
+                        {(log.crewCount || log.hoursWorked) && (
+                          <View style={styles.logMeta}>
+                            {log.crewCount && (
+                              <View style={styles.logMetaItem}>
+                                <MaterialIcons name="people" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
+                                <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                                  {log.crewCount} {log.crewCount === 1 ? 'person' : 'people'}
+                                </Text>
+                              </View>
+                            )}
+                            {log.hoursWorked && (
+                              <View style={styles.logMetaItem}>
+                                <MaterialIcons name="schedule" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
+                                <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                                  {log.hoursWorked} {log.hoursWorked === 1 ? 'hour' : 'hours'}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyLogsContainer}>
+                    <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                      No daily logs yet. Use the AI assistant to add a daily log entry.
+                    </Text>
+                  </View>
+                )}
               </View>
-            </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          </View>
+
+          {/* Upcoming Milestones Section */}
+          <View style={{ marginTop: 12 }}>
+            <LinearGradient
+              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.overviewBorder}
+            >
+              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+                <View style={styles.sectionCardContainer}>
+                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                    <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                      <MaterialIcons name="event" size={22} color="#22c55e" />
+                      <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
+                        Upcoming (next 3)
+                      </Text>
+                    </View>
+                    <View style={styles.upcomingContent}>
+                      {upcoming.length > 0 ? (
+                        upcoming.map((u) => (
+                          <View key={u.id} style={styles.upcomingItem}>
+                            <Text style={[styles.upcomingBullet, { color: darkMode ? COLORS.subtext : Colors.sub }]}>•</Text>
+                            <Text style={[styles.upcomingText, { color: darkMode ? COLORS.text : Colors.text }]}>
+                              {u.title}{" "}
+                              <Text style={[styles.upcomingDate, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                                — {formatDate(u.plannedDate)}
+                              </Text>
+                            </Text>
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                          No upcoming milestones
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
 
           {/* All Milestones Section */}
           <View style={{ marginTop: 12 }}>
@@ -1094,6 +1226,66 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 24,
     textAlign: 'center',
+  },
+  logsList: {
+    marginTop: 16,
+    gap: 12,
+  },
+  emptyLogsContainer: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+  },
+  logCard: {
+    padding: 16,
+    marginBottom: 0,
+  },
+  logHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  logDate: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  logBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 4,
+  },
+  logBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  logText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  logMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(34, 197, 94, 0.15)',
+  },
+  logMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  logMetaText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.subtext,
   },
   starterButtonsContainer: {
     width: '100%',
