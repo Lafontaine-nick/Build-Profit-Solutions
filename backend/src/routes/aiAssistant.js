@@ -2441,6 +2441,40 @@ router.post('/', async (req, res) => {
     
     // ── CRITICAL: DAILY LOG PROTECTION ───────────────────────────────────────
     // NEVER let expense guards override daily_log domain - daily logs are NOT expenses
+    // If we KNOW we're in a daily log context (assistant asked about notes), FORCE the router
+    // to daily_log domain regardless of what it returned. The router (GPT-4o-mini) sometimes
+    // misclassifies follow-up answers like "Passes framing inspection" as expenses.
+    // BUT: Only auto-extract noteText if assistant ALREADY asked for notes (not on initial request)
+    if (inDailyLogContextForExpense && routerResult.domain !== 'daily_log') {
+      console.log('🛡️ DAILY LOG OVERRIDE: Router said', routerResult.domain, '/', routerResult.proposed_tool, 
+        'but we are in daily log context → forcing daily_log domain');
+      routerResult.domain = 'daily_log';
+      routerResult.proposed_tool = 'add_daily_log';
+      
+      // Only auto-extract noteText if assistant ALREADY asked about notes (user is responding with notes)
+      // If this is the initial request ("Add a daily job log"), don't extract - let it ask for notes first
+      const isInitialRequest = /\b(add|create|log|record)\b.*\b(daily\s+(?:job\s+)?log|job\s+log|daily\s+log)\b/i.test(messageLower);
+      const assistantAlreadyAskedForNotes = assistantAskedAboutDailyLogForExpense;
+      
+      if (assistantAlreadyAskedForNotes && !isInitialRequest) {
+        // Assistant asked for notes, user is responding with actual notes → extract as noteText
+        if (!routerResult.tool_args_draft) routerResult.tool_args_draft = {};
+        if (!routerResult.tool_args_draft.noteText && message && message.trim()) {
+          routerResult.tool_args_draft.noteText = message.trim();
+          routerResult.required_fields_missing = [];
+          routerResult.clarification_question = null;
+          console.log('🛡️ Daily log: extracted noteText from user response:', message.trim().substring(0, 50));
+        }
+      } else {
+        // Initial request or assistant hasn't asked yet → require noteText (will ask for it)
+        routerResult.required_fields_missing = ['noteText'];
+        routerResult.clarification_question = 'What notes would you like to include in the daily job log for today?';
+        console.log('🛡️ Daily log: initial request, will ask for notes');
+      }
+      
+      routerResult.confidence = 0.99;
+    }
+    
     const isDailyLogDomain = routerResult.domain === 'daily_log' || routerResult.proposed_tool === 'add_daily_log';
     
     // ── EXPENSE LOGGING GUARD (similar to CO guard) ──────────────────────────
@@ -2653,27 +2687,36 @@ router.post('/', async (req, res) => {
     logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
     console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
 
-    // CRITICAL: If router says daily_log, ensure noteText is extracted from user message
-    // This prevents the "missing noteText" gate from blocking execution
+    // CRITICAL: If router says daily_log, manage noteText carefully.
+    // On INITIAL requests like "Add a daily job log", we must ASK for notes first.
+    // On FOLLOW-UPs (after assistant asked "what notes?"), extract user's answer as noteText.
     if (routerResult.domain === 'daily_log' && routerResult.proposed_tool === 'add_daily_log') {
-      // If noteText is missing but we have a user message (and assistant asked about notes),
-      // extract the message as noteText
       if (!routerResult.tool_args_draft) {
         routerResult.tool_args_draft = {};
       }
-      if (!routerResult.tool_args_draft.noteText && message && message.trim()) {
-        // Check if assistant recently asked about daily log notes
-        const assistantAskedAboutNotes = recentMessagesForExpenseCheck.some(m => 
-          m.role === 'assistant' && /\b(notes?\s+would\s+you\s+like|what\s+notes|what\s+happened)\b/i.test(m.content || '')
-        );
-        if (assistantAskedAboutNotes) {
+      
+      const isInitialRequest = /\b(add|create|log|record)\b.*\b(daily\s+(?:job\s+)?log|job\s+log|daily\s+log)\b/i.test(messageLower);
+      const assistantAskedAboutNotes = recentMessagesForExpenseCheck.some(m => 
+        m.role === 'assistant' && /\b(notes?\s+would\s+you\s+like|what\s+notes|what\s+happened|daily\s+(?:job\s+)?log)\b/i.test(m.content || '')
+      );
+      
+      if (isInitialRequest && !assistantAskedAboutNotes) {
+        // INITIAL REQUEST: "Add a daily job log for today"
+        // The router may have set noteText to the command itself — CLEAR it and ask for real notes
+        console.log('🛡️ Daily log: initial request — clearing noteText and asking for notes');
+        routerResult.tool_args_draft.noteText = null;
+        routerResult.required_fields_missing = ['noteText'];
+        routerResult.clarification_question = 'What notes would you like to include in the daily job log for today?';
+      } else if (assistantAskedAboutNotes && !isInitialRequest) {
+        // FOLLOW-UP: User is answering with actual notes (e.g., "Passes framing inspection")
+        if (!routerResult.tool_args_draft.noteText && message && message.trim()) {
           routerResult.tool_args_draft.noteText = message.trim();
-          // Remove noteText from required_fields_missing if it was there
-          if (routerResult.required_fields_missing?.includes('noteText')) {
-            routerResult.required_fields_missing = routerResult.required_fields_missing.filter(f => f !== 'noteText');
-          }
-          console.log('🛡️ Daily log: extracted noteText from user message:', message.trim().substring(0, 50));
         }
+        // Ensure required_fields_missing is clear so execution proceeds
+        if (routerResult.required_fields_missing?.includes('noteText')) {
+          routerResult.required_fields_missing = routerResult.required_fields_missing.filter(f => f !== 'noteText');
+        }
+        console.log('🛡️ Daily log: follow-up with notes:', (routerResult.tool_args_draft.noteText || '').substring(0, 50));
       }
     }
 
@@ -2789,36 +2832,53 @@ router.post('/', async (req, res) => {
     // CRITICAL FALLBACK: If router selected daily_log but executor ignored the tool call,
     // force add_daily_log using the current user message as noteText.
     // This prevents "daily log" follow-ups from drifting into expense prompts.
+    // BUT: Only if assistant ALREADY asked for notes (not on initial request)
     if (
       toolCalls.length === 0 &&
       routerResult.domain === 'daily_log' &&
       routerResult.proposed_tool === 'add_daily_log'
     ) {
-      const fallbackNoteText =
-        String(routerResult?.tool_args_draft?.noteText || message || '').trim();
-      if (fallbackNoteText) {
-        const fallbackArgs = {
-          projectId: projectId,
-          noteText: fallbackNoteText,
-          date: routerResult?.tool_args_draft?.date || new Date().toISOString().split('T')[0],
-          weather: routerResult?.tool_args_draft?.weather || null,
-          crewCount: routerResult?.tool_args_draft?.crewCount || null,
-          hoursWorked: routerResult?.tool_args_draft?.hoursWorked || null,
-        };
-        toolCalls = [
-          {
-            id: `call_manual_daily_log_${Date.now()}`,
-            type: 'function',
-            function: {
-              name: 'add_daily_log',
-              arguments: JSON.stringify(fallbackArgs),
+      // Check if assistant already asked for notes (user is responding with notes)
+      const assistantAskedAboutNotes = recentMessagesForExpenseCheck.some(m => 
+        m.role === 'assistant' && /\b(notes?\s+would\s+you\s+like|what\s+notes|what\s+happened)\b/i.test(m.content || '')
+      );
+      const isInitialRequest = /\b(add|create|log|record)\b.*\b(daily\s+(?:job\s+)?log|job\s+log|daily\s+log)\b/i.test(messageLower);
+      
+      // Only create fallback tool call if:
+      // 1. We have noteText in tool_args_draft (already extracted), OR
+      // 2. Assistant asked for notes AND this is NOT an initial request
+      const hasNoteTextInDraft = routerResult?.tool_args_draft?.noteText?.trim();
+      const shouldCreateFallback = hasNoteTextInDraft || (assistantAskedAboutNotes && !isInitialRequest);
+      
+      if (shouldCreateFallback) {
+        const fallbackNoteText =
+          String(routerResult?.tool_args_draft?.noteText || message || '').trim();
+        if (fallbackNoteText) {
+          const fallbackArgs = {
+            projectId: projectId,
+            noteText: fallbackNoteText,
+            date: routerResult?.tool_args_draft?.date || new Date().toISOString().split('T')[0],
+            weather: routerResult?.tool_args_draft?.weather || null,
+            crewCount: routerResult?.tool_args_draft?.crewCount || null,
+            hoursWorked: routerResult?.tool_args_draft?.hoursWorked || null,
+          };
+          toolCalls = [
+            {
+              id: `call_manual_daily_log_${Date.now()}`,
+              type: 'function',
+              function: {
+                name: 'add_daily_log',
+                arguments: JSON.stringify(fallbackArgs),
+              },
             },
-          },
-        ];
-        console.log('🛡️ Daily log fallback: forcing add_daily_log tool call', {
-          notePreview: fallbackNoteText.substring(0, 80),
-          projectId,
-        });
+          ];
+          console.log('🛡️ Daily log fallback: forcing add_daily_log tool call', {
+            notePreview: fallbackNoteText.substring(0, 80),
+            projectId,
+          });
+        }
+      } else {
+        console.log('🛡️ Daily log fallback: skipping (initial request, will ask for notes first)');
       }
     }
     
@@ -2882,7 +2942,23 @@ router.post('/', async (req, res) => {
         functions: toolCalls.map(tc => tc.function?.name)
       });
       // Add assistant's message with tool calls to conversation
-      messages.push(completion.choices[0].message);
+      // If toolCalls were manually injected (e.g. daily log fallback), the original
+      // completion message won't contain them → build a synthetic assistant message
+      const originalMsg = completion.choices[0].message;
+      const originalToolCalls = originalMsg.tool_calls || [];
+      const hasManualToolCalls = toolCalls.some(tc => tc.id?.startsWith('call_manual_'));
+      
+      if (hasManualToolCalls && originalToolCalls.length === 0) {
+        // Build a synthetic assistant message that OpenAI expects
+        messages.push({
+          role: 'assistant',
+          content: reply || null,
+          tool_calls: toolCalls,
+        });
+        console.log('🛡️ Injected synthetic assistant message with manual tool_calls');
+      } else {
+        messages.push(originalMsg);
+      }
 
       // Track project lookup results to use in subsequent calls
       let resolvedProjectInfo = null;

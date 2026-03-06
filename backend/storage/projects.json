@@ -83,5 +83,94 @@
     "budgetItems": [],
     "createdAt": "2026-02-10T14:55:16.105Z",
     "updatedAt": "2026-02-18T11:12:25.818Z"
+  },
+  {
+    "id": "1772516156086",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Jason ",
+    "title": "Jason ",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 47919.6,
+    "estimatedCost": 47919.6,
+    "bidPrice": 47919.6,
+    "totalSpent": 7000,
+    "remaining": 40919.6,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "expense-1772601503019",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 2000,
+        "date": "2026-03-04",
+        "notes": "Drywall from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1772601649178",
+        "category": "Labor",
+        "vendor": "Tile shower",
+        "amount": 5000,
+        "date": "2026-03-04",
+        "notes": "",
+        "createdAt": "2026-03-04T05:20:49.178Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-04T03:16:17.479Z",
+    "updatedAt": "2026-03-04T05:20:49.178Z"
+  },
+  {
+    "id": "1772761141542",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Jason",
+    "title": "Jason",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 48784.8,
+    "estimatedCost": 48784.8,
+    "bidPrice": 48784.8,
+    "totalSpent": 1500,
+    "remaining": 47284.8,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "expense-1772766792233",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 500,
+        "date": "2026-03-06",
+        "notes": "tile work",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1772767837355",
+        "category": "Materials/Equipment",
+        "vendor": "Lowes",
+        "amount": 500,
+        "date": "2026-03-06",
+        "notes": "Tile from Lowes",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1772768166626",
+        "category": "Labor",
+        "vendor": "Tile for the shower",
+        "amount": 500,
+        "date": "2026-03-06",
+        "notes": "",
+        "createdAt": "2026-03-06T03:36:06.626Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-06T03:13:12.231Z",
+    "updatedAt": "2026-03-06T03:36:06.626Z"
   }
 ]
