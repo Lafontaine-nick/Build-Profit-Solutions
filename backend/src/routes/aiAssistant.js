@@ -19,12 +19,19 @@ async function runRouter(message, history, ctxSummary) {
   try {
     // Keep more context so multi-turn PO flows don't lose earlier amount/vendor/category/date.
     const recentHistory = history.slice(-12).filter(m => ['user','assistant'].includes(m.role));
+    
+    // Add explicit daily log context to the router message if we're in a daily log flow
+    let contextMessage = `Context: ${JSON.stringify(ctxSummary)}`;
+    if (ctxSummary.inDailyLogFlow) {
+      contextMessage += '\n\nCRITICAL: You are in a DAILY LOG flow. The assistant recently asked about daily log notes. The user\'s message is a daily log entry (noteText), NOT an expense. Set domain = "daily_log" and proposed_tool = "add_daily_log".';
+    }
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: routerSystem },
         ...recentHistory,
-        { role: 'user', content: `Context: ${JSON.stringify(ctxSummary)}\nUser message: "${message}"` }
+        { role: 'user', content: `${contextMessage}\nUser message: "${message}"` }
       ],
       temperature: 0,
       max_tokens: 350,
@@ -2282,21 +2289,39 @@ router.post('/', async (req, res) => {
     const lastUserContent = (lastUserMessage?.content || '').toLowerCase();
     const allMessagesText = messages.map(m => m.content || '').join(' ').toLowerCase();
 
+    // ── PRE-ROUTER: DAILY LOG DETECTION ────────────────────────────────────
+    // Check if user is in a daily log flow - if so, don't trigger expense detection
+    const messageLower = String(message || '').toLowerCase();
+    const dailyLogPattern = /\b(daily\s+log|job\s+log|site\s+note|add\s+note|log\s+for\s+today|record\s+what\s+happened|daily\s+job\s+log)\b/i;
+    const isDailyLogFlow = dailyLogPattern.test(messageLower);
+    
+    // Check if assistant recently asked about daily log
+    const recentMessages = messages.slice(-6);
+    const assistantAskedAboutDailyLog = recentMessages.some(m => 
+      m.role === 'assistant' && /\b(daily\s+log|job\s+log|site\s+note|notes?\s+would\s+you\s+like|what\s+happened|what\s+notes)\b/i.test(m.content || '')
+    );
+    
+    const inDailyLogContext = isDailyLogFlow || assistantAskedAboutDailyLog;
+    
     // ── PRE-ROUTER: EXPENSE LOGGING DETECTION ──────────────────────────────
     // Catch expense logging requests BEFORE router runs to prevent misclassification
-    const messageLower = String(message || '').toLowerCase();
-    const combinedMessage = (messageLower + ' ' + lastUserContent).toLowerCase();
-    const hasLogKeyword = /\b(log|record|add)\b/i.test(combinedMessage);
-    const hasExpenseKeyword = /\bexpense/i.test(combinedMessage) || 
-                              /\b(spent|bought|purchased)\b/i.test(combinedMessage);
-    const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
-    const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
-    
-    // If this is clearly an expense logging request without type, return early
-    if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
-      console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning early');
-      const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
-      return res.json({ reply: question, actions: [], projectUpdateData: null });
+    // BUT skip if user is in a daily log flow
+    if (!inDailyLogContext) {
+      const combinedMessage = (messageLower + ' ' + lastUserContent).toLowerCase();
+      const hasLogKeyword = /\b(log|record|add)\b/i.test(combinedMessage);
+      const hasExpenseKeyword = /\bexpense/i.test(combinedMessage) || 
+                                /\b(spent|bought|purchased)\b/i.test(combinedMessage);
+      const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
+      const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
+      
+      // If this is clearly an expense logging request without type, return early
+      if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
+        console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning early');
+        const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        return res.json({ reply: question, actions: [], projectUpdateData: null });
+      }
+    } else {
+      console.log('📝 PRE-ROUTER: User is in daily log flow, skipping expense detection');
     }
 
     // ── PRE-ROUTER: CHANGE ORDER DETECTION ──────────────────────────────────
@@ -2358,14 +2383,24 @@ router.post('/', async (req, res) => {
 
     // ── EXPLICIT EXPENSE LOGGING DETECTION (after router) ──────────────────
     // Re-use variables from pre-router check
+    // BUT skip if user is in a daily log flow
     const combinedMessageForExpense = (messageLower + ' ' + lastUserContent).toLowerCase();
+    
+    // Check if we're still in a daily log context (from pre-router check or recent messages)
+    const recentMessagesForExpenseCheck = messages.slice(-6);
+    const assistantAskedAboutDailyLogForExpense = recentMessagesForExpenseCheck.some(m => 
+      m.role === 'assistant' && /\b(daily\s+log|job\s+log|site\s+note|notes?\s+would\s+you\s+like|what\s+happened|what\s+notes)\b/i.test(m.content || '')
+    );
+    const isDailyLogRequest = dailyLogPattern.test(messageLower);
+    const inDailyLogContextForExpense = isDailyLogRequest || assistantAskedAboutDailyLogForExpense || inDailyLogContext;
     
     // More flexible detection - check for "log" + "expense" anywhere in the message
     // Handles patterns like "can you log an expense", "i need to log an expense", "log expense", etc.
+    // BUT exclude if it's a daily log request
     const hasLogKeywordForExpense = /\b(log|record|add)\b/i.test(combinedMessageForExpense);
     const hasExpenseKeywordForExpense = /\bexpense/i.test(combinedMessageForExpense) || 
                               /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
-    const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense;
+    const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense && !inDailyLogContextForExpense;
     
     // Check if expense type is already specified (materials/labor)
     const hasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessageForExpense);
@@ -2375,6 +2410,7 @@ router.post('/', async (req, res) => {
       hasExpenseType,
       hasLogKeywordForExpense,
       hasExpenseKeywordForExpense,
+      inDailyLogContextForExpense,
       message: message?.substring(0, 50),
       lastUserContent: lastUserContent.substring(0, 50),
       combinedMessage: combinedMessageForExpense.substring(0, 80)
@@ -2388,6 +2424,7 @@ router.post('/', async (req, res) => {
         projectId,
         activeTab,
         pmMode: aiPmMode,
+        inDailyLogFlow: inDailyLogContextForExpense, // Pass daily log context to router
         poFlow: {
           hasAmount: !!poFlowContext.amount,
           hasVendor: !!poFlowContext.vendor,
@@ -2402,9 +2439,14 @@ router.post('/', async (req, res) => {
       }
     ), 12000, 'router_stage');
     
+    // ── CRITICAL: DAILY LOG PROTECTION ───────────────────────────────────────
+    // NEVER let expense guards override daily_log domain - daily logs are NOT expenses
+    const isDailyLogDomain = routerResult.domain === 'daily_log' || routerResult.proposed_tool === 'add_daily_log';
+    
     // ── EXPENSE LOGGING GUARD (similar to CO guard) ──────────────────────────
     // If user wants to log an expense but hasn't specified material/labor, force the question
-    if (isExpenseLoggingRequest && !hasExpenseType) {
+    // BUT skip if user is in a daily log flow OR router already said daily_log
+    if (isExpenseLoggingRequest && !hasExpenseType && !inDailyLogContextForExpense && !isDailyLogDomain) {
       console.log('🛡️ Expense logging guard: user wants to log expense but type not specified');
       // Override router result to ensure expense domain and required field
       if (routerResult.domain !== 'expenses' || !routerResult.required_fields_missing?.includes('expense_type')) {
@@ -2415,6 +2457,8 @@ router.post('/', async (req, res) => {
         routerResult.confidence = 0.95;
         console.log('🛡️ Expense guard: overriding router to ask for expense type');
       }
+    } else if (isDailyLogDomain) {
+      console.log('🛡️ Daily log protection: router says daily_log, blocking expense guard override');
     }
 
     const changeOrderIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|extra work|client wants to add)\b/i;
@@ -2591,7 +2635,8 @@ router.post('/', async (req, res) => {
 
     // ── FINAL EXPENSE LOGGING CHECK (after CO guard, before executor) ──────
     // Re-check expense logging after all guards have run to ensure it wasn't overridden
-    if (isExpenseLoggingRequest && !hasExpenseType) {
+    // BUT skip if user is in a daily log flow OR router already said daily_log
+    if (isExpenseLoggingRequest && !hasExpenseType && !inDailyLogContextForExpense && !isDailyLogDomain) {
       // Force expense logging intent - override any other domain
       if (routerResult.domain !== 'expenses' || !routerResult.required_fields_missing?.includes('expense_type')) {
         console.log('🛡️ Final expense guard: forcing expense domain and required field');
@@ -2601,10 +2646,36 @@ router.post('/', async (req, res) => {
         routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
         routerResult.confidence = 0.95;
       }
+    } else if (isDailyLogDomain) {
+      console.log('🛡️ Daily log protection: router says daily_log, blocking final expense guard override');
     }
 
     logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
     console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
+
+    // CRITICAL: If router says daily_log, ensure noteText is extracted from user message
+    // This prevents the "missing noteText" gate from blocking execution
+    if (routerResult.domain === 'daily_log' && routerResult.proposed_tool === 'add_daily_log') {
+      // If noteText is missing but we have a user message (and assistant asked about notes),
+      // extract the message as noteText
+      if (!routerResult.tool_args_draft) {
+        routerResult.tool_args_draft = {};
+      }
+      if (!routerResult.tool_args_draft.noteText && message && message.trim()) {
+        // Check if assistant recently asked about daily log notes
+        const assistantAskedAboutNotes = recentMessagesForExpenseCheck.some(m => 
+          m.role === 'assistant' && /\b(notes?\s+would\s+you\s+like|what\s+notes|what\s+happened)\b/i.test(m.content || '')
+        );
+        if (assistantAskedAboutNotes) {
+          routerResult.tool_args_draft.noteText = message.trim();
+          // Remove noteText from required_fields_missing if it was there
+          if (routerResult.required_fields_missing?.includes('noteText')) {
+            routerResult.required_fields_missing = routerResult.required_fields_missing.filter(f => f !== 'noteText');
+          }
+          console.log('🛡️ Daily log: extracted noteText from user message:', message.trim().substring(0, 50));
+        }
+      }
+    }
 
     // Gate: if required fields are missing → ask the clarification question and stop
     if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
@@ -2713,6 +2784,42 @@ router.post('/', async (req, res) => {
     // Log if a forced tool call was ignored by the AI
     if (finalToolChoice !== 'auto' && finalToolChoice !== 'none' && toolCalls.length === 0) {
       console.error('❌ Router-forced tool call was ignored by AI:', typeof finalToolChoice === 'object' ? finalToolChoice.function?.name : 'unknown');
+    }
+
+    // CRITICAL FALLBACK: If router selected daily_log but executor ignored the tool call,
+    // force add_daily_log using the current user message as noteText.
+    // This prevents "daily log" follow-ups from drifting into expense prompts.
+    if (
+      toolCalls.length === 0 &&
+      routerResult.domain === 'daily_log' &&
+      routerResult.proposed_tool === 'add_daily_log'
+    ) {
+      const fallbackNoteText =
+        String(routerResult?.tool_args_draft?.noteText || message || '').trim();
+      if (fallbackNoteText) {
+        const fallbackArgs = {
+          projectId: projectId,
+          noteText: fallbackNoteText,
+          date: routerResult?.tool_args_draft?.date || new Date().toISOString().split('T')[0],
+          weather: routerResult?.tool_args_draft?.weather || null,
+          crewCount: routerResult?.tool_args_draft?.crewCount || null,
+          hoursWorked: routerResult?.tool_args_draft?.hoursWorked || null,
+        };
+        toolCalls = [
+          {
+            id: `call_manual_daily_log_${Date.now()}`,
+            type: 'function',
+            function: {
+              name: 'add_daily_log',
+              arguments: JSON.stringify(fallbackArgs),
+            },
+          },
+        ];
+        console.log('🛡️ Daily log fallback: forcing add_daily_log tool call', {
+          notePreview: fallbackNoteText.substring(0, 80),
+          projectId,
+        });
+      }
     }
     
     // Safety guard: block add_purchase_order if user's message is about marking as received

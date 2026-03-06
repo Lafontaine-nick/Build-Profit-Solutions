@@ -260,11 +260,14 @@ CRITICAL: The Context object contains pre-extracted field information. ALWAYS ch
 
 Intent rules:
 - "expenses": log a material purchase, labor expense, or general expense. Keywords: "log expense", "log an expense", "can you log", "need to log", "add expense", "record expense", "spent", "bought", "purchased"
+  * CRITICAL: If the assistant recently asked "What notes would you like to include in the daily job log?" or "What happened today?" or similar daily log questions, the user's response is ALWAYS a daily_log, NOT an expense. Check conversation history before classifying as expense.
 - "purchase_orders": create a PO or mark one as received
 - "timeline": milestones, schedule, payments, progress, tasks, kickoff, completion
 - "estimates": estimate line items, bid items, materials list, pricing
 - "budget": remaining budget, spend breakdown (answer directly, proposed_tool = null). ONLY use this if user explicitly asks about budget/remaining/spend breakdown. DO NOT use for expense logging.
-- "daily_log": job log, site notes, daily report, crew notes
+- "daily_log": job log, site notes, daily report, crew notes, what happened on site today
+  * CRITICAL: If assistant asked about daily log notes/happened today, user's next message is ALWAYS daily_log domain, even if it contains words like "inspection", "framing", "completed", etc. These are site notes, NOT expenses.
+  * Keywords: "daily log", "job log", "site note", "add note", "log for today", "what happened", "record what happened"
 - "change_order": scope change, extra work, client added something, change request
 - "general": greetings, unknown (proposed_tool = null)
 
@@ -288,6 +291,9 @@ Required-field rules:
 - mark_payment_collected: milestoneName (required). CRITICAL: First check context.milestones or call get_timeline_items to see available pending payment milestones. Match by name using fuzzy/partial matching (e.g., "week 1" matches "Week 1 Payment"). If user doesn't specify which milestone, list available pending payments and ask them to choose. Never ask for milestone ID - always match by name.
 - add_estimate_line_item: name, unitCost
 - add_daily_log: noteText
+  * CRITICAL: If assistant recently asked "What notes would you like to include?" or "What happened today?" in context of daily log, user's response is the noteText. Do NOT treat it as an expense.
+  * Daily logs capture: what happened on site, weather conditions, crew count, hours worked, issues encountered
+  * Daily logs are NOT expenses - they are narrative notes about the day's work
 - run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, etc.)
 - create_change_order: description, amount, vendor
   * CRITICAL: Change orders need ONLY description + amount + vendor. NO delivery dates. NO received dates. NEVER.
