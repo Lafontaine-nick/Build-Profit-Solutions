@@ -3163,12 +3163,43 @@ function ProjectDetailContent() {
                 const updated = items.map((item: any) => {
                   if ((action.milestoneId && item.id === action.milestoneId) ||
                       (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
-                    return { ...item, status: 'collected', collectedAt: action.collectedAt || new Date().toISOString(), collectedAmount: action.amount };
+                    return { 
+                      ...item, 
+                      status: 'completed', 
+                      progressPct: 100,
+                      collectedAt: action.collectedAt || new Date().toISOString(), 
+                      collectedAmount: action.amount 
+                    };
                   }
                   return item;
                 });
                 await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-                console.log('✅ Payment marked as collected');
+                
+                // Also update in bps.timeline.v2.{id} if it exists
+                const timelineV2Key = `bps.timeline.v2.${id}`;
+                const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
+                if (timelineV2Raw) {
+                  const timelineV2Items = JSON.parse(timelineV2Raw);
+                  const updatedV2 = timelineV2Items.map((item: any) => {
+                    if ((action.milestoneId && item.id === action.milestoneId) ||
+                        (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
+                      return { 
+                        ...item, 
+                        status: 'completed', 
+                        progressPct: 100,
+                        collectedAt: action.collectedAt || new Date().toISOString(), 
+                        collectedAmount: action.amount 
+                      };
+                    }
+                    return item;
+                  });
+                  await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedV2));
+                }
+                
+                // Trigger reload of project data to refresh timeline
+                reloadFromStorage();
+                
+                console.log('✅ Payment marked as collected with progressPct: 100');
                 Alert.alert('✅ Payment Collected', `"${action.milestoneName}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`);
               } catch (e) {
                 console.error('❌ Error marking payment collected:', e);

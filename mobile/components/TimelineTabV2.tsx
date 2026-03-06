@@ -286,6 +286,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
   /* ---------- load/save ---------- */
 
+  // Force reload trigger for payment collection updates
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+  
   useEffect(() => {
     if (!project?.id) return;
     if (isLoadingRef.current) return;
@@ -299,7 +302,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     const estimateDataChanged = lastEstimateDataRef.current !== estimateDataHash;
     const isNewProject = hasLoadedForProjectRef.current !== project.id;
     
-    if (!isNewProject && !estimateDataChanged) return;
+    // Allow reload if trigger changed (for payment collection updates)
+    if (!isNewProject && !estimateDataChanged && reloadTrigger === 0) return;
 
     const loadMilestones = async () => {
       isLoadingRef.current = true;
@@ -351,7 +355,18 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     };
 
     loadMilestones();
-  }, [project?.id, projectFromList?.estimateData, (project as any)?.estimateData, collectPaymentMilestones]);
+  }, [project?.id, projectFromList?.estimateData, (project as any)?.estimateData, collectPaymentMilestones, reloadTrigger]);
+  
+  // Reload timeline when tab is focused to catch payment collection updates
+  // This ensures the timeline refreshes when user navigates back to Timeline tab
+  useEffect(() => {
+    if (!project?.id || !isLoaded) return;
+    // Reload once when component becomes ready, then rely on manual refresh or tab focus
+    const timer = setTimeout(() => {
+      setReloadTrigger(prev => prev + 1);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [project?.id, isLoaded]);
 
   useEffect(() => {
     if (!isLoaded || !project?.id) return;
