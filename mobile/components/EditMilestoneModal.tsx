@@ -282,11 +282,13 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 {
                   backgroundColor: ThemeColors.surface2,
                   borderColor: ThemeColors.line,
-                  borderWidth: 1,
-                  borderRadius: 12,
+                  borderWidth: 2,
+                  borderRadius: 14,
+                  minHeight: 60,
+                  paddingVertical: 16,
                 }
               ]}>
-                <Text style={styles.dollarSign}>$</Text>
+                <Text style={[styles.dollarSign, { fontSize: 22, fontWeight: '700', left: 18 }]}>$</Text>
                 <TextInput
                   style={[
                     styles.input,
@@ -295,12 +297,18 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                       backgroundColor: 'transparent',
                       borderWidth: 0,
                       color: ThemeColors.text,
-                      fontSize: 14,
+                      fontSize: 20,
+                      fontWeight: '600',
+                      paddingLeft: 36,
                     }
                   ]}
-                  value={paymentAmount}
+                  value={paymentAmount ? (() => {
+                    const num = parseFloat(paymentAmount.replace(/,/g, ''));
+                    return isNaN(num) ? '' : num.toLocaleString('en-US');
+                  })() : ''}
                   onChangeText={(text) => {
-                    const num = text.replace(/[^0-9.]/g, '');
+                    // Remove all non-numeric characters except decimal point
+                    const num = text.replace(/[^0-9.]/g, '').replace(/,/g, '');
                     setPaymentAmount(num);
                   }}
                   keyboardType="numeric"
