@@ -285,7 +285,7 @@ Required-field rules:
 - For add_purchase_order multi-turn flows: if prior user messages already include amount/vendor/category/date, DO NOT ask for them again; only ask for truly missing fields.
 - mark_purchase_order_received: no required fields
 - add_timeline_payment: title, amount
-- mark_payment_collected: milestoneId or milestoneName
+- mark_payment_collected: milestoneName (required). CRITICAL: First check context.milestones or call get_timeline_items to see available pending payment milestones. Match by name using fuzzy/partial matching (e.g., "week 1" matches "Week 1 Payment"). If user doesn't specify which milestone, list available pending payments and ask them to choose. Never ask for milestone ID - always match by name.
 - add_estimate_line_item: name, unitCost
 - add_daily_log: noteText
 - run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, etc.)

@@ -699,6 +699,82 @@ function runProactiveIntelligence(ctx) {
   return alerts;
 }
 
+function getAllMilestonesFromContext(parsedContext = {}) {
+  return [
+    ...(parsedContext?.milestones || []),
+    ...(parsedContext?.paymentMilestones || []),
+    ...(parsedContext?.timelineItems || []),
+    ...(parsedContext?.currentProject?.milestones || []),
+    ...(parsedContext?.currentProject?.paymentMilestones || []),
+    ...(parsedContext?.currentProject?.timelineItems || []),
+  ];
+}
+
+function getPendingPaymentMilestones(parsedContext = {}) {
+  const allMilestones = getAllMilestonesFromContext(parsedContext);
+  const seen = new Set();
+  const deduped = [];
+
+  for (const m of allMilestones) {
+    const key = `${m?.id || ''}|${String(m?.title || m?.name || '').toLowerCase().trim()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(m);
+    }
+  }
+
+  return deduped.filter((m) => {
+    const title = String(m?.title || m?.name || '').trim();
+    const status = String(m?.status || '').toLowerCase();
+    const progressPct = Number(m?.progressPct ?? m?.progress ?? 0);
+    const amount = Number(m?.amount || 0);
+    const isPayment =
+      m?.type === 'payment' ||
+      /payment|deposit|milestone|draw|progress payment/i.test(title) ||
+      amount > 0;
+    const isNotCollected =
+      m?.collected !== true &&
+      status !== 'collected' &&
+      status !== 'completed' &&
+      progressPct < 100;
+
+    return isPayment && isNotCollected;
+  });
+}
+
+function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
+  const searchName = String(rawName || '').toLowerCase().trim();
+  if (!searchName) return null;
+
+  // Exact title match
+  let match = pendingPayments.find((m) => String(m?.title || m?.name || '').toLowerCase() === searchName);
+  if (match) return match;
+
+  // Partial contains
+  match = pendingPayments.find((m) => {
+    const t = String(m?.title || m?.name || '').toLowerCase();
+    return t.includes(searchName) || searchName.includes(t);
+  });
+  if (match) return match;
+
+  // Fuzzy normalized match
+  const normalize = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/\b(payment|pay|week|milestone|deposit|draw)\b/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const normalizedSearch = normalize(searchName);
+  if (!normalizedSearch) return null;
+
+  return pendingPayments.find((m) => {
+    const normalizedTitle = normalize(m?.title || m?.name || '');
+    return normalizedTitle.includes(normalizedSearch) || normalizedSearch.includes(normalizedTitle);
+  }) || null;
+}
+
 /**
  * POST /api/ai-assistant
  * AI Assistant endpoint for project management
@@ -1372,6 +1448,25 @@ router.post('/', async (req, res) => {
           },
         },
       },
+      // ── PAYMENT COLLECTION (always available) ───────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'mark_payment_collected',
+          description: 'Mark a payment milestone as collected from the client. Use when user says "got paid", "payment collected", "client paid", "received payment", "collected deposit", "mark payment as collected". CRITICAL: First check available milestones from context.milestones or call get_timeline_items to see pending payment milestones. Match by milestone name (e.g., "Week 1 Payment", "Deposit") - use partial/fuzzy matching. If user doesn\'t specify which milestone, list available pending milestones and ask them to choose.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
+              milestoneId: { type: 'string', description: 'The ID of the payment milestone (optional - will be found from milestoneName if not provided).' },
+              milestoneName: { type: 'string', description: 'The name of the milestone to mark as collected (e.g., "Week 1 Payment", "Deposit", "Payment 1"). REQUIRED. Match against available milestones from context or get_timeline_items. Use partial matching - "week 1" matches "Week 1 Payment".' },
+              amount: { type: 'number', description: 'Amount collected. If different from the milestone amount (optional - will use milestone amount if not provided).' },
+              collectedAt: { type: 'string', description: 'Date collected in ISO format. Defaults to now.' },
+            },
+            required: ['milestoneName'],
+          },
+        },
+      },
     ];
 
     // ── PM Mode extended tools: timeline + estimates ──────────────────────────
@@ -1520,24 +1615,6 @@ router.post('/', async (req, res) => {
               workerName: { type: 'string', description: 'Name of worker or subcontractor if mentioned.' },
             },
             required: ['amount', 'trade', 'description'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'mark_payment_collected',
-          description: 'Mark a payment milestone as collected from the client. Use when user says "got paid", "payment collected", "client paid", "received payment", "collected deposit".',
-          parameters: {
-            type: 'object',
-            properties: {
-              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
-              milestoneId: { type: 'string', description: 'The ID of the payment milestone.' },
-              milestoneName: { type: 'string', description: 'The name of the milestone (e.g., "Payment 1 - Deposit"). Used if milestoneId is unknown.' },
-              amount: { type: 'number', description: 'Amount collected. If different from the milestone amount.' },
-              collectedAt: { type: 'string', description: 'Date collected in ISO format. Defaults to now.' },
-            },
-            required: ['milestoneName'],
           },
         },
       },
@@ -2416,6 +2493,98 @@ router.post('/', async (req, res) => {
         } else {
           const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
           routerResult.clarification_question = `What is ${labels[coMissing[0]] || coMissing[0]}?`;
+        }
+      }
+    }
+
+    // ── PAYMENT-COLLECTION GUARD (after CO guard, before executor) ─────────
+    // Ensure "mark payment collected" uses pending timeline milestones by name (not ID).
+    const pendingPaymentMilestones = getPendingPaymentMilestones(parsedContext);
+    const paymentCollectIntentRegex = /\b(mark|set|record).*(payment|deposit|milestone).*(collected|complete|paid)|\b(payment collected|collected payment|mark a payment as collected|got paid|received payment|mark collected)\b/i;
+    const lastAssistantPaymentMsg = String(
+      [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
+    ).toLowerCase();
+    const lastAssistantAskedWhichPayment =
+      (lastAssistantPaymentMsg.includes('which milestone') ||
+       lastAssistantPaymentMsg.includes('which payment') ||
+       lastAssistantPaymentMsg.includes('specify which')) &&
+      lastAssistantPaymentMsg.includes('collected');
+    const isPaymentCollectionFlowActive =
+      paymentCollectIntentRegex.test(String(message || '').toLowerCase()) ||
+      routerResult?.proposed_tool === 'mark_payment_collected' ||
+      lastAssistantAskedWhichPayment;
+
+    if (isPaymentCollectionFlowActive) {
+      routerResult.domain = 'timeline';
+      routerResult.proposed_tool = 'mark_payment_collected';
+      routerResult.tool_args_draft = routerResult.tool_args_draft || {};
+
+      const userText = String(message || '').trim();
+      
+      // Check if assistant already asked which payment (user is responding to that question)
+      const assistantAlreadyAsked = lastAssistantAskedWhichPayment;
+      
+      // Check if user is confirming (after we've matched a payment)
+      const isConfirmation = /^(yes|yep|ok|okay|confirm|proceed|go ahead|do it|mark it)$/i.test(userText);
+      const hasMatchedPaymentInDraft = routerResult.tool_args_draft.milestoneName;
+      
+      // If user is confirming and we have a matched payment, proceed to execution
+      if (isConfirmation && hasMatchedPaymentInDraft) {
+        routerResult.required_fields_missing = [];
+        routerResult.clarification_question = null;
+        routerResult.confidence = 1.0;
+        routerResult.action = 'execute';
+        console.log('🛡️ Payment guard: user confirmed, proceeding to mark payment as collected');
+      } else {
+        // Try to match payment name from user's message
+        const candidateName = !isConfirmation
+          ? (routerResult.tool_args_draft.milestoneName || userText)
+          : '';
+        const matchedPayment = matchPendingPaymentByName(pendingPaymentMilestones, candidateName);
+
+        if (matchedPayment && !assistantAlreadyAsked) {
+          // First time - user clicked button, we found a match (maybe only one payment)
+          // Still ask which one to be explicit
+          routerResult.required_fields_missing = ['milestoneName'];
+          if (pendingPaymentMilestones.length > 0) {
+            const options = pendingPaymentMilestones
+              .slice(0, 6)
+              .map((m) => `"${m.title || m.name}"`)
+              .join(', ');
+            routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
+          } else {
+            routerResult.clarification_question = 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.';
+          }
+          console.log('🛡️ Payment guard: first time - listing pending payments');
+        } else if (matchedPayment && assistantAlreadyAsked) {
+          // User specified which payment after we asked - now ask for confirmation
+          routerResult.required_fields_missing = [];
+          routerResult.tool_args_draft.milestoneName = matchedPayment.title || matchedPayment.name;
+          if (matchedPayment.id) routerResult.tool_args_draft.milestoneId = matchedPayment.id;
+          routerResult.clarification_question = `Mark "${matchedPayment.title || matchedPayment.name}" ($${Number(matchedPayment.amount || 0).toLocaleString()}) as collected?`;
+          routerResult.confidence = 1.0;
+          // Don't set action = 'execute' yet - wait for confirmation
+          console.log('🛡️ Payment guard: matched payment, asking for confirmation:', {
+            input: candidateName,
+            matchedTitle: matchedPayment.title,
+            matchedId: matchedPayment.id,
+          });
+        } else {
+          // No match found - ask which payment
+          routerResult.required_fields_missing = ['milestoneName'];
+          if (pendingPaymentMilestones.length > 0) {
+            const options = pendingPaymentMilestones
+              .slice(0, 6)
+              .map((m) => `"${m.title || m.name}"`)
+              .join(', ');
+            routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
+          } else {
+            routerResult.clarification_question = 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.';
+          }
+          console.log('🛡️ Payment guard: asking user to choose pending milestone', {
+            pendingCount: pendingPaymentMilestones.length,
+            input: candidateName,
+          });
         }
       }
     }
@@ -3777,29 +3946,55 @@ RULES:
 
         } else if (functionName === 'mark_payment_collected') {
           const targetPid = functionArgs.projectId || projectId;
-          const milestones = parsedContext.milestones || [];
-          const match = milestones.find(m =>
-            (functionArgs.milestoneId && m.id === functionArgs.milestoneId) ||
-            (functionArgs.milestoneName && (m.title || '').toLowerCase().includes(functionArgs.milestoneName.toLowerCase()))
-          );
-          const collectedAmount = functionArgs.amount || (match?.amount) || 0;
-          const action = {
-            type: 'mark_payment_collected',
-            projectId: targetPid,
-            milestoneId: functionArgs.milestoneId || match?.id,
-            milestoneName: functionArgs.milestoneName || match?.title,
-            amount: collectedAmount,
-            collectedAt: functionArgs.collectedAt || new Date().toISOString(),
-          };
-          actions.push(action);
-          functionResult = {
-            success: true,
-            message: match
-              ? `✅ Marked "${match.title}" as collected ($${collectedAmount.toLocaleString()}).`
-              : `✅ Recorded payment collection: "${functionArgs.milestoneName}" ($${collectedAmount.toLocaleString()}).`,
-            projectId: targetPid,
-            action,
-          };
+          const allMilestones = getAllMilestonesFromContext(parsedContext);
+          const pendingPayments = getPendingPaymentMilestones(parsedContext);
+          
+          // Try to match by ID first
+          let match = null;
+          if (functionArgs.milestoneId) {
+            match = allMilestones.find(m => m.id === functionArgs.milestoneId);
+          }
+          
+          // If no ID match, try to match by name (fuzzy/partial matching)
+          if (!match && functionArgs.milestoneName) {
+            match = matchPendingPaymentByName(pendingPayments, functionArgs.milestoneName);
+          }
+          
+          // If still no match and user provided a name, return error with available options
+          if (!match && functionArgs.milestoneName && pendingPayments.length > 0) {
+            const availableNames = pendingPayments.map(m => `"${m.title}"`).join(', ');
+            functionResult = {
+              success: false,
+              error: `Could not find a payment milestone matching "${functionArgs.milestoneName}". Available pending payments: ${availableNames}. Please specify which one you want to mark as collected.`,
+            };
+          } else if (!match && pendingPayments.length === 0) {
+            functionResult = {
+              success: false,
+              error: 'No pending payment milestones found for this project. All payments may already be collected.',
+            };
+          } else if (!match) {
+            functionResult = {
+              success: false,
+              error: 'Please specify which payment milestone to mark as collected (e.g., "Week 1 Payment", "Deposit").',
+            };
+          } else {
+            const collectedAmount = functionArgs.amount || match.amount || 0;
+            const action = {
+              type: 'mark_payment_collected',
+              projectId: targetPid,
+              milestoneId: match.id,
+              milestoneName: match.title || functionArgs.milestoneName,
+              amount: collectedAmount,
+              collectedAt: functionArgs.collectedAt || new Date().toISOString(),
+            };
+            actions.push(action);
+            functionResult = {
+              success: true,
+              message: `✅ Marked "${match.title}" as collected ($${collectedAmount.toLocaleString()}).`,
+              projectId: targetPid,
+              action,
+            };
+          }
 
         } else if (functionName === 'add_daily_log') {
           const targetPid = functionArgs.projectId || projectId;
