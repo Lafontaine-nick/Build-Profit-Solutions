@@ -1013,7 +1013,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     
     // Check if we need to ask about analysis type
     const intent = detectProjectIntent(query);
-    if (intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+    // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
+    const expenseLoggingPattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
+    const isExpenseLikeQuery = expenseLoggingPattern.test(query) ||
+                              /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(query);
+    if (!isExpenseLikeQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
         projectId,
@@ -1568,7 +1572,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             setLastOpenedProjectIdState(resolvedProjectId);
             
             // Check if we need to ask about analysis type (only if not already selected)
-            if (!pendingAnalysisType && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
+            const expensePattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
+            const isExpenseLikeIntent = expensePattern.test(newMessage.content) ||
+                                      /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(newMessage.content);
+            if (!pendingAnalysisType && !isExpenseLikeIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -2207,8 +2215,10 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     // Determine the actual message to send
     let messageToSend = labelOrPrompt;
     
-    // If it's not already a full prompt, use suggestion mapping
-    if (!labelOrPrompt.includes("?") && !labelOrPrompt.includes(".")) {
+    // If it's not already a full prompt, use suggestion mapping.
+    // Keep natural sentence-style prompts as-is (e.g. "I need to log an expense").
+    const looksLikeSentencePrompt = /^(i\s+need|please|create|add|mark|show|scan|forecast|can\s+you)\b/i.test(labelOrPrompt.trim());
+    if (!labelOrPrompt.includes("?") && !labelOrPrompt.includes(".") && !looksLikeSentencePrompt) {
       const suggestions: { [key: string]: string } = {
         "Add Material": "Can you add material to this estimate?",
         "Add Labor": "Can you add labor to this estimate?",
@@ -2886,7 +2896,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   contentContainerStyle={{ gap: 8, alignItems: 'center' }}
                 >
                   {[
-                    { label: '💰 Log Expense', prompt: 'I need to log an expense' },
+                    { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
                     { label: '🔄 Change Order', prompt: 'Create me a change order' },
                     { label: '📦 Create PO', prompt: 'Create a purchase order' },
                     { label: '📋 Add Milestone', prompt: 'Add a payment milestone' },
@@ -2930,7 +2940,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   contentContainerStyle={{ gap: 8, alignItems: 'center' }}
                 >
                   {[
-                    { label: '✨ Check Health', prompt: 'Give me a project health check.', primary: true },
+                    { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
                     { label: '🧾 Missing Costs', prompt: 'Scan this estimate for missing costs.' },
                     { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
                   ].map((chip) => (

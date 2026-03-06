@@ -108,9 +108,11 @@ EXPENSE RULES:
 Required for MATERIALS: amount + category + vendor + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
 Required for LABOR: amount + category("Labor") + notes(what labor was for) + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
 → Vendor is NOT required for labor expenses
+→ Vendor IS REQUIRED for material expenses - ALWAYS ask if missing
 → Call add_material_expense (covers both materials and labor)
 → Call add_labor_expense for labor with trade/description fields
-→ CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for." DO NOT proceed until you know the expense type.`;
+→ CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for." DO NOT proceed until you know the expense type.
+→ CRITICAL: If user confirms "it's for material" / "material" / "materials" → you MUST ask for amount, category, AND vendor if any are missing. Example: "Please provide the amount, category, and vendor for the material expense."`;
 
   // Purchase order domain
   const poBlock = `
@@ -256,11 +258,11 @@ Return ONLY a valid JSON object (no markdown, no extra text) with this exact str
 CRITICAL: The Context object contains pre-extracted field information. ALWAYS check context.coFlow and context.poFlow before asking for fields.
 
 Intent rules:
-- "expenses": log a material purchase, labor expense, or general expense
+- "expenses": log a material purchase, labor expense, or general expense. Keywords: "log expense", "log an expense", "can you log", "need to log", "add expense", "record expense", "spent", "bought", "purchased"
 - "purchase_orders": create a PO or mark one as received
 - "timeline": milestones, schedule, payments, progress, tasks, kickoff, completion
 - "estimates": estimate line items, bid items, materials list, pricing
-- "budget": remaining budget, spend breakdown (answer directly, proposed_tool = null)
+- "budget": remaining budget, spend breakdown (answer directly, proposed_tool = null). ONLY use this if user explicitly asks about budget/remaining/spend breakdown. DO NOT use for expense logging.
 - "daily_log": job log, site notes, daily report, crew notes
 - "change_order": scope change, extra work, client added something, change request
 - "general": greetings, unknown (proposed_tool = null)
@@ -273,8 +275,11 @@ Change order detection:
 
 Required-field rules:
 - add_material_expense: amount, category, vendor (vendor only required for non-labor)
+  * CRITICAL: If user says "it's for material" / "material" / "materials" → expense type is MATERIAL, so vendor IS required
+  * After user confirms it's material, check for: amount, category, vendor. If any missing, ask for ALL missing fields including vendor.
+  * Example: User says "it's for material" → if amount/category/vendor missing → ask "Please provide the amount, category, and vendor for the material expense."
 - add_labor_expense: amount, trade, description
-- CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → set required_fields_missing = ["expense_type"] and clarification_question = "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for."
+- CRITICAL: If user says "log expense" / "log an expense" / "can you log an expense" / "I need to log an expense" / "add expense" / "record expense" WITHOUT specifying materials or labor → set domain = "expenses", proposed_tool = "add_material_expense", required_fields_missing = ["expense_type"], and clarification_question = "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for."
 - add_purchase_order: amount, vendor, category, expectedDelivery (if missing, ask "What is the expected delivery or received date?")
 - For add_purchase_order multi-turn flows: if prior user messages already include amount/vendor/category/date, DO NOT ask for them again; only ask for truly missing fields.
 - mark_purchase_order_received: no required fields

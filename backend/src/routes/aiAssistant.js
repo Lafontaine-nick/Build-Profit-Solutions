@@ -239,7 +239,12 @@ function getCOFlowUserMessages(messages = []) {
       break;
     }
   }
-  const sliced = startIdx >= 0 ? messages.slice(startIdx) : messages.slice(-14);
+  // CRITICAL: Only return messages if we found an actual change order intent
+  // If no CO intent found, return empty array to prevent false positives
+  if (startIdx < 0) {
+    return [];
+  }
+  const sliced = messages.slice(startIdx);
   return sliced.filter((m) => m.role === 'user');
 }
 
@@ -2106,6 +2111,23 @@ router.post('/', async (req, res) => {
     const lastUserContent = (lastUserMessage?.content || '').toLowerCase();
     const allMessagesText = messages.map(m => m.content || '').join(' ').toLowerCase();
 
+    // ── PRE-ROUTER: EXPENSE LOGGING DETECTION ──────────────────────────────
+    // Catch expense logging requests BEFORE router runs to prevent misclassification
+    const messageLower = String(message || '').toLowerCase();
+    const combinedMessage = (messageLower + ' ' + lastUserContent).toLowerCase();
+    const hasLogKeyword = /\b(log|record|add)\b/i.test(combinedMessage);
+    const hasExpenseKeyword = /\bexpense/i.test(combinedMessage) || 
+                              /\b(spent|bought|purchased)\b/i.test(combinedMessage);
+    const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
+    const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
+    
+    // If this is clearly an expense logging request without type, return early
+    if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
+      console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning early');
+      const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+      return res.json({ reply: question, actions: [], projectUpdateData: null });
+    }
+
     // ── STAGE 1: ROUTER ──────────────────────────────────────────────────────
     // Replaces keyword heuristics. GPT decides intent + whether required fields are present.
     logPhase('router_start');
@@ -2136,6 +2158,30 @@ router.post('/', async (req, res) => {
       ]).map(m => m.content),
     }));
 
+    // ── EXPLICIT EXPENSE LOGGING DETECTION (after router) ──────────────────
+    // Re-use variables from pre-router check
+    const combinedMessageForExpense = (messageLower + ' ' + lastUserContent).toLowerCase();
+    
+    // More flexible detection - check for "log" + "expense" anywhere in the message
+    // Handles patterns like "can you log an expense", "i need to log an expense", "log expense", etc.
+    const hasLogKeywordForExpense = /\b(log|record|add)\b/i.test(combinedMessageForExpense);
+    const hasExpenseKeywordForExpense = /\bexpense/i.test(combinedMessageForExpense) || 
+                              /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
+    const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense;
+    
+    // Check if expense type is already specified (materials/labor)
+    const hasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessageForExpense);
+    
+    console.log('🔍 Expense logging detection:', { 
+      isExpenseLoggingRequest, 
+      hasExpenseType,
+      hasLogKeywordForExpense,
+      hasExpenseKeywordForExpense,
+      message: message?.substring(0, 50),
+      lastUserContent: lastUserContent.substring(0, 50),
+      combinedMessage: combinedMessageForExpense.substring(0, 80)
+    });
+
     const routerResult = await withTimeout(runRouter(
       message,
       history,
@@ -2157,16 +2203,36 @@ router.post('/', async (req, res) => {
         },
       }
     ), 12000, 'router_stage');
+    
+    // ── EXPENSE LOGGING GUARD (similar to CO guard) ──────────────────────────
+    // If user wants to log an expense but hasn't specified material/labor, force the question
+    if (isExpenseLoggingRequest && !hasExpenseType) {
+      console.log('🛡️ Expense logging guard: user wants to log expense but type not specified');
+      // Override router result to ensure expense domain and required field
+      if (routerResult.domain !== 'expenses' || !routerResult.required_fields_missing?.includes('expense_type')) {
+        routerResult.domain = 'expenses';
+        routerResult.proposed_tool = 'add_material_expense';
+        routerResult.required_fields_missing = ['expense_type'];
+        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        routerResult.confidence = 0.95;
+        console.log('🛡️ Expense guard: overriding router to ask for expense type');
+      }
+    }
 
     const changeOrderIntentRegex = /\b(change order|create.*change order|add.*change order|scope change|extra work|client wants to add)\b/i;
     const lastAssistantCOPrompt = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
     ).toLowerCase().includes('change order');
+    // CRITICAL: Only activate CO flow if there's an actual change order intent phrase
+    // Don't activate just because there's a description/amount (those could be for expenses)
+    const hasCOIntentInHistory = getCOFlowUserMessages([
+      ...history.filter(m => m?.role && m?.content),
+      { role: 'user', content: message },
+    ]).length > 0;
     const isChangeOrderFlowActive =
       changeOrderIntentRegex.test(String(message || '').toLowerCase()) ||
       lastAssistantCOPrompt ||
-      !!coFlowContext.description ||
-      !!coFlowContext.amount;
+      hasCOIntentInHistory;
 
     // Hard guard: if we're in a change-order flow, never allow PO/date requirements to leak in.
     if (isChangeOrderFlowActive) {
@@ -2225,6 +2291,20 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // ── FINAL EXPENSE LOGGING CHECK (after CO guard, before executor) ──────
+    // Re-check expense logging after all guards have run to ensure it wasn't overridden
+    if (isExpenseLoggingRequest && !hasExpenseType) {
+      // Force expense logging intent - override any other domain
+      if (routerResult.domain !== 'expenses' || !routerResult.required_fields_missing?.includes('expense_type')) {
+        console.log('🛡️ Final expense guard: forcing expense domain and required field');
+        routerResult.domain = 'expenses';
+        routerResult.proposed_tool = 'add_material_expense';
+        routerResult.required_fields_missing = ['expense_type'];
+        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        routerResult.confidence = 0.95;
+      }
+    }
+
     logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
     console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
 
@@ -2232,6 +2312,7 @@ router.post('/', async (req, res) => {
     if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
       const question = routerResult.clarification_question || `I need a few more details. Could you provide the ${routerResult.required_fields_missing.join(' and ')}?`;
       console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing, '→ asking clarification');
+      console.log('🛑 Router: returning early with question:', question);
       return res.json({ reply: question, actions: [], projectUpdateData: null });
     }
 
@@ -3825,8 +3906,13 @@ RULES:
     const currentMsg = (message || '').toLowerCase();
     const lastUserMsg = (lastUserMessage?.content || '').toLowerCase();
     // Check both current message and last user message for health check keywords
-    const isHealthCheck = currentMsg.includes('health') || currentMsg.includes('analyze') || currentMsg.includes('analysis') || currentMsg.includes('status') || currentMsg.includes('how is') ||
-                          lastUserMsg.includes('health') || lastUserMsg.includes('analyze') || lastUserMsg.includes('analysis') || lastUserMsg.includes('status') || lastUserMsg.includes('how is');
+    // CRITICAL: Exclude expense logging requests - they should NOT trigger health check
+    const isExpenseLogging = currentMsg.includes('log') && (currentMsg.includes('expense') || currentMsg.includes('spent') || currentMsg.includes('bought') || currentMsg.includes('purchased')) ||
+                             lastUserMsg.includes('log') && (lastUserMsg.includes('expense') || lastUserMsg.includes('spent') || lastUserMsg.includes('bought') || lastUserMsg.includes('purchased'));
+    const isHealthCheck = !isExpenseLogging && (
+      currentMsg.includes('health') || currentMsg.includes('analyze') || currentMsg.includes('analysis') || currentMsg.includes('status') || currentMsg.includes('how is') ||
+      lastUserMsg.includes('health') || lastUserMsg.includes('analyze') || lastUserMsg.includes('analysis') || lastUserMsg.includes('status') || lastUserMsg.includes('how is')
+    );
     
     console.log('🔍 Health check detection:', { 
       currentMsg: currentMsg.substring(0, 50), 

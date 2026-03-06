@@ -48,6 +48,10 @@ export type ProjectIntent = {
  */
 export function detectProjectIntent(query: string): ProjectIntent {
   const lowerQuery = query.toLowerCase().trim();
+  // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
+  const expenseLoggingPattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
+  const isExpenseFlow = expenseLoggingPattern.test(lowerQuery) ||
+                       /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(lowerQuery);
   
   // Quick health check keywords
   const quickHealthKeywords = ['health', 'health check', 'status', 'how is', 'how\'s', 'doing'];
@@ -61,7 +65,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   const actionKeywords = [
     'add', 'create', 'update', 'record', 'set', 'change', 'modify',
     'remove', 'delete', 'approve', 'reject', 'send', 'generate',
-    'do it', 'do this', 'handle', 'take care of', 'apply'
+    'do it', 'do this', 'handle', 'take care of', 'apply', 'log'
   ];
   const isActionRequest = actionKeywords.some(kw => lowerQuery.includes(kw));
   
@@ -79,7 +83,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   const needsProject = projectKeywords.some(kw => lowerQuery.includes(kw)) || isActionRequest;
   
   // But it's NOT an analysis request if it's an action
-  if (isActionRequest) {
+  if (isActionRequest || isExpenseFlow) {
     return {
       type: 'other',
       needsProject: true,
