@@ -230,7 +230,7 @@ function inferPOFieldsFromUserMessages(userMessages = []) {
 }
 
 function getCOFlowUserMessages(messages = []) {
-  const coIntentRegex = /\b(change order|create.*change order|add.*change order|scope change|client wants to add|extra work)\b/i;
+  const coIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|client wants to add|extra work)\b/i;
   let startIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -239,8 +239,18 @@ function getCOFlowUserMessages(messages = []) {
       break;
     }
   }
-  // CRITICAL: Only return messages if we found an actual change order intent
-  // If no CO intent found, return empty array to prevent false positives
+  // Fallback: if assistant is already in a CO flow, keep collecting user replies
+  // even when the user's wording is not an exact intent phrase.
+  if (startIdx < 0) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role === 'assistant' && /\bchange\s+order\b/i.test(String(m?.content || ''))) {
+        startIdx = i + 1;
+        break;
+      }
+    }
+  }
+  // If we still don't have a start point, don't infer CO fields.
   if (startIdx < 0) {
     return [];
   }
@@ -254,10 +264,10 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
   let vendor = null;
 
   // Intent phrases that should NOT be treated as descriptions
-  const intentPhrases = /^(create|add|make|i need|i want|give me|start)(\s+\w+)*\s+(change\s+order|scope\s+change|extra\s+work)s?$/i;
+  const intentPhrases = /^(create|add|make|i need|i want|give me|start)(\s+\w+)*\s+(change\s+(?:the\s+)?order|scope\s+change|extra\s+work)s?$/i;
   const isIntentOnly = (txt) => {
   const normalized = String(txt || '').trim().replace(/[.!?]+$/g, '');
-  return intentPhrases.test(normalized) || /^change\s+order$/i.test(normalized);
+  return intentPhrases.test(normalized) || /^change\s+(?:the\s+)?order$/i.test(normalized);
 };
 
   // Known vendor/store names for recognition
@@ -309,17 +319,91 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     }
 
     // ── Single-value messages ──
-
-    // Extract amount
-    const numbers = text.match(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\b/g);
-    if (numbers && numbers.length > 0) {
-      const parsed = numbers.map(n => parseFloat(n.replace(/,/g, '')));
-      const maxNum = Math.max(...parsed);
-      if (maxNum >= 1 && (!amount || maxNum > amount)) {
-        amount = maxNum;
+    // CRITICAL: Check for "X for Y" pattern FIRST before extracting amount separately
+    // This ensures "Concrete for 1000" extracts both description and amount together
+    // Extract description and amount together from "X for Y" pattern BEFORE other extractions
+    // BUT: If X is a known vendor, treat it as vendor+amount, not description+amount
+    if (!description && !vendor) {
+      // "Concrete for 3000" or "Lowe's for 1000" pattern - PRIORITY: Check this FIRST
+      let match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
+      if (match && match[1] && match[1].trim().length > 0) {
+        let xPart = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
+        if (xPart.length > 0 && !isIntentOnly(xPart)) {
+          // CRITICAL: Check if X is a known vendor BEFORE treating it as description
+          const rawForTest = xPart.replace(/['"]/g, ''); // Remove apostrophes/quotes for testing
+          const isKnownVendor = knownVendors.test(xPart) || knownVendors.test(rawForTest);
+          
+          if (isKnownVendor) {
+            // "Lowe's for 1000" → vendor="Lowe's", amount=1000, description=null (will ask for it)
+            vendor = xPart;
+            if (match[2]) {
+              const num = parseFloat(match[2].replace(/,/g, ''));
+              if (num >= 1) {
+                amount = num;
+                console.log('✅ Extracted vendor and amount from "X for Y" pattern (X is known vendor):', { vendor, amount, raw });
+                continue; // Skip description extraction
+              }
+            }
+          } else {
+            // "Concrete for 1000" → description="Concrete", amount=1000
+            description = xPart;
+            if (match[2]) {
+              const num = parseFloat(match[2].replace(/,/g, ''));
+              if (num >= 1) {
+                amount = num;
+                console.log('✅ Extracted description and amount from "X for Y" pattern (X is not vendor):', { description, amount, raw });
+              }
+            }
+          }
+        }
+      }
+      // Fallback pattern (without end anchor)
+      if (!description && !vendor) {
+        match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s|$)/i);
+        if (match && match[1] && match[1].trim().length > 0) {
+          let xPart = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
+          if (xPart.length > 0 && !isIntentOnly(xPart)) {
+            // CRITICAL: Check if X is a known vendor BEFORE treating it as description
+            const rawForTest = xPart.replace(/['"]/g, '');
+            const isKnownVendor = knownVendors.test(xPart) || knownVendors.test(rawForTest);
+            
+            if (isKnownVendor) {
+              vendor = xPart;
+              if (match[2]) {
+                const num = parseFloat(match[2].replace(/,/g, ''));
+                if (num >= 1) {
+                  amount = num;
+                  console.log('✅ Extracted vendor and amount from "X for Y" pattern (fallback, X is known vendor):', { vendor, amount, raw });
+                  continue; // Skip description extraction
+                }
+              }
+            } else {
+              description = xPart;
+              if (match[2]) {
+                const num = parseFloat(match[2].replace(/,/g, ''));
+                if (num >= 1) {
+                  amount = num;
+                  console.log('✅ Extracted description and amount from "X for Y" pattern (fallback, X is not vendor):', { description, amount, raw });
+                }
+              }
+            }
+          }
+        }
       }
     }
 
+    // Extract amount separately (only if not already extracted from "X for Y" pattern)
+    if (!amount) {
+      const numbers = text.match(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\b/g);
+      if (numbers && numbers.length > 0) {
+        const parsed = numbers.map(n => parseFloat(n.replace(/,/g, '')));
+        const maxNum = Math.max(...parsed);
+        if (maxNum >= 1) {
+          amount = maxNum;
+        }
+      }
+    }
+    
     // Check if this is a standalone vendor name (known store or answer to "vendor" question)
     const isJustNumber = /^\d+(?:,\d{3})*(?:\.\d+)?\s*$/.test(raw);
     if (!isJustNumber) {
@@ -403,38 +487,10 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
       }
     }
 
-    // Extract description
+    // Extract description (only if not already extracted from "X for Y" pattern above)
     // CRITICAL: Only extract description if we don't already have one AND we don't have vendor
     // This prevents "Floor and decor" from being treated as description when description/amount already exist
     if (!description && !vendor) {
-      // "Concrete for 3000" pattern - PRIORITY: Check this first as it's the most common
-      let match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
-      if (match && match[1].trim().length > 0) {
-        let d = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
-        if (d.length > 0 && !isIntentOnly(d)) { 
-          description = d; 
-          // Also extract amount from this pattern if not already set
-          if (!amount && match[2]) {
-            const num = parseFloat(match[2].replace(/,/g, ''));
-            if (num >= 1) amount = num;
-          }
-          continue; 
-        }
-      }
-      // "Concrete for 3000" pattern (without end anchor, in case there's more text)
-      match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)/i);
-      if (match && match[1].trim().length > 0 && !description) {
-        let d = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
-        if (d.length > 0 && !isIntentOnly(d)) { 
-          description = d; 
-          // Also extract amount from this pattern if not already set
-          if (!amount && match[2]) {
-            const num = parseFloat(match[2].replace(/,/g, ''));
-            if (num >= 1) amount = num;
-          }
-          continue; 
-        }
-      }
       // "Concrete 3000" pattern
       match = raw.match(/^(.+?)\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
       if (match && match[1].trim().length > 0 && !description) {
@@ -2166,6 +2222,33 @@ router.post('/', async (req, res) => {
       return res.json({ reply: question, actions: [], projectUpdateData: null });
     }
 
+    // ── PRE-ROUTER: CHANGE ORDER DETECTION ──────────────────────────────────
+    // Catch change order requests BEFORE router runs to ensure consistent behavior with bubble clicks
+    const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a|the)?\s*(change\s+order|change\s+the\s+order|changeorder)\b/i;
+    const hasChangeOrderIntent = changeOrderPattern.test(messageLower) ||
+                                 /\bchange\s+order\b/i.test(messageLower) ||
+                                 /\bscope\s+change\b/i.test(messageLower) ||
+                                 /\bclient\s+wants\s+to\s+add\b/i.test(messageLower) ||
+                                 /\bextra\s+work\b/i.test(messageLower);
+    
+    // Check if CO fields are already provided in the message
+    const coFieldsInMessage = inferCOFieldsFromUserMessages([{ role: 'user', content: message }]);
+    const hasCOFields = !!(coFieldsInMessage.description && coFieldsInMessage.amount && coFieldsInMessage.vendor);
+    
+    // If this is a change order request but fields are missing, let it go through to router
+    // (router will ask for missing fields). If all fields present, also let it through to execute.
+    // This ensures typed "create a change order" works the same as clicking the bubble
+    if (hasChangeOrderIntent) {
+      console.log('🛑 PRE-ROUTER: Detected change order request', { 
+        hasCOFields, 
+        description: coFieldsInMessage.description,
+        amount: coFieldsInMessage.amount,
+        vendor: coFieldsInMessage.vendor
+      });
+      // Don't return early - let it go through to router which will handle missing fields
+      // This ensures the same flow as clicking the bubble
+    }
+
     // ── STAGE 1: ROUTER ──────────────────────────────────────────────────────
     // Replaces keyword heuristics. GPT decides intent + whether required fields are present.
     logPhase('router_start');
@@ -2257,7 +2340,7 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const changeOrderIntentRegex = /\b(change order|create.*change order|add.*change order|scope change|extra work|client wants to add)\b/i;
+    const changeOrderIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|extra work|client wants to add)\b/i;
     const lastAssistantCOPrompt = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
     ).toLowerCase().includes('change order');
@@ -2316,12 +2399,20 @@ router.post('/', async (req, res) => {
         console.log('🛡️ CO guard: all fields present → forcing execution, tool_args_draft:', routerResult.tool_args_draft);
       } else {
         // Build a natural clarification question listing only missing fields
+        // CRITICAL: Only ask for fields that are actually missing, based on extracted context
         if (coMissing.length === 3) {
           routerResult.clarification_question = 'What is the change order for, the amount, and the vendor?';
         } else if (coMissing.length === 2) {
-          const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
-          const parts = coMissing.map(f => labels[f] || f);
-          routerResult.clarification_question = `What is ${parts[0]} and ${parts[1]}?`;
+          // If description is missing but amount is present, ask specifically for description
+          if (coMissing.includes('description') && !coMissing.includes('amount')) {
+            routerResult.clarification_question = 'What is the change order for?';
+          } else if (coMissing.includes('amount') && !coMissing.includes('description')) {
+            routerResult.clarification_question = 'What is the amount?';
+          } else {
+            const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
+            const parts = coMissing.map(f => labels[f] || f);
+            routerResult.clarification_question = `What is ${parts[0]} and ${parts[1]}?`;
+          }
         } else {
           const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
           routerResult.clarification_question = `What is ${labels[coMissing[0]] || coMissing[0]}?`;
@@ -2619,7 +2710,7 @@ router.post('/', async (req, res) => {
         // PRE-VALIDATION: Check for missing required fields for purchase orders (same logic as materials)
         if (functionName === 'add_purchase_order') {
           // Hard guard: never run PO flow validations while user is in an active change-order flow.
-          const coIntentRegex = /\b(change order|create.*change order|add.*change order|scope change|extra work|client wants to add)\b/i;
+          const coIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|extra work|client wants to add)\b/i;
           const coUserMsgs = getCOFlowUserMessages(messages);
           const inferredCO = inferCOFieldsFromUserMessages(coUserMsgs);
           const isCOFlowNow =

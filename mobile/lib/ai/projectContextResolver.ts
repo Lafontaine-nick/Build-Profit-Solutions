@@ -69,6 +69,13 @@ export function detectProjectIntent(query: string): ProjectIntent {
   ];
   const isActionRequest = actionKeywords.some(kw => lowerQuery.includes(kw));
   
+  // CRITICAL: Detect change order requests - they are actions, not analysis
+  const isChangeOrderRequest = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a\s+)?(change\s+order|changeorder)\b/i.test(lowerQuery) ||
+                               /\bchange\s+order\b/i.test(lowerQuery) ||
+                               /\bscope\s+change\b/i.test(lowerQuery) ||
+                               /\bclient\s+wants\s+to\s+add\b/i.test(lowerQuery) ||
+                               /\bextra\s+work\b/i.test(lowerQuery);
+  
   // Project-specific keywords (including "my project", "this job", "our estimate")
   // But exclude if it's an action request (those need project context but aren't analysis)
   const projectKeywords = [
@@ -82,8 +89,8 @@ export function detectProjectIntent(query: string): ProjectIntent {
   // Needs project context if it mentions project keywords OR is an action request
   const needsProject = projectKeywords.some(kw => lowerQuery.includes(kw)) || isActionRequest;
   
-  // But it's NOT an analysis request if it's an action
-  if (isActionRequest || isExpenseFlow) {
+  // But it's NOT an analysis request if it's an action or change order
+  if (isActionRequest || isExpenseFlow || isChangeOrderRequest) {
     return {
       type: 'other',
       needsProject: true,

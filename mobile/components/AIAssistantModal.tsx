@@ -1017,7 +1017,14 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     const expenseLoggingPattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
     const isExpenseLikeQuery = expenseLoggingPattern.test(query) ||
                               /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(query);
-    if (!isExpenseLikeQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+    // CRITICAL: Detect change order requests - must catch "create change order", "create a change order", etc.
+    const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a\s+)?(change\s+order|changeorder)\b/i;
+    const isChangeOrderQuery = changeOrderPattern.test(query) ||
+                              /\bchange\s+order\b/i.test(query) ||
+                              /\bscope\s+change\b/i.test(query) ||
+                              /\bclient\s+wants\s+to\s+add\b/i.test(query) ||
+                              /\bextra\s+work\b/i.test(query);
+    if (!isExpenseLikeQuery && !isChangeOrderQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
         projectId,
@@ -1576,7 +1583,14 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             const expensePattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
             const isExpenseLikeIntent = expensePattern.test(newMessage.content) ||
                                       /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(newMessage.content);
-            if (!pendingAnalysisType && !isExpenseLikeIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: Detect change order requests - must catch "create change order", "create a change order", etc.
+            const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a\s+)?(change\s+order|changeorder)\b/i;
+            const isChangeOrderIntent = changeOrderPattern.test(newMessage.content) ||
+                                      /\bchange\s+order\b/i.test(newMessage.content) ||
+                                      /\bscope\s+change\b/i.test(newMessage.content) ||
+                                      /\bclient\s+wants\s+to\s+add\b/i.test(newMessage.content) ||
+                                      /\bextra\s+work\b/i.test(newMessage.content);
+            if (!pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
