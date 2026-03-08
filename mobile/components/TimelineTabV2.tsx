@@ -433,14 +433,60 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   
   // Reload timeline when tab is focused to catch payment collection updates
   // This ensures the timeline refreshes when user navigates back to Timeline tab
+  useFocusEffect(
+    useCallback(() => {
+      if (!project?.id) return;
+      console.log('🔄 Timeline tab focused - reloading milestones');
+      setReloadTrigger(prev => prev + 1);
+    }, [project?.id])
+  );
+  
+  // Also reload when project data changes (e.g., after AI marks payment as collected)
+  // This ensures progress updates immediately after external updates
   useEffect(() => {
     if (!project?.id || !isLoaded) return;
-    // Reload once when component becomes ready, then rely on manual refresh or tab focus
+    // Reload once when component becomes ready
     const timer = setTimeout(() => {
       setReloadTrigger(prev => prev + 1);
     }, 100);
     return () => clearTimeout(timer);
   }, [project?.id, isLoaded]);
+  
+  // Reload milestones when project data updates (catches external updates like AI marking payments)
+  // Also reload periodically to catch any external updates
+  useEffect(() => {
+    if (!project?.id || !isLoaded) return;
+    // Small delay to ensure AsyncStorage has been updated
+    const timer = setTimeout(() => {
+      console.log('🔄 Project data changed - reloading milestones to catch external updates');
+      setReloadTrigger(prev => prev + 1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [projectData?.updatedAt, project?.id, isLoaded]);
+  
+  // Periodic check for external updates (e.g., AI marking payments)
+  // This ensures progress updates even if projectData.updatedAt doesn't change
+  useEffect(() => {
+    if (!project?.id || !isLoaded) return;
+    const interval = setInterval(() => {
+      // Only reload if we're on the timeline tab (to avoid unnecessary reloads)
+      // Check if milestones might have been updated externally
+      AsyncStorage.getItem(getStorageKey(project.id)).then(saved => {
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const savedCount = Array.isArray(parsed) ? parsed.length : 0;
+          const currentCount = milestones.length;
+          // If counts differ or any milestone status might have changed, reload
+          if (savedCount !== currentCount) {
+            console.log('🔄 Milestone count changed - reloading timeline');
+            setReloadTrigger(prev => prev + 1);
+          }
+        }
+      }).catch(() => {});
+    }, 2000); // Check every 2 seconds
+    
+    return () => clearInterval(interval);
+  }, [project?.id, isLoaded, milestones.length]);
 
   useEffect(() => {
     if (!isLoaded || !project?.id) return;
@@ -519,7 +565,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     if (!isLoaded || !milestones.length) return;
 
     const rounded = Math.round(overall);
-    if (lastProgressUpdateRef.current === rounded) return;
+    // Always update if lastProgressUpdateRef is -1 (forced recalculation)
+    if (lastProgressUpdateRef.current === rounded && lastProgressUpdateRef.current !== -1) return;
 
     isUpdatingRef.current = true;
     lastProgressUpdateRef.current = rounded;
@@ -929,9 +976,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             </LinearGradient>
           </View>
 
-          {/* All Milestones Section */}
+          {/* All Payments Section */}
           <View style={{ marginTop: 12 }}>
-            {/* Outer green-to-blue border wrapping All Milestones header and all milestone cards */}
+            {/* Outer green-to-blue border wrapping All Payments header and all milestone cards */}
             <LinearGradient
               colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
               start={{ x: 0.05, y: 0.15 }}
@@ -942,7 +989,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                 <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
                   <MaterialIcons name="list" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                    All Milestones
+                    All Payments
                   </Text>
                 </View>
                 <View style={styles.milestonesList}>
@@ -1049,8 +1096,187 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           setEditingMilestone(null);
         }}
         onSave={(updated) => {
-          console.log('💾 Saving milestone:', updated.id, updated.title);
-          setMilestones((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+          console.log('💾 Saving milestone:', updated.id, updated.title, 'status:', updated.status);
+          
+          // Check if this is a payment milestone being marked as completed
+          const isPayment = (updated.amount && updated.amount > 0) || 
+                           (updated.title?.toLowerCase().includes('payment') || 
+                            updated.title?.toLowerCase().includes('week'));
+          const isBeingCompleted = updated.status === 'completed';
+          
+          console.log('🔍 Payment check:', { isPayment, isBeingCompleted, amount: updated.amount, title: updated.title });
+          
+          if (isPayment && isBeingCompleted) {
+            // Get all payment milestones from current state (before update)
+            // Include the updated milestone in the list for sorting
+            const currentMilestone = milestones.find(m => m.id === updated.id);
+            const updatedMilestoneForCheck = currentMilestone ? { ...currentMilestone, ...updated } : updated;
+            
+            const allMilestonesWithUpdate = milestones.map(m => 
+              m.id === updated.id ? updatedMilestoneForCheck : m
+            );
+            
+            const paymentMilestones = allMilestonesWithUpdate
+              .filter(m => {
+                const mIsPayment = (m.amount && m.amount > 0) || 
+                                  (m.title?.toLowerCase().includes('payment') || 
+                                   m.title?.toLowerCase().includes('week'));
+                return mIsPayment;
+              })
+              .sort((a, b) => {
+                // Sort by planned date or by title (Week 1, Week 2, etc.)
+                const dateA = new Date(a.plannedDate).getTime();
+                const dateB = new Date(b.plannedDate).getTime();
+                if (dateA !== dateB) return dateA - dateB;
+                // If dates are same, sort by title
+                return (a.title || '').localeCompare(b.title || '');
+              });
+            
+            console.log('📊 Payment milestones found:', paymentMilestones.length);
+            console.log('📊 Payment milestones:', paymentMilestones.map(m => ({ 
+              id: m.id, 
+              title: m.title, 
+              status: m.status, 
+              date: m.plannedDate 
+            })));
+            
+            // Check if this is the last payment
+            const lastPayment = paymentMilestones[paymentMilestones.length - 1];
+            const isLastPayment = lastPayment && lastPayment.id === updated.id;
+            
+            console.log('🔍 Last payment check:', { 
+              isLastPayment, 
+              lastPaymentId: lastPayment?.id, 
+              updatedId: updated.id,
+              totalPayments: paymentMilestones.length 
+            });
+            
+            // Check if all other payments are completed
+            const otherPayments = paymentMilestones.filter(m => m.id !== updated.id);
+            const allOtherPaymentsCompleted = otherPayments.length === 0 || 
+              otherPayments.every(m => m.status === 'completed');
+            
+            console.log('🔍 Other payments check:', { 
+              otherPaymentsCount: otherPayments.length,
+              allOtherPaymentsCompleted,
+              otherPaymentsStatuses: otherPayments.map(m => ({ id: m.id, title: m.title, status: m.status }))
+            });
+            
+            if (isLastPayment && allOtherPaymentsCompleted) {
+              console.log('✅ Final payment detected! Showing confirmation dialog');
+              // Show confirmation dialog - return false to indicate we're handling the save
+              Alert.alert(
+                "Final Payment",
+                "Is this the final payment?\n\nIs job complete?",
+                [
+                    {
+                      text: "No",
+                      style: "cancel",
+                      onPress: () => {
+                        console.log('❌ User said no - just saving milestone');
+                        // Just save the milestone without changing project status
+                        setMilestones((prev) => {
+                          const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
+                          console.log('💾 Saved milestone with status:', updated.status);
+                          
+                          // Immediately calculate and update progress
+                          const newOverall = computeOverallPct(updatedMilestones);
+                          const roundedProgress = Math.round(newOverall);
+                          console.log(`📊 Immediately updating progress to ${roundedProgress}% after save (${updatedMilestones.length} milestones)`);
+                          
+                          // Update project progress immediately
+                          if (project?.id && updateProject) {
+                            updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
+                            console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
+                          }
+                          
+                          lastProgressUpdateRef.current = -1;
+                          isUpdatingRef.current = false;
+                          
+                          return updatedMilestones;
+                        });
+                        setEditingMilestone(null);
+                      },
+                    },
+                    {
+                      text: "Yes",
+                      onPress: () => {
+                        console.log('✅ User confirmed - marking project as completed');
+                        // Save the milestone FIRST with completed status
+                        setMilestones((prev) => {
+                          const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
+                          console.log('💾 Saved milestone with status:', updated.status);
+                          
+                          // Immediately calculate and update progress (should be 100%)
+                          const newOverall = computeOverallPct(updatedMilestones);
+                          const roundedProgress = Math.round(newOverall);
+                          console.log(`📊 Immediately updating progress to ${roundedProgress}% after final payment (${updatedMilestones.length} milestones)`);
+                          
+                          // Update project progress immediately
+                          if (project?.id && updateProject) {
+                            updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
+                            console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
+                          }
+                          
+                          lastProgressUpdateRef.current = -1;
+                          isUpdatingRef.current = false;
+                          
+                          return updatedMilestones;
+                        });
+                        
+                        // Close the modal
+                        setEditingMilestone(null);
+                        
+                        // Update project status to completed AFTER a brief delay to ensure milestone is saved
+                        setTimeout(() => {
+                          if (project?.id && updateProject) {
+                            console.log('🔄 Updating project status to completed');
+                            updateProject(project.id, { status: 'completed', progress: 100, overallProgressPct: 100 });
+                            if (Platform.OS === 'ios') {
+                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            }
+                            Alert.alert(
+                              "✅ Project Completed",
+                              "Project is now marked as completed.",
+                              [{ text: "OK" }]
+                            );
+                          }
+                        }, 100);
+                      },
+                    },
+                ]
+              );
+              return false; // Return false to indicate we're handling the save, don't close modal yet
+            } else {
+              console.log('⚠️ Not final payment or other payments not completed:', {
+                isLastPayment,
+                allOtherPaymentsCompleted
+              });
+            }
+          }
+          
+          // Normal save (not final payment or user said no)
+          console.log('💾 Normal save (not final payment)');
+          setMilestones((prev) => {
+            const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
+            // Force progress recalculation by resetting the last progress update ref
+            // This ensures progress updates even if the value hasn't changed significantly
+            lastProgressUpdateRef.current = -1;
+            isUpdatingRef.current = false; // Allow update to proceed
+            
+            // Immediately calculate and update progress
+            const newOverall = computeOverallPct(updatedMilestones);
+            const roundedProgress = Math.round(newOverall);
+            console.log(`📊 Immediately updating progress to ${roundedProgress}% after manual save (${updatedMilestones.length} milestones)`);
+            
+            // Update project progress immediately (don't wait for useEffect)
+            if (project?.id && updateProject) {
+              updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
+              console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
+            }
+            
+            return updatedMilestones;
+          });
           setEditingMilestone(null);
         }}
         onDelete={deleteMilestone}

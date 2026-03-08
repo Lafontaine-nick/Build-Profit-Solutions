@@ -10,16 +10,19 @@ import {
   Animated,
   Dimensions,
   Modal,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useAIManagerMode } from "@/hooks/useAIManagerMode";
 import AIAssistantModal from "@/components/AIAssistantModal";
 import ProfileAnalytics from "@/components/ProfileAnalytics";
+import GreyCalendar from "@/components/GreyCalendar";
 import * as Haptics from "expo-haptics";
 import { apiService } from "@/services/api";
 import type { AiDashboardResponse } from "@/types/aiDashboard";
@@ -27,10 +30,70 @@ import { clerkAuthService } from "@/services/clerkAuth";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { CalendarEvent } from "@/components/ProjectCalendar";
+
+// Helper to calculate progress from milestone items (same logic as TimelineTabV2 and projects.tsx)
+const computeOverallPctFromItems = (items: any[]): number => {
+  if (!items || !Array.isArray(items) || items.length === 0) return 0;
+  const sum = items.reduce((acc, m) => {
+    const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
+    return acc + pct;
+  }, 0);
+  return Math.round(sum / items.length);
+};
+
+const toFiniteNumber = (value: any): number => {
+  if (value == null) return 0;
+  const num = typeof value === 'string' ? Number(value.replace(/[$,\s]/g, '')) : Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : 0;
+};
+
+const progressFromItems = (items: any[]): number => {
+  if (!items || !Array.isArray(items) || items.length === 0) return 0;
+  const total = items.reduce((sum, item) => {
+    if (item.status === 'completed') return sum + 100;
+    if (item.status === 'in_progress') return sum + 50;
+    return sum;
+  }, 0);
+  return Math.round(total / items.length);
+};
+
+const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
+  // First, check if we have timeline progress from AsyncStorage (source of truth)
+  if (timelineProgressMap[projectId] !== undefined) {
+    return timelineProgressMap[projectId];
+  }
+
+  // Fallback to direct progress fields
+  const directProgress = Math.max(
+    toFiniteNumber(project?.overallProgressPct),
+    toFiniteNumber(project?.progress)
+  );
+
+  // Fallback to calculating from project's milestone/weeklyPayment arrays
+  const milestonesCandidates = [
+    project?.milestones,
+    project?.projectData?.milestones,
+    project?.estimateData?.milestones,
+    project?.estimateData?.paymentMilestones,
+  ];
+  const weeklyCandidates = [
+    project?.weeklyPayments,
+    project?.projectData?.weeklyPayments,
+    project?.estimateData?.weeklyPayments,
+  ];
+
+  const derivedFromMilestones = Math.max(...milestonesCandidates.map((items) => progressFromItems(items)));
+  const derivedFromWeekly = Math.max(...weeklyCandidates.map((items) => progressFromItems(items)));
+
+  // Use the strongest available signal so weekly and milestone schedules are treated equally.
+  return Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
+};
 
 const { width } = Dimensions.get("window");
 
-type TabKey = "overview" | "analytics" | "insights";
+type TabKey = "overview" | "analytics" | "calendar" | "insights";
 
 // Format currency to show exact value (matching projects page) - no rounding
 const formatCurrencyExact = (value: number) => {
@@ -83,24 +146,88 @@ const sanitizePositiveNumber = (value: any): number => {
 
 const getProjectRevenue = (project: any): number => {
   if (!project) return 0;
-  const candidates: any[] = [
-    project?.bidPrice,
-    project?.projectData?.bidPrice,
-    project?.projectData?.totalBidPrice,
-    project?.estimateData?.bidPrice,
-    project?.estimateData?.grandTotal,
-    project?.total,
-    project?.totalRevenue,
-    project?.contractValue,
-    project?.estimatedCost,
+
+  // CRITICAL: Use the SAME logic as projects.tsx to ensure consistency
+  // Original budget MUST come from estimate/contract fields ONLY
+  // NEVER use projectData.budgeted or project.budgeted - these may already include change orders!
+  const originalBudgetCandidates: any[] = [
+    project?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal
+    project?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
+    project?.estimateData?.total,           // Tertiary: estimate's total
+    project?.bidPrice,                      // Fallback: project's bidPrice
+    project?.projectData?.bidPrice,         // Fallback: projectData bidPrice
+    project?.projectData?.totalBidPrice,    // Fallback: projectData totalBidPrice
+    project?.total,                         // Fallback: project total
+    project?.totalRevenue,                  // Fallback: totalRevenue
+    project?.contractValue,                 // Fallback: contractValue
   ];
-  for (const candidate of candidates) {
+
+  let originalBudget = 0;
+  for (const candidate of originalBudgetCandidates) {
     const sanitized = sanitizePositiveNumber(candidate);
     if (sanitized > 0) {
-      return sanitized;
+      originalBudget = sanitized;
+      break;
     }
   }
-  return 0;
+
+  // If no original estimate value exists, return 0
+  if (originalBudget <= 0) {
+    if (__DEV__) {
+      const projectName = project?.title || project?.name || 'Unknown';
+      console.warn(`⚠️ [Dashboard] No original budget found for ${projectName}. Estimate fields missing.`);
+    }
+    return 0;
+  }
+
+  // Collect change orders from all possible locations and compute approved total
+  const changeOrderSources: any[] = [
+    project?.projectData?.changeOrders,
+    project?.changeOrders,
+    (project as any)?.rawProject?.projectData?.changeOrders,
+    (project as any)?.rawProject?.changeOrders,
+  ];
+
+  const collected: any[] = [];
+  for (const source of changeOrderSources) {
+    if (Array.isArray(source) && source.length > 0) {
+      collected.push(...source);
+    }
+  }
+
+  // Deduplicate by id when available, otherwise by title+amount signature
+  const seen = new Set<string>();
+  const uniqueChangeOrders = collected.filter((co: any) => {
+    const key = co?.id != null
+      ? `id:${String(co.id)}`
+      : `sig:${String(co?.title || '')}:${String(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  let approvedChangeOrdersTotal = uniqueChangeOrders.reduce(
+    (sum, co) => {
+      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
+      const isApproved =
+        (typeof co.approved === 'boolean' && co.approved) ||
+        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
+      return isApproved ? sum + amount : sum;
+    },
+    0
+  );
+
+  // Legacy fallback: some records persist only aggregate CO total
+  if (approvedChangeOrdersTotal <= 0) {
+    approvedChangeOrdersTotal = sanitizePositiveNumber(
+      project?.projectData?.changeOrderTotal ??
+      (project as any)?.changeOrderTotal ??
+      (project as any)?.rawProject?.projectData?.changeOrderTotal
+    );
+  }
+
+  // Core rule: adjusted budget = original budget + approved COs
+  return originalBudget + approvedChangeOrdersTotal;
 };
 
 // Status theme matching projects page
@@ -121,22 +248,34 @@ const computePipelineTotals = (projects: any[]) => {
     const status = (project?.status || "").toString().toLowerCase();
     const revenue = getProjectRevenue(project);
 
-    // Total Bids includes: active projects (won, in_progress, active) AND submitted bids (bid_submitted, submitted)
-    if (
-      [
-        "won",
-        "in_progress",
-        "in-progress",
-        "active",
-        "bid_submitted",
-        "submitted",
-      ].includes(status)
-    ) {
+    // Total Bids includes: active projects (won, in_progress, active) AND submitted bids (bid_submitted, submitted) AND completed projects
+    const validStatuses = [
+      "won",
+      "in_progress",
+      "in-progress",
+      "active",
+      "bid_submitted",
+      "submitted",
+      "completed",
+    ];
+    
+    // Total Bids includes: active projects (won, in_progress, active) AND submitted bids (bid_submitted, submitted) AND completed projects
+    if (validStatuses.includes(status)) {
       totalBidValue += revenue;
+      if (__DEV__ && revenue > 0) {
+        console.log(`[Dashboard] Adding to totalBids: ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
+      }
+    } else if (__DEV__ && revenue > 0) {
+      console.log(`[Dashboard] Skipping project (invalid status): ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
     }
 
-    if (["active", "completed", "won", "in_progress", "in-progress"].includes(status)) {
+    // Active Projects includes: only active projects (won, in_progress, active) - NOT submitted, NOT completed
+    const activeStatuses = ["active", "won", "in_progress", "in-progress"];
+    if (activeStatuses.includes(status)) {
       activeProjectsValue += revenue;
+      if (__DEV__ && revenue > 0) {
+        console.log(`[Dashboard] Adding to activeProjects: ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
+      }
     }
 
     if (status === "completed" && revenue > 0) {
@@ -162,11 +301,680 @@ const computePipelineTotals = (projects: any[]) => {
   });
 
   // Return exact values (no rounding) to match projects page
+  if (__DEV__) {
+    console.log(`[Dashboard] computePipelineTotals result: totalBidValue=$${totalBidValue.toFixed(2)}, activeProjectsValue=$${activeProjectsValue.toFixed(2)}, projects processed=${projects.length}`);
+  }
+  
   return { 
     totalBidValue: totalBidValue, 
     activeProjectsValue: activeProjectsValue, 
     completedProfit: completedProfit 
   };
+};
+
+// Master Calendar View - aggregates events from all projects
+const PAYMENT_KEYWORDS = ['payment', 'deposit', 'milestone', 'weekly pay', 'draw'];
+const INSPECTION_KEYWORDS = ['inspection', 'inspect'];
+const PHASE_KEYWORDS = ['concrete', 'framing', 'drywall', 'electrical', 'plumbing', 'roof', 'foundation', 'demo', 'paint', 'phase', 'install', 'installation', 'start'];
+const DELIVERY_KEYWORDS = ['delivery', 'deliver', 'pickup', 'pick up', 'purchase order', 'po ', 'lumber', 'cabinet', 'tile'];
+const DEADLINE_KEYWORDS = ['deadline', 'due', 'permit', 'completion', 'complete by', 'final', 'project completion', 'framing completion'];
+const NOISE_KEYWORDS = ['daily log', 'receipt', 'checklist', 'internal reminder', 'small task', 'note only', 'todo'];
+
+const CALENDAR_CATEGORY_COLORS = {
+  payment: '#22c55e', // green
+  inspection: '#f59e0b', // yellow
+  phase: '#3b82f6', // blue
+  delivery: '#8b5cf6', // purple
+  deadline: '#ef4444', // red
+} as const;
+
+type MasterCalendarViewProps = {
+  activeProjects: any[];
+  estimates: any[];
+};
+
+const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects, estimates }) => {
+  const { theme, darkMode } = useTheme();
+  const Colors = React.useMemo(() => getColors(theme), [theme]);
+  const [allEvents, setAllEvents] = React.useState<Array<CalendarEvent & { projectId: string; projectName: string }>>([]);
+  const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
+  const [showDateEventsModal, setShowDateEventsModal] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+
+  const includesAny = (value: string, keywords: readonly string[]) =>
+    keywords.some((k) => value.includes(k));
+
+  const toISODate = (value: any): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value.split('T')[0];
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().split('T')[0];
+  };
+
+  const categoryToType = (category: 'payment' | 'inspection' | 'phase' | 'delivery' | 'deadline'): CalendarEvent['type'] => {
+    switch (category) {
+      case 'payment': return 'payment';
+      case 'inspection': return 'inspection';
+      case 'phase': return 'work';
+      case 'delivery': return 'delivery';
+      case 'deadline': return 'deadline';
+    }
+  };
+
+  // Load and aggregate events from active projects only
+  React.useEffect(() => {
+    const loadAllEvents = async () => {
+      setLoading(true);
+      const nowIso = new Date().toISOString();
+      const result: Array<CalendarEvent & { projectId: string; projectName: string }> = [];
+      const seen = new Set<string>();
+
+      const pushUnique = (event: CalendarEvent & { projectId: string; projectName: string }) => {
+        // Validate event has required fields
+        if (!event.projectId || !event.date) {
+          if (__DEV__) {
+            console.warn(`📅 Master Calendar: Skipping invalid event - missing projectId or date:`, event);
+          }
+          return;
+        }
+        
+        const key = `${event.projectId}|${event.calendarCategory || 'other'}|${event.date}|${event.title}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(event);
+      };
+
+      // Master calendar should only reflect ACTIVE projects
+      const allProjects = [...activeProjects];
+      
+      // Create a Set of valid project IDs and names for quick lookup (normalize to strings)
+      const validProjectIds = new Set<string>();
+      const validProjectNames = new Set<string>();
+      allProjects.forEach(p => {
+        if (p?.id) {
+          const id = String(p.id);
+          const name = (p.title || p.name || '').toLowerCase().trim();
+          validProjectIds.add(id);
+          if (name) {
+            validProjectNames.add(name);
+          }
+          if (__DEV__) {
+            console.log(`📅 Master Calendar: Valid project - ID: ${id}, Name: ${p.title || p.name || 'Untitled'}`);
+          }
+        }
+      });
+      
+      if (__DEV__) {
+        console.log('📅 Master Calendar: Processing active projects only:', allProjects.length);
+        console.log('📅 Master Calendar: Valid active project IDs:', Array.from(validProjectIds));
+        console.log('📅 Master Calendar: activeProjects:', activeProjects.length);
+      }
+
+      // Only process projects that are in the valid list
+      const projectsToProcess = allProjects.filter(p => {
+        if (!p?.id) return false;
+        const id = String(p.id);
+        return validProjectIds.has(id);
+      });
+
+      if (__DEV__) {
+        console.log(`📅 Master Calendar: Processing ${projectsToProcess.length} valid projects out of ${allProjects.length} total`);
+      }
+
+      for (const project of projectsToProcess) {
+        const projectId = String(project.id);
+        const projectName = project.title || project.name || 'Untitled Project';
+        const projectData = project.projectData || project;
+
+        // Double-check project is still valid before loading any data
+        if (!validProjectIds.has(projectId)) {
+          if (__DEV__) {
+            console.warn(`📅 Master Calendar: Skipping project ${projectId} (${projectName}) - not in valid list`);
+          }
+          continue;
+        }
+
+        try {
+          const key = `calendar_events_${projectId}`;
+          const saved = await AsyncStorage.getItem(key);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((event: CalendarEvent) => {
+                // CRITICAL: Only process events that belong to this project
+                // If event has a projectId, it must match the current projectId
+                const eventProjectId = String(event.projectId || '').trim();
+                if (eventProjectId && eventProjectId !== projectId) {
+                  if (__DEV__) {
+                    console.warn(`📅 Master Calendar: Skipping event with mismatched projectId. Event projectId: "${eventProjectId}", Current projectId: "${projectId}"`);
+                  }
+                  return;
+                }
+                
+                const text = `${event.title || ''} ${event.notes || ''}`.toLowerCase();
+                if (includesAny(text, NOISE_KEYWORDS)) return;
+                
+                let category: CalendarEvent['calendarCategory'] | null = null;
+                if (event.type === 'payment' || includesAny(text, PAYMENT_KEYWORDS)) category = 'payment';
+                else if (event.type === 'inspection' || includesAny(text, INSPECTION_KEYWORDS)) category = 'inspection';
+                else if (event.type === 'delivery' || includesAny(text, DELIVERY_KEYWORDS)) category = 'delivery';
+                else if (event.type === 'deadline' || includesAny(text, DEADLINE_KEYWORDS)) category = 'deadline';
+                else if (event.type === 'work' || includesAny(text, PHASE_KEYWORDS)) category = 'phase';
+                
+                if (!category) return;
+                // Ensure projectId and projectName are set correctly (always use current project)
+                pushUnique({ 
+                  ...event, 
+                  calendarCategory: category, 
+                  projectId: projectId, // ALWAYS use current project ID
+                  projectName: projectName // ALWAYS use current project name
+                });
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error loading calendar events for project ${projectId}:`, error);
+        }
+
+        // 2. Payments from milestones (only if project still exists)
+        if (!validProjectIds.has(projectId)) {
+          continue; // Skip payments for deleted projects
+        }
+
+        const paymentMilestones: any[] = [];
+        if (projectData?.milestones?.length) paymentMilestones.push(...projectData.milestones);
+        if (projectData?.weeklyPayments?.length) {
+          projectData.weeklyPayments.forEach((w: any, i: number) => {
+            paymentMilestones.push({
+              id: w.id || `week-${i}`,
+              name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+              amount: w.amount || 0,
+              scheduledDate: w.scheduledDate,
+              dueDate: w.scheduledDate,
+              status: w.status || 'pending',
+            });
+          });
+        }
+        if (projectData?.estimateData?.paymentMilestones?.length) {
+          paymentMilestones.push(...projectData.estimateData.paymentMilestones);
+        }
+        if (projectData?.estimateData?.weeklyPayments?.length) {
+          projectData.estimateData.weeklyPayments.forEach((w: any, i: number) => {
+            paymentMilestones.push({
+              id: w.id || `week-${i}`,
+              name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+              amount: w.amount || 0,
+              scheduledDate: w.scheduledDate,
+              dueDate: w.scheduledDate,
+              status: w.status || 'pending',
+            });
+          });
+        }
+
+        paymentMilestones.forEach((m: any) => {
+          const date = toISODate(m.scheduledDate || m.dueDate || m.dateISO || m.date || m.plannedDate);
+          if (!date) return;
+          const amount = Number(m.paymentAmount || m.amount || 0);
+          const isCollected = m.status === 'completed' || m.status === 'paid' || m.collected || m.isPaid;
+          pushUnique({
+            id: `payment-${projectId}-${m.id || `${date}-${amount}`}`,
+            title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`,
+            date,
+            type: 'payment',
+            calendarCategory: 'payment',
+            notes: isCollected ? 'Payment collected' : 'Payment due',
+            completed: Boolean(isCollected),
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            projectId,
+            projectName,
+          });
+        });
+
+        // 3. Timeline milestones
+        try {
+          const timelineKey = `bps.timeline.v2.${projectId}`;
+          const saved = await AsyncStorage.getItem(timelineKey);
+          if (saved) {
+            const timelineItems = JSON.parse(saved);
+            if (Array.isArray(timelineItems)) {
+              timelineItems.forEach((item: any) => {
+                const date = toISODate(item.scheduledDate || item.dueDate || item.date || item.plannedDate);
+                if (!date) return;
+                const text = `${item.title || item.name || ''} ${item.description || ''}`.toLowerCase();
+                if (includesAny(text, NOISE_KEYWORDS)) return;
+
+                let category: CalendarEvent['calendarCategory'] | null = null;
+                const amount = Number(item.amount || item.paymentAmount || 0);
+                if (amount > 0 || includesAny(text, PAYMENT_KEYWORDS)) category = 'payment';
+                else if (includesAny(text, INSPECTION_KEYWORDS)) category = 'inspection';
+                else if (includesAny(text, DELIVERY_KEYWORDS)) category = 'delivery';
+                else if (includesAny(text, DEADLINE_KEYWORDS)) category = 'deadline';
+                else if (includesAny(text, PHASE_KEYWORDS)) category = 'phase';
+                if (!category) return;
+
+                pushUnique({
+                  id: `timeline-${projectId}-${item.id || `${date}-${item.title || item.name || 'milestone'}`}`,
+                  title: category === 'payment'
+                    ? `${item.title || item.name || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`
+                    : (item.title || item.name || 'Milestone'),
+                  date,
+                  type: categoryToType(category),
+                  calendarCategory: category,
+                  notes: item.description,
+                  completed: item.status === 'completed' || Number(item.progressPct || 0) >= 100,
+                  createdAt: item.createdAt || nowIso,
+                  updatedAt: item.updatedAt || nowIso,
+                  projectId,
+                  projectName,
+                });
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error loading timeline for project ${projectId}:`, error);
+        }
+
+        // 4. Deliveries from POs
+        if (projectData?.purchaseOrders?.length) {
+          projectData.purchaseOrders.forEach((po: any) => {
+            const date = toISODate(po.expectedDelivery);
+            if (!date) return;
+            pushUnique({
+              id: `po-${projectId}-${po.id || `${po.poNumber || 'po'}-${date}`}`,
+              title: `Delivery: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
+              date,
+              type: 'delivery',
+              calendarCategory: 'delivery',
+              notes: po.description || po.notes || (po.poNumber ? `PO ${po.poNumber}` : undefined),
+              completed: po.status === 'Received',
+              createdAt: po.orderDate || nowIso,
+              updatedAt: nowIso,
+              projectId,
+              projectName,
+            });
+          });
+        }
+
+        // 5. Project end date deadline
+        const projectEndDate = toISODate(projectData?.endISO || projectData?.endDate || project.endDate);
+        if (projectEndDate) {
+          pushUnique({
+            id: `project-deadline-${projectId}`,
+            title: 'Project completion deadline',
+            date: projectEndDate,
+            type: 'deadline',
+            calendarCategory: 'deadline',
+            notes: `${projectName} target completion`,
+            completed: false,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            projectId,
+            projectName,
+          });
+        }
+      }
+
+      // Aggressively filter out events from deleted projects
+      // Only keep events where the projectId matches a valid project
+      const validEvents = result.filter(event => {
+        const eventProjectId = String(event.projectId || '').trim();
+        const eventProjectName = (event.projectName || '').trim();
+        
+        // Check by ID (most reliable)
+        const isValidById = eventProjectId && validProjectIds.has(eventProjectId);
+        
+        if (!isValidById) {
+          if (__DEV__) {
+            console.warn(`📅 Master Calendar: FILTERING OUT event from deleted project:`);
+            console.warn(`  - ProjectId: "${eventProjectId}"`);
+            console.warn(`  - ProjectName: "${eventProjectName}"`);
+            console.warn(`  - Event Title: "${event.title}"`);
+            console.warn(`  - Event Date: "${event.date}"`);
+            console.warn(`  - Valid Project IDs:`, Array.from(validProjectIds).sort());
+            console.warn(`  - Valid Project Names:`, Array.from(validProjectNames).sort());
+          }
+          return false;
+        }
+        
+        return true;
+      });
+      
+      const sortedEvents = validEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      if (__DEV__) {
+        console.log('📅 Master Calendar: Loaded events (before filter):', result.length);
+        console.log('📅 Master Calendar: Valid events (after filter):', sortedEvents.length);
+        if (sortedEvents.length > 0) {
+          console.log('📅 Master Calendar: Sample events:', sortedEvents.slice(0, 3).map(e => ({ date: e.date, title: e.title, projectId: e.projectId, projectName: e.projectName, category: e.calendarCategory })));
+        }
+        // Check for events from deleted projects
+        const deletedProjectEvents = result.filter(event => !validProjectIds.has(String(event.projectId)));
+        if (deletedProjectEvents.length > 0) {
+          console.warn('📅 Master Calendar: Found events from deleted projects:', deletedProjectEvents.map(e => ({ projectId: e.projectId, projectName: e.projectName, title: e.title })));
+        }
+      }
+      setAllEvents(sortedEvents);
+      setLoading(false);
+    };
+
+    loadAllEvents();
+  }, [activeProjects, estimates]);
+
+  // Format events for GreyCalendar
+  const calendarEvents = React.useMemo(() => {
+    const formatted = allEvents.map(event => ({
+      date: event.date,
+      type: event.calendarCategory
+        ? CALENDAR_CATEGORY_COLORS[event.calendarCategory]
+        : '#8b5cf6',
+      color: event.calendarCategory
+        ? CALENDAR_CATEGORY_COLORS[event.calendarCategory]
+        : '#8b5cf6',
+    }));
+    if (__DEV__) {
+      console.log('📅 Master Calendar: Formatted events for display:', formatted.length);
+      if (formatted.length > 0) {
+        console.log('📅 Master Calendar: Sample formatted events:', formatted.slice(0, 3));
+      }
+    }
+    return formatted;
+  }, [allEvents]);
+
+  // Get events for a specific date
+  const getEventsForDate = React.useCallback((dateStr: string): Array<CalendarEvent & { projectId: string; projectName: string }> => {
+    return allEvents.filter(event => event.date === dateStr);
+  }, [allEvents]);
+
+  // Get event color and icon helpers
+  const getEventColor = React.useCallback((event: CalendarEvent & { projectId: string; projectName: string }) => {
+    if (event.calendarCategory) {
+      return CALENDAR_CATEGORY_COLORS[event.calendarCategory];
+    }
+    // Fallback to type-based colors
+    const typeColors: Record<string, string> = {
+      inspection: '#f59e0b', // yellow
+      work: '#3b82f6', // blue
+      delivery: '#8b5cf6', // purple
+      payment: '#22c55e', // green
+      deadline: '#ef4444', // red
+      other: '#f97316', // orange
+    };
+    return typeColors[event.type] || '#8b5cf6';
+  }, []);
+
+  const getEventIcon = React.useCallback((event: CalendarEvent & { projectId: string; projectName: string }) => {
+    if (event.calendarCategory) {
+      const categoryIcons: Record<string, string> = {
+        payment: 'attach-money',
+        inspection: 'fact-check',
+        phase: 'construction',
+        delivery: 'local-shipping',
+        deadline: 'event-busy',
+      };
+      return categoryIcons[event.calendarCategory] || 'calendar';
+    }
+    const typeIcons: Record<string, string> = {
+      inspection: 'clipboard-check',
+      delivery: 'truck',
+      work: 'hammer',
+      payment: 'attach-money',
+      deadline: 'event-busy',
+      other: 'alert-circle',
+    };
+    return typeIcons[event.type] || 'calendar';
+  }, []);
+
+  // Removed markedDates - only current date should be highlighted, not selected dates
+
+  const COLORS = darkMode
+    ? {
+        bg: '#000000',
+        surface: '#0f172a',
+        surface2: '#1e293b',
+        text: '#f1f5f9',
+        subtext: '#94a3b8',
+        border: '#334155',
+        green: '#22c55e',
+      }
+    : {
+        bg: '#ffffff',
+        surface: '#f8fafc',
+        surface2: '#f1f5f9',
+        text: '#0f172a',
+        subtext: '#64748b',
+        border: '#e2e8f0',
+        green: '#22c55e',
+      };
+
+  return (
+    <>
+      <View style={{ marginTop: 8, marginBottom: 24 }}>
+        <GreyCalendar
+          onDayPress={({ dateString }) => {
+            setSelectedDate(dateString);
+            const eventsOnDate = getEventsForDate(dateString);
+            if (eventsOnDate.length > 0) {
+              setShowDateEventsModal(true);
+            } else {
+              setSelectedDate(null);
+            }
+            if (Platform.OS === 'ios') {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+          }}
+          events={calendarEvents}
+        />
+      </View>
+
+      {/* Date Events Modal */}
+      <Modal
+        visible={showDateEventsModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowDateEventsModal(false);
+          setSelectedDate(null);
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'flex-end',
+        }}>
+          <View style={{
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: '90%',
+            paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+            backgroundColor: COLORS.surface,
+          }}>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+            }}>
+              <Text style={{
+                fontSize: 20,
+                fontWeight: '700',
+                color: COLORS.text,
+              }}>
+                {selectedDate ? (() => {
+                  const [year, month, day] = selectedDate.split('-').map(Number);
+                  const date = new Date(year, month - 1, day);
+                  return date.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  });
+                })() : 'Events'}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setShowDateEventsModal(false);
+                  setSelectedDate(null);
+                }}
+              >
+                <Ionicons name="close" size={24} color={COLORS.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ padding: 20 }} showsVerticalScrollIndicator={false}>
+              {selectedDate && (() => {
+                const eventsOnDate = getEventsForDate(selectedDate);
+                if (eventsOnDate.length === 0) {
+                  return (
+                    <View style={{ alignItems: 'center', paddingVertical: 48 }}>
+                      <Ionicons name="calendar-outline" size={48} color={COLORS.subtext} />
+                      <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, color: COLORS.text }}>
+                        No events on this date
+                      </Text>
+                    </View>
+                  );
+                }
+                return (
+                  <>
+                    {eventsOnDate.map((event) => (
+                      <Pressable
+                        key={event.id}
+                        style={{
+                          flexDirection: 'row',
+                          borderRadius: 12,
+                          padding: 12,
+                          marginBottom: 12,
+                          borderWidth: 1,
+                          backgroundColor: COLORS.surface2,
+                          borderColor: COLORS.border,
+                        }}
+                      >
+                        <View style={{
+                          width: 4,
+                          borderRadius: 2,
+                          marginRight: 12,
+                          backgroundColor: getEventColor(event),
+                        }} />
+                        <View style={{ flex: 1 }}>
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 4,
+                          }}>
+                            <Text style={{
+                              fontSize: 16,
+                              fontWeight: '600',
+                              flex: 1,
+                              color: COLORS.text,
+                            }}>{event.title}</Text>
+                            <MaterialIcons
+                              name={getEventIcon(event) as any}
+                              size={16}
+                              color={getEventColor(event)}
+                            />
+                          </View>
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            marginTop: 4,
+                          }}>
+                            <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
+                            <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                              {event.projectName || 'Project'}
+                            </Text>
+                          </View>
+                          {event.time && (
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginTop: 4,
+                            }}>
+                              <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
+                              <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                                {event.time}
+                              </Text>
+                            </View>
+                          )}
+                          {event.notes && (
+                            <Text style={{
+                              fontSize: 12,
+                              marginTop: 6,
+                              color: COLORS.subtext,
+                            }} numberOfLines={2}>
+                              {event.notes}
+                            </Text>
+                          )}
+                          {event.calendarCategory && (
+                            <View style={{ marginTop: 4 }}>
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 6,
+                                alignSelf: 'flex-start',
+                                backgroundColor: `${getEventColor(event)}20`,
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.5,
+                                  color: getEventColor(event),
+                                }}>
+                                  {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                                </Text>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                        {event.completed && (
+                          <View style={{ padding: 8, marginLeft: 8 }}>
+                            <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                          </View>
+                        )}
+                      </Pressable>
+                    ))}
+                  </>
+                );
+              })()}
+            </ScrollView>
+
+            <View style={{
+              flexDirection: 'row',
+              gap: 12,
+              padding: 20,
+              borderTopWidth: 1,
+              borderTopColor: 'rgba(255, 255, 255, 0.1)',
+            }}>
+              <Pressable
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  backgroundColor: COLORS.border,
+                }}
+                onPress={() => {
+                  setShowDateEventsModal(false);
+                  setSelectedDate(null);
+                }}
+              >
+                <Text style={{
+                  color: '#fff',
+                  fontSize: 16,
+                  fontWeight: '700',
+                }}>Close</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
 };
 
 const DashboardScreen: React.FC = () => {
@@ -183,6 +991,7 @@ const DashboardScreen: React.FC = () => {
   const [aiData, setAiData] = useState<AiDashboardResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
   
   // Debounce refs for project changes
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -193,6 +1002,61 @@ const DashboardScreen: React.FC = () => {
     initials: "NL",
   };
 
+  // Load timeline progress from AsyncStorage (same as projects page)
+  const loadTimelineProgress = useCallback(async () => {
+    const all = [...activeProjects, ...estimates];
+    const progressMap: Record<string, number> = {};
+
+    try {
+      for (const project of all) {
+        const pid = String(project?.id ?? '');
+        if (!pid) continue;
+        
+        // Try v2 timeline storage first (source of truth)
+        try {
+          const timelineV2Key = `bps.timeline.v2.${pid}`;
+          const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
+          if (timelineV2Raw) {
+            const timelineMilestones = JSON.parse(timelineV2Raw);
+            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
+              const calculated = computeOverallPctFromItems(timelineMilestones);
+              progressMap[pid] = calculated;
+              continue;
+            }
+          }
+          
+          // Fallback to v1 timeline storage
+          const timelineV1Key = `timeline_${pid}`;
+          const timelineV1Raw = await AsyncStorage.getItem(timelineV1Key);
+          if (timelineV1Raw) {
+            const timelineMilestones = JSON.parse(timelineV1Raw);
+            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
+              const calculated = computeOverallPctFromItems(timelineMilestones);
+              progressMap[pid] = calculated;
+              continue;
+            }
+          }
+        } catch (error) {
+          // Ignore errors for individual projects
+        }
+      }
+    } catch {
+      // Keep UI responsive if storage read fails
+    }
+
+    setTimelineProgress(progressMap);
+  }, [activeProjects, estimates]);
+
+  useEffect(() => {
+    loadTimelineProgress();
+  }, [loadTimelineProgress]);
+
+  // Reload timeline progress when dashboard is focused (to catch updates from other screens)
+  useFocusEffect(
+    useCallback(() => {
+      loadTimelineProgress();
+    }, [loadTimelineProgress])
+  );
 
   // Compute projects hash for change detection
   const computeProjectsHash = useCallback(() => {
@@ -573,12 +1437,17 @@ const DashboardScreen: React.FC = () => {
         const margin = p.margin || 0;
         const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
 
+        const pid = String(p?.id ?? '');
+        const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+        const rawProgress = progressPct / 100; // Convert to 0-1
+        const finalProgress = status === 'completed' ? 1.0 : rawProgress;
+
         return {
           id: p.id,
           name: p.title || "Untitled Project",
           status: displayStatus,
           location: p.location || "Unknown, Unknown",
-          progress: (p.progress || p.overallProgressPct || 0) / 100, // Convert to 0-1
+          progress: finalProgress,
           amount: revenue,
           margin: marginRatio * 100,
           marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
@@ -590,25 +1459,77 @@ const DashboardScreen: React.FC = () => {
           rawProject: p,
         };
       });
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, timelineProgress]);
 
   // Calculate metrics
+  // NOTE: This recalculates whenever activeProjects or estimates change
   const metrics = useMemo(() => {
-    const pipelineTotals = computePipelineTotals([...activeProjects, ...estimates]);
-    const totalBids = pipelineTotals.totalBidValue || dashboardMetrics?.totalRevenue || 0;
-    const activeProjectsValue = pipelineTotals.activeProjectsValue || totalBids;
+    // Deduplicate projects by ID to avoid double-counting
+    const allProjectsMap = new Map<string, any>();
+    [...activeProjects, ...estimates].forEach((p) => {
+      if (p?.id) {
+        const id = String(p.id);
+        // If project exists in both arrays, prefer the one from activeProjects (more up-to-date)
+        if (!allProjectsMap.has(id) || activeProjects.some(ap => String(ap.id) === id)) {
+          allProjectsMap.set(id, p);
+        }
+      }
+    });
+    const deduplicatedProjects = Array.from(allProjectsMap.values());
+    
+    if (__DEV__) {
+      console.log(`[Dashboard] ========== METRICS CALCULATION START ==========`);
+      console.log(`[Dashboard] Input: ${activeProjects.length} activeProjects, ${estimates.length} estimates`);
+      console.log(`[Dashboard] After deduplication: ${deduplicatedProjects.length} projects`);
+      deduplicatedProjects.forEach((p) => {
+        const status = (p?.status || "").toString();
+        const statusLower = status.toLowerCase();
+        const revenue = getProjectRevenue(p);
+        console.log(`[Dashboard] Project: "${p?.title || p?.name || 'Unknown'}"`);
+        console.log(`[Dashboard]   - ID: ${p?.id}`);
+        console.log(`[Dashboard]   - Status (raw): "${status}"`);
+        console.log(`[Dashboard]   - Status (lower): "${statusLower}"`);
+        console.log(`[Dashboard]   - Revenue: $${revenue.toFixed(2)}`);
+        console.log(`[Dashboard]   - bidPrice: ${p?.bidPrice}`);
+        console.log(`[Dashboard]   - projectData?.bidPrice: ${p?.projectData?.bidPrice}`);
+        console.log(`[Dashboard]   - projectData?.totalBidPrice: ${p?.projectData?.totalBidPrice}`);
+        console.log(`[Dashboard]   - estimateData?.bidPrice: ${p?.estimateData?.bidPrice}`);
+        console.log(`[Dashboard]   - estimateData?.grandTotal: ${p?.estimateData?.grandTotal}`);
+      });
+    }
+    
+    const pipelineTotals = computePipelineTotals(deduplicatedProjects);
+    // Always use computed value - don't fallback to dashboardMetrics which may be stale
+    // If totalBidValue is 0, it means there are no valid projects, so 0 is correct
+    const totalBids = pipelineTotals.totalBidValue;
+    // activeProjectsValue should only include active projects (not submitted), so don't fallback to totalBids
+    const activeProjectsValue = pipelineTotals.activeProjectsValue;
+    
+    if (__DEV__) {
+      console.log(`[Dashboard] Final metrics: totalBids=$${totalBids.toFixed(2)}, activeProjects=$${activeProjectsValue.toFixed(2)}`);
+      console.log(`[Dashboard] ========== METRICS CALCULATION END ==========`);
+    }
     const avgMargin =
       projects.length > 0
         ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
         : 0;
 
-    return {
+    const result = {
       totalBids: formatCurrencyExact(totalBids),
       activeProjects: formatCurrencyExact(activeProjectsValue),
       avgMargin: `${avgMargin.toFixed(1)}%`,
       completedProfit: formatCurrencyExact(pipelineTotals.completedProfit),
+      // Include raw values for debugging
+      _rawTotalBids: totalBids,
+      _rawActiveProjects: activeProjectsValue,
     };
-  }, [activeProjects, estimates, dashboardMetrics, projects]);
+    
+    if (__DEV__) {
+      console.log(`[Dashboard] Metrics result object:`, result);
+    }
+    
+    return result;
+  }, [activeProjects, estimates, projects]);
 
   const handleProjectPress = useCallback(
     (project: any) => {
@@ -739,6 +1660,12 @@ const DashboardScreen: React.FC = () => {
               onPress={() => handleTabPress("analytics")}
             />
             <SegmentTab
+              label="Calendar"
+              icon="calendar"
+              isActive={activeTab === "calendar"}
+              onPress={() => handleTabPress("calendar")}
+            />
+            <SegmentTab
               label={t('dashboard.insights')}
               icon="bulb-outline"
               isActive={activeTab === "insights"}
@@ -769,6 +1696,12 @@ const DashboardScreen: React.FC = () => {
             metrics={metrics}
             dashboardMetrics={dashboardMetrics}
             activeWonCount={activeWonCount}
+            activeProjects={activeProjects}
+            estimates={estimates}
+          />
+        )}
+        {activeTab === "calendar" && (
+          <MasterCalendarView
             activeProjects={activeProjects}
             estimates={estimates}
           />
@@ -852,7 +1785,7 @@ const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) 
       >
         <Pressable onPress={onPress}>
           <View style={styles.segmentTabInner}>
-            <Ionicons name={icon} size={18} color="#050B13" />
+            <Ionicons name={icon} size={16} color="#050B13" />
             <Text style={[styles.segmentLabel, styles.segmentLabelActive]}>
               {label}
             </Text>
@@ -868,7 +1801,7 @@ const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) 
       style={styles.segmentTab}
     >
       <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={18} color={Colors.bg === '#000000' ? "#E5F7FF" : "#000000"} />
+        <Ionicons name={icon} size={16} color={Colors.bg === '#000000' ? "#E5F7FF" : "#475569"} />
         <Text style={styles.segmentLabel}>
           {label}
         </Text>
@@ -1822,21 +2755,37 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
 
   // SEGMENTED CONTROL
+  slideHintContainer: {
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+  slideHintText: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#22c55e",
+    textAlign: "center",
+    textTransform: "lowercase",
+  },
   segmentContainer: {
     borderRadius: 999,
     overflow: "hidden",
-    borderWidth: 2, // Thicker green border
+    borderWidth: 1, // Match projects page border width
     borderColor: "#19E180", // Green border for both dark and light mode
     marginBottom: 18,
+  },
+  segmentScrollView: {
+    flexGrow: 0,
   },
   segmentInner: {
     flexDirection: "row",
     padding: 4,
     backgroundColor: Colors.bg === '#000000' ? "transparent" : Colors.surface2,
+    minWidth: "100%",
   },
   segmentTab: {
     flex: 1,
     borderRadius: 999,
+    marginHorizontal: 1,
   },
   segmentTabActive: {
     backgroundColor: Colors.bg === '#000000' ? "transparent" : "#FFFFFF",
@@ -1849,11 +2798,12 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 6,
   },
   segmentLabel: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "600",
     color: Colors.bg === '#000000' ? "#E5F7FF" : "#000000",
     opacity: Colors.bg === '#000000' ? 1 : 1, // Keep full opacity, color already muted

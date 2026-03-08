@@ -29,7 +29,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   
   const [title, setTitle] = useState("");
   const [plannedDate, setPlannedDate] = useState(new Date());
-  const [progressPct, setProgressPct] = useState("0");
   const [status, setStatus] = useState<MilestoneStatus>("pending");
   const [assignee, setAssignee] = useState("");
   const [costDelta, setCostDelta] = useState("");
@@ -48,11 +47,11 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     if (visible && milestone) {
       setTitle(milestone.title);
       setPlannedDate(new Date(milestone.plannedDate + 'T00:00:00'));
-      setProgressPct(String(milestone.progressPct));
       setStatus(milestone.status);
       setAssignee(milestone.assignee || "");
       setCostDelta(milestone.costDelta ? String(milestone.costDelta) : "");
       setCostCategory(milestone.costCategory || "materials");
+      // Keep the original payment amount - don't change it
       setPaymentAmount(milestone.amount ? String(milestone.amount) : "");
     }
   }, [visible, milestone]);
@@ -63,17 +62,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       return;
     }
     
-    const progress = Math.min(100, Math.max(0, parseFloat(progressPct) || 0));
     const cost = parseFloat(costDelta) || undefined;
     const amount = parseFloat(paymentAmount) || undefined;
 
-    // Use the manually selected status (user has full control)
-    // Only auto-update progress percentage if status is manually changed
-    let finalProgress = progress;
-    if (status === 'completed' && progress < 100) {
+    // Auto-set progress to 100% if completed, otherwise keep existing progress
+    let finalProgress = milestone.progressPct || 0;
+    if (status === 'completed') {
       finalProgress = 100;
-    } else if (status === 'pending' && progress > 0) {
-      // Keep the progress as is - user might want pending with progress
+    } else if (status === 'in_progress' && finalProgress === 0) {
+      finalProgress = 50;
     }
 
     const updatedMilestone = {
@@ -85,7 +82,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       assignee: assignee.trim() || undefined,
       costDelta: cost,
       costCategory: cost !== undefined ? costCategory : undefined,
-      amount: amount,
+      amount: amount, // Keep the original payment amount
     };
 
     console.log(`💾 Saving milestone:`, {
@@ -93,28 +90,36 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       title: updatedMilestone.title,
       status: updatedMilestone.status,
       progress: updatedMilestone.progressPct,
+      amount: updatedMilestone.amount,
       plannedDate: updatedMilestone.plannedDate
     });
 
-    // Call onSave FIRST to ensure state update happens while modal is still mounted
-    // This prevents stale closures and ensures the update is applied
+    // Call onSave - it may show a confirmation dialog for final payments
+    // If it returns a promise or indicates it handled the save, don't close the modal
     try {
-      onSave(updatedMilestone);
-      console.log('✅ onSave callback executed');
+      const result = onSave(updatedMilestone);
+      console.log('✅ onSave callback executed, result:', result);
+      
+      // Check if onSave returned a value indicating it's handling the save (like a promise or boolean)
+      // If it did, don't close the modal - let the confirmation dialog handle it
+      if (result === false || (result && typeof result === 'object' && result.then)) {
+        console.log('⏸️ onSave is handling the save flow - not closing modal');
+        return; // Don't close modal, let the confirmation dialog handle it
+      }
     } catch (error) {
       console.error('❌ Error in onSave callback:', error);
       Alert.alert('Error', 'Failed to save milestone. Please try again.');
       return; // Don't close modal if save failed
     }
     
-    // Close modal AFTER successful save
+    // Normal save flow (no confirmation dialog) - close modal
     onClose();
 
     // Show success message after a brief delay
     setTimeout(() => {
       Alert.alert(
         '✅ Saved!',
-        `${title} updated to ${Math.round(progress)}%\n\nChanges are automatically saved.`,
+        `${title} status updated to ${status === 'completed' ? 'Completed' : status === 'in_progress' ? 'In Progress' : 'Pending'}\n\nChanges are automatically saved.`,
         [{ text: 'OK' }]
       );
     }, 100);
@@ -199,83 +204,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
             </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Progress %</Text>
-              <View style={styles.progressSlider}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      width: 80,
-                      textAlign: 'center',
-                      backgroundColor: ThemeColors.surface2,
-                      borderColor: ThemeColors.line,
-                      borderWidth: 1,
-                      borderRadius: 12,
-                      color: ThemeColors.text,
-                      fontSize: 14,
-                      paddingHorizontal: 16,
-                      paddingVertical: 12,
-                    }
-                  ]}
-                  value={progressPct}
-                  onChangeText={(text) => {
-                    const num = text.replace(/[^0-9]/g, '');
-                    setProgressPct(num);
-                    // Automatically calculate payment amount when typing percentage
-                    const percentage = parseFloat(num) || 0;
-                    const calculatedAmount = Math.round((percentage / 100) * projectBudget);
-                    console.log(`💰 Typed ${percentage}% = $${calculatedAmount} (${percentage}% of $${projectBudget})`);
-                    setPaymentAmount(String(calculatedAmount));
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={3}
-                />
-                <View style={{ flexDirection: 'row', gap: 8, flex: 1 }}>
-                  {(() => {
-                    // Always use standard percentages regardless of payment milestones
-                    const percentages = [0, 25, 50, 75, 100];
-                    
-                    console.log(`📊 Using standard percentages:`, percentages);
-                    console.log(`📊 Project budget: $${projectBudget}`);
-                    console.log(`📊 Payment milestones data:`, paymentMilestones);
-                    
-                    return percentages.map(val => (
-                      <TouchableOpacity
-                        key={val}
-                        onPress={() => {
-                          setProgressPct(String(val));
-                          // Calculate payment amount based on percentage of total project budget
-                          const calculatedAmount = Math.round((val / 100) * projectBudget);
-                          console.log(`💰 Setting ${val}% progress = $${calculatedAmount} (${val}% of $${projectBudget})`);
-                          setPaymentAmount(String(calculatedAmount));
-                        }}
-                        style={[
-                          styles.quickPctButton,
-                          {
-                            backgroundColor: parseInt(progressPct) === val ? "rgba(34, 197, 94, 0.2)" : ThemeColors.surface2,
-                            borderColor: parseInt(progressPct) === val ? "#22c55e" : ThemeColors.line,
-                            borderWidth: parseInt(progressPct) === val ? 2 : 1,
-                            borderRadius: 12,
-                          }
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.quickPctText,
-                            !darkMode && { color: ThemeColors.sub },
-                            parseInt(progressPct) === val && styles.quickPctTextActive,
-                          ]}
-                        >
-                          {val}%
-                        </Text>
-                      </TouchableOpacity>
-                    ));
-                  })()}
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.field}>
               <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Payment Amount</Text>
               <View style={[
                 styles.amountInputContainer,
@@ -327,20 +255,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     onPress={() => {
                       console.log(`🔄 Status button clicked: ${s.value}`);
                       setStatus(s.value);
-                      // Auto-adjust progress when status is manually changed
-                      if (s.value === 'completed') {
-                        setProgressPct('100');
-                        const calculatedAmount = Math.round(projectBudget);
-                        setPaymentAmount(String(calculatedAmount));
-                        console.log(`✅ Set to completed - progress=100%, amount=$${calculatedAmount}`);
-                      } else if (s.value === 'in_progress' && parseInt(progressPct) === 0) {
-                        setProgressPct('50');
-                        const calculatedAmount = Math.round(0.5 * projectBudget);
-                        setPaymentAmount(String(calculatedAmount));
-                        console.log(`🔄 Set to in progress - progress=50%, amount=$${calculatedAmount}`);
-                      } else if (s.value === 'pending') {
-                        console.log(`⏸️ Set to pending - keeping current progress=${progressPct}%`);
-                      }
+                      // Don't change payment amount - keep it as is
+                      console.log(`✅ Status changed to ${s.value} - payment amount remains $${paymentAmount}`);
                     }}
                     style={[
                       styles.statusButton,
@@ -550,28 +466,6 @@ const styles = StyleSheet.create({
   input: {
     // backgroundColor, borderColor, borderWidth, borderRadius, color, fontSize, padding are set dynamically
     fontWeight: "500",
-  },
-  progressSlider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  quickPctButton: {
-    flex: 1,
-    // backgroundColor, borderColor, borderWidth, borderRadius are set dynamically
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  quickPctButtonActive: {
-    // Styling handled dynamically
-  },
-  quickPctText: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  quickPctTextActive: {
-    color: "#22c55e",
   },
   statusButtons: {
     flexDirection: "row",

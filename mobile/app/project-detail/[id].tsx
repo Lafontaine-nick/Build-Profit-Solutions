@@ -15,6 +15,7 @@ import OverviewScreen from '../../components/OverviewScreen';
 import BudgetTab from '../../components/BudgetTab';
 import TimelineTabV2 from '../../components/TimelineTabV2';
 import TeamTab from '../../components/TeamTab';
+import ProjectCalendar from '../../components/ProjectCalendar';
 import MessagesTab from '../../components/MessagesTab';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -46,7 +47,7 @@ const firstPositiveNumber = (...values: any[]): number | null => {
   return null;
 };
 
-type TabKey = "Overview" | "Budget" | "Timeline" | "Team";
+type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
 // Circular Progress Component
 const CircularProgress = ({
@@ -147,7 +148,7 @@ function ProjectDetailContent() {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
-  const { getProjectById, updateProject, activeProjects } = useProjectList();
+  const { getProjectById, updateProject, activeProjects, projects: allProjects } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   
   // Update activeTab when params change
@@ -173,6 +174,7 @@ function ProjectDetailContent() {
   const celebrationAnim = useRef(new Animated.Value(0)).current;
   const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [liveTimelineMilestones, setLiveTimelineMilestones] = useState<any[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
 
   // Load live timeline milestones from AsyncStorage (this is where TimelineTabV2 saves completed statuses)
   useEffect(() => {
@@ -469,11 +471,16 @@ function ProjectDetailContent() {
         // Check if this is the first project ever activated
         const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
         
-        // Count how many active projects exist (excluding current one)
-        const otherActiveProjects = (activeProjects || []).filter(p => {
+        // Count how many other projects exist (active OR completed, excluding current one)
+        // This ensures the walkthrough only shows for the very first project ever
+        const otherProjects = (allProjects || []).filter(p => {
           const pStatus = (p.status || '').toLowerCase();
-          const pIsActive = pStatus === 'won' || pStatus === 'in_progress' || pStatus === 'active';
-          return pIsActive && p.id !== id;
+          // Count any project that is active, completed, or was previously active/completed
+          const pIsRealProject = pStatus === 'won' || 
+                                 pStatus === 'in_progress' || 
+                                 pStatus === 'active' || 
+                                 pStatus === 'completed';
+          return pIsRealProject && p.id !== id;
         });
         
         // Check if this project was just created (has estimateData but no expenses/spending yet)
@@ -483,10 +490,10 @@ function ProjectDetailContent() {
                                (!contextProjectData?.spent || contextProjectData.spent === 0);
         const looksLikeNewProject = hasEstimateData && hasNoSpending;
         
-        // Check if this is the first project (no other active projects exist)
+        // Check if this is the first project (no other projects exist, including completed ones)
         // OR if the firstProjectActivated flag hasn't been set yet (first time ever)
-        // This ensures we show the card even if activeProjects hasn't loaded yet
-        const isFirstProject = firstProjectActivated !== 'true' || otherActiveProjects.length === 0;
+        // This ensures we show the card even if projects haven't loaded yet
+        const isFirstProject = firstProjectActivated !== 'true' || otherProjects.length === 0;
         
         // Show kickoff card ONLY for the first project:
         // 1. It hasn't been shown for this project yet
@@ -499,7 +506,7 @@ function ProjectDetailContent() {
           kickoffShown,
           isFirstProject,
           firstProjectActivated,
-          otherActiveProjectsCount: otherActiveProjects.length,
+          otherProjectsCount: otherProjects.length,
           looksLikeNewProject,
           hasEstimateData,
           hasNoSpending,
@@ -516,7 +523,7 @@ function ProjectDetailContent() {
           console.log('✅ Showing kickoff card for project:', {
             id,
             isFirstProject,
-            otherActiveProjectsCount: otherActiveProjects.length,
+            otherProjectsCount: otherProjects.length,
             firstProjectActivated,
             kickoffShown,
             isRecentlyActivated,
@@ -531,7 +538,7 @@ function ProjectDetailContent() {
             kickoffAlreadyShown: kickoffShown === 'true',
             notFirstProject: !isFirstProject,
             notNewProject: !looksLikeNewProject,
-            hasOtherProjects: otherActiveProjects.length > 0,
+            hasOtherProjects: otherProjects.length > 0,
             hasSpending: !hasNoSpending,
             noEstimateData: !hasEstimateData,
           });
@@ -559,7 +566,7 @@ function ProjectDetailContent() {
     };
     
     checkIntroCard();
-  }, [id, realProjectData?.status, realProjectData?.updatedAt, realProjectData?.createdAt, realProjectData?.estimateData, activeProjects, contextProjectData?.spent]);
+  }, [id, realProjectData?.status, realProjectData?.updatedAt, realProjectData?.createdAt, realProjectData?.estimateData, allProjects, contextProjectData?.spent]);
 
   // Generate context-aware AI suggestions for newly activated projects
   const generateAISuggestions = (project: any): string[] => {
@@ -689,12 +696,17 @@ function ProjectDetailContent() {
           if (isActiveProject && !showKickoffCard) {
             const kickoffKey = `bps.kickoffShown.${id}`;
             const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
-            const otherActiveProjects = (activeProjects || []).filter(p => {
+            // Count how many other projects exist (active OR completed, excluding current one)
+            const otherProjects = (allProjects || []).filter(p => {
               const pStatus = (p.status || '').toLowerCase();
-              const pIsActive = pStatus === 'won' || pStatus === 'in_progress' || pStatus === 'active';
-              return pIsActive && p.id !== id;
+              // Count any project that is active, completed, or was previously active/completed
+              const pIsRealProject = pStatus === 'won' || 
+                                     pStatus === 'in_progress' || 
+                                     pStatus === 'active' || 
+                                     pStatus === 'completed';
+              return pIsRealProject && p.id !== id;
             });
-            const isFirstProject = firstProjectActivated !== 'true' || otherActiveProjects.length === 0;
+            const isFirstProject = firstProjectActivated !== 'true' || otherProjects.length === 0;
             const kickoffShown = await AsyncStorage.getItem(kickoffKey);
             
             // Check if it looks like a new project from onboarding
@@ -712,7 +724,7 @@ function ProjectDetailContent() {
               kickoffShown,
               isFirstProject,
               firstProjectActivated,
-              otherActiveProjectsCount: otherActiveProjects.length,
+              otherProjectsCount: otherProjects.length,
               shouldShow,
             });
             
@@ -724,7 +736,7 @@ function ProjectDetailContent() {
                 id,
                 isFirstProject,
                 looksLikeNewProject,
-                otherActiveProjectsCount: otherActiveProjects.length,
+                otherProjectsCount: otherProjects.length,
               });
             }
           }
@@ -734,7 +746,7 @@ function ProjectDetailContent() {
       return () => {
         isActive = false;
       };
-    }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData, id, realProjectData, activeProjects, showKickoffCard])
+    }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData, id, realProjectData, allProjects, showKickoffCard])
   );
 
   // Recalculate budget total from estimate data
@@ -1876,6 +1888,37 @@ function ProjectDetailContent() {
           );
         case 'Timeline':
           return <TimelineTabV2 project={safeProjectData as any} />;
+        case 'Calendar':
+          return (
+            <ProjectCalendar
+              projectId={id as string}
+              projectName={safeProjectData?.title || 'Project'}
+              milestones={safeProjectData?.milestones || []}
+              projectData={contextProjectData}
+              onEventComplete={async (event) => {
+                // When a calendar event is completed, create a daily log entry
+                try {
+                  const logKey = `daily_logs_${id}`;
+                  const raw = await AsyncStorage.getItem(logKey);
+                  const logs = raw ? JSON.parse(raw) : [];
+                  const newLog = {
+                    id: `log-${Date.now()}`,
+                    date: event.date,
+                    noteText: `Completed: ${event.title}${event.notes ? ` - ${event.notes}` : ''}`,
+                    weather: null,
+                    crewCount: null,
+                    hoursWorked: null,
+                    createdAt: new Date().toISOString(),
+                  };
+                  logs.push(newLog);
+                  await AsyncStorage.setItem(logKey, JSON.stringify(logs));
+                  console.log('✅ Daily log created from calendar event:', event.title);
+                } catch (error) {
+                  console.error('❌ Error creating daily log from calendar event:', error);
+                }
+              }}
+            />
+          );
         case 'Team':
           return <TeamTab />;
         default:
@@ -2248,10 +2291,18 @@ function ProjectDetailContent() {
             </View>
           )}
 
-          {/* SEGMENTED CONTROL */}
+          {/* SEGMENTED CONTROL - Scrollable */}
           <View style={styles.wideContainer}>
+            <View style={styles.slideHintContainer}>
+              <Text style={styles.slideHintText}>slide to see all pages</Text>
+            </View>
             <BlurView intensity={35} tint="dark" style={styles.segmentContainer}>
-              <View style={styles.segmentInner}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.segmentInner}
+                style={styles.segmentScrollView}
+              >
               <SegmentTab
                 label="Overview"
                 icon="grid-outline"
@@ -2274,13 +2325,20 @@ function ProjectDetailContent() {
                 styles={styles}
               />
               <SegmentTab
+                label="Calendar"
+                icon="calendar"
+                isActive={activeTab === "Calendar"}
+                onPress={() => handleTabPress("Calendar")}
+                styles={styles}
+              />
+              <SegmentTab
                 label="Team"
                 icon="people-outline"
                 isActive={activeTab === "Team"}
                 onPress={() => handleTabPress("Team")}
                 styles={styles}
               />
-            </View>
+            </ScrollView>
           </BlurView>
           </View>
 
@@ -2548,6 +2606,23 @@ function ProjectDetailContent() {
             changeOrderCount: (safeProjectData?.changeOrders || []).length,
             startDate: safeProjectData?.startDate,
             endDate: safeProjectData?.endDate,
+            calendarEvents: calendarEvents || [],
+            upcomingCalendarEvents: (calendarEvents || [])
+              .filter((e: any) => {
+                if (e.completed) return false;
+                const eventDate = new Date(e.date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const nextWeek = new Date(today);
+                nextWeek.setDate(nextWeek.getDate() + 7);
+                return eventDate >= today && eventDate <= nextWeek;
+              })
+              .sort((a: any, b: any) => {
+                const dateA = new Date(a.date).getTime();
+                const dateB = new Date(b.date).getTime();
+                return dateA - dateB;
+              })
+              .slice(0, 5),
             // PM Mode: send live milestone data from AsyncStorage (loaded by TimelineTabV2)
             milestones: (() => {
               try {
@@ -3157,12 +3232,73 @@ function ProjectDetailContent() {
             } else if (action.type === 'mark_payment_collected') {
               try {
                 console.log('💸 Action handler: mark_payment_collected', action);
-                const storageKey = `timeline_${id}`;
-                const raw = await AsyncStorage.getItem(storageKey);
-                const items = raw ? JSON.parse(raw) : [];
-                const updated = items.map((item: any) => {
-                  if ((action.milestoneId && item.id === action.milestoneId) ||
-                      (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
+                const timelineV2Key = `bps.timeline.v2.${id}`;
+                
+                // First, try to load existing milestones from v2 storage
+                let existingMilestones: any[] = [];
+                const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
+                if (timelineV2Raw) {
+                  existingMilestones = JSON.parse(timelineV2Raw);
+                }
+                
+                // If no milestones exist in storage, create them from project's payment milestones
+                if (existingMilestones.length === 0) {
+                  console.log('📋 No milestones in storage, creating from project payment data');
+                  const projectFromList = getProjectById?.(id);
+                  const projectData = realProjectData || projectFromList;
+                  
+                  // Collect payment milestones from all possible sources
+                  let paymentMilestones: any[] = [];
+                  if (projectData?.milestones?.length) {
+                    paymentMilestones = projectData.milestones;
+                  } else if (projectData?.weeklyPayments?.length) {
+                    paymentMilestones = projectData.weeklyPayments.map((w: any, i: number) => ({
+                      id: w.id || `week-${i}`,
+                      title: w.description || w.name || `Week ${w.weekNumber || i + 1} Payment`,
+                      name: w.description || w.name || `Week ${w.weekNumber || i + 1} Payment`,
+                      amount: w.amount || w.paymentAmount || 0,
+                      plannedDate: w.scheduledDate || w.dueDate || w.plannedDate || new Date().toISOString().split('T')[0],
+                      status: w.status || 'pending',
+                      progressPct: w.progressPct || (w.status === 'completed' ? 100 : 0),
+                    }));
+                  } else if (projectData?.estimateData?.paymentMilestones?.length) {
+                    paymentMilestones = projectData.estimateData.paymentMilestones;
+                  } else if (projectData?.estimateData?.weeklyPayments?.length) {
+                    paymentMilestones = projectData.estimateData.weeklyPayments.map((w: any, i: number) => ({
+                      id: w.id || `week-${i}`,
+                      title: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+                      name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+                      amount: w.amount || 0,
+                      plannedDate: w.scheduledDate || w.dueDate || new Date().toISOString().split('T')[0],
+                      status: w.status || 'pending',
+                      progressPct: w.progressPct || (w.status === 'completed' ? 100 : 0),
+                    }));
+                  }
+                  
+                  // Convert to timeline format
+                  existingMilestones = paymentMilestones.map((pm: any, index: number) => ({
+                    id: pm.id || `milestone-${index}`,
+                    title: pm.title || pm.name || pm.description || `Payment ${index + 1}`,
+                    plannedDate: pm.plannedDate || pm.scheduledDate || pm.dueDate || new Date().toISOString().split('T')[0],
+                    status: pm.status || 'pending',
+                    progressPct: pm.progressPct || (pm.status === 'completed' ? 100 : 0),
+                    amount: pm.amount || pm.paymentAmount || 0,
+                    assignee: pm.assignee || 'Client',
+                  }));
+                  
+                  console.log(`📋 Created ${existingMilestones.length} milestones from project data`);
+                }
+                
+                // Update the specific milestone that was marked as collected
+                const updatedMilestones = existingMilestones.map((item: any) => {
+                  const matches = (action.milestoneId && item.id === action.milestoneId) ||
+                    (action.milestoneName && (
+                      (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()) ||
+                      (item.name || '').toLowerCase().includes(action.milestoneName.toLowerCase())
+                    ));
+                  
+                  if (matches) {
+                    console.log(`✅ Marking milestone as collected: ${item.title || item.name} (${item.id})`);
                     return { 
                       ...item, 
                       status: 'completed', 
@@ -3173,31 +3309,45 @@ function ProjectDetailContent() {
                   }
                   return item;
                 });
-                await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
                 
-                // Also update in bps.timeline.v2.{id} if it exists
-                const timelineV2Key = `bps.timeline.v2.${id}`;
-                const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
-                if (timelineV2Raw) {
-                  const timelineV2Items = JSON.parse(timelineV2Raw);
-                  const updatedV2 = timelineV2Items.map((item: any) => {
-                    if ((action.milestoneId && item.id === action.milestoneId) ||
-                        (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
-                      return { 
-                        ...item, 
-                        status: 'completed', 
-                        progressPct: 100,
-                        collectedAt: action.collectedAt || new Date().toISOString(), 
-                        collectedAmount: action.amount 
-                      };
+                // Save updated milestones to v2 storage
+                await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedMilestones));
+                console.log(`💾 Saved ${updatedMilestones.length} milestones to v2 storage`);
+                
+                // Calculate new overall progress from all milestones
+                if (updatedMilestones.length > 0) {
+                  const totalProgress = updatedMilestones.reduce((sum: number, m: any) => {
+                    const pct = Math.min(100, Math.max(0, m.progressPct || 0));
+                    return sum + pct;
+                  }, 0);
+                  const overallProgress = Math.round(totalProgress / updatedMilestones.length);
+                  
+                  console.log(`📊 Calculated progress: ${overallProgress}% from ${updatedMilestones.length} milestones`);
+                  console.log(`📊 Milestone details:`, updatedMilestones.map(m => `${m.title || m.name}: ${m.progressPct}%`).join(', '));
+                  
+                  // Update project progress immediately
+                  if (updateProject && id) {
+                    try {
+                      updateProject(id, { progress: overallProgress, overallProgressPct: overallProgress });
+                      console.log(`✅ Successfully updated project ${id} progress to ${overallProgress}%`);
+                    } catch (error) {
+                      console.error(`❌ Error calling updateProject:`, error);
                     }
-                    return item;
-                  });
-                  await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedV2));
+                  } else {
+                    console.warn(`⚠️ Cannot update project progress: updateProject=${!!updateProject}, id=${id}`);
+                  }
+                } else {
+                  console.warn('⚠️ No milestones found to calculate progress');
                 }
                 
                 // Trigger reload of project data to refresh timeline
                 reloadFromStorage();
+                
+                // Force a timeline reload by triggering a small delay then reload
+                // This ensures the timeline recalculates progress after payment is marked
+                setTimeout(() => {
+                  reloadFromStorage();
+                }, 1000);
                 
                 console.log('✅ Payment marked as collected with progressPct: 100');
                 Alert.alert('✅ Payment Collected', `"${action.milestoneName}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`);
@@ -3554,6 +3704,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   inviteButtonContainer: {
     marginBottom: 18,
   },
+  slideHintContainer: {
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+  slideHintText: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#22c55e",
+    textAlign: "center",
+    textTransform: "lowercase",
+  },
   segmentContainer: {
     borderRadius: 999,
     overflow: "hidden",
@@ -3561,14 +3722,20 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderColor: "#19E180",
     marginBottom: 18,
   },
+  segmentScrollView: {
+    flexGrow: 0,
+  },
   segmentInner: {
     flexDirection: "row",
     padding: 4,
     backgroundColor: darkMode ? "transparent" : Colors.surface2,
+    minWidth: "100%",
   },
   segmentTab: {
-    flex: 1,
+    flexShrink: 0,
+    minWidth: 100,
     borderRadius: 999,
+    marginHorizontal: 2,
   },
   segmentTabActive: {
     backgroundColor: darkMode ? "transparent" : "#FFFFFF",
@@ -3582,6 +3749,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
+    paddingHorizontal: 4,
     gap: 6,
   },
   segmentLabel: {

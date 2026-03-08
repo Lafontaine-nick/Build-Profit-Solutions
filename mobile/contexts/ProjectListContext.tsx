@@ -295,10 +295,16 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
       ? ((bidPrice - estimatedCost) / estimatedCost) * 100
       : 0;
 
+  const normalizedStatus = normalizeBackendStatus(project?.status);
+  
+  // If project is completed, progress should be 100%
+  const rawProgress = Number(project?.progress ?? project?.overallProgressPct ?? 0) || 0;
+  const finalProgress = normalizedStatus === 'completed' ? 100 : rawProgress;
+
   return {
     id: String(project?.id || `${Date.now()}`),
     title,
-    status: normalizeBackendStatus(project?.status),
+    status: normalizedStatus,
     estimatedCost,
     bidPrice,
     actualCost: resolveActualCost(project),
@@ -310,8 +316,8 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
     zip: project?.zip,
     startDate: toIsoDate(project?.startDate, nowIso),
     endDate: toIsoDate(project?.endDate, nowIso),
-    progress: Number(project?.progress ?? project?.overallProgressPct ?? 0) || 0,
-    overallProgressPct: Number(project?.overallProgressPct ?? project?.progress ?? 0) || 0,
+    progress: finalProgress,
+    overallProgressPct: finalProgress,
     milestones: Array.isArray(project?.milestones) ? project.milestones : [],
     weeklyPayments: Array.isArray(project?.weeklyPayments) ? project.weeklyPayments : [],
     paymentSchedule: project?.paymentSchedule,
@@ -402,8 +408,23 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           })
         );
         
-        const normalized = hydratedProjects.map((project) => {
-          const progressValue =
+        // Load saved progress values from AsyncStorage for all projects
+        const progressPromises = hydratedProjects.map(async (project) => {
+          const projectId = normalizeProjectId(project?.id || `${Date.now()}`);
+          
+          // Try to load saved progress from AsyncStorage (persists across reloads)
+          let savedProgress: { progress?: number; overallProgressPct?: number } | null = null;
+          try {
+            const saved = await AsyncStorage.getItem(`bps.project.${projectId}.progress`);
+            if (saved) {
+              savedProgress = JSON.parse(saved);
+            }
+          } catch (e) {
+            // Ignore errors loading saved progress
+          }
+          
+          // Use saved progress if available, otherwise use project's progress
+          const progressValue = savedProgress?.progress ?? savedProgress?.overallProgressPct ??
             project.overallProgressPct ??
             project.progress ??
             0;
@@ -425,10 +446,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           // If we need to fix corrupted data, do it manually or with a one-time migration script
           let fixedProject = {
             ...project,
-            id: normalizeProjectId(project?.id || `${Date.now()}`),
+            id: projectId,
             status: nextStatus,
-            progress: project.progress ?? progressValue,
-            overallProgressPct: project.overallProgressPct ?? progressValue,
+            progress: savedProgress?.progress ?? project.progress ?? progressValue,
+            overallProgressPct: savedProgress?.overallProgressPct ?? project.overallProgressPct ?? progressValue,
             projectType: projectTypeCandidate,
           };
 
@@ -457,6 +478,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
           return fixedProject;
         });
+        const normalized = await Promise.all(progressPromises);
 
         // If we already have local projects, trust local first for offline reliability.
         if (normalized.length > 0) {
@@ -878,8 +900,27 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
             next.overallProgressPct ??
             next.progress ??
             0;
-          next.progress = updates.progress ?? next.progress ?? progressValue;
-          next.overallProgressPct = updates.overallProgressPct ?? progressValue;
+          // Always use the new progress value from updates (don't fall back to old value)
+          next.progress = updates.progress !== undefined ? updates.progress : (updates.overallProgressPct !== undefined ? updates.overallProgressPct : progressValue);
+          next.overallProgressPct = updates.overallProgressPct !== undefined ? updates.overallProgressPct : (updates.progress !== undefined ? updates.progress : progressValue);
+          console.log(`🔄 updateProject: Setting progress for ${next.title} (${targetId}) to ${progressValue}% (progress: ${next.progress}, overallProgressPct: ${next.overallProgressPct})`);
+          console.log(`📊 Progress breakdown: progress=${next.progress}, overallProgressPct=${next.overallProgressPct}, status=${next.status}`);
+          
+          // Save progress to AsyncStorage to persist across reloads
+          const progressData = {
+            progress: next.progress,
+            overallProgressPct: next.overallProgressPct,
+            updatedAt: new Date().toISOString()
+          };
+          console.log(`💾 Saving progress to AsyncStorage: bps.project.${targetId}.progress`, progressData);
+          AsyncStorage.setItem(`bps.project.${targetId}.progress`, JSON.stringify(progressData))
+            .then(() => {
+              console.log(`✅ Successfully saved progress for ${targetId} to AsyncStorage`);
+            })
+            .catch(err => {
+              console.error(`❌ Failed to save progress to AsyncStorage for ${targetId}:`, err);
+            });
+          
           const statusSlug = normalizeStatus(next.status);
           if (progressValue >= 100 && statusSlug !== 'lost') {
             next.status = 'completed';

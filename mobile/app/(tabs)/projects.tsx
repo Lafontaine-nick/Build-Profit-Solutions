@@ -59,6 +59,78 @@ const sanitizePositiveNumber = (value: any): number => {
   return Number.isFinite(num) && num > 0 ? num : 0;
 };
 
+const toFiniteNumber = (value: any): number => {
+  if (value == null) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/[%$,\s]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const progressFromItems = (items: any[]): number => {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  const total = items.reduce((sum, item) => {
+    const explicitPct = toFiniteNumber(item?.progressPct);
+    if (explicitPct > 0) return sum + Math.min(100, Math.max(0, explicitPct));
+
+    const status = String(item?.status || '').toLowerCase();
+    if (status === 'completed' || status === 'complete' || status === 'paid') return sum + 100;
+    if (status === 'in_progress' || status === 'in-progress') return sum + 50;
+    return sum;
+  }, 0);
+  return Math.round(total / items.length);
+};
+
+// Helper to calculate progress from milestone items (same logic as TimelineTabV2)
+const computeOverallPctFromItems = (items: any[]): number => {
+  if (!items || !Array.isArray(items) || items.length === 0) return 0;
+  const sum = items.reduce((acc, m) => {
+    const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
+    return acc + pct;
+  }, 0);
+  return Math.round(sum / items.length);
+};
+
+const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
+  // First, check if we have timeline progress from AsyncStorage (source of truth)
+  if (timelineProgressMap[projectId] !== undefined) {
+    console.log(`📊 Using timeline progress for ${projectId}: ${timelineProgressMap[projectId]}%`);
+    return timelineProgressMap[projectId];
+  }
+
+  // Fallback to direct progress fields
+  const directProgress = Math.max(
+    toFiniteNumber(project?.overallProgressPct),
+    toFiniteNumber(project?.progress)
+  );
+
+  // Fallback to calculating from project's milestone/weeklyPayment arrays
+  const milestonesCandidates = [
+    project?.milestones,
+    project?.projectData?.milestones,
+    project?.estimateData?.milestones,
+    project?.estimateData?.paymentMilestones,
+  ];
+  const weeklyCandidates = [
+    project?.weeklyPayments,
+    project?.projectData?.weeklyPayments,
+    project?.estimateData?.weeklyPayments,
+  ];
+
+  const derivedFromMilestones = Math.max(...milestonesCandidates.map((items) => progressFromItems(items)));
+  const derivedFromWeekly = Math.max(...weeklyCandidates.map((items) => progressFromItems(items)));
+
+  // Use the strongest available signal so weekly and milestone schedules are treated equally.
+  const final = Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
+  if (final > 0) {
+    console.log(`📊 Progress fallback for ${projectId}: ${final}% (direct: ${directProgress}, milestones: ${derivedFromMilestones}, weekly: ${derivedFromWeekly})`);
+  }
+  return final;
+};
+
 const getProjectRevenue = (project: any): number => {
   if (!project) return 0;
 
@@ -184,10 +256,12 @@ export default function ProjectsScreen() {
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
+  const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
 
   const loadProjectDataOverrides = React.useCallback(async () => {
     const all = [...activeProjects, ...estimates];
     const next: Record<string, any> = {};
+    const progressMap: Record<string, number> = {};
 
     try {
       const allKeys = await AsyncStorage.getAllKeys();
@@ -212,8 +286,42 @@ export default function ProjectsScreen() {
         }
       }
 
+      // Load timeline progress for all projects
       for (const project of all) {
         const pid = String(project?.id ?? '');
+        if (!pid) continue;
+        
+        // Try v2 timeline storage first (source of truth)
+        try {
+          const timelineV2Key = `bps.timeline.v2.${pid}`;
+          const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
+          if (timelineV2Raw) {
+            const timelineMilestones = JSON.parse(timelineV2Raw);
+            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
+              const calculated = computeOverallPctFromItems(timelineMilestones);
+              progressMap[pid] = calculated;
+              console.log(`📊 Loaded timeline progress for ${pid}: ${calculated}% (${timelineMilestones.length} milestones)`);
+              continue;
+            }
+          }
+          
+          // Fallback to v1 timeline storage
+          const timelineV1Key = `timeline_${pid}`;
+          const timelineV1Raw = await AsyncStorage.getItem(timelineV1Key);
+          if (timelineV1Raw) {
+            const timelineMilestones = JSON.parse(timelineV1Raw);
+            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
+              const calculated = computeOverallPctFromItems(timelineMilestones);
+              progressMap[pid] = calculated;
+              console.log(`📊 Loaded v1 timeline progress for ${pid}: ${calculated}% (${timelineMilestones.length} milestones)`);
+              continue;
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error loading timeline progress for ${pid}:`, error);
+        }
+
+        // Load project data override
         const titleKey = String(project?.title ?? '').trim().toLowerCase();
         const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
         if (override) next[pid] = override;
@@ -223,6 +331,7 @@ export default function ProjectsScreen() {
     }
 
     setProjectDataOverrides(next);
+    setTimelineProgress(progressMap);
   }, [activeProjects, estimates]);
 
   useEffect(() => {
@@ -306,12 +415,17 @@ export default function ProjectsScreen() {
       // Only show revenue for submitted/active/completed projects, show $0 for drafts
       const displayAmount = (displayStatus === 'Draft' || status === 'estimate') ? 0 : revenue;
       
+      // Prefer merged/latest project data, then derive from either milestones or weekly payments.
+      const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
+      const rawProgress = progressPct / 100; // Convert to 0-1
+      const finalProgress = status === 'completed' ? 1.0 : rawProgress;
+      
       return {
         id: p.id,
         name: p.title || 'Untitled Project',
         status: displayStatus,
         location: p.location || 'Unknown, Unknown',
-        progress: (p.progress || p.overallProgressPct || 0) / 100, // Convert to 0-1
+        progress: finalProgress,
         amount: displayAmount,
         margin: marginRatio * 100,
         marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
@@ -324,7 +438,7 @@ export default function ProjectsScreen() {
         rawStatus: status,
       };
     });
-  }, [activeProjects, estimates, projectDataOverrides]);
+  }, [activeProjects, estimates, projectDataOverrides, timelineProgress]);
 
   // Filter projects by active tab
   const projects = useMemo(() => {
