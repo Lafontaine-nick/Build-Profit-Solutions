@@ -31,6 +31,7 @@
     "openai": "^4.20.1",
     "pg": "^8.11.3",
     "stripe": "^14.7.0",
+    "twilio": "^5.12.2",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

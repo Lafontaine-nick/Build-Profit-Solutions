@@ -295,6 +295,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const [lastOpenedProjectId, setLastOpenedProjectIdState] = useState<string | null>(null);
   const [recentSummary, setRecentSummary] = useState<{ content: string; timestamp?: Date } | null>(null);
   const [recentSummaryExpanded, setRecentSummaryExpanded] = useState(false);
+  const [teamMembersData, setTeamMembersData] = useState<any[] | null>(null);
   const autoRefreshInFlightRef = useRef(false);
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastAutoRefreshSnapshotRef = useRef<string>("");
@@ -744,13 +745,58 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       if (!baseContext.assistantDomain) {
         baseContext.assistantDomain = computeAssistantDomain(baseContext.screen, baseContext.status);
       }
+
+      // Include team member data if loaded (for team-related actions like messaging, notifications)
+      if (teamMembersData && teamMembersData.length > 0) {
+        baseContext.teamMembers = teamMembersData.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          role: m.role,
+          status: m.status, // 'active' or 'off_duty'
+          phone: m.phone || null,
+          email: m.email || null,
+          tasksOpen: m.tasksOpen || 0,
+          tasksTotal: m.tasksTotal || 0,
+          skills: m.skills || [],
+        }));
+        
+        // Calculate team stats
+        baseContext.teamStats = {
+          total: teamMembersData.length,
+          active: teamMembersData.filter((m: any) => m.status === 'active').length,
+          offDuty: teamMembersData.filter((m: any) => m.status === 'off_duty').length,
+        };
+      }
       
       return JSON.stringify(baseContext);
     } catch (e) {
       console.error('Error enhancing context:', e);
       return context || '{}';
     }
-  }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject]);
+  }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject, teamMembersData]);
+
+  // Load team data when modal opens or project changes
+  useEffect(() => {
+    if (!visible) return;
+    
+    const loadTeamData = async () => {
+      try {
+        const teamStorageKey = 'bps.team.members';
+        const teamData = await AsyncStorage.getItem(teamStorageKey);
+        if (teamData) {
+          const teamMembers = JSON.parse(teamData);
+          setTeamMembersData(teamMembers);
+        } else {
+          setTeamMembersData(null);
+        }
+      } catch (e) {
+        console.warn('Failed to load team data:', e);
+        setTeamMembersData(null);
+      }
+    };
+    
+    loadTeamData();
+  }, [visible, parsedContext?.projectId, parsedContext?.activeProjectId]);
 
   // Auto-refresh existing summary cards in place when project budgets/expenses/schedule change while chat is open.
   // Uses a lightweight polling loop + snapshot guard to avoid waiting on navigation/focus cycles.
@@ -2912,16 +2958,66 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 40 }}
                   contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
                 >
-                  {[
-                    { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
-                    { label: '🔄 Change Order', prompt: 'Create me a change order' },
-                    { label: '📦 Create PO', prompt: 'Create a purchase order' },
-                    { label: '📋 Payments', prompt: 'Mark a payment as collected' },
-                    { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
-                    { label: '📊 Budget Check', prompt: 'Give me a project health check.' },
-                    { label: '📐 Generate Estimate', prompt: 'Create an estimate for a kitchen remodel, 250 sqft' },
-                    { label: '📈 What If?', prompt: 'What if materials go up 10%?' },
-                  ].map((chip) => (
+                  {(() => {
+                    // Determine if we're in Team context
+                    let isTeamContext = false;
+                    try {
+                      if (context) {
+                        const parsed = JSON.parse(context);
+                        isTeamContext = parsed.screen === 'Team';
+                      }
+                    } catch (e) {
+                      // Ignore parsing errors
+                    }
+
+                    // Team-specific quick actions
+                    if (isTeamContext) {
+                      return [
+                        { label: '👤 Assign PM', prompt: 'Assign a project manager to this project' },
+                        { label: '➕ Add Team Member', prompt: 'Add a new team member to this project' },
+                        { label: '📢 Notify Team', prompt: 'Send a notification to the team' },
+                        { label: '📊 Team Status', prompt: 'Show me the current team status and availability' },
+                        { label: '📋 Team Tasks', prompt: 'What tasks are assigned to team members?' },
+                        { label: '🔄 Update Status', prompt: 'Update a team member\'s status' },
+                      ].map((chip) => (
+                        <TouchableOpacity
+                          key={chip.label}
+                          onPress={() => {
+                            handleQuickAction(chip.prompt);
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 14,
+                            paddingVertical: 8,
+                            borderRadius: 20,
+                            backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
+                            borderWidth: 1,
+                            borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
+                          }}
+                        >
+                          <Text style={{
+                            fontSize: 13,
+                            fontWeight: '600',
+                            color: darkMode ? 'rgba(45, 255, 196, 0.9)' : 'rgba(0, 120, 200, 0.9)',
+                          }}>
+                            {chip.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ));
+                    }
+
+                    // Default project quick actions
+                    return [
+                      { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                      { label: '🔄 Change Order', prompt: 'Create me a change order' },
+                      { label: '📦 Create PO', prompt: 'Create a purchase order' },
+                      { label: '📋 Payments', prompt: 'Mark a payment as collected' },
+                      { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
+                      { label: '📊 Budget Check', prompt: 'Give me a project health check.' },
+                      { label: '👥 Team', prompt: 'can you help me with team management' },
+                      { label: '📈 What If?', prompt: 'Run a scenario analysis for this project.' },
+                    ].map((chip) => (
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
@@ -2946,7 +3042,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                         {chip.label}
                       </Text>
                     </TouchableOpacity>
-                  ))}
+                  ));
+                  })()}
                 </ScrollView>
               ) : (
                 <ScrollView

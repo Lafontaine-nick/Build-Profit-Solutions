@@ -830,11 +830,12 @@ const AddMemberModal = ({ onClose, onAdd }: {
             <Text style={{ color: "#ef4444", fontSize: 15, fontWeight: "600" }}>Cancel</Text>
           </TouchableOpacity>
           {darkMode ? (
-            <LinearGradient
-              colors={["rgba(34, 197, 94, 0.9)", "rgba(34, 211, 238, 0.9)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ flex: 1, borderRadius: 12, padding: 1, ...Platform.select({
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handleAdd();
+              }}
+              style={{ flex: 1, borderRadius: 12, overflow: "hidden", ...Platform.select({
                 ios: {
                   shadowColor: '#22c55e',
                   shadowOffset: { width: 0, height: 4 },
@@ -847,14 +848,21 @@ const AddMemberModal = ({ onClose, onAdd }: {
               }) }}
             >
               <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
+                colors={["rgba(34, 197, 94, 0.9)", "rgba(34, 211, 238, 0.9)"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={{ paddingVertical: 14, borderRadius: 11, alignItems: "center" }}
+                style={{ flex: 1, borderRadius: 12, padding: 1 }}
               >
-                <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.3 }}>✓ Save</Text>
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ paddingVertical: 14, borderRadius: 11, alignItems: "center" }}
+                >
+                  <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.3 }}>✓ Save</Text>
+                </LinearGradient>
               </LinearGradient>
-            </LinearGradient>
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity 
               onPress={() => {

@@ -26,6 +26,14 @@ async function runRouter(message, history, ctxSummary) {
       contextMessage += '\n\nCRITICAL: You are in a DAILY LOG flow. The assistant recently asked about daily log notes. The user\'s message is a daily log entry (noteText), NOT an expense. Set domain = "daily_log" and proposed_tool = "add_daily_log".';
     }
     
+    // Check if assistant just asked for team member name
+    const lastAssistantMessage = recentHistory.filter(m => m.role === 'assistant').pop()?.content || '';
+    const askedForTeamMemberName = /(?:Please provide the name of the team member|which team member|name of the team member|team member you would like|team member you want)/i.test(lastAssistantMessage);
+    if (askedForTeamMemberName && message.trim().length > 0 && message.trim().length < 50) {
+      // User likely provided just a name (like "Nicholas")
+      contextMessage += '\n\nCRITICAL: The assistant just asked for a team member name. The user\'s message is likely a team member name. Set domain = "team", proposed_tool = "message_team_member", and extract the name from the user message.';
+    }
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -749,6 +757,44 @@ function getPendingPaymentMilestones(parsedContext = {}) {
   });
 }
 
+/**
+ * Format payment milestone name for display
+ * Converts "Week 1 Payment" → "Weekly Payment 1", "Deposit" → "Deposit", etc.
+ */
+function formatPaymentNameForDisplay(titleOrName = '') {
+  const name = String(titleOrName || '').trim();
+  if (!name) return name;
+  
+  // Check if it's a deposit (case-insensitive)
+  if (/^deposit$/i.test(name)) {
+    return 'Deposit';
+  }
+  
+  // Match patterns like "Week 1 Payment", "Week 2 Payment", etc.
+  const weekMatch = name.match(/week\s+(\d+)\s+payment/i);
+  if (weekMatch) {
+    const weekNum = weekMatch[1];
+    return `Weekly Payment ${weekNum}`;
+  }
+  
+  // Match patterns like "Weekly Payment 1", "Weekly Payment 2", etc. (already formatted)
+  const weeklyMatch = name.match(/weekly\s+payment\s+(\d+)/i);
+  if (weeklyMatch) {
+    const weekNum = weeklyMatch[1];
+    return `Weekly Payment ${weekNum}`;
+  }
+  
+  // Match patterns like "Payment 1", "Payment 2", etc. and convert to "Weekly Payment X"
+  const paymentMatch = name.match(/payment\s+(\d+)/i);
+  if (paymentMatch) {
+    const weekNum = paymentMatch[1];
+    return `Weekly Payment ${weekNum}`;
+  }
+  
+  // Return as-is for other formats
+  return name;
+}
+
 function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
   const searchName = String(rawName || '').toLowerCase().trim();
   if (!searchName) return null;
@@ -1290,6 +1336,10 @@ router.post('/', async (req, res) => {
 
     // ── BUILD SYSTEM PROMPT using modular prompt system ──
     const pmAlerts = aiPmMode ? runProactiveIntelligence(parsedContext) : [];
+    const teamMembers = parsedContext.teamMembers || [];
+    const teamStats = parsedContext.teamStats || { total: 0, active: 0, offDuty: 0 };
+    const calendarEvents = parsedContext.calendarEvents || [];
+    const upcomingCalendarEvents = parsedContext.upcomingCalendarEvents || [];
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
@@ -1297,6 +1347,10 @@ router.post('/', async (req, res) => {
       laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
       progress, aiPmMode, pmAlerts,
       screen: parsedContext.screen || 'assistant_tab',
+      teamMembers,
+      teamStats,
+      calendarEvents,
+      upcomingCalendarEvents,
     });
 
     // Build messages array from history + new message
@@ -1474,6 +1528,45 @@ router.post('/', async (req, res) => {
           },
         },
       },
+      // ── TEAM MESSAGING TOOLS (always available) ────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'message_team_member',
+          description: 'Send an SMS text message to a specific team member. Use when user wants to message, text, or contact a team member by name. Find the team member in context.teamMembers by matching their name (case-insensitive).',
+          parameters: {
+            type: 'object',
+            properties: {
+              teamMemberName: {
+                type: 'string',
+                description: 'The name of the team member to message. Match this against context.teamMembers list (case-insensitive). REQUIRED.',
+              },
+              messageContent: {
+                type: 'string',
+                description: 'The message content to send to the team member. REQUIRED.',
+              },
+            },
+            required: ['teamMemberName', 'messageContent'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'notify_team',
+          description: 'Send an SMS text message to all active team members (bulk notification). Use when user wants to notify the team, send an announcement, or message everyone.',
+          parameters: {
+            type: 'object',
+            properties: {
+              messageContent: {
+                type: 'string',
+                description: 'The message content to send to all active team members. REQUIRED.',
+              },
+            },
+            required: ['messageContent'],
+          },
+        },
+      },
     ];
 
     // ── PM Mode extended tools: timeline + estimates ──────────────────────────
@@ -1564,12 +1657,12 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'run_scenario_analysis',
-          description: 'Run a what-if scenario analysis on the project. Use when user asks "what if materials go up 10%?", "what if labor increases?", "bad remodel scenario", "smooth job scenario", "what happens if costs rise?".',
+          description: 'Run a what-if scenario analysis on the project using the project\'s EXISTING budget, materials, labor, and overhead data from context. The tool automatically uses the current project financials - you do NOT need to provide dollar amounts. Use when user asks "what if materials go up 10%?", "what if labor increases?", "bad remodel scenario", "smooth job scenario", "what happens if costs rise?". Preset scenarios (typical_friction, bad_remodel, smooth_job) have predefined percentage adjustments - just pass the scenario name.',
           parameters: {
             type: 'object',
             properties: {
-              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
-              scenario: { type: 'string', enum: ['labor_up_10', 'labor_down_10', 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'typical_friction', 'bad_remodel', 'smooth_job', 'custom'], description: 'The scenario to run. Use "custom" for arbitrary adjustments.' },
+              projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Optional - will use current project from context if not provided.'}` },
+              scenario: { type: 'string', enum: ['labor_up_10', 'labor_down_10', 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'typical_friction', 'bad_remodel', 'smooth_job', 'custom'], description: 'The scenario to run. Preset scenarios (typical_friction, bad_remodel, smooth_job) have predefined percentage adjustments built-in. Use "custom" only for arbitrary adjustments. REQUIRED - this is the ONLY required field.' },
               customAdjustments: {
                 type: 'object',
                 description: 'For "custom" scenario only. Specify percentage changes.',
@@ -2282,6 +2375,128 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // Helper function to execute message_team_member
+    async function executeMessageTeamMember(args) {
+      try {
+        const { teamMemberName, messageContent } = args;
+        
+        if (!teamMemberName || !messageContent) {
+          return { 
+            success: false, 
+            error: 'Team member name and message content are required' 
+          };
+        }
+
+        // Find team member in context
+        const teamMembers = parsedContext?.teamMembers || [];
+        const teamMember = teamMembers.find(m => {
+          const memberName = (m.name || '').toLowerCase();
+          const searchName = teamMemberName.toLowerCase();
+          return memberName === searchName || 
+                 memberName.includes(searchName) || 
+                 searchName.includes(memberName);
+        });
+
+        if (!teamMember) {
+          return {
+            success: false,
+            error: `Could not find team member "${teamMemberName}". Available team members: ${teamMembers.map(m => m.name).join(', ')}`
+          };
+        }
+
+        if (!teamMember.phone) {
+          return {
+            success: false,
+            error: `Team member "${teamMemberName}" does not have a phone number on file.`
+          };
+        }
+
+        // Call backend API to send SMS
+        const baseUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+        const response = await axios.post(`${baseUrl}/api/team/message`, {
+          phoneNumber: teamMember.phone,
+          message: messageContent,
+          teamMemberName: teamMember.name
+        });
+
+        if (response.data.success) {
+          return {
+            success: true,
+            message: `✅ Message sent to ${teamMember.name} (${teamMember.phone})`,
+            messageSid: response.data.messageSid
+          };
+        } else {
+          return {
+            success: false,
+            error: response.data.error || 'Failed to send message'
+          };
+        }
+      } catch (error) {
+        console.error('Error sending team message:', error);
+        return {
+          success: false,
+          error: error.response?.data?.error || error.message || 'Failed to send message'
+        };
+      }
+    }
+
+    // Helper function to execute notify_team
+    async function executeNotifyTeam(args) {
+      try {
+        const { messageContent } = args;
+        
+        if (!messageContent) {
+          return { 
+            success: false, 
+            error: 'Message content is required' 
+          };
+        }
+
+        // Get active team members from context
+        const teamMembers = parsedContext?.teamMembers || [];
+        const activeTeamMembers = teamMembers.filter(m => 
+          m.status === 'active' && m.phone
+        );
+
+        if (activeTeamMembers.length === 0) {
+          return {
+            success: false,
+            error: 'No active team members with phone numbers found.'
+          };
+        }
+
+        // Call backend API to send bulk SMS
+        const baseUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+        const phoneNumbers = activeTeamMembers.map(m => m.phone);
+        const response = await axios.post(`${baseUrl}/api/team/notify`, {
+          phoneNumbers,
+          message: messageContent
+        });
+
+        if (response.data.success) {
+          return {
+            success: true,
+            message: `✅ Notification sent to ${response.data.totalSent} team member(s)`,
+            totalSent: response.data.totalSent,
+            totalFailed: response.data.totalFailed
+          };
+        } else {
+          return {
+            success: false,
+            error: response.data.error || 'Failed to send notifications',
+            totalSent: response.data.totalSent || 0,
+            totalFailed: response.data.totalFailed || activeTeamMembers.length
+          };
+        }
+      } catch (error) {
+        console.error('Error sending team notification:', error);
+        return {
+          success: false,
+          error: error.response?.data?.error || error.message || 'Failed to send notifications'
+        };
+      }
+    }
+
     // Track actions from function calls (for purchase orders, etc.) - declare BEFORE use
     let actions = [];
     const allUserMessages = messages.filter(m => m.role === 'user');
@@ -2495,6 +2710,63 @@ router.post('/', async (req, res) => {
       console.log('🛡️ Daily log protection: router says daily_log, blocking expense guard override');
     }
 
+    // ── SCENARIO-ANALYSIS GUARD ──────────────────────────────────────────────
+    // For generic "what if" requests, ask user to pick one preset scenario.
+    // If user picks one, run immediately with no extra questions.
+    const scenarioIntentRegex = /\b(what\s*if|scenario analysis|run a scenario analysis|run scenario analysis|project outcome scenario|outcome scenario)\b/i;
+    const lastAssistantScenarioMsg = String(
+      [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
+    ).toLowerCase();
+    const lastAssistantAskedScenarioChoice =
+      lastAssistantScenarioMsg.includes('typical friction') &&
+      lastAssistantScenarioMsg.includes('bad remodel') &&
+      lastAssistantScenarioMsg.includes('smooth job');
+    const scenarioChoiceMap = [
+      { regex: /\btypical\s*friction\b/i, value: 'typical_friction' },
+      { regex: /\btypical\s+friction\b/i, value: 'typical_friction' }, // Match with space
+      { regex: /\btypical\b/i, value: 'typical_friction' }, // Match just "typical" if in scenario context
+      { regex: /\bbad\s*remodel\b/i, value: 'bad_remodel' },
+      { regex: /\bbad\s+remodel\b/i, value: 'bad_remodel' }, // Match with space
+      { regex: /\bsmooth\s*job\b/i, value: 'smooth_job' },
+      { regex: /\bsmooth\s+job\b/i, value: 'smooth_job' }, // Match with space
+      { regex: /\blabor\s*\+?\s*10%?\b/i, value: 'labor_up_10' },
+      { regex: /\blabor\s*-\s*10%?\b/i, value: 'labor_down_10' },
+      { regex: /\bmaterials?\s*\+?\s*10%?\b/i, value: 'materials_up_10' },
+      { regex: /\bmaterials?\s*\+?\s*5%?\b/i, value: 'materials_up_5' },
+      { regex: /\bmaterials?\s*-\s*5%?\b/i, value: 'materials_down_5' },
+      { regex: /\boverhead\s*\+?\s*10%?\b/i, value: 'overhead_up_10' },
+      { regex: /\boverhead\s*-\s*10%?\b/i, value: 'overhead_down_10' },
+      { regex: /\bbid\s*\+?\s*2%?\b/i, value: 'bid_up_2' },
+      { regex: /\bbid\s*-\s*2%?\b/i, value: 'bid_down_2' },
+    ];
+    const selectedScenario = scenarioChoiceMap.find(({ regex }) => regex.test(String(message || '')))?.value || null;
+    const isGenericScenarioRequest =
+      scenarioIntentRegex.test(String(message || '')) &&
+      !selectedScenario;
+    // CRITICAL: If user selected a scenario (even without "what if" in message), activate flow
+    // This handles the case where user responds "Typical friction" to the AI's question
+    const isScenarioFlowActive = isGenericScenarioRequest || lastAssistantAskedScenarioChoice || selectedScenario;
+
+    if (isScenarioFlowActive) {
+      routerResult.domain = 'scenario_analysis';
+      routerResult.proposed_tool = 'run_scenario_analysis';
+      routerResult.tool_args_draft = routerResult.tool_args_draft || {};
+
+      if (selectedScenario) {
+        routerResult.tool_args_draft.scenario = selectedScenario;
+        routerResult.required_fields_missing = [];
+        routerResult.clarification_question = null;
+        routerResult.confidence = 1.0;
+        routerResult.action = 'execute';
+        console.log('🛡️ Scenario guard: scenario selected, executing', selectedScenario);
+      } else {
+        routerResult.required_fields_missing = ['scenario'];
+        routerResult.clarification_question = 'Run a scenario analysis for this project. Do you want Typical Friction, Bad Remodel, or Smooth Job?';
+        routerResult.confidence = 0.99;
+        console.log('🛡️ Scenario guard: asking user to choose scenario preset');
+      }
+    }
+
     const changeOrderIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|extra work|client wants to add)\b/i;
     const lastAssistantCOPrompt = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
@@ -2627,7 +2899,7 @@ router.post('/', async (req, res) => {
           if (pendingPaymentMilestones.length > 0) {
             const options = pendingPaymentMilestones
               .slice(0, 6)
-              .map((m) => `"${m.title || m.name}"`)
+              .map((m) => `"${formatPaymentNameForDisplay(m.title || m.name)}"`)
               .join(', ');
             routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
           } else {
@@ -2653,7 +2925,7 @@ router.post('/', async (req, res) => {
           if (pendingPaymentMilestones.length > 0) {
             const options = pendingPaymentMilestones
               .slice(0, 6)
-              .map((m) => `"${m.title || m.name}"`)
+              .map((m) => `"${formatPaymentNameForDisplay(m.title || m.name)}"`)
               .join(', ');
             routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
           } else {
@@ -2764,6 +3036,25 @@ router.post('/', async (req, res) => {
     // ── STAGE 2: EXECUTION ────────────────────────────────────────────────────
     // finalToolChoice is already set by the router above
     
+    // If scenario is selected, inject a system hint to execute immediately with preset data
+    if (routerResult.action === 'execute' && routerResult.proposed_tool === 'run_scenario_analysis' && routerResult.tool_args_draft?.scenario) {
+      const scenarioName = routerResult.tool_args_draft.scenario;
+      messages.push({
+        role: 'system',
+        content: `CRITICAL INSTRUCTION: User selected scenario "${scenarioName}". Call run_scenario_analysis NOW with:
+- scenario="${scenarioName}" (this is the SCENARIO TYPE, NOT a project ID)
+- projectId="${projectId || null}" (use the actual project ID from context, NOT the scenario name)
+
+CRITICAL: The tool uses the project's EXISTING budget, materials, labor, and overhead data from context. You do NOT need to provide any dollar amounts. The scenario "${scenarioName}" has preset percentage adjustments already defined (e.g., typical_friction = labor +8%, materials +5%, overhead +3%). The tool will automatically:
+1. Get the current project budget, materials, labor, overhead from context
+2. Apply the preset percentage adjustments
+3. Calculate the new costs, profit, and margin
+
+Do NOT ask for dollar amounts, parameters, percentages, or any other details. Just execute the tool immediately with ONLY the scenario parameter. The tool has all the data it needs from context.`,
+      });
+      console.log('🛡️ Scenario executor hint: injected system message to force immediate execution with scenario:', scenarioName);
+    }
+    
     // If CO flow has all fields, inject a system hint to execute immediately without asking more questions
     if (isChangeOrderFlowActive && coFlowContext.description && coFlowContext.amount && coFlowContext.vendor) {
       messages.push({
@@ -2787,6 +3078,29 @@ router.post('/', async (req, res) => {
 
     let reply = completion.choices[0].message.content || '';
     let toolCalls = completion.choices[0].message.tool_calls || [];
+
+    // CRITICAL: Post-process reply to remove invalid questions for scenario analysis
+    const isScenarioAnalysisFlow = routerResult.domain === 'scenario_analysis' ||
+                                   routerResult.proposed_tool === 'run_scenario_analysis' ||
+                                   toolCalls.some(tc => tc.function?.name === 'run_scenario_analysis');
+    
+    if (isScenarioAnalysisFlow) {
+      // ALWAYS strip dollar amount questions — scenario analysis uses existing project data
+      reply = reply.replace(/[^.!?\n]*(?:dollar amount|dollar|amount|how much|what.*amount|need.*amount|provide.*amount|confirm.*amount|specify.*amount)[^.!?\n]*[.!?]?/gi, '');
+      reply = reply.replace(/\n{2,}/g, '\n').trim();
+      
+      if (/dollar amount|need.*amount|provide.*amount|confirm.*amount/i.test(reply)) {
+        reply = reply.split(/(?<=[.!?])\s+/).filter(s => !/dollar amount|need.*amount|provide.*amount|confirm.*amount/i.test(s)).join(' ').trim();
+      }
+      
+      // If reply was stripped to empty and we have a tool call, let the tool result speak
+      if (!reply || reply.trim().length === 0) {
+        console.log('🛡️ Scenario filter: reply was empty after strip, tool will provide results');
+        reply = '';
+      }
+      
+      console.log('🛡️ Scenario filter: cleaned reply:', reply.substring(0, 120));
+    }
 
     // CRITICAL: Post-process reply to remove invalid questions for change orders
     const isChangeOrderFlow = isChangeOrderFlowActive || 
@@ -2829,6 +3143,69 @@ router.post('/', async (req, res) => {
       console.error('❌ Router-forced tool call was ignored by AI:', typeof finalToolChoice === 'object' ? finalToolChoice.function?.name : 'unknown');
     }
 
+    // CRITICAL FALLBACK: If router selected scenario_analysis but executor ignored the tool call,
+    // force run_scenario_analysis using the scenario from tool_args_draft.
+    if (
+      toolCalls.length === 0 &&
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'run_scenario_analysis' &&
+      routerResult.tool_args_draft?.scenario
+    ) {
+      const scenarioName = routerResult.tool_args_draft.scenario;
+      const fallbackArgs = {
+        projectId: projectId || null,
+        scenario: scenarioName,
+      };
+      toolCalls = [
+        {
+          id: `call_manual_scenario_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: 'run_scenario_analysis',
+            arguments: JSON.stringify(fallbackArgs),
+          },
+        },
+      ];
+      console.log('🛡️ Scenario fallback: forcing run_scenario_analysis tool call', {
+        scenario: scenarioName,
+        projectId,
+      });
+    }
+    
+    // CRITICAL: Fix scenario analysis tool calls where AI confused scenario with projectId
+    // If projectId looks like a scenario name (typical_friction, bad_remodel, smooth_job), swap them
+    for (const toolCall of toolCalls) {
+      if (toolCall.function?.name === 'run_scenario_analysis') {
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'labor_up_10', 'labor_down_10', 
+                                'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 
+                                'overhead_down_10', 'bid_up_2', 'bid_down_2'];
+          
+          // If projectId is actually a scenario name, fix it
+          if (args.projectId && scenarioNames.includes(args.projectId) && !args.scenario) {
+            console.log('🛡️ Scenario fix: AI passed scenario as projectId, correcting...', {
+              wrongProjectId: args.projectId,
+              correctProjectId: projectId,
+            });
+            args.scenario = args.projectId;
+            args.projectId = projectId || null;
+            toolCall.function.arguments = JSON.stringify(args);
+            console.log('✅ Scenario fix: corrected arguments', args);
+          }
+          
+          // If scenario is missing but we have it in tool_args_draft, use it
+          if (!args.scenario && routerResult.tool_args_draft?.scenario) {
+            args.scenario = routerResult.tool_args_draft.scenario;
+            toolCall.function.arguments = JSON.stringify(args);
+            console.log('✅ Scenario fix: added scenario from tool_args_draft', args);
+          }
+        } catch (e) {
+          console.error('❌ Scenario fix: error parsing arguments', e);
+        }
+      }
+    }
+    
     // CRITICAL FALLBACK: If router selected daily_log but executor ignored the tool call,
     // force add_daily_log using the current user message as noteText.
     // This prevents "daily log" follow-ups from drifting into expense prompts.
@@ -2966,7 +3343,35 @@ router.post('/', async (req, res) => {
       // Execute each tool call
       for (const toolCall of toolCalls) {
         const functionName = toolCall.function.name;
-        const functionArgs = JSON.parse(toolCall.function.arguments);
+        let functionArgs = JSON.parse(toolCall.function.arguments);
+        
+        // CRITICAL FIX: Correct scenario analysis tool calls where AI confused scenario with projectId
+        if (functionName === 'run_scenario_analysis') {
+          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'labor_up_10', 'labor_down_10', 
+                                'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 
+                                'overhead_down_10', 'bid_up_2', 'bid_down_2', 'custom'];
+          
+          // If projectId is actually a scenario name, swap them
+          if (functionArgs.projectId && scenarioNames.includes(functionArgs.projectId) && !functionArgs.scenario) {
+            console.log('🛡️ Scenario fix: AI passed scenario as projectId, correcting...', {
+              wrongProjectId: functionArgs.projectId,
+              correctProjectId: projectId,
+            });
+            functionArgs.scenario = functionArgs.projectId;
+            functionArgs.projectId = projectId || null;
+            // Update the tool call arguments
+            toolCall.function.arguments = JSON.stringify(functionArgs);
+            console.log('✅ Scenario fix: corrected arguments', functionArgs);
+          }
+          
+          // If scenario is missing but we have it in tool_args_draft, use it
+          if (!functionArgs.scenario && routerResult.tool_args_draft?.scenario) {
+            functionArgs.scenario = routerResult.tool_args_draft.scenario;
+            functionArgs.projectId = projectId || functionArgs.projectId || null;
+            toolCall.function.arguments = JSON.stringify(functionArgs);
+            console.log('✅ Scenario fix: added scenario from tool_args_draft', functionArgs);
+          }
+        }
         
         console.log('🔧 AI Assistant: Executing tool call', { functionName, args: { ...functionArgs, token: undefined } });
 
@@ -3846,12 +4251,46 @@ router.post('/', async (req, res) => {
         // ── SCENARIO ANALYSIS EXECUTOR ─────────────────────────────────────────
         } else if (functionName === 'run_scenario_analysis') {
           // Pull project financials from context
+          // CRITICAL: This tool uses EXISTING project data - no user input needed
           const ctx = parsedContext || {};
           const currentProject = ctx.currentProject || ctx;
           const estimateData = currentProject.estimateData || currentProject.estimate || {};
-          const materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || 0);
-          const laborCost = Number(estimateData.laborTotal || 5000);
-          const overheadCost = Number(estimateData.overheadTotal || 0);
+          
+          // Get material cost from multiple possible sources
+          const materialCost = Number(
+            ctx.materialBudgetDirect || 
+            estimateData.materialTotal || 
+            estimateData.materialsTotal ||
+            currentProject.materialBudget ||
+            currentProject.materialsTotal ||
+            0
+          );
+          
+          // Get labor cost from multiple possible sources
+          const laborCost = Number(
+            estimateData.laborTotal || 
+            estimateData.laborCost ||
+            currentProject.laborTotal ||
+            currentProject.laborCost ||
+            5000
+          );
+          
+          // Get overhead cost from multiple possible sources
+          const overheadCost = Number(
+            estimateData.overheadTotal || 
+            estimateData.overheadCost ||
+            currentProject.overheadTotal ||
+            currentProject.overheadCost ||
+            0
+          );
+          
+          console.log('📊 Scenario Analysis: Using project data from context', {
+            materialCost,
+            laborCost,
+            overheadCost,
+            projectId: functionArgs.projectId || projectId,
+            scenario: functionArgs.scenario,
+          });
           const baseCost = materialCost + laborCost + overheadCost;
           const markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
           const markup = baseCost * (markupPct / 100);
@@ -4145,7 +4584,7 @@ RULES:
           
           // If still no match and user provided a name, return error with available options
           if (!match && functionArgs.milestoneName && pendingPayments.length > 0) {
-            const availableNames = pendingPayments.map(m => `"${m.title}"`).join(', ');
+            const availableNames = pendingPayments.map(m => `"${formatPaymentNameForDisplay(m.title || m.name)}"`).join(', ');
             functionResult = {
               success: false,
               error: `Could not find a payment milestone matching "${functionArgs.milestoneName}". Available pending payments: ${availableNames}. Please specify which one you want to mark as collected.`,
@@ -4205,6 +4644,33 @@ RULES:
             projectId: targetPid,
             action,
           };
+
+        // ── TEAM MESSAGING TOOL EXECUTORS ────────────────────────────────────────
+        } else if (functionName === 'message_team_member') {
+          logPhase('tool_start', { functionName });
+          functionResult = await withTimeout(
+            executeMessageTeamMember(functionArgs),
+            TOOL_EXEC_TIMEOUT_MS,
+            `${functionName}`
+          ).catch((e) => ({
+            success: false,
+            error: e.message,
+            status: 'timeout_error',
+          }));
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
+
+        } else if (functionName === 'notify_team') {
+          logPhase('tool_start', { functionName });
+          functionResult = await withTimeout(
+            executeNotifyTeam(functionArgs),
+            TOOL_EXEC_TIMEOUT_MS,
+            `${functionName}`
+          ).catch((e) => ({
+            success: false,
+            error: e.message,
+            status: 'timeout_error',
+          }));
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
 
         } else {
           functionResult = { success: false, error: `Unknown function: ${functionName}` };
@@ -4326,9 +4792,15 @@ RULES:
             ? ' CRITICAL: If mark_purchase_order_received succeeded, you MUST say "I\'ve marked purchase order [PO-XXXXX] as received" or "Purchase order [PO-XXXXX] has been marked as received" - be explicit and clear about the PO number.'
             : '';
           
+          // Special instruction for team messaging
+          const hasTeamMessage = functionResultsSummary.some(r => r.functionName === 'message_team_member' || r.functionName === 'notify_team');
+          const teamMessageInstruction = hasTeamMessage
+            ? ' CRITICAL: If message_team_member or notify_team succeeded, you MUST confirm the message was sent. Use the message from the function result. DO NOT show budget overview or other project info - just confirm the message was sent successfully.'
+            : '';
+          
           messages.push({
             role: 'system',
-            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue.${poReceivedInstruction}`
+            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}`
           });
         } else if (allFailed) {
           const errors = functionResultsSummary.map(r => r.error || r.message).filter(Boolean);

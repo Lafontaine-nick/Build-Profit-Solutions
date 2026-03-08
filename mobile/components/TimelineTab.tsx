@@ -420,7 +420,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
             </LinearGradient>
           </View>
 
-          {/* All Milestones Section */}
+          {/* All Payments Section */}
           <View style={styles.sectionCardContainer}>
             <LinearGradient
               colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -432,7 +432,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
               <View style={styles.sectionHeader}>
                 <MaterialIcons name="list" size={22} color={COLORS.green} />
                 <Text style={[styles.sectionTitle, { color: COLORS.text, marginLeft: 12 }]}>
-                  All Milestones
+                  All Payments
                 </Text>
               </View>
               <View style={styles.milestonesList}>

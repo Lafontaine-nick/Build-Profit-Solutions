@@ -39,6 +39,7 @@ const aiDashboardRoutes = require('./routes/aiDashboard');
 const aiAssistantRoutes = require('./routes/aiAssistant');
 const dashboardRoutes = require('./routes/dashboard');
 const userSettingsRoutes = require('./routes/userSettings');
+const teamMessagingRoutes = require('./routes/teamMessaging');
 const { initializeDatabase } = require('./services/database');
 
 const app = express();
@@ -171,6 +172,7 @@ app.use('/api/ai', aiDashboardRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
+app.use('/api/team', teamMessagingRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);

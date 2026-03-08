@@ -32,6 +32,8 @@ function buildSystemPrompt(opts = {}) {
     materialBudget = 0, materialSpent = 0, materialRemaining = 0,
     laborBudget = 0, laborSpent = 0, laborRemaining = 0,
     progress = 0, aiPmMode = false, pmAlerts = [], screen = 'assistant_tab',
+    teamMembers = [], teamStats = { total: 0, active: 0, offDuty: 0 },
+    calendarEvents = [], upcomingCalendarEvents = [],
   } = opts;
 
   const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((status || '').toLowerCase());
@@ -146,9 +148,11 @@ ESTIMATE RULES:
   // Scenario analysis domain
   const scenarioBlock = aiPmMode ? `
 SCENARIO ANALYSIS RULES:
-→ "what if materials go up 10%?" / "bad remodel scenario" / "smooth job" → call run_scenario_analysis
+→ "what if materials go up 10%?" / "bad remodel scenario" / "smooth job" / "run scenario analysis" / "what if" → call run_scenario_analysis
+→ If the user says "what if" or "run scenario analysis" without specifying a scenario, ask: "Do you want Typical Friction, Bad Remodel, or Smooth Job?"
+→ If the user specifies a scenario (e.g., "bad remodel", "smooth job", "labor up 10%"), use that scenario.
 → Present results as: Original → Adjusted → Impact
-→ Always show: profit change, margin change, cost increase
+→ Always show: profit change, margin change, cost increase, break-even point
 → Scenarios: labor_up_10, materials_up_10, typical_friction, bad_remodel, smooth_job, custom` : '';
 
   // Change order domain
@@ -169,6 +173,47 @@ CHANGE ORDER RULES:
 DAILY LOG RULES:
 → "add note" / "daily log" / "job log" / "site note" → call add_daily_log
 → Captures: what happened on site today, weather, crew count, issues` : '';
+
+  // Calendar domain (PM mode only)
+  const calendarBlock = aiPmMode ? `
+CALENDAR RULES:
+→ Calendar events are scheduled inspections, deliveries, work, meetings, and other time-based activities
+→ When user asks about schedule, inspections, or upcoming events → reference calendar events
+→ Calendar events can be linked to timeline milestones
+→ Completed calendar events automatically create daily log entries
+→ Types: inspection (red), delivery (blue), work (green), meeting (amber), other (purple)
+→ Proactively mention upcoming calendar events when relevant to the conversation
+→ Example: "Electrical rough inspection is scheduled for Tuesday. Make sure the wiring inspection checklist is complete."
+→ If user mentions being behind schedule, compare calendar events to timeline milestones
+${upcomingCalendarEvents && upcomingCalendarEvents.length > 0 ? `
+UPCOMING CALENDAR EVENTS (Next 7 Days):
+${upcomingCalendarEvents.map((e, i) => {
+  const eventDate = new Date(e.date);
+  const today = new Date();
+  const daysUntil = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  return `${i + 1}. ${e.title} (${e.type}) - ${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${e.time ? ` at ${e.time}` : ''}${daysUntil >= 0 ? ` (${daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days`})` : ''}${e.subcontractor ? ` - ${e.subcontractor}` : ''}${e.notes ? ` - ${e.notes}` : ''}`;
+}).join('\n')}
+→ Proactively mention these events when relevant (e.g., "You have a framing inspection scheduled for tomorrow")
+→ If an inspection is coming up, remind about preparation checklists
+→ If a delivery is scheduled, confirm materials are ready to receive` : ''}` : '';
+
+  // Team management domain
+  const teamBlock = (teamMembers && teamMembers.length > 0) ? `
+TEAM MANAGEMENT RULES:
+→ When user asks about "team management" or clicks the Team quick action, respond with: "What specific aspects of team management do you need assistance with? Are you looking to add tasks, send direct messages with team members, or send a team announcement?"
+
+CURRENT TEAM MEMBERS:
+${teamMembers.map((m, i) => `${i + 1}. ${m.name || 'Unknown'} (${m.role || 'N/A'}, Status: ${m.status || 'N/A'}, Phone: ${m.phone || 'N/A'}, Email: ${m.email || 'N/A'}, Open Tasks: ${m.tasksOpen || 0})`).join('\n')}
+Team Stats: Total: ${teamStats.total || 0}, Active: ${teamStats.active || 0}, Off Duty: ${teamStats.offDuty || 0}
+
+→ When user mentions a team member name, search for them in the list above using case-insensitive matching (e.g., "nicholas" matches "Nicholas Lafontaine", "nicholas lafontaine" matches "Nicholas Lafontaine")
+→ For messaging: "message [name]" / "text [name]" / "call [name]" / "email [name]" → find the team member by name (case-insensitive) and use their contact info
+→ CRITICAL: Messaging team members is just sending a text/email/call - NO dollar amounts, NO task assignments, NO expenses. Just provide the team member's contact info and confirm the message content.
+→ When user provides a message like "Manage inspection" or "Check on the site", that's just the message content to send - NOT a task that needs a dollar amount. Simply acknowledge you'll send that message.
+→ CRITICAL: When message_team_member or notify_team tool succeeds, you MUST confirm the message was sent. DO NOT show budget overview, project details, or other information unless the user specifically asked for it. Just confirm: "Message sent to [name]: [message]" or similar.
+→ For group notifications: "notify team" / "send announcement" / "message everyone" → offer to send to all active team members
+→ If a team member name is not found, list the available team members and ask the user to choose one
+→ NEVER ask for dollar amounts when messaging team members - messaging is free communication, not a financial transaction` : '';
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LAYER 3: PERSONA OVERLAY
@@ -232,6 +277,8 @@ RULES:
     scenarioBlock,
     changeOrderBlock,
     dailyLogBlock,
+    calendarBlock,
+    teamBlock,
     aiPmMode ? personaOn : personaOff,
     intelligenceBlock,
   ].filter(Boolean);
@@ -246,9 +293,9 @@ function buildRouterPrompt() {
   return `You are an intent router for a construction project management app.
 Return ONLY a valid JSON object (no markdown, no extra text) with this exact structure:
 {
-  "domain": "expenses|purchase_orders|timeline|estimates|budget|daily_log|change_order|general",
+  "domain": "expenses|purchase_orders|timeline|estimates|budget|daily_log|change_order|team|general",
   "action": "create|update|mark_complete|mark_collected|lookup|query|advise|none",
-  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|null",
+  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|message_team_member|notify_team|null",
   "tool_args_draft": {},
   "required_fields_missing": [],
   "clarification_question": null,
@@ -269,6 +316,10 @@ Intent rules:
   * CRITICAL: If assistant asked about daily log notes/happened today, user's next message is ALWAYS daily_log domain, even if it contains words like "inspection", "framing", "completed", etc. These are site notes, NOT expenses.
   * Keywords: "daily log", "job log", "site note", "add note", "log for today", "what happened", "record what happened"
 - "change_order": scope change, extra work, client added something, change request
+- "team": team management, messaging team members, team announcements, team member names
+  * CRITICAL: If assistant recently asked "Please provide the name of the team member" or "which team member" or "name of the team member" in context of messaging/team management, the user's response (e.g., "Nicholas", "John", "Sarah") is ALWAYS team domain, NOT purchase_orders or expenses. Check conversation history.
+  * Keywords: "team", "team member", "message [name]", "text [name]", "call [name]", "email [name]", "notify team", "team announcement", "send message to"
+  * If user provides just a name (like "Nicholas") after assistant asked for team member name → domain = "team", proposed_tool = "message_team_member"
 - "general": greetings, unknown (proposed_tool = null)
 
 Change order detection:
@@ -294,13 +345,19 @@ Required-field rules:
   * CRITICAL: If assistant recently asked "What notes would you like to include?" or "What happened today?" in context of daily log, user's response is the noteText. Do NOT treat it as an expense.
   * Daily logs capture: what happened on site, weather conditions, crew count, hours worked, issues encountered
   * Daily logs are NOT expenses - they are narrative notes about the day's work
-- run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, etc.)
+- run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, "bad remodel" → bad_remodel, "smooth job" → smooth_job). If user says "what if" or "scenario analysis" without specifics, set required_fields_missing = ["scenario"] and ask: "Do you want Typical Friction, Bad Remodel, or Smooth Job?"
 - create_change_order: description, amount, vendor
   * CRITICAL: Change orders need ONLY description + amount + vendor. NO delivery dates. NO received dates. NEVER.
   * Check context.coFlow: hasDescription, hasAmount, hasVendor. Only ask for fields that are still false.
   * NEVER add "expectedDelivery", "delivery date", "received date", or "pickup date" to required_fields_missing for change orders.
 - generate_estimate: projectType, description (sqft is highly recommended)
 - mark_timeline_item_complete: itemName (if user gives a %, set progressPct in tool_args_draft)
+- message_team_member: teamMemberName (required), messageContent (required if assistant asked for it)
+  * CRITICAL: If assistant just asked "Please provide the name of the team member" and user responds with just a name (e.g., "Nicholas"), set domain = "team", proposed_tool = "message_team_member", teamMemberName = the name provided, required_fields_missing = ["messageContent"], clarification_question = "What would you like to say to [name]?"
+  * If assistant asked for both name and message, and user provides just a name, ask for the message content
+  * CRITICAL: Messaging team members does NOT require dollar amounts, task assignments, or expenses. The messageContent can be any text (e.g., "Manage inspection", "Check on the site", "Call me when done"). NEVER ask for dollar amounts when the user provides message content.
+- notify_team: messageContent (required)
+  * CRITICAL: Team notifications do NOT require dollar amounts. The messageContent is just the announcement text to send to all team members.
 - If any required fields are missing, set clarification_question to the exact question to ask
 - If all required fields are present, required_fields_missing = [] and clarification_question = null`;
 }

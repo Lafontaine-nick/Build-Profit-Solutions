@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 interface GreyCalendarProps {
@@ -9,16 +10,33 @@ interface GreyCalendarProps {
       selected?: boolean;
       selectedColor?: string;
       selectedTextColor?: string;
+      marked?: boolean;
+      dotColor?: string;
     };
   };
   initialDate?: string;
+  events?: Array<{
+    date: string;
+    type?: string;
+    color?: string;
+  }>;
 }
 
 const GreyCalendar: React.FC<GreyCalendarProps> = ({
   onDayPress,
   markedDates = {},
   initialDate,
+  events = [],
 }) => {
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('📅 GreyCalendar: Received events:', events.length);
+      if (events.length > 0) {
+        console.log('📅 GreyCalendar: Sample events:', events.slice(0, 3));
+      }
+    }
+  }, [events]);
+
   const [currentDate, setCurrentDate] = useState(() => {
     if (initialDate) {
       return new Date(initialDate + 'T00:00:00');
@@ -45,6 +63,10 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
     setCurrentDate(new Date(year, month + (direction === 'next' ? 1 : -1), 1));
   };
 
+  const goToToday = () => {
+    setCurrentDate(new Date());
+  };
+
   const handleDayPress = (day: number) => {
     const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     onDayPress({ dateString });
@@ -61,31 +83,69 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
     // Days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const marked = markedDates[dateString];
-      const isSelected = marked?.selected || false;
       const today = new Date();
-      const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
+      today.setHours(0, 0, 0, 0);
+      const dayDate = new Date(year, month, day);
+      dayDate.setHours(0, 0, 0, 0);
+      const isToday = dayDate.getTime() === today.getTime();
+
+      // Get events for this date
+      const dayEvents = events.filter(e => e.date === dateString);
+      const hasEvents = dayEvents.length > 0;
+      const eventColor = dayEvents[0]?.color || dayEvents[0]?.type || '#22c55e';
 
       days.push(
         <TouchableOpacity
           key={day}
-          style={[
-            styles.dayCell,
-            isSelected && styles.selectedDay,
-            isToday && !isSelected && styles.todayDay,
-          ]}
+          style={styles.dayCell}
           onPress={() => handleDayPress(day)}
           activeOpacity={0.7}
         >
-          <Text
-            style={[
-              styles.dayText,
-              isSelected && styles.selectedDayText,
-              isToday && !isSelected && styles.todayText,
-            ]}
-          >
-            {day}
-          </Text>
+          {isToday ? (
+            <>
+              <Text style={styles.dayTextToday}>
+                {day}
+              </Text>
+              {hasEvents && (
+                <View style={styles.dayEvents}>
+                  {dayEvents.slice(0, 3).map((event, idx) => (
+                    <View
+                      key={idx}
+                      style={[
+                        styles.dayEventDot,
+                        { backgroundColor: event.color || event.type || '#22c55e' },
+                      ]}
+                    />
+                  ))}
+                  {dayEvents.length > 3 && (
+                    <Text style={styles.dayEventMore}>+{dayEvents.length - 3}</Text>
+                  )}
+                </View>
+              )}
+            </>
+          ) : (
+            <>
+              <Text style={styles.dayText}>
+                {day}
+              </Text>
+              {hasEvents && (
+                <View style={styles.dayEvents}>
+                  {dayEvents.slice(0, 3).map((event, idx) => (
+                    <View
+                      key={idx}
+                      style={[
+                        styles.dayEventDot,
+                        { backgroundColor: event.color || event.type || '#22c55e' },
+                      ]}
+                    />
+                  ))}
+                  {dayEvents.length > 3 && (
+                    <Text style={styles.dayEventMore}>+{dayEvents.length - 3}</Text>
+                  )}
+                </View>
+              )}
+            </>
+          )}
         </TouchableOpacity>
       );
     }
@@ -104,9 +164,21 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
         >
           <Ionicons name="chevron-back" size={22} color="rgba(255, 255, 255, 0.7)" />
         </TouchableOpacity>
-        <Text style={styles.monthYear}>
-          {monthNames[month]} {year}
-        </Text>
+        <View style={styles.monthYearContainer}>
+          <Text style={styles.monthYear}>
+            {monthNames[month]} {year}
+          </Text>
+          <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+            <LinearGradient
+              colors={['#22c55e', '#22d3ee']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.todayButtonGradient}
+            >
+              <Text style={styles.todayButtonText}>Today</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity 
           onPress={() => navigateMonth('next')} 
           style={styles.arrowButton}
@@ -135,16 +207,9 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#2a2a2a', // iOS-style grey background
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   header: {
     flexDirection: 'row',
@@ -161,11 +226,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
+  monthYearContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
   monthYear: {
     fontSize: 18,
     fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.95)',
+    color: '#ffffff',
     letterSpacing: 0.3,
+  },
+  todayButton: {
+    marginTop: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  todayButtonGradient: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  todayButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   dayNamesRow: {
     flexDirection: 'row',
@@ -182,7 +266,7 @@ const styles = StyleSheet.create({
   dayNameText: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#ffffff',
     letterSpacing: 0.5,
   },
   calendarGrid: {
@@ -196,31 +280,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: 3,
   },
+  dayCellGradient: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCellSelected: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   dayText: {
     fontSize: 15,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: '#ffffff',
   },
-  selectedDay: {
-    backgroundColor: '#22c55e',
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-  },
-  selectedDayText: {
-    color: '#000000',
+  dayTextToday: {
+    fontSize: 15,
     fontWeight: '700',
+    color: '#2DFFC4', // Bright teal/cyan (green-to-blue)
   },
-  todayDay: {
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    borderWidth: 1.5,
-    borderColor: '#22c55e',
-  },
-  todayText: {
-    color: '#22c55e',
+  dayTextHighlighted: {
+    fontSize: 15,
     fontWeight: '700',
+    color: '#ffffff',
+  },
+  dayEvents: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginTop: 2,
+    gap: 2,
+  },
+  dayEventDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  dayEventMore: {
+    fontSize: 8,
+    marginLeft: 2,
+    color: '#ffffff',
   },
 });
 
