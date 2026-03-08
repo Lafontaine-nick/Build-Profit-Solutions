@@ -289,7 +289,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
         amount: amount,
         description: transaction.description || '',
         orderDate: transaction.date || new Date().toISOString().split('T')[0],
-        expectedDelivery: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 weeks from now
+        expectedDelivery: transaction.expectedDelivery || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: 'Pending',
         notes: transaction.description || '',
       });

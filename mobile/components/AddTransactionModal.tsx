@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image } from "react-native";
+import { Feather } from '@expo/vector-icons';
+import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from '@expo/vector-icons';
@@ -25,6 +27,7 @@ type Props = {
     projectPhase?: string;
     scope?: string;
     priceReasonableness?: 'normal' | 'high' | 'outlier';
+    expectedDelivery?: string;
   }) => void;
 };
 
@@ -43,6 +46,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const [scope, setScope] = useState<string>('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [priceReasonableness, setPriceReasonableness] = useState<'normal' | 'high' | 'outlier' | null>(null);
+  const [expectedDelivery, setExpectedDelivery] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+  const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
 
   // Input refs for keyboard navigation
   const vendorRef = useRef<TextInput>(null);
@@ -51,6 +56,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const poRef = useRef<TextInput>(null);
 
   // Auto-focus vendor field when modal opens
+  const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
+
   useEffect(() => {
     if (visible) {
       setTimeout(() => vendorRef.current?.focus(), 100);
@@ -60,6 +67,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       setProjectPhase('');
       setScope('');
       setPriceReasonableness(null);
+      setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
     }
   }, [visible]);
 
@@ -277,6 +285,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       projectPhase: projectPhase || undefined,
       scope: scope || undefined,
       priceReasonableness: priceReasonableness || undefined,
+      expectedDelivery: isPurchaseOrdersCategory
+        ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`
+        : undefined,
     });
 
     // Reset form
@@ -289,6 +300,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     setProjectPhase('');
     setScope('');
     setPriceReasonableness(null);
+    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
   };
 
   const handleCancel = () => {
@@ -301,6 +313,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     setProjectPhase('');
     setScope('');
     setPriceReasonableness(null);
+    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
     onClose();
   };
 
@@ -523,6 +536,57 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 </TouchableOpacity>
               )}
             </View>
+
+            {/* Expected Delivery (Purchase Orders only) */}
+            {isPurchaseOrdersCategory && (
+              <View style={styles.field}>
+                <Text style={[styles.label, { color: Colors.text }]}>Expected Delivery *</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setShowDeliveryDatePicker(prev => !prev);
+                  }}
+                  style={[
+                    styles.dateButton,
+                    {
+                      backgroundColor: Colors.surface2,
+                      borderColor: Colors.line,
+                    }
+                  ]}
+                >
+                  <Feather name="calendar" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                  <Text style={[styles.dateButtonText, { color: Colors.text }]}>
+                    {expectedDelivery.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                </TouchableOpacity>
+                {showDeliveryDatePicker && (
+                  <View style={styles.calendarWrapper}>
+                    <GreyCalendar
+                      onDayPress={(day) => {
+                        const selectedDate = new Date(day.dateString + 'T00:00:00');
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        if (selectedDate < today) {
+                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                          return;
+                        }
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setExpectedDelivery(selectedDate);
+                        setShowDeliveryDatePicker(false);
+                      }}
+                      markedDates={{
+                        [`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`]: {
+                          selected: true,
+                          selectedColor: '#22c55e',
+                          selectedTextColor: '#000000',
+                        }
+                      }}
+                      initialDate={`${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Planned vs Unplanned Toggle */}
             <View style={styles.field}>
@@ -873,6 +937,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 6,
     fontWeight: "600",
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  dateButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  calendarWrapper: {
+    width: '100%',
+    marginTop: 12,
   },
   actions: {
     flexDirection: "row",

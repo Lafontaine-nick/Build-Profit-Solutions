@@ -151,6 +151,7 @@ SCENARIO ANALYSIS RULES:
 → "what if materials go up 10%?" / "bad remodel scenario" / "smooth job" / "run scenario analysis" / "what if" → call run_scenario_analysis
 → If the user says "what if" or "run scenario analysis" without specifying a scenario, ask: "Do you want Typical Friction, Bad Remodel, or Smooth Job?"
 → If the user specifies a scenario (e.g., "bad remodel", "smooth job", "labor up 10%"), use that scenario.
+→ When the user says "show me", "display results", "review results", "let me see", or similar after a scenario run → call run_scenario_analysis again with the same scenario (e.g. bad_remodel) and include the full breakdown in your reply: original costs (materials, labor, overhead, bid, profit, margin %), adjusted costs, and impact (profit change, margin change, cost increase, break-even %). NEVER say you don't have the capability to show scenario results — you CAN show them by re-running the scenario and presenting the tool output in text.
 → Present results as: Original → Adjusted → Impact
 → Always show: profit change, margin change, cost increase, break-even point
 → Scenarios: labor_up_10, materials_up_10, typical_friction, bad_remodel, smooth_job, custom` : '';
