@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView } from "react-native";
 import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,12 +55,10 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const descriptionRef = useRef<TextInput>(null);
   const poRef = useRef<TextInput>(null);
 
-  // Auto-focus vendor field when modal opens
   const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
 
   useEffect(() => {
     if (visible) {
-      setTimeout(() => vendorRef.current?.focus(), 100);
       // Reset form when modal opens
       setReceiptUri(null);
       setIsPlanned(true);
@@ -323,7 +321,12 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const displayCategoryName = categoryName.replace('/', ' & ');
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent>
+      <KeyboardAvoidingView
+        style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -240 : 0}
+      >
       <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
           {/* Header */}
           <View style={[styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
@@ -369,10 +372,14 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
           {/* Form */}
           <ScrollView 
             ref={scrollViewRef}
-            style={styles.form} 
-            contentContainerStyle={{ paddingBottom: 120 }}
+            style={[styles.form, { backgroundColor: darkMode ? '#000000' : Colors.bg }]} 
+            contentContainerStyle={{ paddingBottom: 24 }}
             showsVerticalScrollIndicator={false} 
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
           >
             <View style={styles.field}>
               <Text style={[styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
@@ -712,16 +719,16 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={description}
                 onChangeText={setDescription}
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
                 multiline
                 numberOfLines={2}
+                textAlignVertical="top"
+                scrollEnabled={false}
                 returnKeyType="next"
                 onSubmitEditing={() => poRef.current?.focus()}
                 blurOnSubmit={false}
+                selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                cursorColor={Colors.text}
+                keyboardAppearance={darkMode ? "dark" : "light"}
               />
             </View>
 
@@ -743,17 +750,15 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={po}
                 onChangeText={setPo}
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }}
                 autoCapitalize="characters"
                 returnKeyType="done"
                 onSubmitEditing={() => {
                   Keyboard.dismiss();
                   handleSave();
                 }}
+                selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                cursorColor={Colors.text}
+                keyboardAppearance={darkMode ? "dark" : "light"}
               />
             </View>
           </ScrollView>
@@ -799,11 +804,15 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
             </TouchableOpacity>
           </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoid: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
@@ -893,6 +902,7 @@ const styles = StyleSheet.create({
   field: {
     marginBottom: 20,
   },
+
   label: {
     color: "#FFFFFF",
     fontSize: 14,

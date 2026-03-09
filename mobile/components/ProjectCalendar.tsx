@@ -10,12 +10,14 @@ import {
   TextInput,
   Alert,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
 
@@ -31,6 +33,7 @@ export type CalendarEvent = {
   reminderMinutes?: number; // Minutes before event to remind
   completed?: boolean;
   completedAt?: string;
+  inspectionResult?: 'passed' | 'failed'; // For inspection events
   linkedMilestoneId?: string; // Link to timeline milestone
   calendarCategory?: 'payment' | 'inspection' | 'phase' | 'delivery' | 'deadline';
   createdAt: string;
@@ -95,6 +98,7 @@ export default function ProjectCalendar({
 }: ProjectCalendarProps) {
   const { darkMode } = useTheme();
   const Colors = getColors(darkMode);
+  const insets = useSafeAreaInsets();
   const COLORS = darkMode
     ? {
         bg: '#000000',
@@ -412,9 +416,7 @@ export default function ProjectCalendar({
       resetForm();
     }
     
-    if (Platform.OS === 'ios') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   // Handle event press
@@ -429,9 +431,7 @@ export default function ProjectCalendar({
     setEventReminderMinutes(event.reminderMinutes);
     setEventLinkedMilestoneId(event.linkedMilestoneId);
     setShowEventModal(true);
-    if (Platform.OS === 'ios') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   // Reset form
@@ -475,6 +475,7 @@ export default function ProjectCalendar({
       linkedMilestoneId: eventLinkedMilestoneId,
       completed: editingEvent?.completed || false,
       completedAt: editingEvent?.completedAt,
+      inspectionResult: editingEvent?.inspectionResult,
       createdAt: editingEvent?.createdAt || now,
       updatedAt: now,
     };
@@ -521,6 +522,28 @@ export default function ProjectCalendar({
       ]
     );
   };
+
+  // Mark inspection as passed or failed
+  const handleMarkInspectionResult = async (event: CalendarEvent, result: 'passed' | 'failed') => {
+    Haptics.impactAsync(result === 'passed' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Heavy);
+    const updatedEvent: CalendarEvent = {
+      ...event,
+      completed: true,
+      completedAt: new Date().toISOString(),
+      inspectionResult: result,
+      updatedAt: new Date().toISOString(),
+    };
+    const existing = events.find((e) => e.id === event.id);
+    const updatedEvents = existing
+      ? events.map((e) => (e.id === event.id ? updatedEvent : e))
+      : [...events, updatedEvent];
+    await saveEvents(updatedEvents);
+    if (onEventComplete) onEventComplete(updatedEvent);
+    Haptics.notificationAsync(result === 'passed' ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning);
+  };
+
+  const isInspectionEvent = (e: CalendarEvent) =>
+    e.type === 'inspection' || e.calendarCategory === 'inspection';
 
   // Mark event as complete
   const handleCompleteEvent = async (event: CalendarEvent) => {
@@ -615,21 +638,47 @@ export default function ProjectCalendar({
               <Ionicons name="time-outline" size={20} color={COLORS.green} />
               <Text style={[styles.sectionTitle, { color: COLORS.text }]}>Upcoming (Next 7 Days)</Text>
             </View>
-            {upcomingEvents.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.eventCard, { backgroundColor: COLORS.surface2, borderColor: COLORS.border }]}
-                onPress={() => handleEventPress(event)}
-              >
+            {upcomingEvents.map((event) => {
+              const isInspection = isInspectionEvent(event);
+              const hasInspectionResult = !!event.inspectionResult;
+              return (
+              <View key={event.id} style={[styles.eventCardWrapper, { backgroundColor: COLORS.surface2, borderColor: COLORS.border }]}>
+                <TouchableOpacity
+                  style={styles.eventCardTouchable}
+                  onPress={() => handleEventPress(event)}
+                  activeOpacity={0.7}
+                >
                 <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
                 <View style={styles.eventContent}>
                   <View style={styles.eventHeader}>
                     <Text style={[styles.eventTitle, { color: COLORS.text }]}>{event.title}</Text>
-                    <MaterialIcons
-                      name={getEventIcon(event) as any}
-                      size={16}
-                      color={getEventColor(event)}
-                    />
+                    <View style={styles.eventHeaderRight}>
+                      {hasInspectionResult && (
+                        <View style={[
+                          styles.inspectionResultBadge,
+                          { backgroundColor: event.inspectionResult === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }
+                        ]}>
+                          <Ionicons
+                            name={event.inspectionResult === 'passed' ? 'checkmark-circle' : 'close-circle'}
+                            size={14}
+                            color={event.inspectionResult === 'passed' ? COLORS.green : COLORS.red}
+                          />
+                          <Text style={[
+                            styles.inspectionResultText,
+                            { color: event.inspectionResult === 'passed' ? COLORS.green : COLORS.red }
+                          ]}>
+                            {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
+                          </Text>
+                        </View>
+                      )}
+                      {!hasInspectionResult && (
+                        <MaterialIcons
+                          name={getEventIcon(event) as any}
+                          size={16}
+                          color={getEventColor(event)}
+                        />
+                      )}
+                    </View>
                   </View>
                   <View style={styles.eventDetails}>
                     <Ionicons name="calendar-outline" size={14} color={COLORS.subtext} />
@@ -655,7 +704,7 @@ export default function ProjectCalendar({
                     </Text>
                   )}
                 </View>
-                {!event.completed && (
+                {!event.completed && !isInspection && (
                   <TouchableOpacity
                     style={styles.completeButton}
                     onPress={() => handleCompleteEvent(event)}
@@ -663,13 +712,35 @@ export default function ProjectCalendar({
                     <Ionicons name="checkmark-circle-outline" size={24} color={COLORS.green} />
                   </TouchableOpacity>
                 )}
-                {event.completed && (
+                {event.completed && !hasInspectionResult && (
                   <View style={styles.completedBadge}>
                     <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                   </View>
                 )}
               </TouchableOpacity>
-            ))}
+              {isInspection && !hasInspectionResult && (
+                <View style={styles.inspectionActions}>
+                  <TouchableOpacity
+                    style={[styles.inspectionButton, styles.inspectionButtonPassed]}
+                    onPress={() => handleMarkInspectionResult(event, 'passed')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                    <Text style={styles.inspectionButtonText}>Passed</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.inspectionButton, styles.inspectionButtonFailed]}
+                    onPress={() => handleMarkInspectionResult(event, 'failed')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#fff" />
+                    <Text style={styles.inspectionButtonText}>Failed</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+            );
+            })}
           </View>
         )}
 
@@ -696,7 +767,11 @@ export default function ProjectCalendar({
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: COLORS.surface }]}>
+          <View style={[styles.modalContent, { backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface, paddingBottom: Math.max(insets.bottom, 20) }]}>
+            {/* iOS-style drag indicator */}
+            <View style={styles.dragIndicatorWrapper}>
+              <View style={[styles.dragIndicator, { backgroundColor: darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }]} />
+            </View>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: COLORS.text }]}>
                 {selectedDate ? (() => {
@@ -712,6 +787,7 @@ export default function ProjectCalendar({
               </Text>
               <TouchableOpacity
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowDateEventsModal(false);
                   setSelectedDate(null);
                 }}
@@ -733,63 +809,115 @@ export default function ProjectCalendar({
                 }
                 return (
                   <>
-                    {eventsOnDate.map((event) => (
-                      <TouchableOpacity
-                        key={event.id}
-                        style={[styles.eventCard, { backgroundColor: COLORS.surface2, borderColor: COLORS.border }]}
-                        onPress={() => {
-                          setShowDateEventsModal(false);
-                          handleEventPress(event);
-                        }}
-                      >
-                        <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
-                        <View style={styles.eventContent}>
-                          <View style={styles.eventHeader}>
-                            <Text style={[styles.eventTitle, { color: COLORS.text }]}>{event.title}</Text>
-                            <MaterialIcons
-                              name={getEventIcon(event) as any}
-                              size={16}
-                              color={getEventColor(event)}
-                            />
-                          </View>
-                          {event.time && (
-                            <View style={styles.eventDetails}>
-                              <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
-                              <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
-                                {event.time}
-                              </Text>
-                            </View>
-                          )}
-                          {event.subcontractor && (
-                            <View style={styles.eventDetails}>
-                              <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
-                              <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
-                                {event.subcontractor}
-                              </Text>
-                            </View>
-                          )}
-                          {event.notes && (
-                            <Text style={[styles.eventNotes, { color: COLORS.subtext }]} numberOfLines={2}>
-                              {event.notes}
-                            </Text>
-                          )}
-                          {event.calendarCategory && (
-                            <View style={styles.eventDetails}>
-                              <View style={[styles.categoryBadge, { backgroundColor: `${getEventColor(event)}20` }]}>
-                                <Text style={[styles.categoryBadgeText, { color: getEventColor(event) }]}>
-                                  {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
-                                </Text>
+                    {eventsOnDate.map((event) => {
+                      const isInspection = isInspectionEvent(event);
+                      const hasInspectionResult = !!event.inspectionResult;
+                      return (
+                        <View
+                          key={event.id}
+                          style={[styles.eventCardModal, { backgroundColor: darkMode ? '#134e4a' : COLORS.surface2, borderColor: COLORS.border }]}
+                        >
+                          <TouchableOpacity
+                            style={styles.eventCardTouchable}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setShowDateEventsModal(false);
+                              handleEventPress(event);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
+                            <View style={styles.eventContent}>
+                              <View style={styles.eventHeader}>
+                                <Text style={[styles.eventTitle, { color: COLORS.text }]}>{event.title}</Text>
+                                <View style={styles.eventHeaderRight}>
+                                  {hasInspectionResult && (
+                                    <View style={[
+                                      styles.inspectionResultBadge,
+                                      { backgroundColor: event.inspectionResult === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }
+                                    ]}>
+                                      <Ionicons
+                                        name={event.inspectionResult === 'passed' ? 'checkmark-circle' : 'close-circle'}
+                                        size={14}
+                                        color={event.inspectionResult === 'passed' ? COLORS.green : COLORS.red}
+                                      />
+                                      <Text style={[
+                                        styles.inspectionResultText,
+                                        { color: event.inspectionResult === 'passed' ? COLORS.green : COLORS.red }
+                                      ]}>
+                                        {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
+                                      </Text>
+                                    </View>
+                                  )}
+                                  {!hasInspectionResult && (
+                                    <MaterialIcons
+                                      name={getEventIcon(event) as any}
+                                      size={16}
+                                      color={getEventColor(event)}
+                                    />
+                                  )}
+                                </View>
                               </View>
+                              {event.time && (
+                                <View style={styles.eventDetails}>
+                                  <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
+                                  <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
+                                    {event.time}
+                                  </Text>
+                                </View>
+                              )}
+                              {event.subcontractor && (
+                                <View style={styles.eventDetails}>
+                                  <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
+                                  <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
+                                    {event.subcontractor}
+                                  </Text>
+                                </View>
+                              )}
+                              {event.notes && (
+                                <Text style={[styles.eventNotes, { color: COLORS.subtext }]} numberOfLines={2}>
+                                  {event.notes}
+                                </Text>
+                              )}
+                              {event.calendarCategory && (
+                                <View style={styles.eventDetails}>
+                                  <View style={[styles.categoryBadge, { backgroundColor: `${getEventColor(event)}20` }]}>
+                                    <Text style={[styles.categoryBadgeText, { color: getEventColor(event) }]}>
+                                      {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                                    </Text>
+                                  </View>
+                                </View>
+                              )}
+                            </View>
+                            {event.completed && !hasInspectionResult && (
+                              <View style={styles.completedBadge}>
+                                <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                          {isInspection && !hasInspectionResult && (
+                            <View style={styles.inspectionActions}>
+                              <TouchableOpacity
+                                style={[styles.inspectionButton, styles.inspectionButtonPassed]}
+                                onPress={() => handleMarkInspectionResult(event, 'passed')}
+                                activeOpacity={0.8}
+                              >
+                                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                                <Text style={styles.inspectionButtonText}>Passed</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[styles.inspectionButton, styles.inspectionButtonFailed]}
+                                onPress={() => handleMarkInspectionResult(event, 'failed')}
+                                activeOpacity={0.8}
+                              >
+                                <Ionicons name="close-circle" size={18} color="#fff" />
+                                <Text style={styles.inspectionButtonText}>Failed</Text>
+                              </TouchableOpacity>
                             </View>
                           )}
                         </View>
-                        {event.completed && (
-                          <View style={styles.completedBadge}>
-                            <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    ))}
+                      );
+                    })}
                   </>
                 );
               })()}
@@ -799,6 +927,7 @@ export default function ProjectCalendar({
               <TouchableOpacity
                 style={[styles.addEventButton, { backgroundColor: COLORS.green }]}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   setShowDateEventsModal(false);
                   setShowEventModal(true);
                   setEditingEvent(null);
@@ -811,6 +940,7 @@ export default function ProjectCalendar({
               <TouchableOpacity
                 style={[styles.closeButton, { backgroundColor: COLORS.border }]}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowDateEventsModal(false);
                   setSelectedDate(null);
                 }}
@@ -822,10 +952,10 @@ export default function ProjectCalendar({
         </View>
       </Modal>
 
-      {/* Event Modal */}
+      {/* Event Modal - Full page */}
       <Modal
         visible={showEventModal}
-        transparent={true}
+        transparent={false}
         animationType="slide"
         onRequestClose={() => {
           setShowEventModal(false);
@@ -834,14 +964,19 @@ export default function ProjectCalendar({
           setEditingEvent(null);
         }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: COLORS.surface }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: COLORS.text }]}>
+        <KeyboardAvoidingView
+          style={[styles.eventModalFullPage, { backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? -80 : 0}
+        >
+          <View style={[styles.eventModalContent, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={[styles.modalHeader, styles.eventFormHeader, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+              <Text style={[styles.eventFormTitle, { color: COLORS.text }]}>
                 {editingEvent ? 'Edit Event' : 'New Event'}
               </Text>
               <TouchableOpacity
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowEventModal(false);
                   setSelectedDate(null);
                   resetForm();
@@ -852,170 +987,183 @@ export default function ProjectCalendar({
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {/* Title */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Title *</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: COLORS.surface2, color: COLORS.text, borderColor: COLORS.border }]}
-                  value={eventTitle}
-                  onChangeText={setEventTitle}
-                  placeholder="e.g., Framing Inspection"
-                  placeholderTextColor={COLORS.subtext}
-                />
-              </View>
-
-              {/* Date */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Date *</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: COLORS.surface2, color: COLORS.text, borderColor: COLORS.border }]}
-                  value={eventDate ? (() => {
-                    // Convert YYYY-MM-DD to MM-DD-YY
-                    const [year, month, day] = eventDate.split('-');
-                    if (year && month && day && year.length === 4) {
-                      const yy = year.slice(-2);
-                      return `${month}-${day}-${yy}`;
-                    }
-                    return eventDate;
-                  })() : ''}
-                  onChangeText={(text) => {
-                    // Allow user to type MM-DD-YY format
-                    // Remove any non-digit or dash characters
-                    const cleaned = text.replace(/[^\d-]/g, '');
-                    // Auto-format as they type: MM-DD-YY
-                    let formatted = cleaned;
-                    if (cleaned.length > 2 && !cleaned.includes('-')) {
-                      formatted = cleaned.slice(0, 2) + '-' + cleaned.slice(2);
-                    }
-                    if (formatted.length > 5 && formatted.split('-').length === 2) {
-                      formatted = formatted.slice(0, 5) + '-' + formatted.slice(5, 7);
-                    }
-                    // Limit to MM-DD-YY format (8 characters)
-                    if (formatted.length > 8) {
-                      formatted = formatted.slice(0, 8);
-                    }
-                    setEventDate(formatted);
-                  }}
-                  placeholder="MM-DD-YY"
-                  placeholderTextColor={COLORS.subtext}
-                />
-              </View>
-
-              {/* Time */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Time (optional)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: COLORS.surface2, color: COLORS.text, borderColor: COLORS.border }]}
-                  value={eventTime}
-                  onChangeText={setEventTime}
-                  placeholder="HH:MM (e.g., 09:00)"
-                  placeholderTextColor={COLORS.subtext}
-                />
-              </View>
-
-              {/* Type */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Type</Text>
-                <View style={styles.typeButtons}>
-                  {(['inspection', 'work', 'delivery', 'payment', 'deadline', 'other'] as const).map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.typeButton,
-                        eventType === type && { backgroundColor: EVENT_TYPE_COLORS[type] },
-                        { borderColor: COLORS.border },
-                      ]}
-                      onPress={() => setEventType(type)}
-                    >
-                      <MaterialIcons
-                        name={EVENT_TYPE_ICONS[type] as any}
-                        size={16}
-                        color={eventType === type ? '#fff' : COLORS.text}
-                      />
-                      <Text
-                        style={[
-                          styles.typeButtonText,
-                          { color: eventType === type ? '#fff' : COLORS.text },
-                        ]}
-                      >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+            <ScrollView
+              style={[styles.modalScroll, styles.modalScrollWithKeyboard]}
+              contentContainerStyle={styles.eventFormScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+              automaticallyAdjustContentInsets={false}
+              contentInsetAdjustmentBehavior="never"
+            >
+              {/* Event Details Section */}
+              <View style={styles.eventFormSection}>
+                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>EVENT DETAILS</Text>
+                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1e293b' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Title</Text>
+                    <TextInput
+                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      value={eventTitle}
+                      onChangeText={setEventTitle}
+                      placeholder="e.g., Framing Inspection"
+                      placeholderTextColor={COLORS.subtext}
+                    />
+                  </View>
+                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Date</Text>
+                    <TextInput
+                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      value={eventDate ? (() => {
+                        const [year, month, day] = eventDate.split('-');
+                        if (year && month && day && year.length === 4) {
+                          const yy = year.slice(-2);
+                          return `${month}-${day}-${yy}`;
+                        }
+                        return eventDate;
+                      })() : ''}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^\d-]/g, '');
+                        let formatted = cleaned;
+                        if (cleaned.length > 2 && !cleaned.includes('-')) {
+                          formatted = cleaned.slice(0, 2) + '-' + cleaned.slice(2);
+                        }
+                        if (formatted.length > 5 && formatted.split('-').length === 2) {
+                          formatted = formatted.slice(0, 5) + '-' + formatted.slice(5, 7);
+                        }
+                        if (formatted.length > 8) formatted = formatted.slice(0, 8);
+                        setEventDate(formatted);
+                      }}
+                      placeholder="MM-DD-YY"
+                      placeholderTextColor={COLORS.subtext}
+                    />
+                  </View>
+                  <View style={styles.eventFormRow}>
+                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Time</Text>
+                    <TextInput
+                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      value={eventTime}
+                      onChangeText={setEventTime}
+                      placeholder="09:00"
+                      placeholderTextColor={COLORS.subtext}
+                    />
+                  </View>
                 </View>
               </View>
 
-              {/* Subcontractor */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Subcontractor (optional)</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: COLORS.surface2, color: COLORS.text, borderColor: COLORS.border }]}
-                  value={eventSubcontractor}
-                  onChangeText={setEventSubcontractor}
-                  placeholder="e.g., ABC Electric"
-                  placeholderTextColor={COLORS.subtext}
-                />
+              {/* Type Section */}
+              <View style={styles.eventFormSection}>
+                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>TYPE</Text>
+                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1e293b' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                  <View style={styles.eventFormTypeGrid}>
+                    {(['inspection', 'work', 'delivery', 'payment', 'deadline', 'other'] as const).map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.eventFormTypeChip,
+                          eventType === type && { backgroundColor: EVENT_TYPE_COLORS[type] },
+                          { borderColor: darkMode ? '#334155' : '#e2e8f0' },
+                        ]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setEventType(type);
+                        }}
+                      >
+                        <MaterialIcons
+                          name={EVENT_TYPE_ICONS[type] as any}
+                          size={18}
+                          color={eventType === type ? '#fff' : COLORS.text}
+                        />
+                        <Text
+                          style={[
+                            styles.eventFormTypeChipText,
+                            { color: eventType === type ? '#fff' : COLORS.text },
+                          ]}
+                        >
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               </View>
 
-              {/* Notes */}
-              <View style={styles.formGroup}>
-                <Text style={[styles.label, { color: COLORS.text }]}>Notes (optional)</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    styles.textArea,
-                    { backgroundColor: COLORS.surface2, color: COLORS.text, borderColor: COLORS.border },
-                  ]}
-                  value={eventNotes}
-                  onChangeText={setEventNotes}
-                  placeholder="Additional details..."
-                  placeholderTextColor={COLORS.subtext}
-                  multiline
-                  numberOfLines={4}
-                />
+              {/* Additional Info Section - Subcontractor & Notes (keyboard-aware) */}
+              <View style={styles.eventFormSection}>
+                <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>ADDITIONAL INFO</Text>
+                <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1e293b' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                  <View style={[styles.eventFormRow, styles.eventFormRowBorder, { borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
+                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Subcontractor</Text>
+                    <TextInput
+                      style={[styles.eventFormInput, { color: COLORS.text }]}
+                      value={eventSubcontractor}
+                      onChangeText={setEventSubcontractor}
+                      placeholder="e.g., ABC Electric"
+                      placeholderTextColor={COLORS.subtext}
+                    />
+                  </View>
+                  <View style={styles.eventFormRow}>
+                    <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Notes</Text>
+                    <TextInput
+                      style={[styles.eventFormInput, styles.eventFormTextArea, { color: COLORS.text }]}
+                      value={eventNotes}
+                      onChangeText={setEventNotes}
+                      placeholder="Additional details..."
+                      placeholderTextColor={COLORS.subtext}
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                      scrollEnabled={false}
+                    />
+                  </View>
+                </View>
               </View>
 
-              {/* Link to Milestone */}
+              {/* Milestone Section */}
               {milestones.length > 0 && (
-                <View style={styles.formGroup}>
-                  <Text style={[styles.label, { color: COLORS.text }]}>Link to Milestone (optional)</Text>
-                  <View style={styles.milestonePicker}>
+                <View style={styles.eventFormSection}>
+                  <Text style={[styles.eventFormSectionTitle, { color: COLORS.subtext }]}>MILESTONE</Text>
+                  <View style={[styles.eventFormGroup, { backgroundColor: darkMode ? '#1e293b' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0' }]}>
                     <TouchableOpacity
-                      style={[styles.milestoneButton, { backgroundColor: COLORS.surface2, borderColor: COLORS.border }]}
+                      style={[styles.eventFormRow, styles.eventFormRowButton]}
                       onPress={() => setShowMilestonePicker(true)}
                     >
-                      <Text style={[styles.milestoneButtonText, { color: COLORS.text }]}>
-                        {eventLinkedMilestoneId
-                          ? milestones.find((m) => m.id === eventLinkedMilestoneId)?.title || 'Unknown'
-                          : 'None'}
-                      </Text>
-                      <Ionicons name="chevron-down" size={20} color={COLORS.subtext} />
+                      <Text style={[styles.eventFormLabel, { color: COLORS.text }]}>Link to Milestone</Text>
+                      <View style={styles.eventFormRowValue}>
+                        <Text style={[styles.eventFormValueText, { color: eventLinkedMilestoneId ? COLORS.text : COLORS.subtext }]}>
+                          {eventLinkedMilestoneId
+                            ? milestones.find((m) => m.id === eventLinkedMilestoneId)?.title || 'Unknown'
+                            : 'None'}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={20} color={COLORS.subtext} />
+                      </View>
                     </TouchableOpacity>
                   </View>
                 </View>
               )}
-            </ScrollView>
 
-            <View style={styles.modalActions}>
-              {editingEvent && (
+              {/* Actions */}
+              <View style={styles.eventFormActions}>
+                {editingEvent && (
+                  <TouchableOpacity
+                    style={[styles.eventFormDeleteButton, { borderColor: COLORS.red }]}
+                    onPress={handleDeleteEvent}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={COLORS.red} />
+                    <Text style={[styles.eventFormDeleteText, { color: COLORS.red }]}>Delete Event</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
-                  style={[styles.deleteButton, { backgroundColor: COLORS.red + '20' }]}
-                  onPress={handleDeleteEvent}
+                  style={[styles.eventFormSaveButton, { backgroundColor: COLORS.green }]}
+                  onPress={handleSaveEvent}
                 >
-                  <Ionicons name="trash-outline" size={20} color={COLORS.red} />
-                  <Text style={[styles.deleteButtonText, { color: COLORS.red }]}>Delete</Text>
+                  <Text style={styles.eventFormSaveText}>Save</Text>
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: COLORS.green }]}
-                onPress={handleSaveEvent}
-              >
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Milestone Picker Modal */}
@@ -1026,10 +1174,18 @@ export default function ProjectCalendar({
         onRequestClose={() => setShowMilestonePicker(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.milestonePickerModal, { backgroundColor: COLORS.surface }]}>
+          <View style={[styles.milestonePickerModal, { backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface, paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={styles.dragIndicatorWrapper}>
+              <View style={[styles.dragIndicator, { backgroundColor: darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }]} />
+            </View>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: COLORS.text }]}>Select Milestone</Text>
-              <TouchableOpacity onPress={() => setShowMilestonePicker(false)}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowMilestonePicker(false);
+                }}
+              >
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
             </View>
@@ -1041,6 +1197,7 @@ export default function ProjectCalendar({
                   !eventLinkedMilestoneId && styles.milestonePickerItemSelected,
                 ]}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setEventLinkedMilestoneId(undefined);
                   setShowMilestonePicker(false);
                 }}
@@ -1069,6 +1226,7 @@ export default function ProjectCalendar({
                       isSelected && styles.milestonePickerItemSelected,
                     ]}
                     onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setEventLinkedMilestoneId(milestone.id);
                       setShowMilestonePicker(false);
                     }}
@@ -1250,6 +1408,69 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
   },
+  eventCardWrapper: {
+    flexDirection: 'column',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  eventCardModal: {
+    flexDirection: 'column',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  eventCardTouchable: {
+    flexDirection: 'row',
+    flex: 1,
+    padding: 12,
+  },
+  eventHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inspectionResultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  inspectionResultText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inspectionActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 4,
+  },
+  inspectionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  inspectionButtonPassed: {
+    backgroundColor: '#22c55e',
+  },
+  inspectionButtonFailed: {
+    backgroundColor: '#ef4444',
+  },
+  inspectionButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
   eventTypeIndicator: {
     width: 4,
     borderRadius: 2,
@@ -1310,11 +1531,32 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
+  dragIndicatorWrapper: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  dragIndicator: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+  },
   modalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  modalContentWithKeyboard: {
+    flex: 1,
+    minHeight: 0,
+  },
+  eventModalFullPage: {
+    flex: 1,
+  },
+  eventModalContent: {
+    flex: 1,
+    minHeight: 0,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1329,7 +1571,124 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   modalScroll: {
+    flexGrow: 1,
+  },
+  modalScrollWithKeyboard: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalScrollContent: {
     padding: 20,
+    paddingBottom: 24,
+  },
+  eventFormHeader: {
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  eventFormTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  eventFormScrollContent: {
+    padding: 20,
+    paddingBottom: 80,
+  },
+  eventFormSection: {
+    marginBottom: 28,
+  },
+  eventFormSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  eventFormGroup: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  eventFormRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    minHeight: 44,
+  },
+  eventFormRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  eventFormRowButton: {
+    justifyContent: 'space-between',
+  },
+  eventFormRowValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  eventFormLabel: {
+    fontSize: 17,
+    fontWeight: '400',
+    width: 120,
+  },
+  eventFormInput: {
+    flex: 1,
+    fontSize: 17,
+    paddingVertical: 12,
+    paddingHorizontal: 0,
+  },
+  eventFormTextArea: {
+    minHeight: 88,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  eventFormValueText: {
+    fontSize: 17,
+  },
+  eventFormTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 12,
+    gap: 10,
+  },
+  eventFormTypeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  eventFormTypeChipText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  eventFormActions: {
+    marginTop: 8,
+    gap: 12,
+  },
+  eventFormDeleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  eventFormDeleteText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  eventFormSaveButton: {
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  eventFormSaveText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '600',
   },
   formGroup: {
     marginBottom: 20,

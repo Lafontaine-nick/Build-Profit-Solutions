@@ -8056,6 +8056,10 @@ export default function EstimateGeneratorScreen() {
                   blurOnSubmit={true}
                   multiline
                   numberOfLines={4}
+                  scrollEnabled={false}
+                  selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                  cursorColor={Colors.text}
+                  keyboardAppearance={darkMode ? "dark" : "light"}
                 />
               </View>
             </GlassBorderCard>
@@ -14033,13 +14037,18 @@ export default function EstimateGeneratorScreen() {
       <StatusBar barStyle="light-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -180 : 20}
       >
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 32, paddingBottom: 200 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
+          style={{ backgroundColor: darkMode ? '#000000' : Colors.bg }}
         >
         {/* Header */}
         <View style={{ marginBottom: 10 }}>

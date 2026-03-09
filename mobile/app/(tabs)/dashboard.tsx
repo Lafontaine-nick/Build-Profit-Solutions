@@ -2604,9 +2604,9 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             {aiPmMode &&
               !aiLoading &&
               !aiError &&
-              filteredNextSteps.map((step) => (
+              filteredNextSteps.map((step, index) => (
                 <NextStepItem
-                  key={step.id}
+                  key={step.id ? `${step.id}-${index}` : `step-${index}`}
                   label={step.label}
                   chip={step.chip}
                 />

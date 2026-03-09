@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
@@ -139,8 +139,14 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       visible={visible} 
       animationType="slide" 
       presentationStyle="fullScreen"
+      statusBarTranslucent
       onRequestClose={onClose}
     >
+      <KeyboardAvoidingView
+        style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : ThemeColors.bg }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -120 : 0}
+      >
       <View style={[styles.container, !darkMode && { backgroundColor: ThemeColors.bg }]}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         <SafeAreaView style={styles.safeArea}>
@@ -176,9 +182,14 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
 
           {/* Form */}
           <ScrollView 
-            style={styles.form} 
+            style={[styles.form, { backgroundColor: darkMode ? '#000000' : ThemeColors.bg }]} 
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.formContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
           >
             <View style={styles.field}>
               <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Milestone Name</Text>
@@ -343,6 +354,9 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 placeholder="e.g., BrightSpark Electrical LLC"
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : ThemeColors.sub}
                 autoCapitalize="words"
+                selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                cursorColor={ThemeColors.text}
+                keyboardAppearance={darkMode ? "dark" : "light"}
               />
             </View>
 
@@ -390,11 +404,15 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           </View>
         </SafeAreaView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoid: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: '#000000',
@@ -447,7 +465,7 @@ const styles = StyleSheet.create({
   },
   formContent: {
     paddingHorizontal: 20,
-    paddingBottom: 150,
+    paddingBottom: 24,
   },
   field: {
     marginBottom: 20,

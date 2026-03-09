@@ -638,7 +638,7 @@ export default function BudgetTab({
       <ScrollView 
         style={styles.scrollContent} 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 24 }}
       >
         {/* Wide Container - matches Overview page */}
         <View
@@ -2317,7 +2317,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
   },
-  bottomSpacer: { height: 32 },
+  bottomSpacer: { height: 8 },
   editorSheet: {
     position: 'absolute',
     left: 0,

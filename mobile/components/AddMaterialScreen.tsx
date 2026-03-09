@@ -647,6 +647,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   fieldGroup: {
     marginBottom: 20,
   },
+
   label: {
     fontSize: 14,
     fontWeight: "600",

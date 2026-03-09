@@ -3652,7 +3652,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   scrollContent: {
     paddingTop: 20,
     paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingBottom: 24,
   },
   wideContainer: {
     marginHorizontal: -20,
