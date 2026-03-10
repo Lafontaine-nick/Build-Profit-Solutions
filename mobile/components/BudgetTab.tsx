@@ -884,6 +884,7 @@ export default function BudgetTab({
             label='Forecast Final Cost'
             value={money(profitForecast.forecastFinalCost, currency)}
             theme={theme}
+            valueColor='#ef4444'
           />
           <Row
             label='Forecast Profit'

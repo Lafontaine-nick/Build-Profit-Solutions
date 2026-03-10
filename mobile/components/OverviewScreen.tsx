@@ -335,10 +335,11 @@ export default function OverviewScreen({
     return Math.min(100, Math.max(0, progress));
   };
 
-  const getProgressColor = (progress: number) => {
-    if (progress < 50) return '#F97316';
-    if (progress < 80) return '#FACC15';
-    return '#22C55E';
+  const getDaysLeftColor = (days: number | null | undefined) => {
+    if (days == null) return '#22c55e';
+    if (days <= 0) return '#ef4444'; // red: overdue
+    if (days < 30) return '#f59e0b'; // yellow: getting close
+    return '#22c55e'; // green: plenty of time
   };
 
   const getBudgetColor = (budgetUsed: number) => {
@@ -355,34 +356,40 @@ export default function OverviewScreen({
     return '#9ca3af';
   };
 
-  // Helper to generate spending data for the chart
+  // Helper to generate spending data for the chart - start to TODAY only (no future dates)
   const generateSpendingData = (proj: ProjectOverview) => {
     const start = new Date(proj.startISO || new Date().toISOString());
     const end = new Date(proj.endISO || new Date().toISOString());
     const currentSpent = Number(proj.spent || 0);
-
-    const numPoints = 7;
-    const timeSpan = end.getTime() - start.getTime();
     const now = Date.now();
-    const currentProgress = Math.min((now - start.getTime()) / timeSpan, 1);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const timeSpan = end.getTime() - start.getTime();
+    const elapsed = Math.min(Math.max(0, now - start.getTime()), timeSpan);
+    const currentProgress = timeSpan > 0 ? elapsed / timeSpan : 0;
+
+    const elapsedDays = Math.max(1, Math.ceil(elapsed / (1000 * 60 * 60 * 24)));
+    const daysBetweenPoints = 5;
+    const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
 
     const points: { date: string; spent: number }[] = [];
     for (let i = 0; i <= numPoints; i++) {
-      const progress = (i / numPoints) * currentProgress;
-      const date = new Date(start.getTime() + timeSpan * progress);
+      const progress = i / numPoints;
+      const date = new Date(start.getTime() + elapsed * progress);
+
+      if (date.getTime() > today.getTime()) break;
+
       const spent = Math.round(currentSpent * (progress / Math.max(currentProgress, 0.01)));
 
-      if (spent > 0 && date <= new Date()) {
-        points.push({
-          date: date.toISOString().split('T')[0],
-          spent,
-        });
-      }
+      points.push({
+        date: date.toISOString().split('T')[0],
+        spent,
+      });
     }
 
     if (points.length === 0 || points[points.length - 1].spent !== currentSpent) {
       points.push({
-        date: new Date().toISOString().split('T')[0],
+        date: today.toISOString().split('T')[0],
         spent: currentSpent,
       });
     }
@@ -534,55 +541,46 @@ export default function OverviewScreen({
           </View>
         </View>
 
-          <View style={styles.statusContent}>
-            <View style={styles.statusLeft}>
-            <View style={[
-              styles.statusChip,
-              { backgroundColor: getStatusColor(project.health.projectStatus) + '20' }
-            ]}>
-              <Text style={[
-                styles.statusChipText,
-                { color: getStatusColor(project.health.projectStatus) }
-              ]}>
+          <View style={styles.projectStatusStatusRow}>
+            <View style={styles.statusChipCompact}>
+              <Text style={[styles.statusChipCompactText, { color: getStatusColor(project.health.projectStatus) }]}>
                 {project.health.projectStatus || 'On Track'}
               </Text>
-              </View>
-
-              <View style={styles.statusSpacer} />
-
-            <View style={[styles.daysLeftBadge, { backgroundColor: '#ef4444' }]}>
-              <Text style={styles.daysLeftText}>
-                {daysLeft} days left
+              <Text style={styles.statusChipCompactDot}> · </Text>
+              <Text style={[styles.statusChipCompactText, { color: daysLeft <= 0 ? '#ef4444' : daysLeft < 30 ? '#f59e0b' : getStatusColor(project.health.projectStatus) }]}>
+                {daysLeft}d left
               </Text>
-              </View>
+            </View>
+          </View>
+
+          <View style={styles.projectStatusMetrics}>
+            <View style={styles.projectStatusMetricRow}>
+              <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+              <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{budgetProgress.toFixed(0)}%</Text>
+            </View>
+            <View style={styles.projectStatusBarTrack}>
+              <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, budgetProgress)}%`, backgroundColor: getBudgetColor(budgetProgress) }]} />
             </View>
 
-            <View style={styles.statusRight}>
-              <View style={styles.progressCircle}>
-                      <CircularProgress
-                        progress={budgetProgress}
-                        color={getBudgetColor(budgetProgress)}
-                        darkMode={darkMode}
-                        trackColor={darkMode ? "rgba(255,255,255,0.18)" : Colors.subtext}
-                      />
-              <Text style={styles.progressText}>Budget Used</Text>
-              <Text style={styles.progressPercent}>
-                {budgetProgress.toFixed(0)}%
-                </Text>
-              </View>
+            <View style={[styles.projectStatusMetricRow, { marginTop: 16 }]}>
+              <Text style={styles.projectStatusMetricLabel}>Schedule</Text>
+              <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{scheduleProgress.toFixed(0)}%</Text>
+            </View>
+            <View style={styles.projectStatusBarTrack}>
+              <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, scheduleProgress)}%`, backgroundColor: getDaysLeftColor(daysLeft) }]} />
+            </View>
+          </View>
 
-              <View style={styles.progressCircle}>
-                      <CircularProgress
-                        progress={scheduleProgress}
-                        color={getProgressColor(scheduleProgress)}
-                        darkMode={darkMode}
-                        trackColor={darkMode ? "rgba(255,255,255,0.18)" : Colors.subtext}
-                      />
-              <Text style={styles.progressText}>Schedule</Text>
-              <Text style={styles.progressPercent}>
-                {scheduleProgress.toFixed(0)}%
-                </Text>
-              </View>
+          <View style={styles.projectStatusDivider} />
+
+          <View style={styles.projectStatusDates}>
+            <View style={styles.projectStatusDateRow}>
+              <Text style={styles.projectStatusDateLabel}>Start</Text>
+              <Text style={[styles.projectStatusDateValue, { color: Colors.text }]}>{formatDate(project.startISO)}</Text>
+            </View>
+            <View style={styles.projectStatusDateRow}>
+              <Text style={styles.projectStatusDateLabel}>End</Text>
+              <Text style={[styles.projectStatusDateValue, { color: Colors.text }]}>{formatDate(project.endISO)}</Text>
             </View>
           </View>
         </View>
@@ -618,7 +616,7 @@ export default function OverviewScreen({
             </View>
             <View style={styles.budgetRow}>
               <Text style={styles.budgetLabel}>Projected Final Cost</Text>
-              <Text style={styles.budgetValue}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
+              <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
               <Text style={styles.budgetLabel}>Projected Profit</Text>
@@ -659,18 +657,26 @@ export default function OverviewScreen({
 
           {(() => {
             const spendingData = generateSpendingData({ ...project, spent: actualSpent });
-            const labels = spendingData.map((point) => {
-              const date = new Date(point.date);
-              return `${date.getMonth() + 1}/${date.getDate()}`;
+            const formatLabel = (d: Date) =>
+              d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const points: { ts: number; label: string; spent: number }[] = spendingData.map((p) => {
+              const d = new Date(p.date);
+              return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
             });
+            const labels = points.map((p) => p.label);
+            const actualValues = points.map((p) => p.spent);
+            const n = labels.length;
             const actualCumulative = labels.map((label, idx) => ({
               label,
-              value: spendingData[idx]?.spent ?? 0,
+              value: actualValues[idx] ?? 0,
             }));
+            const plannedAtToday = Number(adjustedBudget || 0) * (scheduleProgress / 100);
             const plannedCumulative = labels.map((label, idx) => ({
               label,
-              value: Math.round((Number(adjustedBudget || 0) * (idx + 1)) / Math.max(labels.length, 1)),
+              value: n <= 1 ? (idx === 0 ? 0 : plannedAtToday) : Math.round((plannedAtToday * idx) / (n - 1)),
             }));
+
+            const varianceAtToday = actualSpent - plannedAtToday;
 
             return (
           <SpendingTrendChart
@@ -679,6 +685,8 @@ export default function OverviewScreen({
                 totalBudget={Number(adjustedBudget || 0)}
                 showHeader={false}
                 showLegend={true}
+                scrollable
+                varianceOverride={varianceAtToday}
           />
             );
           })()}
@@ -748,7 +756,7 @@ export default function OverviewScreen({
 
             <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
               <Text style={styles.budgetLabel}>Forecast Final Cost</Text>
-              <Text style={styles.budgetValue}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
+              <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
               <Text style={styles.budgetLabel}>Forecast Profit</Text>
@@ -810,182 +818,6 @@ export default function OverviewScreen({
             })}
           </View>
         )}
-        </View>
-      </LinearGradient>
-
-      {/* TIMELINE CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
-        <View style={styles.cardHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={styles.iconBadge}>
-              <Feather name="calendar" size={16} color="#22c55e" />
-            </View>
-            <Text style={styles.cardTitle}>Timeline</Text>
-          </View>
-          </View>
-
-          <View style={styles.timelineDetails}>
-            <View style={styles.timelineRow}>
-            <Text style={styles.timelineLabel}>Start</Text>
-            <Text style={styles.timelineValue}>
-                {formatDate(project.startISO)}
-              </Text>
-            </View>
-            <View style={styles.timelineRow}>
-            <Text style={styles.timelineLabel}>End</Text>
-            <Text style={styles.timelineValue}>
-                {formatDate(project.endISO)}
-              </Text>
-            </View>
-            <View style={styles.timelineRow}>
-            <Text style={styles.timelineLabel}>Days Left</Text>
-            <Text style={[
-                  styles.timelineValue,
-              { color: daysLeft === 0 ? '#EF4444' : Colors.text }
-            ]}>
-              {daysLeft} days
-              </Text>
-            </View>
-            <View style={styles.timelineRow}>
-            <Text style={styles.timelineLabel}>Schedule Status</Text>
-            <View style={[
-              styles.statusChip,
-              { backgroundColor: getStatusColor(project.health.scheduleEfficiency) + '20' }
-            ]}>
-              <Text style={[
-                styles.statusChipText,
-                { color: getStatusColor(project.health.scheduleEfficiency) }
-              ]}>
-                  {project.health.scheduleEfficiency}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.timelineProgress}>
-          <View style={styles.timelineBar}>
-              <View
-                style={[
-                  styles.timelineBarFill,
-                  {
-                  width: `${Math.min(100, Math.max(0, scheduleProgress))}%`,
-                  backgroundColor: '#19E180',
-                  },
-                ]}
-              />
-            </View>
-            <View style={styles.timelineLabels}>
-            <Text style={styles.timelineLabelText}>Start</Text>
-            <Text style={styles.timelineLabelText}>Today</Text>
-            <Text style={styles.timelineLabelText}>End</Text>
-            </View>
-          </View>
-        </View>
-      </LinearGradient>
-
-      {/* HEALTH CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
-        <View style={styles.cardHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={styles.iconBadge}>
-              <Feather name="activity" size={16} color="#22c55e" />
-            </View>
-            <Text style={styles.cardTitle}>Health</Text>
-          </View>
-          </View>
-
-          <View style={styles.healthDetails}>
-            <View style={styles.healthRow}>
-            <Text style={styles.healthLabel}>Cost Efficiency</Text>
-            <Text style={[
-                  styles.healthValue,
-              { color: getStatusColor(project.health.costEfficiency) }
-            ]}>
-                {project.health.costEfficiency}
-              </Text>
-            </View>
-            <View style={styles.healthRow}>
-            <Text style={styles.healthLabel}>Schedule Efficiency</Text>
-            <View style={[
-              styles.statusChip,
-              { backgroundColor: getStatusColor(project.health.scheduleEfficiency) + '20' }
-            ]}>
-              <Text style={[
-                styles.statusChipText,
-                { color: getStatusColor(project.health.scheduleEfficiency) }
-              ]}>
-                  {project.health.scheduleEfficiency}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.healthRow}>
-            <Text style={styles.healthLabel}>Project Status</Text>
-            <View style={[
-              styles.statusChip,
-              { backgroundColor: getStatusColor(project.health.projectStatus) + '20' }
-            ]}>
-              <Text style={[
-                styles.statusChipText,
-                { color: getStatusColor(project.health.projectStatus) }
-              ]}>
-                  {project.health.projectStatus}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      </LinearGradient>
-
-      {/* TEAM CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
-        <View style={styles.cardHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={styles.iconBadge}>
-              <Feather name="users" size={16} color="#22c55e" />
-            </View>
-            <Text style={styles.cardTitle}>Team</Text>
-          </View>
-          </View>
-
-          <View style={styles.teamRow}>
-          <Text style={styles.teamLabel}>PM</Text>
-          <Text style={[
-                styles.teamValue,
-            { color: project.team.pmAssigned ? Colors.text : '#F59E0B' }
-          ]}>
-            {project.team.pmAssigned ? (project.team.pmName || 'Assigned') : 'Not assigned'}
-            </Text>
-          </View>
         </View>
       </LinearGradient>
 
@@ -1082,6 +914,76 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  statusChipCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  statusChipCompactText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statusChipCompactDot: {
+    fontSize: 12,
+    color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)',
+    fontWeight: '400',
+  },
+  projectStatusStatusRow: {
+    marginTop: 16,
+  },
+  projectStatusMetrics: {
+    marginTop: 24,
+  },
+  projectStatusMetricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  projectStatusMetricLabel: {
+    fontSize: 14,
+    color: darkMode ? '#9CA3AF' : '#475569',
+    fontWeight: '500',
+  },
+  projectStatusMetricValue: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  projectStatusBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+    overflow: 'hidden',
+  },
+  projectStatusBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  projectStatusDivider: {
+    height: 1,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    marginTop: 24,
+    marginBottom: 20,
+  },
+  projectStatusDates: {
+    gap: 12,
+  },
+  projectStatusDateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  projectStatusDateLabel: {
+    fontSize: 14,
+    color: darkMode ? '#9CA3AF' : '#475569',
+    fontWeight: '500',
+  },
+  projectStatusDateValue: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   statusChip: {
     paddingHorizontal: 12,

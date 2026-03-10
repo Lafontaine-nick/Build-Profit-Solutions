@@ -19,10 +19,17 @@ interface TimelineTabProps {
 
 const getStorageKey = (projectId: string) => `bps.timeline.${projectId}`;
 
+// Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
+function isDepositMilestone(m: Milestone): boolean {
+  const t = ((m as any).title || (m as any).name || "").toLowerCase();
+  return t.includes("deposit") || (m as any).type === "deposit";
+}
+
 function computeOverallPct(items: Milestone[]): number {
-  if (!items.length) return 0;
-  const sum = items.reduce((acc, m) => acc + Math.min(Math.max(m.progressPct || 0, 0), 100), 0);
-  return sum / items.length;
+  const workItems = items.filter((m) => !isDepositMilestone(m));
+  if (!workItems.length) return 0;
+  const sum = workItems.reduce((acc, m) => acc + Math.min(Math.max(m.progressPct || 0, 0), 100), 0);
+  return sum / workItems.length;
 }
 
 function formatDate(dateString: string): string {

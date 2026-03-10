@@ -1439,7 +1439,19 @@ function ProjectDetailContent() {
     const totalSpent = baseSpent + receivedPOsTotal;
 
     const budgetProgress = adjustedBudget > 0 ? (totalSpent / adjustedBudget) * 100 : 0;
-    const scheduleProgress = safeProjectData?.overallProgressPct || 0;
+
+    // Compute schedule progress from live timeline (exclude deposit) when available — matches Timeline tab
+    const isDeposit = (m: any) => {
+      const t = (m?.title || m?.name || "").toLowerCase();
+      return t.includes("deposit") || m?.type === "deposit";
+    };
+    const workMilestones = (liveTimelineMilestones || []).filter((m: any) => !isDeposit(m));
+    const scheduleProgress = workMilestones.length > 0
+      ? Math.round(
+          workMilestones.reduce((sum: number, m: any) => sum + Math.min(100, Math.max(0, m.progressPct || 0)), 0) /
+          workMilestones.length
+        )
+      : (safeProjectData?.overallProgressPct ?? safeProjectData?.progress ?? 0);
 
     const getDaysLeft = () => {
       if (!safeProjectData?.endISO) return 0;
@@ -1455,12 +1467,6 @@ function ProjectDetailContent() {
       return '#EF4444';
     };
 
-    const getProgressColor = (progress: number) => {
-      if (progress < 50) return '#F97316';
-      if (progress < 80) return '#FACC15';
-      return '#22C55E';
-    };
-
     const getStatusColor = (status: string) => {
       const normalized = status?.toLowerCase() || '';
       if (normalized.includes('good') || normalized.includes('on track')) return '#22c55e';
@@ -1469,32 +1475,47 @@ function ProjectDetailContent() {
       return '#9ca3af';
     };
 
-    // Generate spending data for chart
+    const getDaysLeftColor = (days: number | null | undefined) => {
+      if (days == null) return getStatusColor(safeProjectData?.health?.projectStatus || 'On Track');
+      if (days <= 0) return '#ef4444'; // red: overdue
+      if (days < 30) return '#f59e0b'; // yellow: getting close
+      return '#22c55e'; // green: plenty of time
+    };
+
+    // Generate spending data for chart - start to TODAY only (no future dates)
     const generateSpendingData = () => {
       const start = new Date(safeProjectData?.startISO || new Date().toISOString());
       const end = new Date(safeProjectData?.endISO || new Date().toISOString());
-      const numPoints = 7;
-      const timeSpan = end.getTime() - start.getTime();
       const now = Date.now();
-      const currentProgress = Math.min((now - start.getTime()) / timeSpan, 1);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const timeSpan = end.getTime() - start.getTime();
+      const elapsed = Math.min(Math.max(0, now - start.getTime()), timeSpan);
+      const currentProgress = timeSpan > 0 ? elapsed / timeSpan : 0;
+
+      // One point every ~5 days from start to today only
+      const elapsedDays = Math.max(1, Math.ceil(elapsed / (1000 * 60 * 60 * 24)));
+      const daysBetweenPoints = 5;
+      const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
 
       const points: { date: string; spent: number }[] = [];
       for (let i = 0; i <= numPoints; i++) {
-        const progress = (i / numPoints) * currentProgress;
-        const date = new Date(start.getTime() + timeSpan * progress);
+        const progress = i / numPoints;
+        const date = new Date(start.getTime() + elapsed * progress);
+
+        if (date.getTime() > today.getTime()) break;
+
         const spent = Math.round(totalSpent * (progress / Math.max(currentProgress, 0.01)));
 
-        if (spent > 0 && date <= new Date()) {
-          points.push({
-            date: date.toISOString().split('T')[0],
-            spent,
-          });
-        }
+        points.push({
+          date: date.toISOString().split('T')[0],
+          spent,
+        });
       }
 
       if (points.length === 0 || points[points.length - 1].spent !== totalSpent) {
         points.push({
-          date: new Date().toISOString().split('T')[0],
+          date: today.toISOString().split('T')[0],
           spent: totalSpent,
         });
       }
@@ -1606,8 +1627,8 @@ function ProjectDetailContent() {
       scheduleProgress: Math.min(100, Math.max(0, scheduleProgress)),
       daysLeft: getDaysLeft(),
       budgetColor: getBudgetColor(budgetProgress),
-      progressColor: getProgressColor(scheduleProgress),
       statusColor: getStatusColor(safeProjectData?.health?.projectStatus || 'On Track'),
+      daysLeftColor: getDaysLeftColor(getDaysLeft()),
       spendingData: generateSpendingData(),
       profitForecast,
       // Display values
@@ -1622,8 +1643,16 @@ function ProjectDetailContent() {
       endDateDisplay: formatDate(safeProjectData?.endISO),
       scheduleStatusLabel: getScheduleStatusLabel(),
       timelineProgressPercent: getTimelineProgressPercent(),
+      varianceAtToday: (() => {
+        const start = new Date(safeProjectData?.startISO || 0).getTime();
+        const end = new Date(safeProjectData?.endISO || 0).getTime();
+        const total = end - start;
+        const elapsed = Math.min(Math.max(0, Date.now() - start), total);
+        const plannedAtToday = total > 0 ? Math.round(adjustedBudget * (elapsed / total)) : 0;
+        return totalSpent - plannedAtToday;
+      })(),
     };
-  }, [safeProjectData, currentDate]); // Include currentDate to recalculate when date changes
+  }, [safeProjectData, currentDate, liveTimelineMilestones]); // Include liveTimelineMilestones so Schedule matches Timeline tab
 
   const name = safeProjectData?.title || 'Project';
   const lastUpdated = safeProjectData?.lastUpdated
@@ -1749,7 +1778,7 @@ function ProjectDetailContent() {
                     </View>
                     <View style={styles.budgetRow}>
                       <Text style={styles.budgetLabel}>Projected Final Cost</Text>
-                      <Text style={styles.budgetValue}>
+                      <Text style={[styles.budgetValue, { color: '#EF4444' }]}>
                         ${(metrics.profitForecast?.forecastFinalCost ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>
@@ -1782,7 +1811,7 @@ function ProjectDetailContent() {
 
               {/* 3. PROJECT STATUS */}
               <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
+                <View style={styles.projectStatusCard}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                       <View style={styles.iconBadge}>
@@ -1792,65 +1821,46 @@ function ProjectDetailContent() {
                     </View>
                   </View>
 
-                  <View style={styles.statusContent}>
-                    {/* Left chips */}
-                    <View style={styles.statusLeft}>
-                      <LinearGradient
-                        colors={metrics.statusColor === '#22c55e' 
-                          ? ["rgba(34, 197, 94, 0.3)", "rgba(34, 211, 238, 0.2)"]
-                          : metrics.statusColor === '#f59e0b'
-                          ? ["rgba(245, 158, 11, 0.3)", "rgba(245, 158, 11, 0.2)"]
-                          : ["rgba(239, 68, 68, 0.3)", "rgba(239, 68, 68, 0.2)"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.statusChip}
-                      >
-                        <Text
-                          style={[styles.statusChipText, { color: metrics.statusColor }]}
-                        >
-                          {project?.health?.projectStatus || 'On Track'}
-                        </Text>
-                      </LinearGradient>
+                  <View style={styles.projectStatusStatusRow}>
+                    <View style={styles.statusChipCompact}>
+                      <Text style={[styles.statusChipCompactText, { color: metrics.statusColor }]}>
+                        {project?.health?.projectStatus || 'On Track'}
+                      </Text>
+                      <Text style={styles.statusChipCompactDot}> · </Text>
+                      <Text style={[styles.statusChipCompactText, { color: metrics.daysLeftColor }]}>
+                        {metrics.daysLeft}d left
+                      </Text>
+                    </View>
+                  </View>
 
-                      <View style={styles.statusSpacer} />
-
-                      <LinearGradient
-                        colors={metrics.daysLeft && metrics.daysLeft < 30 
-                          ? ["rgba(239, 68, 68, 0.3)", "rgba(245, 158, 11, 0.2)"]
-                          : ["rgba(34, 211, 238, 0.3)", "rgba(34, 197, 94, 0.2)"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.daysLeftBadge}
-                      >
-                        <Text style={styles.daysLeftText}>
-                          {metrics.daysLeft} days left
-                        </Text>
-                      </LinearGradient>
+                  <View style={styles.projectStatusMetrics}>
+                    <View style={styles.projectStatusMetricRow}>
+                      <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+                      <Text style={styles.projectStatusMetricValue}>{metrics.budgetProgress.toFixed(0)}%</Text>
+                    </View>
+                    <View style={styles.projectStatusBarTrack}>
+                      <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, metrics.budgetProgress)}%`, backgroundColor: metrics.budgetColor }]} />
                     </View>
 
-                    {/* Right circular progress */}
-                    <View style={styles.statusRight}>
-                      <View style={styles.progressCircle}>
-                        <CircularProgress
-                          progress={metrics.budgetProgress}
-                          color={metrics.budgetColor}
-                        />
-                        <Text style={styles.progressText}>Budget Used</Text>
-                        <Text style={styles.progressPercent}>
-                          {metrics.budgetProgress.toFixed(0)}%
-                        </Text>
-                      </View>
+                    <View style={[styles.projectStatusMetricRow, { marginTop: 16 }]}>
+                      <Text style={styles.projectStatusMetricLabel}>Schedule</Text>
+                      <Text style={styles.projectStatusMetricValue}>{metrics.scheduleProgress.toFixed(0)}%</Text>
+                    </View>
+                    <View style={styles.projectStatusBarTrack}>
+                      <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, metrics.scheduleProgress)}%`, backgroundColor: metrics.daysLeftColor }]} />
+                    </View>
+                  </View>
 
-                      <View style={styles.progressCircle}>
-                        <CircularProgress
-                          progress={metrics.scheduleProgress}
-                          color={metrics.progressColor}
-                        />
-                        <Text style={styles.progressText}>Schedule</Text>
-                        <Text style={styles.progressPercent}>
-                          {metrics.scheduleProgress.toFixed(0)}%
-                        </Text>
-                      </View>
+                  <View style={styles.projectStatusDivider} />
+
+                  <View style={styles.projectStatusDates}>
+                    <View style={styles.projectStatusDateRow}>
+                      <Text style={styles.projectStatusDateLabel}>Start</Text>
+                      <Text style={styles.projectStatusDateValue}>{metrics.startDateDisplay}</Text>
+                    </View>
+                    <View style={styles.projectStatusDateRow}>
+                      <Text style={styles.projectStatusDateLabel}>End</Text>
+                      <Text style={styles.projectStatusDateValue}>{metrics.endDateDisplay}</Text>
                     </View>
                   </View>
                 </View>
@@ -1858,17 +1868,22 @@ function ProjectDetailContent() {
 
               {/* 4. SPENDING TREND */}
               {(() => {
-                const labels = metrics.spendingData.map((point: { date: string; spent: number }) => {
-                  const date = new Date(point.date);
-                  return `${date.getMonth() + 1}/${date.getDate()}`;
-                });
-                const actualCumulative = labels.map((label, idx) => ({
-                  label,
-                  value: metrics.spendingData[idx]?.spent ?? 0,
-                }));
+                const formatLabel = (d: Date) =>
+                  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const points: { ts: number; label: string; spent: number }[] = metrics.spendingData.map(
+                  (p: { date: string; spent: number }) => {
+                    const d = new Date(p.date);
+                    return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
+                  }
+                );
+                const labels = points.map((p) => p.label);
+                const actualValues = points.map((p) => p.spent);
+                const actualCumulative = labels.map((label, idx) => ({ label, value: actualValues[idx] ?? 0 }));
+                const n = labels.length;
+                const plannedAtToday = metrics.adjustedBudget * metrics.timelineProgressPercent / 100;
                 const plannedCumulative = labels.map((label, idx) => ({
                   label,
-                  value: Math.round((metrics.adjustedBudget * (idx + 1)) / Math.max(labels.length, 1)),
+                  value: n <= 1 ? (idx === 0 ? 0 : plannedAtToday) : Math.round((plannedAtToday * idx) / (n - 1)),
                 }));
 
                 return (
@@ -1893,6 +1908,8 @@ function ProjectDetailContent() {
                           totalBudget={metrics.adjustedBudget}
                           showHeader={false}
                           showLegend={true}
+                          scrollable
+                          varianceOverride={metrics.varianceAtToday}
                         />
                       </View>
                     </View>
@@ -1941,120 +1958,6 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 6. TIMELINE */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="calendar" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.cardTitle}>Timeline</Text>
-                    </View>
-                  </View>
-
-                  <View style={{ marginTop: 16 }}>
-                    <View style={styles.timelineRow}>
-                      <Text style={styles.timelineLabel}>Start</Text>
-                      <Text style={styles.timelineValue}>{metrics.startDateDisplay}</Text>
-                    </View>
-                    <View style={styles.timelineRow}>
-                      <Text style={styles.timelineLabel}>End</Text>
-                      <Text style={styles.timelineValue}>{metrics.endDateDisplay}</Text>
-                    </View>
-                    <View style={styles.timelineRow}>
-                      <Text style={styles.timelineLabel}>Days Left</Text>
-                      <Text style={styles.timelineValue}>{metrics.daysLeft} days</Text>
-                    </View>
-                    <View style={styles.timelineRow}>
-                      <Text style={styles.timelineLabel}>Schedule Status</Text>
-                      <View style={styles.statusChipSmall}>
-                        <Text style={styles.statusChipSmallText}>
-                          {metrics.scheduleStatusLabel}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Timeline progress bar */}
-                    <View style={styles.timelineProgressTrack}>
-                      <LinearGradient
-                        colors={["#22c55e", "#22d3ee"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={[
-                          styles.timelineProgressFill,
-                          { width: `${metrics.timelineProgressPercent}%` },
-                        ]}
-                      />
-                    </View>
-                    <View style={styles.timelineLabelsRow}>
-                      <Text style={styles.timelineEdgeLabel}>Start</Text>
-                      <Text style={styles.timelineEdgeLabel}>Today</Text>
-                      <Text style={styles.timelineEdgeLabel}>End</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 7. HEALTH */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="activity" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.cardTitle}>Health</Text>
-                    </View>
-                  </View>
-
-                  <View style={{ marginTop: 16 }}>
-                    <View style={styles.healthRow}>
-                      <Text style={styles.healthLabel}>Cost Efficiency</Text>
-                      <View style={styles.healthPill}>
-                        <Text style={styles.healthPillText}>
-                          {project?.health?.costEfficiency || 'Good'}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthRow}>
-                      <Text style={styles.healthLabel}>Schedule Efficiency</Text>
-                      <View style={styles.healthPill}>
-                        <Text style={styles.healthPillText}>
-                          {project?.health?.scheduleEfficiency || 'Good'}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.healthRow}>
-                      <Text style={styles.healthLabel}>Project Status</Text>
-                      <View style={styles.healthPill}>
-                        <Text style={styles.healthPillText}>
-                          {project?.health?.projectStatus || 'On Track'}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 8. TEAM */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="users" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.cardTitle}>Team</Text>
-                    </View>
-                  </View>
-
-                  <View style={{ marginTop: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={styles.teamRoleLabel}>PM</Text>
-                    <Text style={styles.teamNotAssignedText}>Not assigned</Text>
-                  </View>
-                </View>
-              </View>
                 </View>
               </LinearGradient>
             </View>
@@ -3626,15 +3529,21 @@ function ProjectDetailContent() {
                 await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedMilestones));
                 console.log(`💾 Saved ${updatedMilestones.length} milestones to v2 storage`);
                 
-                // Calculate new overall progress from all milestones
+                // Calculate new overall progress from work milestones (exclude deposit — paid before work starts)
                 if (updatedMilestones.length > 0) {
-                  const totalProgress = updatedMilestones.reduce((sum: number, m: any) => {
+                  const isDeposit = (m: any) => {
+                    const t = (m?.title || m?.name || "").toLowerCase();
+                    return t.includes("deposit") || m?.type === "deposit";
+                  };
+                  const workMilestones = updatedMilestones.filter((m: any) => !isDeposit(m));
+                  const count = workMilestones.length || 1;
+                  const totalProgress = workMilestones.reduce((sum: number, m: any) => {
                     const pct = Math.min(100, Math.max(0, m.progressPct || 0));
                     return sum + pct;
                   }, 0);
-                  const overallProgress = Math.round(totalProgress / updatedMilestones.length);
+                  const overallProgress = Math.round(totalProgress / count);
                   
-                  console.log(`📊 Calculated progress: ${overallProgress}% from ${updatedMilestones.length} milestones`);
+                  console.log(`📊 Calculated progress: ${overallProgress}% from ${count} work milestones (deposit excluded)`);
                   console.log(`📊 Milestone details:`, updatedMilestones.map(m => `${m.title || m.name}: ${m.progressPct}%`).join(', '));
                   
                   // Update project progress immediately
@@ -4129,6 +4038,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderWidth: darkMode ? 1 : 1,
     borderColor: Colors.line,
   },
+  projectStatusCard: {
+    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+    borderRadius: 14,
+    padding: 20,
+    borderWidth: darkMode ? 1 : 1,
+    borderColor: Colors.line,
+  },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4190,12 +4106,84 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: '700',
     color: '#F9FAFB',
   },
+  projectStatusStatusRow: {
+    marginTop: 16,
+  },
+  projectStatusMetrics: {
+    marginTop: 24,
+  },
+  projectStatusMetricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  projectStatusMetricLabel: {
+    fontSize: 14,
+    color: darkMode ? '#9CA3AF' : '#475569',
+    fontWeight: '500',
+  },
+  projectStatusMetricValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: darkMode ? '#F9FAFB' : Colors.text,
+  },
+  projectStatusBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+    overflow: 'hidden',
+  },
+  projectStatusBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  projectStatusDivider: {
+    height: 1,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    marginTop: 24,
+    marginBottom: 20,
+  },
+  projectStatusDates: {
+    gap: 12,
+  },
+  projectStatusDateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  projectStatusDateLabel: {
+    fontSize: 14,
+    color: darkMode ? '#9CA3AF' : '#475569',
+    fontWeight: '500',
+  },
+  projectStatusDateValue: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: darkMode ? '#F9FAFB' : Colors.text,
+  },
   statusContent: {
     flexDirection: "row",
     marginTop: 4,
   },
   statusLeft: {
     flex: 1,
+  },
+  statusChipCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  statusChipCompactText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statusChipCompactDot: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '400',
   },
   statusChip: {
     paddingHorizontal: 12,
@@ -4363,7 +4351,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   aiFloatingWrapper: {
     position: "absolute",
     right: 20,
-    bottom: 100, // Raised above tab bar with more spacing
+    bottom: 80, // Above bottom edge, not overlapping content
     zIndex: 10,
   },
   aiFloating: {

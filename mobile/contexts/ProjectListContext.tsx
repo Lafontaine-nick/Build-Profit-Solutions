@@ -301,6 +301,15 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
   const rawProgress = Number(project?.progress ?? project?.overallProgressPct ?? 0) || 0;
   const finalProgress = normalizedStatus === 'completed' ? 100 : rawProgress;
 
+  const startDate = toIsoDate(
+    project?.estimateData?.projectStartDate || project?.startDate,
+    nowIso
+  );
+  const endDate = toIsoDate(
+    project?.estimateData?.projectEndDate || project?.estimateData?.endDate || project?.endDate,
+    nowIso
+  );
+
   return {
     id: String(project?.id || `${Date.now()}`),
     title,
@@ -314,8 +323,8 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
     city: project?.city,
     state: project?.state,
     zip: project?.zip,
-    startDate: toIsoDate(project?.startDate, nowIso),
-    endDate: toIsoDate(project?.endDate, nowIso),
+    startDate,
+    endDate,
     progress: finalProgress,
     overallProgressPct: finalProgress,
     milestones: Array.isArray(project?.milestones) ? project.milestones : [],
@@ -453,28 +462,16 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
             projectType: projectTypeCandidate,
           };
 
-          // DISABLED: Special handling for Nick's project - was incorrectly resetting amounts
-          // This auto-fix logic was causing project amounts to drop on every app load
-          // Only fix if there's actual corruption (values > 1,000,000), not normal amounts
-          // if (fixedProject.title?.toLowerCase().includes('nick') && fixedProject.estimateData) {
-          //   const materialsTotal = fixedProject.estimateData.materials || 0;
-          //   const bidPrice = fixedProject.bidPrice || 0;
-          //   const estimatedCost = fixedProject.estimatedCost || 0;
-          //   const hasCorruptedMaterials = materialsTotal > 1000000 || 
-          //     bidPrice > 1000000 || 
-          //     estimatedCost > 1000000 ||
-          //     (fixedProject.estimateData.materialLineItems?.some((item: any) => {
-          //       const total = Number(item.total) || Number(item.cost) || 0;
-          //       return total > 1000000;
-          //     })) ||
-          //     (fixedProject.projectData?.buckets?.some((b: any) => {
-          //       return (b.name === 'Materials/Equipment' || b.id === '2') && (b.budget > 1000000 || b.bidBudget > 1000000);
-          //     }));
-          //
-          //   if (hasCorruptedMaterials) {
-          //     // ... auto-fix logic disabled
-          //   }
-          // }
+          // Prefer estimateData dates when available (estimate is source of truth for timeline)
+          const estimateStart = fixedProject.estimateData?.projectStartDate;
+          const estimateEnd = fixedProject.estimateData?.projectEndDate || fixedProject.estimateData?.endDate;
+          if (estimateStart || estimateEnd) {
+            fixedProject = {
+              ...fixedProject,
+              startDate: estimateStart || fixedProject.startDate,
+              endDate: estimateEnd || fixedProject.endDate,
+            };
+          }
 
           return fixedProject;
         });
@@ -865,6 +862,13 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           // Always update updatedAt when project is modified
           updatedAt: new Date().toISOString(),
         };
+
+        // Sync timeline dates from estimateData when estimate is updated (estimate is source of truth)
+        const newEstimate = updates.estimateData ?? next.estimateData;
+        if (newEstimate?.projectStartDate || newEstimate?.projectEndDate || newEstimate?.endDate) {
+          next.startDate = newEstimate.projectStartDate || next.startDate;
+          next.endDate = newEstimate.projectEndDate || newEstimate.endDate || next.endDate;
+        }
 
         if (updates.actualCost != null || updates.bidPrice != null) {
           const revenue = next.bidPrice || resolveProjectRevenue(next);

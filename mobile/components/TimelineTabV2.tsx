@@ -23,9 +23,16 @@ function clampPct(n: number) {
   return Math.min(100, Math.max(0, n || 0));
 }
 
+// Exclude deposit from progress — it's paid before work starts; Week 1+ represents actual work
+function isDepositMilestone(m: Milestone): boolean {
+  const t = (m.title || (m as any).name || "").toLowerCase();
+  return t.includes("deposit") || (m as any).type === "deposit";
+}
+
 function computeOverallPct(items: Milestone[]) {
-  if (!items.length) return 0;
-  return items.reduce((acc, m) => acc + clampPct(m.progressPct), 0) / items.length;
+  const workItems = items.filter((m) => !isDepositMilestone(m));
+  if (!workItems.length) return 0;
+  return workItems.reduce((acc, m) => acc + clampPct(m.progressPct), 0) / workItems.length;
 }
 
 function safeISODate(isoLike: string) {
@@ -472,6 +479,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     assignee: savedM.assignee || newM.assignee,
                     costDelta: savedM.costDelta,
                     costCategory: savedM.costCategory,
+                    // Prefer saved plannedDate when user has edited it (e.g. Week 4 Payment → Apr 13)
+                    plannedDate: savedM.plannedDate || newM.plannedDate,
                   };
                 }
                 return newM;

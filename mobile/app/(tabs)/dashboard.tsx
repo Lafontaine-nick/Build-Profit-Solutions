@@ -33,14 +33,22 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
 
+// Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
+const isDepositMilestone = (m: any): boolean => {
+  const t = (m?.title || m?.name || m?.description || "").toLowerCase();
+  return t.includes("deposit") || m?.type === "deposit" || m?.weekNumber === 0;
+};
+
 // Helper to calculate progress from milestone items (same logic as TimelineTabV2 and projects.tsx)
 const computeOverallPctFromItems = (items: any[]): number => {
   if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const sum = items.reduce((acc, m) => {
+  const workItems = items.filter((m) => !isDepositMilestone(m));
+  if (!workItems.length) return 0;
+  const sum = workItems.reduce((acc, m) => {
     const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
     return acc + pct;
   }, 0);
-  return Math.round(sum / items.length);
+  return Math.round(sum / workItems.length);
 };
 
 const toFiniteNumber = (value: any): number => {
@@ -51,12 +59,14 @@ const toFiniteNumber = (value: any): number => {
 
 const progressFromItems = (items: any[]): number => {
   if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const total = items.reduce((sum, item) => {
+  const workItems = items.filter((m) => !isDepositMilestone(m));
+  if (!workItems.length) return 0;
+  const total = workItems.reduce((sum, item) => {
     if (item.status === 'completed') return sum + 100;
     if (item.status === 'in_progress') return sum + 50;
     return sum;
   }, 0);
-  return Math.round(total / items.length);
+  return Math.round(total / workItems.length);
 };
 
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
