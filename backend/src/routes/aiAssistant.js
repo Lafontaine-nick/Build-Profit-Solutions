@@ -829,6 +829,117 @@ function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
 }
 
 /**
+ * Run the deterministic missing cost scan — no router, no CO flow.
+ * Used by both the dedicated endpoint and the early check in the main handler.
+ */
+function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses, parsedContext, currentProjectData }) {
+  const baseEstimateCost = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || bidTotal || 0);
+  const materialLineItems = Array.isArray(estimateData?.materialLineItems) ? estimateData.materialLineItems : [];
+  const laborLineItems = Array.isArray(estimateData?.laborLineItems) ? estimateData.laborLineItems : [];
+  const genericLineItems = Array.isArray(estimateData?.lineItems) ? estimateData.lineItems : [];
+  const combinedText = [
+    ...materialLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.category || ''}`),
+    ...laborLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.trade || ''} ${i?.category || ''}`),
+    ...genericLineItems.map(i => `${i?.name || ''} ${i?.description || ''} ${i?.category || ''}`)
+  ].join(' ').toLowerCase();
+  const hasKeyword = (arr) => arr.some(k => combinedText.includes(k));
+  const materialBudgetEarly = (parsedContext?.materialBudgetDirect > 0 ? parsedContext.materialBudgetDirect : 0) ||
+    (estimateData?.materialLineItems?.reduce((s, i) => s + (Number(i?.total) || Number(i?.unitCost || 0) * (Number(i?.quantity) || 0) || 0), 0) || 0);
+  const laborBudgetEarly = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0) ||
+    (estimateData?.laborLineItems?.reduce((s, i) => s + (Number(i?.total) || Number(i?.unitCost || 0) * (Number(i?.quantity) || 0) || 0), 0) || 0);
+  const laborSpentEarly = Array.isArray(expenses) ? expenses.reduce((s, e) => ((e?.category || '').toLowerCase().includes('labor') ? s + (Number(e?.amount) || 0) : s), 0) : 0;
+  const hasMaterials = materialBudgetEarly > 0 || materialLineItems.length > 0 || hasKeyword(['material', 'equipment', 'lumber', 'tile', 'drywall']);
+  const hasLabor = laborBudgetEarly > 0 || laborLineItems.length > 0 || laborSpentEarly > 0 || hasKeyword(['labor', 'framing', 'electrical', 'plumbing', 'paint']);
+  const hasPermits = Number(estimateData?.permitCost || 0) > 0 || Number(estimateData?.planCost || 0) > 0 || hasKeyword(['permit', 'permits', 'inspection', 'plan', 'plans', 'plan check', 'city fee']);
+  const hasOverhead = Number(estimateData?.overheadTotal || 0) > 0 || Number(estimateData?.insuranceOverhead || 0) > 0 || Number(estimateData?.facilities || 0) > 0 || Number(estimateData?.equipment || 0) > 0 || Number(estimateData?.otherOverhead || 0) > 0 || hasKeyword(['overhead', 'insurance', 'supervision', 'mobilization']);
+  const hasContingency = Number(estimateData?.contingency || 0) > 0 || Number(estimateData?.contingencyAmount || 0) > 0 || Number(estimateData?.contingencyPct || 0) > 0 || hasKeyword(['contingency', 'allowance', 'unexpected']);
+  const hasDeliveryOrDisposal = hasKeyword(['delivery', 'freight', 'shipping', 'dumpster', 'disposal', 'haul']);
+  const hasTaxesOrFees = hasKeyword(['tax', 'sales tax', 'fee', 'processing fee']);
+  const basis = baseEstimateCost > 0 ? baseEstimateCost : (bidTotal > 0 ? bidTotal : 0);
+  const toRange = (minPct, maxPct) => ({ min: Math.round(basis * minPct), max: Math.round(basis * maxPct) });
+  const gaps = [];
+  if (!hasMaterials) gaps.push({ title: 'Materials/Equipment line items', reason: 'No material/equipment scope found', range: toRange(0.18, 0.35) });
+  if (!hasLabor) gaps.push({ title: 'Labor scope by trade', reason: 'No labor breakdown found', range: toRange(0.2, 0.4) });
+  if (!hasPermits) gaps.push({ title: 'Plans & permits', reason: 'Plans/permit/inspection costs not found', range: toRange(0.01, 0.03) });
+  if (!hasOverhead) gaps.push({ title: 'Overhead allocation', reason: 'Insurance/facilities/other overhead not found', range: toRange(0.06, 0.15) });
+  if (!hasContingency) gaps.push({ title: 'Contingency reserve', reason: 'No contingency buffer found', range: toRange(0.05, 0.1) });
+  if (!hasDeliveryOrDisposal) gaps.push({ title: 'Delivery, disposal, haul-away', reason: 'Logistics/waste costs not found', range: toRange(0.01, 0.04) });
+  if (!hasTaxesOrFees) gaps.push({ title: 'Taxes & processing fees', reason: 'Tax/fee line items not found', range: toRange(0.01, 0.03) });
+  const totalMin = gaps.reduce((s, g) => s + Number(g.range?.min || 0), 0);
+  const totalMax = gaps.reduce((s, g) => s + Number(g.range?.max || 0), 0);
+  const totalLineItems = materialLineItems.length + laborLineItems.length + genericLineItems.length;
+  let reply = `✅ Scanned ${projectName ? `"${projectName}"` : 'this project'} for missing costs.\n\n`;
+  reply += `📊 Estimate snapshot:\n`;
+  reply += `- Line items found: ${totalLineItems}\n`;
+  reply += `- Estimated Cost: $${Math.round(baseEstimateCost).toLocaleString()}\n`;
+  reply += `- Actual Spent: $${Math.round(actualCost).toLocaleString()}\n\n`;
+  if (basis === 0) {
+    reply += `⚠️ I can't run a reliable gap scan yet because no estimate total or line items are in context.\n`;
+    reply += `➡️ Add estimate line items first, then run "Scan for missing costs" again.`;
+  } else if (gaps.length === 0) {
+    reply += `✅ No obvious missing cost categories detected from current estimate data.\n`;
+    reply += `➡️ Next best check: ask me to "Forecast final profit" to stress-test margin risk.`;
+  } else {
+    reply += `⚠️ Potential missing costs:\n`;
+    gaps.forEach((g, i) => { reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`; });
+    reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
+    reply += `_Impact ranges are estimates based on typical project costs — not real-time market data._\n\n`;
+    reply += `➡️ Want me to add these as estimate line items now?`;
+  }
+  return reply;
+}
+
+/**
+ * POST /api/ai-assistant/scan-missing-costs
+ * Dedicated endpoint for Missing Costs — bypasses router/CO flow entirely.
+ * Mobile app calls this when user clicks the Missing Costs button.
+ */
+router.post('/scan-missing-costs', async (req, res) => {
+  try {
+    const { context } = req.body;
+    let parsedContext = {};
+    try {
+      if (typeof context === 'string') parsedContext = JSON.parse(context);
+      else if (typeof context === 'object') parsedContext = context || {};
+    } catch (e) {
+      parsedContext = {};
+    }
+    const projectName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
+    const projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId;
+    const allProjects = parsedContext.allProjects || [];
+    let currentProjectData = null;
+    if (projectId && allProjects.length > 0) {
+      currentProjectData = allProjects.find(p => String(p.id) === String(projectId));
+    }
+    let estimateData = currentProjectData?.estimateData || parsedContext.estimateData || currentProjectData?.projectData?.estimateData || parsedContext.bidData || {};
+    // Merge bidData line items if estimateData has none (estimate screen context)
+    if ((!estimateData.materialLineItems?.length && !estimateData.laborLineItems?.length) && parsedContext.bidData) {
+      estimateData = {
+        ...estimateData,
+        materialLineItems: estimateData.materialLineItems || parsedContext.bidData.materialLineItems || parsedContext.bidData.materialsCart,
+        laborLineItems: estimateData.laborLineItems || parsedContext.bidData.laborLineItems,
+        lineItems: estimateData.lineItems || parsedContext.bidData.lineItems,
+      };
+    }
+    const bidTotal = parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice || currentProjectData?.bidTotal || currentProjectData?.bidPrice || estimateData?.totalBid || 0;
+    const estimatedCost = parsedContext.estimatedCost || currentProjectData?.estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0;
+    const rawExpenses = parsedContext.expenses || currentProjectData?.expenses || [];
+    const actualCost = parsedContext.actualCost || parsedContext.totalSpent || currentProjectData?.actualCost || currentProjectData?.totalSpent ||
+      (Array.isArray(rawExpenses) ? rawExpenses.reduce((s, e) => s + Number(e?.amount || 0), 0) : 0) || 0;
+    const expenses = parsedContext.expenses || currentProjectData?.expenses || [];
+    const reply = runMissingCostScan({
+      projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses,
+      parsedContext, currentProjectData,
+    });
+    console.log('✅ /scan-missing-costs — returned (dedicated endpoint, no router)');
+    return res.json({ reply, actions: [] });
+  } catch (err) {
+    console.error('Error in /scan-missing-costs:', err);
+    return res.status(500).json({ error: 'Scan failed', message: err.message });
+  }
+});
+
+/**
  * POST /api/ai-assistant
  * AI Assistant endpoint for project management
  */
@@ -949,7 +1060,20 @@ router.post('/', async (req, res) => {
     const overhead = parsedContext.overhead || parsedContext.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0;
     const progress = parsedContext.progress || currentProjectData?.progress || currentProjectData?.overallProgressPct || 0;
     const activeTab = parsedContext.activeTab || '';
-    
+
+    // ── EARLY: Missing cost scan (run BEFORE budget block to guarantee it always wins) ──
+    const msgLowerEarly = (message || '').toLowerCase();
+    const isMissingCostScanEarly = msgLowerEarly.includes('missing cost') || msgLowerEarly.includes('missing costs') ||
+      (msgLowerEarly.includes('scan') && msgLowerEarly.includes('cost')) || msgLowerEarly.includes('cost gaps') || msgLowerEarly.includes('what am i missing');
+    if (isMissingCostScanEarly) {
+      const reply = runMissingCostScan({
+        projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses,
+        parsedContext, currentProjectData,
+      });
+      console.log('✅ EARLY missing cost scan — returning immediately (bypassing router/CO flow)');
+      return res.json({ reply, actions: [] });
+    }
+
     // Calculate material budget and remaining budget from available data
     let materialBudget = 0;
     let materialSpent = 0;
@@ -1178,6 +1302,7 @@ router.post('/', async (req, res) => {
           reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`;
         });
         reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
+        reply += `_Impact ranges are estimates based on typical project costs — not real-time market data._\n\n`;
         reply += `➡️ Want me to add these as estimate line items now?`;
       }
 
@@ -2518,6 +2643,14 @@ router.post('/', async (req, res) => {
     
     const inDailyLogContext = isDailyLogFlow || assistantAskedAboutDailyLog;
     
+    // ── PRE-ROUTER: MISSING COST SCAN (must run before CO flow can steal it) ─
+    // If user says "scan for missing costs" etc., treat as NEW intent — never as change order follow-up
+    const preRouterMissingCostScan = messageLower.includes('missing cost') || messageLower.includes('missing costs') ||
+      (messageLower.includes('scan') && messageLower.includes('cost')) || messageLower.includes('cost gaps') || messageLower.includes('what am i missing');
+    if (preRouterMissingCostScan) {
+      console.log('🛡️ PRE-ROUTER: Detected missing cost scan — will use deterministic handler (not CO flow)');
+    }
+
     // ── PRE-ROUTER: EXPENSE LOGGING DETECTION ──────────────────────────────
     // Catch expense logging requests BEFORE router runs to prevent misclassification
     // BUT skip if user is in a daily log flow
@@ -2777,10 +2910,14 @@ router.post('/', async (req, res) => {
       ...history.filter(m => m?.role && m?.content),
       { role: 'user', content: message },
     ]).length > 0;
-    const isChangeOrderFlowActive =
+    // CRITICAL: Never treat "scan for missing costs" as a change order follow-up — user switched intent
+    const isMissingCostScanMsg = (msgLower.includes('missing cost') || msgLower.includes('missing costs') ||
+      (msgLower.includes('scan') && msgLower.includes('cost')) || msgLower.includes('cost gaps') || msgLower.includes('what am i missing'));
+    const isChangeOrderFlowActive = !isMissingCostScanMsg && (
       changeOrderIntentRegex.test(String(message || '').toLowerCase()) ||
       lastAssistantCOPrompt ||
-      hasCOIntentInHistory;
+      hasCOIntentInHistory
+    );
 
     // Hard guard: if we're in a change-order flow, never allow PO/date requirements to leak in.
     if (isChangeOrderFlowActive) {

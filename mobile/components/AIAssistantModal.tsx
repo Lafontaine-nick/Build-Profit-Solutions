@@ -2265,18 +2265,17 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   };
 
-  const handleQuickAction = (labelOrPrompt: string) => {
+  const handleQuickAction = async (labelOrPrompt: string) => {
     if (labelOrPrompt === "Find Subcontractors") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowContractorModal(true);
       return;
     }
-    
+
     // Determine the actual message to send
     let messageToSend = labelOrPrompt;
-    
+
     // If it's not already a full prompt, use suggestion mapping.
-    // Keep natural sentence-style prompts as-is (e.g. "I need to log an expense").
     const looksLikeSentencePrompt = /^(i\s+need|please|create|add|mark|show|scan|forecast|can\s+you)\b/i.test(labelOrPrompt.trim());
     if (!labelOrPrompt.includes("?") && !labelOrPrompt.includes(".") && !looksLikeSentencePrompt) {
       const suggestions: { [key: string]: string } = {
@@ -2292,10 +2291,50 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       };
       messageToSend = suggestions[labelOrPrompt] || `Can you ${labelOrPrompt.toLowerCase()} for this project?`;
     }
-    
-    // Send message directly using sendMessage() to ensure identical behavior
+
+    // ROOT CAUSE FIX: Missing Costs uses dedicated endpoint — bypasses router/CO flow entirely
+    const isMissingCostsAction = /scan.*missing\s*cost|missing\s*cost/i.test(messageToSend);
+    if (isMissingCostsAction && !loading) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const userMsg: Message = { id: Date.now().toString(), role: "user", content: messageToSend.trim(), timestamp: new Date() };
+      setMessages((prev) => [...prev, userMsg]);
+      setInput("");
+      setLoading(true);
+      setIsTyping(true);
+      try {
+        const AI_API_BASE = resolveAIBaseUrl();
+        const url = `${AI_API_BASE}/api/ai-assistant/scan-missing-costs`;
+        const token = await getToken();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const ctx = typeof enhancedContext === "string" ? enhancedContext : JSON.stringify(enhancedContext || {});
+        const res = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ context: ctx }),
+        });
+        const data = await res.json();
+        const reply = data.reply || data.message || "Scan completed.";
+        const aiMsg: Message = { id: Date.now().toString(), role: "assistant", content: reply, timestamp: new Date() };
+        setMessages((prev) => [...prev, aiMsg]);
+      } catch (err: any) {
+        const errMsg: Message = {
+          id: Date.now().toString() + "-err",
+          role: "assistant",
+          content: err?.message || "Could not run missing cost scan. Please try again.",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errMsg]);
+      } finally {
+        setLoading(false);
+        setIsTyping(false);
+      }
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      return;
+    }
+
+    // All other actions: use sendMessage
     if (messageToSend.trim() && !loading) {
-      // Pass message directly to sendMessage to avoid state update delay
       sendMessage(messageToSend.trim());
     }
   };
