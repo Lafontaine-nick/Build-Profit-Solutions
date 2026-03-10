@@ -6,6 +6,7 @@ import Svg, { Circle } from 'react-native-svg';
 import SpendingTrendChart from './SpendingTrendChart';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { computeProfitForecast } from '../src/lib/profitForecast';
 
 // Types for the detailed overview screen
 export type ProjectOverview = {
@@ -395,6 +396,68 @@ export default function OverviewScreen({
   const lastUpdated = project.lastUpdated
     ? formatDate(project.lastUpdated)
     : 'Invalid Date';
+  // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
+  let baseBid = (() => {
+    const candidates = [
+      project?.estimateData?.grandTotal,
+      project?.estimateData?.bidPrice,
+      project?.estimateData?.total,
+      project?.bidPrice,
+      (project as any)?.projectData?.bidPrice,
+    ];
+    for (const c of candidates) {
+      const n = c != null ? Number(c) : 0;
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  })();
+  // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
+  if (baseBid == null && baseBudget > 0) {
+    const marginPct = Number(project?.margin ?? project?.estimateData?.marginPct ?? project?.estimateData?.margin ?? 0);
+    const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
+    baseBid = baseBudget / (1 - effectiveMargin / 100);
+  }
+  const contractValue = baseBid != null && baseBid > 0 ? baseBid + approvedChangeOrdersTotal : adjustedBudget;
+  // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
+  const ed = project?.estimateData;
+  const estimateCostFromParts =
+    Number(ed?.materials || 0) +
+    Number(ed?.labor || 0) +
+    Number(ed?.equipment || 0) +
+    Number(ed?.facilities || 0) +
+    Number(ed?.insuranceOverhead || 0) +
+    Number(ed?.otherOverhead || 0) +
+    Number(ed?.planCost || 0) +
+    Number(ed?.permitCost || 0);
+  let costBase = Number(
+    ed?.estimatedCost ??
+    ed?.subtotal ??
+    project?.estimatedCost ??
+    ed?.totalCost ??
+    ed?.baseCost ??
+    (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
+    0
+  );
+  if (costBase <= 0 && baseBid != null && baseBid > 0) {
+    const marginPct = Number(project?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
+    else costBase = baseBid / 1.18;
+  }
+  if (costBase <= 0) costBase = baseBudget;
+  const costBaseline = costBase + approvedChangeOrdersTotal;
+  const profitForecast = computeProfitForecast({
+    contractValue,
+    adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
+    estimatedCostBaseline: costBase > 0 ? costBase : undefined,
+    actualExpenses: actualSpent,
+    committedPOs: purchaseOrdersTotal,
+    progressPct: project.overallProgressPct,
+  });
+  const profitStatusColor =
+    profitForecast.status === 'Strong' ? '#22C55E' :
+    profitForecast.status === 'Healthy' ? '#10B981' :
+    profitForecast.status === 'Tight' ? '#F59E0B' :
+    profitForecast.status === 'At Risk' ? '#F97316' : '#EF4444';
 
   return (
     <ScrollView 
@@ -525,6 +588,54 @@ export default function OverviewScreen({
         </View>
       </LinearGradient>
 
+      {/* FINANCIAL HEALTH CARD */}
+      <LinearGradient
+        colors={["#2DFFC4", "#00A6FF"]}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
+        style={{
+          borderRadius: 20,
+          padding: 1,
+          marginBottom: 16,
+        }}
+      >
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={styles.iconBadge}>
+                <Feather name="activity" size={16} color="#22c55e" />
+              </View>
+              <Text style={styles.cardTitle}>Financial Health</Text>
+            </View>
+            <View style={{ backgroundColor: `${profitStatusColor}22`, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+              <Text style={{ color: profitStatusColor, fontWeight: '700', fontSize: 12 }}>{profitForecast.status}</Text>
+            </View>
+          </View>
+          <View style={styles.budgetDetails}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Contract Value</Text>
+              <Text style={styles.budgetValue}>{formatMoney(profitForecast.contractValue)}</Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+              <Text style={styles.budgetValue}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Projected Profit</Text>
+              <Text style={[styles.budgetValue, { color: profitForecast.projectedProfit >= 0 ? '#22c55e' : '#EF4444' }]}>
+                {formatMoney(profitForecast.projectedProfit)}
+              </Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Projected Margin</Text>
+              <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
+                {profitForecast.projectedMarginPct.toFixed(1)}%
+              </Text>
+            </View>
+          </View>
+        </View>
+      </LinearGradient>
+
       {/* SPENDING TREND CARD */}
       <LinearGradient
         colors={["#2DFFC4", "#00A6FF"]}
@@ -634,6 +745,29 @@ export default function OverviewScreen({
                 </Text>
               </View>
             )}
+
+            <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
+              <Text style={styles.budgetLabel}>Forecast Final Cost</Text>
+              <Text style={styles.budgetValue}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Forecast Profit</Text>
+              <Text style={[styles.budgetValue, { color: profitForecast.projectedProfit >= 0 ? '#22c55e' : '#EF4444' }]}>
+                {formatMoney(profitForecast.projectedProfit)}
+              </Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Forecast Margin</Text>
+              <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
+                {profitForecast.projectedMarginPct.toFixed(1)}%
+              </Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Profit Variance vs Estimate</Text>
+              <Text style={[styles.budgetValue, { color: profitForecast.profitVarianceVsEstimate <= 0 ? '#EF4444' : '#22c55e' }]}>
+                {formatMoney(profitForecast.profitVarianceVsEstimate)}
+              </Text>
+            </View>
 
             <View style={styles.budgetRow}>
             <Text style={styles.budgetLabel}>Remaining</Text>

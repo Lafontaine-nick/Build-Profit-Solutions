@@ -118,6 +118,24 @@ function resolveAIBaseUrl(): string {
   return localhostFallback;
 }
 
+/** Estimated cost baseline = materials + labor + overhead (incl. plans & permits). Matches BudgetTab/project-detail. */
+function getEstimatedCostBaseline(project: any, estimateData: any): number {
+  const ed = estimateData;
+  const fromEst = Number(ed?.estimatedCost ?? ed?.subtotal ?? ed?.totalCost ?? ed?.baseCost ?? 0);
+  if (fromEst > 0) return fromEst;
+  const fromParts =
+    Number(ed?.materials ?? project?.materials ?? 0) +
+    Number(ed?.labor ?? project?.labor ?? 0) +
+    Number(ed?.equipment ?? 0) +
+    Number(ed?.facilities ?? 0) +
+    Number(ed?.insuranceOverhead ?? 0) +
+    Number(ed?.otherOverhead ?? 0) +
+    Number(ed?.planCost ?? 0) +
+    Number(ed?.permitCost ?? 0);
+  if (fromParts > 0) return fromParts;
+  return Number(project?.estimatedCost ?? 0);
+}
+
 // Helper function to try multiple URLs with fallback
 async function fetchWithFallback(urls: string[], options: RequestInit, timeout = 10000): Promise<Response> {
   const errors: Error[] = [];
@@ -646,6 +664,23 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     // Context parsing failed, use defaults
   }
 
+  // Missing Costs is for Estimates AI only — not shown in Projects AI
+  const isEstimateContext = parsedContext?.screen === 'Estimate Generator';
+
+  // Flow-specific chips: detect from last assistant message
+  const compactChipFlow = useMemo(() => {
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    const content = (lastAssistant?.content || '').toLowerCase();
+    if (content.includes('change order') && (content.includes('amount') || content.includes('vendor') || content.includes('what is the change order'))) return 'change_order';
+    if (content.includes('payment') || content.includes('collected') || content.includes('which payment')) return 'payments';
+    if (content.includes('daily log') || content.includes('job log') || content.includes('accomplish') || content.includes('what did you')) return 'daily_log';
+    if (content.includes('health check') || content.includes('budget breakdown') || (content.includes('forecast') && content.includes('profit'))) return 'budget_check';
+    if (content.includes('team') || content.includes('assign') || content.includes('project manager') || content.includes('team member')) return 'team';
+    if (content.includes('purchase order') || content.includes('create a po') || (content.includes('po') && content.includes('create'))) return 'create_po';
+    if (content.includes('expense') && (content.includes('materials') || content.includes('labor') || content.includes('vendor') || content.includes('amount') || content.includes('category'))) return 'log_expense';
+    return null;
+  }, [messages]);
+
   // Build enhanced context with allProjects if not present
   const enhancedContext = useMemo(() => {
     try {
@@ -670,9 +705,9 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
           isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
             ((p.status || '') as string).toLowerCase()
           ),
-            // Include budget and expense data for AI to use — pull from estimateData if top-level is 0
+            // Include budget and expense data for AI to use — estimatedCost = materials + labor + overhead (incl. plans & permits)
             bidPrice: p.bidPrice || ed?.totalBid || 0,
-            estimatedCost: p.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
+            estimatedCost: getEstimatedCostBaseline(p, ed),
             actualCost: p.actualCost || p.totalSpent || computedActualCost || (p.projectData?.actualCost || p.projectData?.spent || 0),
             totalSpent: p.totalSpent || p.actualCost || computedActualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
             expenses,
@@ -710,7 +745,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             return {
               ...existing,
               bidPrice: fullProject.bidPrice || ed?.totalBid || existing.bidPrice || 0,
-              estimatedCost: fullProject.estimatedCost || ed?.totalCost || ed?.baseCost || existing.estimatedCost || 0,
+              estimatedCost: getEstimatedCostBaseline(fullProject, ed) || existing.estimatedCost || 0,
               actualCost: fullProject.actualCost || fullProject.totalSpent || computedActualCost || (fullProject.projectData?.actualCost || fullProject.projectData?.spent || existing.actualCost || 0),
               totalSpent: fullProject.totalSpent || fullProject.actualCost || computedActualCost || (fullProject.projectData?.spent || fullProject.projectData?.actualCost || existing.totalSpent || 0),
               expenses,
@@ -746,25 +781,44 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         baseContext.assistantDomain = computeAssistantDomain(baseContext.screen, baseContext.status);
       }
 
-      // Include team member data if loaded (for team-related actions like messaging, notifications)
-      if (teamMembersData && teamMembersData.length > 0) {
-        baseContext.teamMembers = teamMembersData.map((m: any) => ({
-          id: m.id,
-          name: m.name,
-          role: m.role,
-          status: m.status, // 'active' or 'off_duty'
-          phone: m.phone || null,
-          email: m.email || null,
-          tasksOpen: m.tasksOpen || 0,
-          tasksTotal: m.tasksTotal || 0,
-          skills: m.skills || [],
-        }));
-        
-        // Calculate team stats
+      // Include team member data: merge global team (bps.team.members) + project crew (add_team_member adds here)
+      const globalTeam = (teamMembersData || []).map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        status: m.status,
+        phone: m.phone || null,
+        email: m.email || null,
+        tasksOpen: m.tasksOpen || 0,
+        tasksTotal: m.tasksTotal || 0,
+        skills: m.skills || [],
+      }));
+      const projectCrew = (baseContext.crewMembers || []) as string[];
+      const crewPhones = (baseContext.crewMemberPhones || {}) as Record<string, string>;
+      const existingNames = new Set(globalTeam.map((m: any) => (m.name || '').toLowerCase()));
+      const crewAsMembers = projectCrew
+        .filter((name: string) => name && !existingNames.has(name.trim().toLowerCase()))
+        .map((name: string) => {
+          existingNames.add(name.trim().toLowerCase());
+          return {
+            id: `crew-${name}-${Date.now()}`,
+            name: name.trim(),
+            role: 'Crew Member',
+            status: 'active',
+            phone: crewPhones[name] || crewPhones[name.trim()] || null,
+            email: null,
+            tasksOpen: 0,
+            tasksTotal: 0,
+            skills: [],
+          };
+        });
+      const mergedTeam = [...globalTeam, ...crewAsMembers];
+      if (mergedTeam.length > 0) {
+        baseContext.teamMembers = mergedTeam;
         baseContext.teamStats = {
-          total: teamMembersData.length,
-          active: teamMembersData.filter((m: any) => m.status === 'active').length,
-          offDuty: teamMembersData.filter((m: any) => m.status === 'off_duty').length,
+          total: mergedTeam.length,
+          active: mergedTeam.filter((m: any) => (m.status || '').toLowerCase() === 'active').length,
+          offDuty: mergedTeam.filter((m: any) => (m.status || '').toLowerCase() === 'off_duty').length,
         };
       }
       
@@ -775,7 +829,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject, teamMembersData]);
 
-  // Load team data when modal opens or project changes
+  // Load team data when modal opens, project changes, or team changes (e.g. after deletions)
   useEffect(() => {
     if (!visible) return;
     
@@ -796,7 +850,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     };
     
     loadTeamData();
-  }, [visible, parsedContext?.projectId, parsedContext?.activeProjectId]);
+  }, [visible, parsedContext?.projectId, parsedContext?.activeProjectId, JSON.stringify(parsedContext?.crewMembers || [])]);
 
   // Auto-refresh existing summary cards in place when project budgets/expenses/schedule change while chat is open.
   // Uses a lightweight polling loop + snapshot guard to avoid waiting on navigation/focus cycles.
@@ -1203,6 +1257,18 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       
       case 'add_purchase_order':
         return `Create purchase order: $${action.amount.toLocaleString()} to ${action.vendor}?`;
+      
+      case 'assign_pm':
+        return `Assign ${action.pmName || 'this person'} as project manager for ${action.projectName || 'this project'}?`;
+      
+      case 'add_team_member': {
+        const tm = action.teamMember || {};
+        const phonePart = tm.phone ? ` — ${tm.phone}` : '';
+        return `Add ${tm.name || 'this person'} (${tm.role || 'Crew Member'})${phonePart} to the team for ${action.projectName || 'this project'}?`;
+      }
+      
+      case 'update_team_member_status':
+        return `Update ${action.memberName || 'this team member'} to ${action.status === 'active' ? 'active' : 'off duty'}?`;
       
       case 'update_customer_info':
         const fields = [];
@@ -1636,7 +1702,14 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                                       /\bscope\s+change\b/i.test(newMessage.content) ||
                                       /\bclient\s+wants\s+to\s+add\b/i.test(newMessage.content) ||
                                       /\bextra\s+work\b/i.test(newMessage.content);
-            if (!pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: Assign PM, add team member, update status - these are actions, NOT health check requests
+            const isAssignPMIntent = /\b(assign|appoint|set|name|pick|choose|select)\s+(a\s+)?(project\s+manager|pm)\b/i.test(newMessage.content) ||
+                                    /\b(project\s+manager|pm)\s+for\s+(me|this)/i.test(newMessage.content) ||
+                                    /\b(name|pick|choose)\s+(a\s+)?(project\s+manager|pm)\s+for\s+me/i.test(newMessage.content);
+            const isTeamActionIntent = /\b(add|update)\s+(team\s+member|a\s+team\s+member)/i.test(newMessage.content) ||
+                                      /\b(turn|make|set|change)\s+.+\s+(active|off\s*duty)/i.test(newMessage.content) ||
+                                      /\bteam\s+member.*(off\s*duty|active)/i.test(newMessage.content);
+            if (!pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -1776,12 +1849,10 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               actualCost: mergedTotalSpent,
               totalSpent: mergedTotalSpent,
               bidPrice: storageProject?.bidPrice || ctxObj?.bidPrice || 0,
-              estimatedCost:
-                storageProject?.estimatedCost ||
-                mergedEstimateData?.totalCost ||
-                mergedEstimateData?.baseCost ||
-                ctxObj?.estimatedCost ||
-                0,
+              estimatedCost: getEstimatedCostBaseline(
+                { ...storageProject, ...ctxObj },
+                mergedEstimateData
+              ) || storageProject?.estimatedCost || ctxObj?.estimatedCost || 0,
               laborTotal: Number(
                 mergedEstimateData?.laborTotal || storageProject?.laborTotal || ctxObj?.laborTotal || 0
               ),
@@ -2366,10 +2437,29 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     // Split by lines to handle headings and lists
     const lines = text.split('\n');
     const elements: any[] = [];
-    
+    const disclaimerStyle = {
+      color: Colors.sub,
+      fontSize: 11,
+      textAlign: 'center' as const,
+      marginTop: 12,
+      opacity: 0.6,
+      fontStyle: 'italic' as const,
+    };
+
     lines.forEach((line, index) => {
       const trimmedLine = line.trim();
-      
+
+      // Disclaimer block (matches Estimate page style)
+      const disclaimerMatch = trimmedLine.match(/\[DISCLAIMER\](.+?)\[\/DISCLAIMER\]/);
+      if (disclaimerMatch) {
+        elements.push(
+          <Text key={`disclaimer-${index}`} style={disclaimerStyle}>
+            {disclaimerMatch[1].trim()}
+          </Text>
+        );
+        return;
+      }
+
       // Headings (### or ##)
       if (trimmedLine.startsWith('###')) {
         const headingText = trimmedLine.replace(/^###+\s*/, '');
@@ -2928,6 +3018,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                         </TouchableOpacity>
                       </LinearGradient>
                     </View>
+                    {isEstimateContext && (
                     <View style={styles.primaryButtonWrapper}>
                       <LinearGradient
                         colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -2949,27 +3040,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                         </TouchableOpacity>
                       </LinearGradient>
                     </View>
-                    <View style={styles.primaryButtonWrapper}>
-                      <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
-                        style={styles.primaryButtonBorder}
-                      >
-                        <TouchableOpacity
-                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            handleQuickAction("Forecast the final cost and profit for this project.");
-                          }}
-                        >
-                          <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
-                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
-                            Forecast final profit
-                          </Text>
-                        </TouchableOpacity>
-                      </LinearGradient>
-                    </View>
+                    )}
                   </View>
                 </View>
               }
@@ -3056,6 +3127,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                       { label: '📊 Budget Check', prompt: 'Give me a project health check.' },
                       { label: '👥 Team', prompt: 'can you help me with team management' },
                       { label: '📈 What If?', prompt: 'Run a scenario analysis for this project.' },
+                      { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
                     ].map((chip) => (
                     <TouchableOpacity
                       key={chip.label}
@@ -3094,11 +3166,63 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 36 }}
                   contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
                 >
-                  {[
-                    { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
-                    { label: '🧾 Missing Costs', prompt: 'Scan this estimate for missing costs.' },
-                    { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
-                  ].map((chip) => (
+                  {(() => {
+                    if (isEstimateContext) {
+                      return [
+                        { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
+                        { label: '🧾 Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+                      ];
+                    }
+                    // Flow-specific chips for projects
+                    const flowChips: Array<{ label: string; prompt: string; primary?: boolean }> = (() => {
+                      switch (compactChipFlow) {
+                        case 'change_order':
+                          return [
+                            { label: '➕ Add Line Item', prompt: 'Add a line item to this change order', primary: true },
+                            { label: '❌ Cancel', prompt: 'Cancel this change order' },
+                          ];
+                        case 'payments':
+                          return [
+                            { label: '📋 Mark Payment', prompt: 'Mark a payment as collected', primary: true },
+                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: '📦 Create PO', prompt: 'Create a purchase order' },
+                          ];
+                        case 'daily_log':
+                          return [
+                            { label: '📝 Daily Log', prompt: 'Add a daily job log for today', primary: true },
+                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                          ];
+                        case 'budget_check':
+                          return [
+                            { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.', primary: true },
+                            { label: '📈 What If?', prompt: 'Run a scenario analysis for this project.' },
+                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                          ];
+                        case 'team':
+                          return [
+                            { label: '👤 Assign PM', prompt: 'Assign a project manager to this project' },
+                            { label: '➕ Add Team Member', prompt: 'Add a new team member to this project' },
+                            { label: '📊 Team Status', prompt: 'Show me the current team status and availability' },
+                            { label: '🔄 Update Status', prompt: 'Update a team member\'s status' },
+                          ];
+                        case 'create_po':
+                          return [
+                            { label: '📦 Create PO', prompt: 'Create a purchase order', primary: true },
+                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: '🔄 Change Order', prompt: 'Create me a change order' },
+                          ];
+                        case 'log_expense':
+                        default:
+                          return [
+                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
+                            { label: '📦 Create PO', prompt: 'Create a purchase order' },
+                            { label: '🔄 Change Order', prompt: 'Create me a change order' },
+                            { label: '📋 Mark Payment', prompt: 'Mark a payment as collected' },
+                          ];
+                      }
+                    })();
+                    return flowChips;
+                  })().map((chip) => (
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {

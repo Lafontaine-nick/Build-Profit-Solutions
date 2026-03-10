@@ -18,6 +18,7 @@ import TeamTab from '../../components/TeamTab';
 import ProjectCalendar from '../../components/ProjectCalendar';
 import MessagesTab from '../../components/MessagesTab';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
+import { computeProfitForecast } from '../../src/lib/profitForecast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
@@ -97,7 +98,7 @@ function ProjectDetailContent() {
   const id = params.id as string;
   const initialTab = (params.activeTab as TabKey) || 'Overview';
   const backToProjects = params.backToProjects === '1';
-  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder } = useProjectData();
+  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder, updateTeam } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
@@ -150,7 +151,8 @@ function ProjectDetailContent() {
   }, []);
   const { getProjectById, updateProject, activeProjects, projects: allProjects } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
-  
+  const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
+
   // Update activeTab when params change
   useEffect(() => {
     if (params.activeTab && params.activeTab !== activeTab) {
@@ -749,8 +751,8 @@ function ProjectDetailContent() {
     }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData, id, realProjectData, allProjects, showKickoffCard])
   );
 
-  // Recalculate budget total from estimate data
-  const recalculatedBudget = realProjectData?.estimateData ? (() => {
+  // Recalculate budget total and cost (subtotal) from estimate data
+  const { recalculatedBudget, recalculatedSubtotal } = realProjectData?.estimateData ? (() => {
     const materials = materialsCart.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
     const labor = (realProjectData.estimateData.laborLineItems || []).reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
     const equipment = Number(realProjectData.estimateData.equipment) || 0;
@@ -761,8 +763,11 @@ function ProjectDetailContent() {
     const subtotal = materials + labor + equipment + facilities + insuranceOverhead + otherOverhead + permitCost;
     const markupPct = Number(realProjectData.estimateData.markupPct) || 0;
     const markup = subtotal * (markupPct / 100);
-    return Math.round(subtotal + markup);
-  })() : null;
+    return {
+      recalculatedBudget: Math.round(subtotal + markup),
+      recalculatedSubtotal: Math.round(subtotal),
+    };
+  })() : { recalculatedBudget: null as number | null, recalculatedSubtotal: null as number | null };
 
   const resolvedBidPrice = React.useMemo(
     () =>
@@ -811,6 +816,7 @@ function ProjectDetailContent() {
   }, [resolvedBidPrice, recalculatedBudget, realProjectData?.estimatedCost, approvedChangeOrdersTotal]);
 
   // Sync recalculated budget back to ProjectListContext only when missing
+  // CRITICAL: estimatedCost = subtotal (cost before markup), NOT bid price. Otherwise margin = 0.
   useEffect(() => {
     if (recalculatedBudget === null || !realProjectData || !id) {
       return;
@@ -824,8 +830,22 @@ function ProjectDetailContent() {
       updates.bidPrice = recalculatedBudget;
     }
 
-    if (currentEstimatedCost === null && recalculatedBudget > 0) {
-      updates.estimatedCost = recalculatedBudget;
+    // Use subtotal (cost before markup) for estimatedCost so margin = (bid - cost) / bid works
+    const costToUse = recalculatedSubtotal ?? recalculatedBudget;
+    const bid = updates.bidPrice ?? currentBidPrice ?? recalculatedBudget;
+    // Fix: when estimatedCost equals bidPrice (wrong - was set by old sync), or is missing, use subtotal
+    const costEqualsBid = currentEstimatedCost != null && bid != null && Math.abs(currentEstimatedCost - bid) < 1;
+    if ((currentEstimatedCost === null || costEqualsBid) && costToUse > 0) {
+      updates.estimatedCost = recalculatedSubtotal ?? costToUse;
+    }
+    const cost = updates.estimatedCost ?? currentEstimatedCost ?? costToUse;
+    // Recalculate margin when we have both bid and cost (fixes 0% when estimatedCost was wrongly set to bidPrice)
+    if (bid > 0 && cost > 0 && cost < bid) {
+      const marginPct = Math.round(((bid - cost) / bid) * 100);
+      const currentMargin = Number(realProjectData.margin) || 0;
+      if (marginPct > 0 && marginPct !== currentMargin) {
+        updates.margin = marginPct;
+      }
     }
 
     if (Object.keys(updates).length > 0) {
@@ -834,8 +854,10 @@ function ProjectDetailContent() {
     }
   }, [
     recalculatedBudget,
+    recalculatedSubtotal,
     realProjectData?.bidPrice,
     realProjectData?.estimatedCost,
+    realProjectData?.margin,
     id,
     updateProject,
   ]);
@@ -969,16 +991,41 @@ function ProjectDetailContent() {
       { id: '4', name: 'Misc', spent: 0, budget: 0, bidBudget: 0 },
     ],
     milestones: (() => {
-      // Start with estimate payment milestones as base
-      const baseMilestones = (realProjectData.estimateData?.paymentMilestones || []).map((milestone: any, index: number) => ({
-        id: milestone.id || `milestone-${index}`,
-        title: milestone.name || `Payment ${index + 1}`,
-        description: milestone.description || milestone.workDescription || '',
-        dueDate: milestone.scheduledDate || new Date(Date.now() + (index + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        status: 'pending' as const,
-        amount: Number(milestone.paymentAmount) || 0,
-        percentage: Number(milestone.percentage) || 0,
+      const ed = realProjectData.estimateData || {};
+      const scheduleType = (realProjectData as any)?.paymentSchedule ?? ed?.paymentSchedule ?? 'milestone-based';
+      const paymentMs = ed?.paymentMilestones || [];
+      const weekly = ed?.weeklyPayments || [];
+      const hasBoth = paymentMs.length > 0 && weekly.length > 0;
+      const isHybrid = scheduleType === 'hybrid' || hasBoth;
+
+      // For hybrid: combine deposit + week 1, week 2, etc. For non-hybrid: use paymentMilestones only
+      const fromPayment = paymentMs.map((m: any, i: number) => ({
+        id: m.id || `payment-${i}`,
+        title: m.name || m.title || `Payment ${i + 1}`,
+        description: m.description || m.workDescription || '',
+        dueDate: m.scheduledDate || m.dueDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: (m.status as const) || 'pending',
+        amount: Number(m.paymentAmount ?? m.amount) || 0,
+        percentage: Number(m.percentage) || 0,
       }));
+      const fromWeekly = isHybrid && weekly.length > 0
+        ? weekly.map((w: any, i: number) => ({
+            id: w.id || `week-${i}`,
+            title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+            description: w.description || '',
+            dueDate: w.scheduledDate || w.dueDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            status: (w.status as const) || 'pending',
+            amount: Number(w.amount) || 0,
+            percentage: Number(w.percentage) || 0,
+          }))
+        : [];
+
+      const baseMilestones = isHybrid && fromWeekly.length > 0
+        ? [...fromPayment, ...fromWeekly].sort((a, b) =>
+            new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+          )
+        : fromPayment;
+
       // CRITICAL: Merge live timeline data (from bps.timeline.v2.<id>) which has completed statuses.
       // Without this, all milestones are hardcoded as 'pending' and the AI never sees completions.
       if (liveTimelineMilestones.length > 0) {
@@ -1308,6 +1355,10 @@ function ProjectDetailContent() {
     title: String(projectData.title || 'Untitled Project'),
     status: String(projectData.status || 'In Progress'),
     budgeted: originalBudget, // Use originalBudget (without COs), not projectData.budgeted (may include COs)
+    // Ensure bid/estimate available for profit forecast (contextProjectData may not have these)
+    bidPrice: (realProjectData as any)?.bidPrice ?? (projectData as any)?.bidPrice,
+    estimateData: (realProjectData as any)?.estimateData ?? (projectData as any)?.estimateData,
+    margin: (realProjectData as any)?.margin ?? (projectData as any)?.margin,
     spent: Number(projectData.spent || 0),
     // Ensure all nested objects are defined
     health: {
@@ -1363,6 +1414,16 @@ function ProjectDetailContent() {
         } else {
           amount = Number(po.amount) || 0;
         }
+        return sum + amount;
+      }, 0);
+    })();
+    
+    // Committed POs (not yet received) for profit forecast
+    const committedPOsTotal = (() => {
+      const rawPOs = safeProjectData?.purchaseOrders || [];
+      const nonReceived = rawPOs.filter((po: any) => po.status !== 'Received');
+      return nonReceived.reduce((sum: number, po: any) => {
+        const amount = Number(po.amount) || parseFloat(String(po.amount || '')) || 0;
         return sum + amount;
       }, 0);
     })();
@@ -1482,6 +1543,60 @@ function ProjectDetailContent() {
       }
     };
 
+    // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
+    const ed = (safeProjectData as any)?.estimateData;
+    let baseBid = firstPositiveNumber(
+      ed?.grandTotal,
+      ed?.bidPrice,
+      ed?.total,
+      ed?.calculatedTotal,
+      (safeProjectData as any)?.bidPrice,
+      ed?.estimateData?.grandTotal,
+      ed?.estimateData?.total
+    );
+    // Fallback: derive bid from cost + margin when bid is missing (e.g. budgeted = cost)
+    if (baseBid == null && adjustedBudget > 0) {
+      const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+      const costBase = Number(safeProjectData?.budgeted || 0);
+      const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10; // Default 10% when missing
+      if (costBase > 0) baseBid = costBase / (1 - effectiveMargin / 100);
+    }
+    const contractValue = baseBid != null && baseBid > 0 ? baseBid + approvedChangeOrdersTotal : adjustedBudget;
+    // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
+    const estimateCostFromParts =
+      Number(ed?.materials || 0) +
+      Number(ed?.labor || 0) +
+      Number(ed?.equipment || 0) +
+      Number(ed?.facilities || 0) +
+      Number(ed?.insuranceOverhead || 0) +
+      Number(ed?.otherOverhead || 0) +
+      Number(ed?.planCost || 0) +
+      Number(ed?.permitCost || 0);
+    let costBase = Number(
+      ed?.estimatedCost ??
+      ed?.subtotal ??
+      ed?.totalCost ??
+      ed?.baseCost ??
+      (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
+      (safeProjectData as any)?.estimatedCost ??
+      0
+    );
+    if (costBase <= 0 && baseBid != null && baseBid > 0) {
+      const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+      if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
+      else costBase = baseBid / 1.18; // Default 18% markup if no margin
+    }
+    if (costBase <= 0) costBase = Number(safeProjectData?.budgeted || 0);
+    const costBaseline = costBase + approvedChangeOrdersTotal;
+    const profitForecast = computeProfitForecast({
+      contractValue,
+      adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
+      estimatedCostBaseline: costBase > 0 ? costBase : undefined,
+      actualExpenses: totalSpent,
+      committedPOs: committedPOsTotal,
+      progressPct: scheduleProgress,
+    });
+
     return {
       adjustedBudget,
       totalSpent,
@@ -1494,6 +1609,7 @@ function ProjectDetailContent() {
       progressColor: getProgressColor(scheduleProgress),
       statusColor: getStatusColor(safeProjectData?.health?.projectStatus || 'On Track'),
       spendingData: generateSpendingData(),
+      profitForecast,
       // Display values
       budgetDisplay: formatCurrency(adjustedBudget),
       spentDisplay: formatCurrency(totalSpent),
@@ -1593,7 +1709,78 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 2. PROJECT STATUS */}
+              {/* 2. FINANCIAL HEALTH */}
+              <View style={styles.innerCardContainer}>
+                <View style={styles.innerCard}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={styles.iconBadge}>
+                        <Feather name="pie-chart" size={16} color="#22c55e" />
+                      </View>
+                      <Text style={styles.cardTitle}>Financial Health</Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: (metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
+                        metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
+                        metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
+                        metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444') + '22',
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      borderRadius: 999,
+                    }}>
+                      <Text style={{
+                        color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
+                          metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
+                          metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
+                          metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
+                        fontWeight: '700',
+                        fontSize: 12,
+                      }}>
+                        {metrics.profitForecast?.status || '—'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 16 }}>
+                    <View style={styles.budgetRow}>
+                      <Text style={styles.budgetLabel}>Contract Value</Text>
+                      <Text style={styles.budgetValue}>
+                        ${(metrics.profitForecast?.contractValue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    <View style={styles.budgetRow}>
+                      <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+                      <Text style={styles.budgetValue}>
+                        ${(metrics.profitForecast?.forecastFinalCost ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    <View style={styles.budgetRow}>
+                      <Text style={styles.budgetLabel}>Projected Profit</Text>
+                      <Text style={[
+                        styles.budgetValue,
+                        { color: (metrics.profitForecast?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
+                      ]}>
+                        ${(metrics.profitForecast?.projectedProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    <View style={styles.budgetRow}>
+                      <Text style={styles.budgetLabel}>Projected Margin</Text>
+                      <Text style={[
+                        styles.budgetValue,
+                        {
+                          color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
+                            metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
+                            metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
+                            metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
+                        },
+                      ]}>
+                        {(metrics.profitForecast?.projectedMarginPct ?? 0).toFixed(1)}%
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* 3. PROJECT STATUS */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
@@ -1669,7 +1856,7 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 3. SPENDING TREND */}
+              {/* 4. SPENDING TREND */}
               {(() => {
                 const labels = metrics.spendingData.map((point: { date: string; spent: number }) => {
                   const date = new Date(point.date);
@@ -1713,7 +1900,7 @@ function ProjectDetailContent() {
                 );
               })()}
 
-              {/* 4. BUDGET SUMMARY */}
+              {/* 5. BUDGET SUMMARY */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
@@ -1754,7 +1941,7 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 5. TIMELINE */}
+              {/* 6. TIMELINE */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
@@ -1809,7 +1996,7 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 6. HEALTH */}
+              {/* 7. HEALTH */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
@@ -1850,7 +2037,7 @@ function ProjectDetailContent() {
                 </View>
               </View>
 
-              {/* 7. TEAM */}
+              {/* 8. TEAM */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
                   <View style={styles.cardHeaderRow}>
@@ -1920,7 +2107,7 @@ function ProjectDetailContent() {
             />
           );
         case 'Team':
-          return <TeamTab />;
+          return <TeamTab refreshTrigger={teamRefreshTrigger} />;
         default:
           return <OverviewScreen project={safeProjectData} theme='dark' />;
       }
@@ -2553,6 +2740,30 @@ function ProjectDetailContent() {
               return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
             });
             const computedSpent = allExpenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
+            // Same bid resolution as Overview/Budget UI — grandTotal, bidPrice, total (revenue)
+            let baseBid = firstPositiveNumber(
+              (realProjectData as any)?.bidPrice,
+              (safeProjectData as any)?.bidPrice,
+              ed?.grandTotal,
+              ed?.bidPrice,
+              ed?.total,
+              ed?.totalBid
+            );
+            // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
+            if (baseBid == null) {
+              const costBase = Number(safeProjectData?.budgeted || 0);
+              const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+              const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
+              if (costBase > 0) baseBid = costBase / (1 - effectiveMargin / 100);
+            }
+            const approvedCOs = (safeProjectData?.changeOrders || []).reduce((sum: number, co: any) => {
+              const amt = Number(co.amount || 0);
+              const approved = (typeof co.approved === 'boolean' && co.approved) || (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
+              return approved ? sum + amt : sum;
+            }, 0);
+            const contractValue = baseBid != null ? baseBid + approvedCOs : (Number(safeProjectData?.budgeted || 0) + approvedCOs);
+            // Pre-computed profit forecast — same as Financial Health / Budget Totals UI. AI should use these.
+            const pf = overviewMetrics?.profitForecast;
             return {
             screen: 'Project Detail',
             currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
@@ -2560,15 +2771,23 @@ function ProjectDetailContent() {
             projectId: safeProjectData?.id,
             status: realProjectData?.status || safeProjectData?.status || 'estimate',
             // Financial data — pull from estimateData when top-level is 0
-            bidPrice: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
+            bidPrice: baseBid,
             estimatedCost: realProjectData?.estimatedCost || safeProjectData?.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
             actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || computedSpent || 0,
             totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || computedSpent || 0,
             expenses: allExpenses,
             expensesCount: allExpenses.length,
             bidTitle: safeProjectData?.title || safeProjectData?.name,
-            bidTotal: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
-            total: realProjectData?.bidPrice || safeProjectData?.bidPrice || ed?.totalBid || 0,
+            bidTotal: baseBid,
+            total: baseBid,
+            // CRITICAL: For projected profit, Revenue = contract value (bid + approved change orders)
+            approvedChangeOrdersTotal: approvedCOs,
+            contractValue: contractValue > 0 ? contractValue : baseBid,
+            // Pre-computed profit forecast — matches Financial Health / Budget Totals. AI uses these when answering "what is projected profit"
+            projectedProfit: pf?.projectedProfit,
+            projectedMarginPct: pf?.projectedMarginPct,
+            forecastFinalCost: pf?.forecastFinalCost,
+            profitStatus: pf?.status,
             location: safeProjectData?.location || '',
             projectType: safeProjectData?.projectType || '',
             margin: safeProjectData?.margin || ed?.marginPct || 0,
@@ -2604,8 +2823,10 @@ function ProjectDetailContent() {
             milestoneCount: (safeProjectData?.milestones || []).length,
             expenseCount: allExpenses.length,
             changeOrderCount: (safeProjectData?.changeOrders || []).length,
-            startDate: safeProjectData?.startDate,
-            endDate: safeProjectData?.endDate,
+            startDate: safeProjectData?.startISO || safeProjectData?.startDate,
+            endDate: safeProjectData?.endISO || safeProjectData?.endDate,
+            startISO: safeProjectData?.startISO || safeProjectData?.startDate,
+            endISO: safeProjectData?.endISO || safeProjectData?.endDate,
             calendarEvents: calendarEvents || [],
             upcomingCalendarEvents: (calendarEvents || [])
               .filter((e: any) => {
@@ -2623,6 +2844,9 @@ function ProjectDetailContent() {
                 return dateA - dateB;
               })
               .slice(0, 5),
+            // Project-specific crew (includes members added via AI, e.g. Jack)
+            crewMembers: (contextProjectData?.team as any)?.crewMembers || [],
+            crewMemberPhones: (contextProjectData?.team as any)?.crewMemberPhones || {},
             // PM Mode: send live milestone data from AsyncStorage (loaded by TimelineTabV2)
             milestones: (() => {
               try {
@@ -3152,6 +3376,94 @@ function ProjectDetailContent() {
               } catch (e) {
                 console.error('❌ Error adding estimate line item:', e);
                 Alert.alert('Error', 'Could not add line item. Please add it in the Estimate tab.');
+              }
+
+            } else if (action.type === 'assign_pm') {
+              try {
+                const targetId = (action.projectId || id) as string;
+                if (targetId !== id) {
+                  console.warn('⚠️ assign_pm for different project, ignoring');
+                  return;
+                }
+                const pmName = (action.pmName || '').trim();
+                if (!pmName) {
+                  Alert.alert('Error', 'PM name is required.');
+                  return;
+                }
+                // Remove PM from crew list so they don't appear twice (once as PM, once as crew)
+                const currentCrew = (contextProjectData?.team as any)?.crewMembers || [];
+                const currentPhones = (contextProjectData?.team as any)?.crewMemberPhones || {};
+                const crewWithoutPm = currentCrew.filter(
+                  (n: string) => n.trim().toLowerCase() !== pmName.toLowerCase()
+                );
+                updateTeam?.(true, pmName, crewWithoutPm.length, crewWithoutPm, currentPhones);
+                console.log('✅ Assigned PM:', pmName);
+                Alert.alert('✅ PM Assigned', `${pmName} is now the project manager for this project.`);
+              } catch (e) {
+                console.error('❌ Error assigning PM:', e);
+                Alert.alert('Error', 'Could not assign project manager.');
+              }
+
+            } else if (action.type === 'add_team_member') {
+              try {
+                const targetId = (action.projectId || id) as string;
+                if (targetId !== id) {
+                  console.warn('⚠️ add_team_member for different project, ignoring');
+                  return;
+                }
+                const tm = action.teamMember || {};
+                const name = (tm.name || '').trim();
+                const phone = (tm.phone || '').trim();
+                if (!name) {
+                  Alert.alert('Error', 'Team member name is required.');
+                  return;
+                }
+                const currentCrew = (contextProjectData?.team as any)?.crewMembers || [];
+                const currentPhones = (contextProjectData?.team as any)?.crewMemberPhones || {};
+                const newCrew = [...currentCrew, name];
+                const newPhones = phone ? { ...currentPhones, [name]: phone } : currentPhones;
+                updateTeam?.(
+                  Boolean((contextProjectData?.team as any)?.pmAssigned),
+                  (contextProjectData?.team as any)?.pmName,
+                  newCrew.length,
+                  newCrew,
+                  newPhones
+                );
+                console.log('✅ Added team member:', name, phone ? `(${phone})` : '');
+                Alert.alert('✅ Team Member Added', `${name} has been added to the project team.`);
+              } catch (e) {
+                console.error('❌ Error adding team member:', e);
+                Alert.alert('Error', 'Could not add team member.');
+              }
+
+            } else if (action.type === 'update_team_member_status') {
+              try {
+                const targetId = (action.projectId || id) as string;
+                if (targetId !== id) return;
+                const memberName = (action.memberName || '').trim();
+                const status = (action.status || 'active').toLowerCase().replace(/\s+/g, '_');
+                if (!memberName || (status !== 'active' && status !== 'off_duty')) {
+                  Alert.alert('Error', 'Member name and status (active or off duty) are required.');
+                  return;
+                }
+                const TEAM_STORAGE_KEY = 'bps.team.members';
+                const saved = await AsyncStorage.getItem(TEAM_STORAGE_KEY);
+                const team: Array<{ id: string; name: string; status?: string; [k: string]: any }> = saved ? JSON.parse(saved) : [];
+                const nameLower = memberName.toLowerCase();
+                const idx = team.findIndex(m => (m.name || '').trim().toLowerCase() === nameLower);
+                if (idx >= 0) {
+                  const newStatus = status === 'active' ? 'active' : 'off_duty';
+                  team[idx] = { ...team[idx], status: newStatus };
+                  await AsyncStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(team));
+                  setTeamRefreshTrigger(t => t + 1);
+                  console.log('✅ Updated team member status:', memberName, '→', newStatus);
+                  Alert.alert('✅ Status Updated', `${memberName} is now ${newStatus === 'active' ? 'active' : 'off duty'}.`);
+                } else {
+                  Alert.alert('Not Found', `Could not find a team member named "${memberName}".`);
+                }
+              } catch (e) {
+                console.error('❌ Error updating team member status:', e);
+                Alert.alert('Error', 'Could not update team member status.');
               }
 
             } else if (action.type === 'create_change_order') {

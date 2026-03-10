@@ -211,14 +211,19 @@ marketplaceSyncService.start();
 
 // Get local IP address for LAN access
 function getLocalIP() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      // Skip internal (loopback) and non-IPv4 addresses
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        // Skip internal (loopback) and non-IPv4 addresses
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
       }
     }
+  } catch (err) {
+    // os.networkInterfaces() can throw on some systems (Node 25, VPN, sandbox)
+    console.warn('⚠️ Could not detect LAN IP, using localhost:', err.message);
   }
   return 'localhost';
 }

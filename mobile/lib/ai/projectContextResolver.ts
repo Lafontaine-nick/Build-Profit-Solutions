@@ -76,6 +76,17 @@ export function detectProjectIntent(query: string): ProjectIntent {
                                /\bclient\s+wants\s+to\s+add\b/i.test(lowerQuery) ||
                                /\bextra\s+work\b/i.test(lowerQuery);
   
+  // CRITICAL: Detect assign PM requests - they are actions, not analysis
+  const isAssignPMRequest = /\b(assign|appoint|set|name|pick|choose|select)\s+(a\s+)?(project\s+manager|pm)\b/i.test(lowerQuery) ||
+                            /\b(project\s+manager|pm)\s+for\s+(me|this\s+project)/i.test(lowerQuery) ||
+                            /\b(name|pick|choose|select)\s+(a\s+)?(project\s+manager|pm)\s+for\s+me/i.test(lowerQuery) ||
+                            (lowerQuery.includes('project manager') && (lowerQuery.includes('assign') || lowerQuery.includes('appoint') || lowerQuery.includes('name') || lowerQuery.includes('pick') || lowerQuery.includes('choose')));
+  
+  // CRITICAL: Team management, health check, forecast, etc. - map to correct intent, not generic analysis
+  const isTeamManagementRequest = /\b(team\s+management|help.*team|team\s+help)\b/i.test(lowerQuery);
+  const isHealthCheckRequest = /\b(health\s+check|project\s+health|check\s+(project|budget)|budget\s+check)\b/i.test(lowerQuery);
+  const isForecastRequest = /\b(forecast|what\s+if|scenario\s+analysis)\b/i.test(lowerQuery);
+  
   // Project-specific keywords (including "my project", "this job", "our estimate")
   // But exclude if it's an action request (those need project context but aren't analysis)
   const projectKeywords = [
@@ -89,13 +100,20 @@ export function detectProjectIntent(query: string): ProjectIntent {
   // Needs project context if it mentions project keywords OR is an action request
   const needsProject = projectKeywords.some(kw => lowerQuery.includes(kw)) || isActionRequest;
   
-  // But it's NOT an analysis request if it's an action or change order
-  if (isActionRequest || isExpenseFlow || isChangeOrderRequest) {
+  // But it's NOT an analysis request if it's an action, change order, assign PM, team management, or explicit forecast/health
+  if (isActionRequest || isExpenseFlow || isChangeOrderRequest || isAssignPMRequest || isTeamManagementRequest) {
     return {
       type: 'other',
       needsProject: true,
       analysisType: 'unspecified',
     };
+  }
+  // Explicit health check or forecast - don't ask "quick or full", go to AI with the right type
+  if (isHealthCheckRequest) {
+    return { type: 'project_health', needsProject: true, analysisType: 'quick' };
+  }
+  if (isForecastRequest) {
+    return { type: 'project_profitability', needsProject: true, analysisType: 'full' };
   }
   
   if (!needsProject) {

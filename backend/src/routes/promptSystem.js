@@ -29,6 +29,7 @@ function buildSystemPrompt(opts = {}) {
   const {
     projectName, projectId, status = 'estimate',
     bidTotal = 0, estimatedCost = 0, actualCost = 0,
+    contractValue = 0, approvedChangeOrdersTotal = 0,
     materialBudget = 0, materialSpent = 0, materialRemaining = 0,
     laborBudget = 0, laborSpent = 0, laborRemaining = 0,
     progress = 0, aiPmMode = false, pmAlerts = [], screen = 'assistant_tab',
@@ -75,17 +76,19 @@ EXTRACTION RULES:
 - For EXPENSES: any number in the message IS the amount (e.g. "add 500 material" → amount=500)
 - For PURCHASE ORDERS: only extract amount with explicit $ or "dollars" — otherwise ask
 - Category: "labor" → "Labor", material names → capitalize (e.g. "drywall" → "Drywall")
-- Vendor: extract store names ("Home Depot", "Lowe's") — for materials, ask if missing; for labor, vendor is optional
+- Vendor: for materials = store ("Home Depot", "Lowe's"); for labor = sub/trade ("General Labor", "Framing") — when user says "general labor" or trade name, use it; do NOT ask again
 - Typos: if a material/category looks like a typo (e.g. "lumer", "drywll", "lumberr"), ask "Did you mean [corrected]?" before extracting
 
 CURRENT PROJECT:
 ${projectRef}
 ${status ? `Status: ${status}` : ''}
-${bidTotal > 0 ? `Bid/Budget: $${bidTotal.toLocaleString()}` : ''}
-${estimatedCost > 0 ? `Estimated Cost: $${estimatedCost.toLocaleString()}` : ''}
+${bidTotal > 0 ? `Original Bid: $${bidTotal.toLocaleString()}` : ''}
+${contractValue > 0 && contractValue !== bidTotal ? `Contract Value (Bid + Approved Change Orders): $${contractValue.toLocaleString()}` : ''}
+${estimatedCost > 0 ? `Estimated Cost (your cost to complete): $${estimatedCost.toLocaleString()}` : ''}
 ${actualCost > 0 ? `Actual Spent: $${actualCost.toLocaleString()}` : ''}
 ${estimatedCost > 0 && actualCost >= 0 ? `Remaining Budget: $${Math.max(0, estimatedCost - actualCost).toLocaleString()}` : ''}
-${progress > 0 ? `Progress: ${progress}%` : ''}`;
+${progress > 0 ? `Progress: ${progress}%` : ''}
+${(contractValue > 0 || bidTotal > 0) && estimatedCost > 0 ? `\nPROJECTED PROFIT: Revenue = Contract Value (Bid + Approved Change Orders) = $${(contractValue || bidTotal).toLocaleString()}. Estimated Cost = $${estimatedCost.toLocaleString()}. Projected Profit = Revenue - Estimated Cost = $${((contractValue || bidTotal) - estimatedCost).toLocaleString()}. Use Contract Value for revenue, NOT bid alone.` : ''}`;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LAYER 2: DOMAIN INJECTIONS — only the relevant domain rules
@@ -118,8 +121,8 @@ When user asks about budget/remaining → give this full breakdown directly, inc
   const expenseBlock = `
 EXPENSE RULES:
 Required for MATERIALS: amount + category + vendor + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
-Required for LABOR: amount + category("Labor") + notes(what labor was for) + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
-→ Vendor is NOT required for labor expenses
+Required for LABOR: amount + category("Labor") + notes OR vendor (sub/trade) + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
+→ For LABOR: "general labor", "it's general labor", "framing", "plumbing", etc. ARE the sub/trade. Use as vendor. NEVER ask for vendor again once user provides a trade.
 → Vendor IS REQUIRED for material expenses - ALWAYS ask if missing
 → Call add_material_expense (covers both materials and labor)
 → Call add_labor_expense for labor with trade/description fields
@@ -153,7 +156,8 @@ ESTIMATE RULES:
 → "add to estimate" / "add line item" → call add_estimate_line_item
 → "create an estimate for..." / "bid a kitchen" / "estimate a bathroom" → call generate_estimate
 → Always include qty, unitCost, and category (Materials/Equipment or Labor)
-→ For generate_estimate: capture project type, sqft, quality, and description from user message` : '';
+→ For generate_estimate: capture project type, sqft, quality, and description from user message
+→ After presenting a generated estimate, include: [DISCLAIMER]Generated estimates are starting points based on typical costs—not guarantees of actual project cost.[/DISCLAIMER]` : '';
 
   // Scenario analysis domain
   const scenarioBlock = aiPmMode ? `
@@ -164,6 +168,7 @@ SCENARIO ANALYSIS RULES:
 → When the user says "show me", "display results", "review results", "let me see", or similar after a scenario run → call run_scenario_analysis again with the same scenario (e.g. bad_remodel) and include the full breakdown in your reply: original costs (materials, labor, overhead, bid, profit, margin %), adjusted costs, and impact (profit change, margin change, cost increase, break-even %). NEVER say you don't have the capability to show scenario results — you CAN show them by re-running the scenario and presenting the tool output in text.
 → Present results as: Original → Adjusted → Impact
 → Always show: profit change, margin change, cost increase, break-even point
+→ After presenting scenario results, include: [DISCLAIMER]Scenario results are modeled projections—not guarantees of actual outcomes.[/DISCLAIMER]
 → Scenarios: labor_up_10, materials_up_10, typical_friction, bad_remodel, smooth_job, custom` : '';
 
   // Change order domain
@@ -224,7 +229,11 @@ Team Stats: Total: ${teamStats.total || 0}, Active: ${teamStats.active || 0}, Of
 → CRITICAL: When message_team_member or notify_team tool succeeds, you MUST confirm the message was sent. DO NOT show budget overview, project details, or other information unless the user specifically asked for it. Just confirm: "Message sent to [name]: [message]" or similar.
 → For group notifications: "notify team" / "send announcement" / "message everyone" → offer to send to all active team members
 → If a team member name is not found, list the available team members and ask the user to choose one
-→ NEVER ask for dollar amounts when messaging team members - messaging is free communication, not a financial transaction` : '';
+→ NEVER ask for dollar amounts when messaging team members - messaging is free communication, not a financial transaction
+→ Assign PM: "assign PM", "assign project manager", "name a project manager", "pick a PM", "choose a project manager for me" → use assign_pm tool with pmName. If name not provided, ask: "Which team member do you want to appoint as project manager, or do you want to add a team member as PM?"
+→ Add team member: "add team member", "add [name] to the team" → use add_team_member tool. First ask for name, then ask "What is the phone number for [name]?" before confirming. Always get phone before adding.
+→ Update team member status: "turn [name] off duty", "make [name] active", "can you turn [name] team member to off duty", "change [name] to active" → use update_team_member_status tool. You CAN change team member statuses directly — do NOT say you cannot. Extract memberName and status (active or off_duty) from the user message.
+→ Team status: "team status", "who's working", "team availability" → return a formatted list of team members with their status (active/off duty)` : '';
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LAYER 3: PERSONA OVERLAY
@@ -262,6 +271,7 @@ RESPONSE STYLE:
 → Affirm when helpful ("Good question.", "That makes sense.") then answer
 → Proactively offer next steps: "Want a quick budget breakdown?" or "Ready to add that to the timeline?"
 → For long lists (timeline, line items): summarize first, then detail. Don't overwhelm.
+→ When presenting project health checks or budget overviews with projections, include: [DISCLAIMER]Project insights and risk projections are based on current data—not guarantees of future outcomes.[/DISCLAIMER]
 → Be a PM who saves the contractor money — guide and advise, not just answer`;
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -310,7 +320,7 @@ Return ONLY a valid JSON object (no markdown, no extra text) with this exact str
 {
   "domain": "expenses|purchase_orders|timeline|estimates|budget|daily_log|change_order|team|general",
   "action": "create|update|mark_complete|mark_collected|lookup|query|advise|none",
-  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|message_team_member|notify_team|null",
+  "proposed_tool": "add_material_expense|add_labor_expense|add_purchase_order|mark_purchase_order_received|get_project_by_name|get_timeline_items|mark_timeline_item_complete|add_timeline_payment|mark_payment_collected|get_estimate|add_estimate_line_item|add_daily_log|run_scenario_analysis|create_change_order|generate_estimate|message_team_member|notify_team|assign_pm|add_team_member|update_team_member_status|null",
   "tool_args_draft": {},
   "required_fields_missing": [],
   "clarification_question": null,
@@ -331,10 +341,14 @@ Intent rules:
   * CRITICAL: If assistant asked about daily log notes/happened today, user's next message is ALWAYS daily_log domain, even if it contains words like "inspection", "framing", "completed", etc. These are site notes, NOT expenses.
   * Keywords: "daily log", "job log", "site note", "add note", "log for today", "what happened", "record what happened"
 - "change_order": scope change, extra work, client added something, change request
-- "team": team management, messaging team members, team announcements, team member names
+- "team": team management, messaging team members, team announcements, team member names, assign PM, add team member, team status
   * CRITICAL: If assistant recently asked "Please provide the name of the team member" or "which team member" or "name of the team member" in context of messaging/team management, the user's response (e.g., "Nicholas", "John", "Sarah") is ALWAYS team domain, NOT purchase_orders or expenses. Check conversation history.
-  * Keywords: "team", "team member", "message [name]", "text [name]", "call [name]", "email [name]", "notify team", "team announcement", "send message to"
-  * If user provides just a name (like "Nicholas") after assistant asked for team member name → domain = "team", proposed_tool = "message_team_member"
+  * Keywords: "team", "team member", "message [name]", "text [name]", "call [name]", "email [name]", "notify team", "team announcement", "send message to", "assign PM", "assign project manager", "add team member", "team status", "who's working"
+  * assign_pm: when user says "assign PM", "assign project manager", "name a project manager", "pick a PM", "choose a project manager for me", "can you name a project manager" → proposed_tool = "assign_pm", extract pmName. If no name, ask which team member.
+  * add_team_member: when user says "add team member", "add [name] to the team" → proposed_tool = "add_team_member", extract name
+  * update_team_member_status: when user says "update status", "make [name] active", "set [name] to off duty" → extract memberName and status. If user says "update a team member's status" without name/status, ask: "Which team member's status would you like to update, and what is the new status? (e.g. 'john active' or 'john off duty')"
+  * If assistant asked "What is the name of the team member you'd like to add?" and user responds with a name → proposed_tool = "add_team_member", tool_args_draft.name = user's message. Do NOT use message_team_member.
+  * If assistant asked for team member name to MESSAGE (e.g. "which team member", "what would you like to say to") and user responds with a name → proposed_tool = "message_team_member"
 - "general": greetings, unknown (proposed_tool = null)
 
 Change order detection:
@@ -373,6 +387,9 @@ Required-field rules:
   * CRITICAL: Messaging team members does NOT require dollar amounts, task assignments, or expenses. The messageContent can be any text (e.g., "Manage inspection", "Check on the site", "Call me when done"). NEVER ask for dollar amounts when the user provides message content.
 - notify_team: messageContent (required)
   * CRITICAL: Team notifications do NOT require dollar amounts. The messageContent is just the announcement text to send to all team members.
+- assign_pm: projectId, pmName (required). If user says "assign PM" without a name, set required_fields_missing = ["pmName"], clarification_question = "Which team member do you want to appoint as project manager, or do you want to add a team member as PM?"
+- add_team_member: projectId, name (required), phone (required before confirming). First ask for name, then ask for phone. If user says "add team member" without a name, set required_fields_missing = ["name"], clarification_question = "What is the name of the team member you'd like to add?" If you have name but not phone, set required_fields_missing = ["phone"], clarification_question = "What is the phone number for [name]?"
+- update_team_member_status: projectId, memberName (required), status (required: "active" or "off_duty"). When user says "turn [name] off duty", "make [name] active", "can you turn [name] team member to off duty", etc., extract memberName and status. Use proposed_tool = "update_team_member_status". You CAN change statuses — never say you cannot.
 - If any required fields are missing, set clarification_question to the exact question to ask
 - If all required fields are present, required_fields_missing = [] and clarification_question = null`;
 }

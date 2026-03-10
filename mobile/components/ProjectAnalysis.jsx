@@ -288,9 +288,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       netProfit = profit - adjustedTotalOverhead;
     }
     
-    // Calculate net profit percentage same way as step 6
-    // netProfitPct = (netProfit / subtotal) * 100
-    const netProfitPct = adjustedSubtotal > 0 ? (netProfit / adjustedSubtotal) * 100 : 0;
+    // Keep both metrics explicit:
+    // - On-cost return: net profit / total cost
+    // - Margin on revenue: net profit / total bid
+    const netProfitOnCostPct = adjustedSubtotal > 0 ? (netProfit / adjustedSubtotal) * 100 : 0;
+    const netProfitMarginPct = totalBid > 0 ? (netProfit / totalBid) * 100 : 0;
     
     const result = { 
       labor, 
@@ -300,7 +302,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       profit, // Gross profit
       netProfit, // Net profit after overhead (matches step 6)
       marginPct, // Profit margin (profit/totalBid * 100) - keeping for backward compatibility
-      netProfitPct, // Net profit percentage (netProfit/subtotal * 100) - matches step 6
+      netProfitOnCostPct,
+      netProfitMarginPct,
       markupPct: base.markupPct + adj.markupPct, 
       directCost,
       subtotal: adjustedSubtotal,
@@ -342,15 +345,15 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     // Calculate bid change (for bid adjustment scenarios)
     const bidDelta = sim.totalBid - base.originalTotalBid;
     
-    // Use net profit percentage (same as step 6) instead of profit margin
+    // Use margin on revenue for customer-facing risk labels
     let suggestion, color;
-    if (sim.netProfitPct < 5) {
+    if (sim.netProfitMarginPct < 5) {
       suggestion = "❌ At risk — one issue could erase profit.";
       color = palette.red;
-    } else if (sim.netProfitPct < 8) {
+    } else if (sim.netProfitMarginPct < 8) {
       suggestion = "⚠️ Thin margin — minor overruns reduce profit.";
       color = palette.yellow;
-    } else if (sim.netProfitPct < 15) {
+    } else if (sim.netProfitMarginPct < 15) {
       suggestion = "✅ Healthy margin — absorbs moderate cost overruns.";
       color = palette.green;
     } else {
@@ -574,17 +577,17 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   }, [sim.totalBid]);
   
   useEffect(() => {
-    // Use net profit percentage (matches step 6) instead of profit margin
-    if (sim.netProfitPct && prevMarginRef.current !== sim.netProfitPct) {
-      const targetValue = sim.netProfitPct < 5 ? 0 : sim.netProfitPct < 8 ? 0.5 : sim.netProfitPct < 15 ? 0.75 : 1;
+    // Animate based on margin on revenue (not markup-style return on cost)
+    if (sim.netProfitMarginPct && prevMarginRef.current !== sim.netProfitMarginPct) {
+      const targetValue = sim.netProfitMarginPct < 5 ? 0 : sim.netProfitMarginPct < 8 ? 0.5 : sim.netProfitMarginPct < 15 ? 0.75 : 1;
       Animated.timing(profitMarginColorAnim, {
         toValue: targetValue,
         duration: 200,
         useNativeDriver: false,
       }).start();
-      prevMarginRef.current = sim.netProfitPct;
+      prevMarginRef.current = sim.netProfitMarginPct;
     }
-  }, [sim.netProfitPct]);
+  }, [sim.netProfitMarginPct]);
 
   // Adjustment quick buttons
   const QuickAdjust = ({ label, field, delta }) => (
@@ -620,7 +623,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               )}
             </View>
             <Text style={[styles.cardSubtitle, { color: darkMode ? palette.textDim : '#475569' }]}>
-              Adjust variables to see how changes impact your total bid and profit margin.
+              Adjust variables to see impacts on total bid, net profit, and margin on revenue.
             </Text>
 
             {/* Preset Scenarios */}
@@ -846,7 +849,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </Text>
               </View>
               <View style={styles.simRow}>
-                <Text style={styles.simLabelBold}>Net Profit Margin:</Text>
+                <Text style={styles.simLabelBold}>Net Profit Margin (Revenue):</Text>
                 <Animated.Text 
                   style={[
                     styles.simValueBold, 
@@ -859,14 +862,14 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     }
                   ]}
                 >
-                  {sim.netProfitPct.toFixed(1)}%
+                  {sim.netProfitMarginPct.toFixed(1)}%
                 </Animated.Text>
               </View>
               {/* Break-Even Line */}
-              {sim.netProfitPct > 0 && (
+              {sim.netProfitOnCostPct > 0 && (
                 <View style={styles.breakEvenRow}>
                   <Text style={styles.breakEvenText}>
-                    Break-even if costs rise ~{sim.netProfitPct.toFixed(0)}%
+                    Break-even if costs rise ~{sim.netProfitOnCostPct.toFixed(0)}%
                   </Text>
                 </View>
               )}

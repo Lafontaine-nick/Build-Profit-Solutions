@@ -3031,6 +3031,25 @@ export default function EstimateGeneratorScreen() {
   const [localCustomerZip, setLocalCustomerZip] = useState('');
   const [localCustomerCompany, setLocalCustomerCompany] = useState('');
   const customerDebounceRefs = useRef({});
+  const mainScrollRef = useRef(null);
+  const keyboardDidShowSub = useRef(null);
+  // iOS-grade: scroll when keyboard is shown (not a fixed delay)
+  const scrollToShowFields = useCallback(() => {
+    keyboardDidShowSub.current?.remove();
+    keyboardDidShowSub.current = Keyboard.addListener('keyboardDidShow', () => {
+      requestAnimationFrame(() => {
+        mainScrollRef.current?.scrollToEnd({ animated: true });
+      });
+      keyboardDidShowSub.current?.remove();
+      keyboardDidShowSub.current = null;
+    });
+  }, []);
+  useEffect(() => {
+    return () => {
+      keyboardDidShowSub.current?.remove();
+      keyboardDidShowSub.current = null;
+    };
+  }, []);
   
   // Format phone number with dashes (XXX-XXX-XXXX)
   const formatPhoneNumber = (text) => {
@@ -4613,13 +4632,14 @@ export default function EstimateGeneratorScreen() {
     // Calculate values with exact decimal precision for estimateContext
     const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
     const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
     const overhead =
       (bid.insuranceOverhead || 0) +
       (bid.equipment || 0) +
       (bid.facilities || 0) +
-      (bid.otherOverhead || 0);
-    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const calculatedSubtotal = materials + labor + overhead + permitCosts;
+      (bid.otherOverhead || 0) +
+      permitCosts;
+    const calculatedSubtotal = materials + labor + overhead;
     const markup = Number(bid.markupPct) || 0;
     const profit = (calculatedSubtotal * markup) / 100;
     const total = calculatedSubtotal + profit; // Preserve exact decimal precision, don't round
@@ -4728,6 +4748,10 @@ export default function EstimateGeneratorScreen() {
           status: existingProject?.status || snapshotBid.status || 'estimate',
             estimatedCost: estimateContext.subtotal,
             bidPrice: estimateContext.total,
+            materials: estimateContext.materials ?? 0,
+            labor: estimateContext.labor ?? 0,
+            overhead: (estimateContext.overhead ?? 0) + (estimateContext.permitCosts ?? 0),
+            subtotal: estimateContext.subtotal ?? 0,
           actualCost: existingProject?.actualCost || 0,
             margin:
               estimateContext.subtotal > 0
@@ -4980,9 +5004,10 @@ export default function EstimateGeneratorScreen() {
     // Calculate rental equipment costs (note: rentals don't have fixed pricing, just duration tracking)
     const rentals = rentalCart.length; // Count of rental items for tracking
     
-    const overhead = bid.insuranceOverhead + bid.equipment + bid.facilities + bid.otherOverhead;
+    // Overhead includes plans & permits so displayed "Overhead" matches form's "Total Overhead"
     const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const subtotal = materials + labor + overhead + permitCosts;
+    const overhead = bid.insuranceOverhead + bid.equipment + bid.facilities + bid.otherOverhead + permitCosts;
+    const subtotal = materials + labor + overhead;
     const contingency = Math.round((subtotal * bid.contingencyPct) / 100);
     const profit = (subtotal * bid.markupPct) / 100;
     const total = subtotal + profit; // Preserve exact decimal precision, don't round
@@ -5822,9 +5847,9 @@ export default function EstimateGeneratorScreen() {
       // Calculate current total from materials, labor, overhead, markup
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
       const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
-      const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0);
       const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-      const subtotal = materials + labor + overhead + permitCosts;
+      const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + permitCosts;
+      const subtotal = materials + labor + overhead;
       const profit = (subtotal * (bid.markupPct || 0)) / 100;
       const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || bid.grandTotal || bid.total || 0;
       
@@ -6221,11 +6246,13 @@ export default function EstimateGeneratorScreen() {
           category: 'Materials'
         }] : []);
 
-    // Calculate total overhead
+    // Total overhead includes plans & permits (matches Overhead step and main calc)
+    const permitCosts = Number(bidData.planCost || 0) + Number(bidData.permitCost || 0);
     const totalOverhead = Number(bidData.insuranceOverhead || 0) + 
                          Number(bidData.equipment || 0) + 
                          Number(bidData.facilities || 0) + 
-                         Number(bidData.otherOverhead || 0);
+                         Number(bidData.otherOverhead || 0) + 
+                         permitCosts;
 
     return {
       summary: {
@@ -6235,18 +6262,14 @@ export default function EstimateGeneratorScreen() {
         unitPrice: bidData.sqft ? (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
-          const overhead = totalOverhead;
-          const permitCosts = (bidData.planCost || 0) + (bidData.permitCost || 0);
-          const subtotal = materials + labor + overhead + permitCosts;
+          const subtotal = materials + labor + totalOverhead;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup) / bidData.sqft;
         })() : undefined,
         totalBid: (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
-          const overhead = totalOverhead;
-          const permitCosts = (bidData.planCost || 0) + (bidData.permitCost || 0);
-          const subtotal = materials + labor + overhead + permitCosts;
+          const subtotal = materials + labor + totalOverhead;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup);
         })(),
@@ -6580,6 +6603,10 @@ export default function EstimateGeneratorScreen() {
         status: preservedStatus, // Preserve existing status (estimate, bid_submitted, won, etc.)
         estimatedCost,
         bidPrice,
+        materials: calc?.materials ?? 0,
+        labor: calc?.labor ?? 0,
+        overhead: calc?.overhead ?? 0,
+        subtotal: calc?.subtotal ?? estimatedCost,
         actualCost: 0,
         margin,
         markup,
@@ -6944,13 +6971,13 @@ export default function EstimateGeneratorScreen() {
     }));
   }, []);
 
-  // Calculate and save overhead percentage
+  // Calculate and save overhead percentage (overhead includes plans & permits)
   useEffect(() => {
-    const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0);
+    const totalPermitCosts = Number(bid.planCost || 0) + Number(bid.permitCost || 0);
+    const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0) + totalPermitCosts;
     const totalMaterials = Number(calc.materials || 0);
     const totalLabor = Number(calc.labor || 0);
-    const totalPermitCosts = Number(bid.planCost || 0) + Number(bid.permitCost || 0);
-    const subtotal = totalMaterials + totalLabor + totalPermitCosts;
+    const subtotal = totalMaterials + totalLabor + totalOverhead;
     const overheadPct = subtotal > 0 ? Math.round((totalOverhead / subtotal) * 100) : 0;
     
     if (bid.overheadPct !== overheadPct) {
@@ -6959,7 +6986,7 @@ export default function EstimateGeneratorScreen() {
         overheadPct: overheadPct
       }));
     }
-  }, [bid.insuranceOverhead, bid.equipment, bid.facilities, bid.otherOverhead, calc.materials, calc.labor]);
+  }, [bid.insuranceOverhead, bid.equipment, bid.facilities, bid.otherOverhead, bid.planCost, bid.permitCost, calc.materials, calc.labor]);
 
   
   // Enhanced materials helpers
@@ -7738,8 +7765,8 @@ export default function EstimateGeneratorScreen() {
               <View style={{
                 paddingTop: 24,
                 paddingBottom: 24,
+                marginBottom: 35,
                 backgroundColor: darkMode ? Colors.card : Colors.bg,
-                marginBottom: 0,
               }}>
                 <View style={{ marginBottom: 24 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 2 }}>
@@ -7849,7 +7876,7 @@ export default function EstimateGeneratorScreen() {
       
       case 1: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16 }]}>
+          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 24 }]}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -8031,12 +8058,16 @@ export default function EstimateGeneratorScreen() {
                     setLocalCustomerCompany(text);
                     setBid(prev => ({ ...prev, customerCompany: text }));
                   }}
+                  onFocus={() => step === 1 && scrollToShowFields()}
                   onSubmitEditing={() => {
                     Keyboard.dismiss();
                     setBid(prev => ({ ...prev, customerCompany: localCustomerCompany }));
                   }}
                   returnKeyType="done"
                   blurOnSubmit={true}
+                  selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
+                  cursorColor={Colors.text}
+                  keyboardAppearance={darkMode ? "dark" : "light"}
                 />
               </View>
               
@@ -8051,6 +8082,7 @@ export default function EstimateGeneratorScreen() {
                   onChangeText={(text) => {
                     setBid(prev => ({ ...prev, customerNotes: text }));
                   }}
+                  onFocus={() => step === 1 && scrollToShowFields()}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -8069,7 +8101,7 @@ export default function EstimateGeneratorScreen() {
       
       case 2: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16 }]}>
+          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -8212,7 +8244,7 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 16 }]}>
+            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
                 {/* Header */}
                 <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
@@ -8856,10 +8888,10 @@ export default function EstimateGeneratorScreen() {
       case 4: {
         const laborItems = bid.laborLineItems || [];
         const totalLabor = laborItems.reduce((sum, item) => sum + (item.total || 0), 0);
-        
+
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 16 }]}>
+            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
               {/* Header */}
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
@@ -9433,7 +9465,7 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={[s.wideContainer, { marginTop: 16 }]}>
+            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 100 }]}>
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -9953,7 +9985,7 @@ export default function EstimateGeneratorScreen() {
 
       case 6: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16 }]}>
+          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -10244,7 +10276,7 @@ export default function EstimateGeneratorScreen() {
         const timeline = buildTimeline();
         
         return (
-          <View style={[s.wideContainer, { marginTop: 16 }]}>
+          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
             {/* Payment Strategy Header */}
             <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
@@ -13544,7 +13576,7 @@ export default function EstimateGeneratorScreen() {
         }
         
         return (
-          <View style={[s.wideContainer, { marginTop: 16 }]}>
+          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -14038,10 +14070,11 @@ export default function EstimateGeneratorScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -180 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -320 : 20}
       >
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 32, paddingBottom: 200 }}
+          ref={mainScrollRef}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 32, paddingBottom: step === 1 ? 80 : 60 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -14864,7 +14897,7 @@ export default function EstimateGeneratorScreen() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <ScrollView
-              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 200 }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >

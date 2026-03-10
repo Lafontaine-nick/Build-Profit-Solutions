@@ -172,5 +172,36 @@
     "budgetItems": [],
     "createdAt": "2026-03-06T03:13:12.231Z",
     "updatedAt": "2026-03-06T03:36:06.626Z"
+  },
+  {
+    "id": "1772912795995",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Nick ",
+    "title": "Nick ",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 43035.6,
+    "estimatedCost": 43035.6,
+    "bidPrice": 43035.6,
+    "totalSpent": 5000,
+    "remaining": 38035.6,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "expense-1773111869730",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 5000,
+        "date": "2026-03-10",
+        "notes": "Material expense for windows",
+        "createdAt": "2026-03-10T03:04:29.730Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-10T03:04:29.729Z",
+    "updatedAt": "2026-03-10T03:04:29.731Z"
   }
 ]

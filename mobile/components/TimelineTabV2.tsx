@@ -227,16 +227,77 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
   const collectPaymentMilestones = useCallback(() => {
     const estimateData = (project as any)?.estimateData || projectFromList?.estimateData || {};
-    let paymentMilestones: any[] = [];
+    const scheduleType = (project as any)?.paymentSchedule ?? estimateData?.paymentSchedule ?? "milestone-based";
 
-    if (project?.milestones?.length) paymentMilestones = project.milestones;
-    else if (project?.weeklyPayments?.length) paymentMilestones = convertWeeklyPaymentsToMilestones(project.weeklyPayments);
-    else if (projectFromList?.milestones?.length) paymentMilestones = projectFromList.milestones;
-    else if (projectFromList?.weeklyPayments?.length) paymentMilestones = convertWeeklyPaymentsToMilestones(projectFromList.weeklyPayments);
-    else if (estimateData?.milestones?.length) paymentMilestones = estimateData.milestones;
-    else if (estimateData?.paymentMilestones?.length) paymentMilestones = estimateData.paymentMilestones;
-    else if (estimateData?.weeklyPayments?.length) {
-      paymentMilestones = estimateData.weeklyPayments.map((w: any, i: number) => ({
+    // For hybrid schedules, combine paymentMilestones (deposit, etc.) + weeklyPayments (week 1, 2, etc.)
+    const getMilestones = () => {
+      if (project?.milestones?.length) return project.milestones;
+      if (projectFromList?.milestones?.length) return projectFromList.milestones;
+      if (estimateData?.milestones?.length) return estimateData.milestones;
+      return [];
+    };
+    const getPaymentMilestones = () => {
+      if (project?.milestones?.length) return project.milestones;
+      if (projectFromList?.milestones?.length) return projectFromList.milestones;
+      if (estimateData?.paymentMilestones?.length) return estimateData.paymentMilestones;
+      return [];
+    };
+    const getWeeklyPayments = () => {
+      if (project?.weeklyPayments?.length) return project.weeklyPayments;
+      if (projectFromList?.weeklyPayments?.length) return projectFromList.weeklyPayments;
+      if (estimateData?.weeklyPayments?.length) return estimateData.weeklyPayments;
+      return [];
+    };
+
+    const milestones = getMilestones();
+    const paymentMs = getPaymentMilestones();
+    const weekly = getWeeklyPayments();
+
+    // Hybrid: deposit + week 1, week 2, etc. — combine from estimate to avoid duplicates.
+    const edPaymentMs = estimateData?.paymentMilestones || [];
+    const edWeekly = estimateData?.weeklyPayments || [];
+    const hasBoth = edPaymentMs.length > 0 && edWeekly.length > 0;
+    const pmAlreadyMerged = paymentMs.some((m: any) => /week\s*\d/i.test((m.title || m.name || "")));
+    const isHybrid = scheduleType === "hybrid" || hasBoth || (paymentMs.length > 0 && weekly.length > 0 && !pmAlreadyMerged);
+    const srcPaymentMs = edPaymentMs.length > 0 ? edPaymentMs : paymentMs;
+    const srcWeekly = edWeekly.length > 0 ? edWeekly : (pmAlreadyMerged ? [] : weekly);
+    if (isHybrid && (srcPaymentMs.length || srcWeekly.length)) {
+      const fromMs = srcPaymentMs.map((m: any, i: number) => ({
+        id: m.id || `payment-${i}`,
+        name: m.name || m.title,
+        title: m.title || m.name,
+        paymentAmount: m.amount ?? m.paymentAmount ?? 0,
+        amount: m.amount ?? m.paymentAmount ?? 0,
+        scheduledDate: m.scheduledDate ?? m.dueDate,
+        dueDate: m.dueDate ?? m.scheduledDate,
+        status: m.status ?? "pending",
+      }));
+      const fromWeekly = srcWeekly.map((w: any, i: number) => ({
+        id: w.id || `week-${i}`,
+        name: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+        title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+        paymentAmount: w.amount ?? 0,
+        amount: w.amount ?? 0,
+        scheduledDate: w.scheduledDate ?? w.dueDate,
+        dueDate: w.scheduledDate ?? w.dueDate,
+        status: w.status ?? "pending",
+      }));
+      const combined = [...fromMs, ...fromWeekly].sort((a, b) => {
+        const dA = new Date(a.scheduledDate || a.dueDate || 0).getTime();
+        const dB = new Date(b.scheduledDate || b.dueDate || 0).getTime();
+        return dA - dB;
+      });
+      return combined;
+    }
+
+    // Non-hybrid: use milestones if available
+    if (milestones.length) return milestones;
+
+    if (paymentMs.length) return paymentMs;
+    if (weekly.length) return convertWeeklyPaymentsToMilestones(weekly);
+
+    if (estimateData?.weeklyPayments?.length) {
+      return estimateData.weeklyPayments.map((w: any, i: number) => ({
         id: w.id || `week-${i}`,
         name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
         paymentAmount: w.amount || 0,
@@ -249,8 +310,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       }));
     }
 
-    return paymentMilestones;
-  }, [project?.milestones, project?.weeklyPayments, projectFromList?.milestones, projectFromList?.weeklyPayments, (project as any)?.estimateData]);
+    return [];
+  }, [project?.milestones, project?.weeklyPayments, projectFromList?.milestones, projectFromList?.weeklyPayments, (project as any)?.estimateData, (project as any)?.paymentSchedule]);
 
   const convertTimelineMilestonesToProject = () => {
     const existingLookup = new Map(
@@ -394,11 +455,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             // Start with estimate data as source of truth, merge saved status/progress
             if (paymentMilestones?.length) {
               const converted = convertPaymentMilestonesToTimeline(paymentMilestones);
+              const norm = (s: string) => (s || "").toLowerCase().trim().replace(/\s+/g, " ");
               // Merge saved data (status, progress, etc.) into converted milestones
               const merged = converted.map((newM: Milestone) => {
-                const savedM = parsed.find((m: Milestone) => m.id === newM.id);
+                let savedM = parsed.find((m: Milestone) => m.id === newM.id);
+                if (!savedM) {
+                  savedM = parsed.find(
+                    (m: Milestone) => norm(m.title || "") === norm(newM.title || "")
+                  );
+                }
                 if (savedM) {
-                  // Preserve saved status, progress, assignee, and cost data
                   return {
                     ...newM,
                     status: savedM.status || newM.status,
@@ -1099,9 +1165,11 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           console.log('💾 Saving milestone:', updated.id, updated.title, 'status:', updated.status);
           
           // Check if this is a payment milestone being marked as completed
+          const titleLower = (updated.title || '').toLowerCase();
           const isPayment = (updated.amount && updated.amount > 0) || 
-                           (updated.title?.toLowerCase().includes('payment') || 
-                            updated.title?.toLowerCase().includes('week'));
+                           titleLower.includes('payment') || 
+                           titleLower.includes('week') ||
+                           titleLower.includes('deposit');
           const isBeingCompleted = updated.status === 'completed';
           
           console.log('🔍 Payment check:', { isPayment, isBeingCompleted, amount: updated.amount, title: updated.title });
@@ -1118,10 +1186,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             
             const paymentMilestones = allMilestonesWithUpdate
               .filter(m => {
-                const mIsPayment = (m.amount && m.amount > 0) || 
-                                  (m.title?.toLowerCase().includes('payment') || 
-                                   m.title?.toLowerCase().includes('week'));
-                return mIsPayment;
+                const t = (m.title || '').toLowerCase();
+                return (m.amount && m.amount > 0) || t.includes('payment') || t.includes('week') || t.includes('deposit');
               })
               .sort((a, b) => {
                 // Sort by planned date or by title (Week 1, Week 2, etc.)
@@ -1177,22 +1243,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         // Just save the milestone without changing project status
                         setMilestones((prev) => {
                           const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
-                          console.log('💾 Saved milestone with status:', updated.status);
-                          
-                          // Immediately calculate and update progress
+                          if (project?.id) {
+                            AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
+                          }
                           const newOverall = computeOverallPct(updatedMilestones);
                           const roundedProgress = Math.round(newOverall);
-                          console.log(`📊 Immediately updating progress to ${roundedProgress}% after save (${updatedMilestones.length} milestones)`);
-                          
-                          // Update project progress immediately
                           if (project?.id && updateProject) {
                             updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
-                            console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
                           }
-                          
                           lastProgressUpdateRef.current = -1;
                           isUpdatingRef.current = false;
-                          
                           return updatedMilestones;
                         });
                         setEditingMilestone(null);
@@ -1205,22 +1265,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         // Save the milestone FIRST with completed status
                         setMilestones((prev) => {
                           const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
-                          console.log('💾 Saved milestone with status:', updated.status);
-                          
-                          // Immediately calculate and update progress (should be 100%)
+                          if (project?.id) {
+                            AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
+                          }
                           const newOverall = computeOverallPct(updatedMilestones);
                           const roundedProgress = Math.round(newOverall);
-                          console.log(`📊 Immediately updating progress to ${roundedProgress}% after final payment (${updatedMilestones.length} milestones)`);
-                          
-                          // Update project progress immediately
                           if (project?.id && updateProject) {
                             updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
-                            console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
                           }
-                          
                           lastProgressUpdateRef.current = -1;
                           isUpdatingRef.current = false;
-                          
                           return updatedMilestones;
                         });
                         
@@ -1259,22 +1313,18 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           console.log('💾 Normal save (not final payment)');
           setMilestones((prev) => {
             const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
-            // Force progress recalculation by resetting the last progress update ref
-            // This ensures progress updates even if the value hasn't changed significantly
+            // CRITICAL: Save to AsyncStorage immediately so reload doesn't overwrite with stale data
+            if (project?.id) {
+              AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
+            }
             lastProgressUpdateRef.current = -1;
-            isUpdatingRef.current = false; // Allow update to proceed
-            
-            // Immediately calculate and update progress
+            isUpdatingRef.current = false;
             const newOverall = computeOverallPct(updatedMilestones);
             const roundedProgress = Math.round(newOverall);
             console.log(`📊 Immediately updating progress to ${roundedProgress}% after manual save (${updatedMilestones.length} milestones)`);
-            
-            // Update project progress immediately (don't wait for useEffect)
             if (project?.id && updateProject) {
               updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
-              console.log(`✅ Immediately called updateProject for ${project.id} with progress ${roundedProgress}%`);
             }
-            
             return updatedMilestones;
           });
           setEditingMilestone(null);

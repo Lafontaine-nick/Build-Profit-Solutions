@@ -1206,11 +1206,11 @@ const NotifyTeamModal = ({ members, onClose }: {
 // ---------- Screen ----------
 const TEAM_STORAGE_KEY = "bps.team.members";
 
-export default function TeamTab() {
+export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: number }) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
-  const { projectData } = useProjectData();
+  const { projectData, updateTeam } = useProjectData();
   const [team, setTeam] = useState<Member[]>(TEAM);
   const [q, setQ] = useState("");
   const [tradeFilter, setTradeFilter] = useState<Trade | "All">("All");
@@ -1220,7 +1220,7 @@ export default function TeamTab() {
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load team from storage
+  // Load team from storage (also when refreshTrigger changes, e.g. after AI updates status)
   useEffect(() => {
     const loadTeam = async () => {
       try {
@@ -1233,7 +1233,7 @@ export default function TeamTab() {
       }
     };
     loadTeam();
-  }, []);
+  }, [refreshTrigger]);
 
   // Merge PM and crew from ProjectDataContext into team list
   useEffect(() => {
@@ -1241,14 +1241,39 @@ export default function TeamTab() {
     
     const pmName = projectData.team?.pmName;
     const crewMembers = (projectData.team as any)?.crewMembers || [];
+    const crewSet = new Set(crewMembers.map((n: string) => n.trim().toLowerCase()));
+    const pmNameLower = pmName?.trim().toLowerCase() || '';
     
     setTeam(prevTeam => {
-      const updatedTeam = [...prevTeam];
+      let updatedTeam = [...prevTeam];
       
-      // Add/update PM if assigned
+      // Remove crew members no longer in crewMembers (e.g. promoted to PM) so we don't show duplicates
+      updatedTeam = updatedTeam.filter(m => {
+        if (m.id.startsWith('crew-')) {
+          const nameLower = (m.name || '').trim().toLowerCase();
+          if (pmNameLower && nameLower === pmNameLower) return false; // Now PM, remove crew entry
+          if (!crewSet.has(nameLower)) return false; // No longer in crew
+        }
+        return true;
+      });
+      
+      // Add/update PM if assigned — promote existing member to PM instead of creating a duplicate
       if (pmName) {
-        const pmIndex = updatedTeam.findIndex(m => m.role === 'Project Manager' && m.name === pmName);
-        if (pmIndex < 0) {
+        const pmNameLower = pmName.trim().toLowerCase();
+        const existingIndex = updatedTeam.findIndex(
+          m => (m.name || '').trim().toLowerCase() === pmNameLower
+        );
+        if (existingIndex >= 0) {
+          // Promote existing team member to PM (don't create a new one)
+          const member = updatedTeam[existingIndex];
+          const promoted: Member = {
+            ...member,
+            role: 'Project Manager',
+          };
+          updatedTeam.splice(existingIndex, 1);
+          updatedTeam.unshift(promoted);
+        } else {
+          // No existing member with this name, add new PM
           const pmMember: Member = {
             id: `pm-${pmName}-${Date.now()}`,
             name: pmName,
@@ -1266,17 +1291,31 @@ export default function TeamTab() {
         }
       }
       
-      // Add crew members that aren't already in the list
+      // Add crew members that aren't already in the list (skip PM - they're shown above)
+      // Also sync phone from crewMemberPhones for existing members (e.g. added via AI with phone)
+      const crewMemberPhones = (projectData.team as any)?.crewMemberPhones || {};
+      const getPhoneForCrew = (crewName: string) => {
+        const key = crewName?.trim() || '';
+        return crewMemberPhones[key]
+          || crewMemberPhones[crewName]
+          || Object.entries(crewMemberPhones).find(([k]) => (k || '').trim().toLowerCase() === (crewName || '').trim().toLowerCase())?.[1]
+          || '';
+      };
       crewMembers.forEach((crewName: string) => {
-        const crewIndex = updatedTeam.findIndex(m => m.name === crewName && m.role !== 'Project Manager');
-        if (crewIndex < 0 && crewName.trim()) {
+        if (pmName && crewName.trim().toLowerCase() === pmName.toLowerCase()) return; // PM already shown
+        const crewIndex = updatedTeam.findIndex(m => (m.name || '').trim().toLowerCase() === (crewName || '').trim().toLowerCase() && m.role !== 'Project Manager');
+        const phone = getPhoneForCrew(crewName);
+        if (crewIndex >= 0 && phone) {
+          // Update existing member's phone if we have it from crewMemberPhones
+          updatedTeam[crewIndex] = { ...updatedTeam[crewIndex], phone };
+        } else if (crewIndex < 0 && crewName.trim()) {
           const crewMember: Member = {
             id: `crew-${crewName}-${Date.now()}`,
             name: crewName,
             role: 'Crew Member',
             trade: 'General Labor',
             status: 'active',
-            phone: '',
+            phone,
             email: '',
             licenseNumber: '',
             licenseExpiryISO: '',
@@ -1289,7 +1328,7 @@ export default function TeamTab() {
       
       return updatedTeam;
     });
-  }, [projectData?.team?.pmName, (projectData?.team as any)?.crewMembers, isLoaded]);
+  }, [projectData?.team?.pmName, (projectData?.team as any)?.crewMembers, (projectData?.team as any)?.crewMemberPhones, isLoaded]);
 
   // Save team whenever it changes
   useEffect(() => {
@@ -1365,6 +1404,7 @@ export default function TeamTab() {
   };
 
   const deleteMember = (id: string) => {
+    const member = team.find((m) => m.id === id);
     Alert.alert("Remove Team Member", "Remove this team member?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -1373,6 +1413,28 @@ export default function TeamTab() {
         onPress: () => {
           setTeam((prev) => prev.filter((m) => m.id !== id));
           setEditingMember(null);
+          // Sync deletion to ProjectDataContext so the AI gets updated team
+          if (member && updateTeam) {
+            const pmName = projectData?.team?.pmName;
+            const crewMembers = (projectData?.team as any)?.crewMembers || [];
+            const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
+            const name = member.name?.trim() || "";
+            const nameLower = name.toLowerCase();
+            if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
+              // Remove PM
+              const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+              updateTeam(false, "", newCrew.length, newCrew, crewPhones);
+            } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
+              // Remove from crew
+              const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+              const newPhones = { ...crewPhones };
+              delete newPhones[name];
+              Object.keys(newPhones).forEach((k) => {
+                if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
+              });
+              updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
+            }
+          }
         },
       },
     ]);

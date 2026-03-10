@@ -26,12 +26,24 @@ async function runRouter(message, history, ctxSummary) {
       contextMessage += '\n\nCRITICAL: You are in a DAILY LOG flow. The assistant recently asked about daily log notes. The user\'s message is a daily log entry (noteText), NOT an expense. Set domain = "daily_log" and proposed_tool = "add_daily_log".';
     }
     
-    // Check if assistant just asked for team member name
+    // Check if assistant just asked for team member name — distinguish ADD vs MESSAGE flow
     const lastAssistantMessage = recentHistory.filter(m => m.role === 'assistant').pop()?.content || '';
-    const askedForTeamMemberName = /(?:Please provide the name of the team member|which team member|name of the team member|team member you would like|team member you want)/i.test(lastAssistantMessage);
-    if (askedForTeamMemberName && message.trim().length > 0 && message.trim().length < 50) {
-      // User likely provided just a name (like "Nicholas")
-      contextMessage += '\n\nCRITICAL: The assistant just asked for a team member name. The user\'s message is likely a team member name. Set domain = "team", proposed_tool = "message_team_member", and extract the name from the user message.';
+    const askedForTeamMemberToAdd = /(?:name of the team member you'?d like to add|team member you'?d like to add|add.*team member.*name|team member.*like to add)/i.test(lastAssistantMessage);
+    const askedForTeamMemberToMessage = /(?:Please provide the name of the team member|which team member.*message|name of the team member you would like|team member you would like to (?:message|text|contact)|what would you like to say to)/i.test(lastAssistantMessage);
+    if (message.trim().length > 0 && message.trim().length < 50) {
+      if (askedForTeamMemberToAdd) {
+        // User provided name for ADD team member flow
+        contextMessage += '\n\nCRITICAL: The assistant just asked for the name of the team member to ADD. The user\'s message is the new team member\'s name. Set domain = "team", proposed_tool = "add_team_member", and extract the name from the user message into tool_args_draft.name. Do NOT use message_team_member.';
+      } else if (askedForTeamMemberToMessage) {
+        // User provided name for MESSAGE flow
+        contextMessage += '\n\nCRITICAL: The assistant just asked for a team member name to message. The user\'s message is likely a team member name. Set domain = "team", proposed_tool = "message_team_member", and extract the name from the user message.';
+      }
+    }
+    // CRITICAL: For LABOR expenses, "general labor", "it's general labor", trade names ARE the vendor/sub/trade - do NOT ask again
+    const askedForLaborVendor = /(?:who is the vendor|vendor for the (?:additional )?labor|vendor for.*labor costs?)/i.test(lastAssistantMessage);
+    const looksLikeLaborTrade = /\b(general\s+labor|labor|it'?s\s+general\s+labor|it'?s\s+labor|framing|plumbing|electrical|drywall|tile|painting|concrete|roofing|hvac|carpentry|drywall\s+installation|tile\s+work)\b/i.test(message.trim());
+    if (askedForLaborVendor && looksLikeLaborTrade) {
+      contextMessage += '\n\nCRITICAL: The assistant asked for vendor for LABOR. The user\'s message ("' + message.trim() + '") IS the sub/trade. For labor, vendor = sub/trade. Use tool_args_draft.vendor = user\'s message (e.g. "General Labor") and tool_args_draft.notes = same. Do NOT ask for vendor again. Execute add_material_expense with category=Labor, vendor=user\'s trade, amount from prior context.';
     }
     
     const completion = await openai.chat.completions.create({
@@ -883,7 +895,7 @@ function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal
     reply += `⚠️ Potential missing costs:\n`;
     gaps.forEach((g, i) => { reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`; });
     reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
-    reply += `_Impact ranges are estimates based on typical project costs — not real-time market data._\n\n`;
+    reply += `[DISCLAIMER]Impact ranges are estimates based on typical project costs—not real-time market data.[/DISCLAIMER]\n\n`;
     reply += `➡️ Want me to add these as estimate line items now?`;
   }
   return reply;
@@ -1048,6 +1060,17 @@ router.post('/', async (req, res) => {
     const estimateData = currentProjectData?.estimateData || parsedContext.estimateData || currentProjectData?.projectData?.estimateData || {};
     const bidTotal = parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice || currentProjectData?.bidTotal || currentProjectData?.bidPrice || estimateData?.totalBid || 0;
     const estimatedCost = parsedContext.estimatedCost || currentProjectData?.estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0;
+    const approvedChangeOrdersTotal = parsedContext.approvedChangeOrdersTotal ?? (() => {
+      const cos = parsedContext.changeOrders || currentProjectData?.changeOrders || [];
+      return Array.isArray(cos) ? cos.reduce((s, co) => {
+        const amt = Number(co?.amount || 0);
+        const approved = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+        return approved ? s + amt : s;
+      }, 0) : 0;
+    })();
+    const contractValue = parsedContext.contractValue != null
+      ? Number(parsedContext.contractValue)
+      : (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
     // Compute actualCost from expenses if top-level is 0
     const rawExpenses = parsedContext.expenses || currentProjectData?.expenses || [];
     const computedActualCost = Array.isArray(rawExpenses) ? rawExpenses.reduce((s, e) => s + Number(e.amount || 0), 0) : 0;
@@ -1063,6 +1086,22 @@ router.post('/', async (req, res) => {
 
     // ── EARLY: Missing cost scan (run BEFORE budget block to guarantee it always wins) ──
     const msgLowerEarly = (message || '').toLowerCase();
+    const recentHistory = Array.isArray(history) ? history.slice(-10) : [];
+    const recentUserMessages = recentHistory
+      .filter((m) => m?.role === 'user' && m?.content)
+      .map((m) => String(m.content));
+    const recentAssistantMessages = recentHistory
+      .filter((m) => m?.role === 'assistant' && m?.content)
+      .map((m) => String(m.content));
+    const recentConversationText = [
+      ...recentUserMessages.slice(-4),
+      ...recentAssistantMessages.slice(-3),
+    ].join(' ').toLowerCase();
+    const delayContextRegex = /\b(delay(?:ed)?|overrun|behind\s+(?:schedule|timeline)|late\s+by|past\s+due|go(?:es|ing)?\s+long|run(?:s|ning)?\s+long|too\s+long|longer|beyond\s+(?:timeline|schedule)|weeks?\s+(?:over|late|longer))\b/i;
+    const delayContextActive = delayContextRegex.test(recentConversationText) ||
+      /profit decay|break-even delay|extra labor for \d+ weeks|materials are excluded from delay cost/i.test(
+        String(recentAssistantMessages.slice(-1)[0] || '')
+      );
     const isMissingCostScanEarly = msgLowerEarly.includes('missing cost') || msgLowerEarly.includes('missing costs') ||
       (msgLowerEarly.includes('scan') && msgLowerEarly.includes('cost')) || msgLowerEarly.includes('cost gaps') || msgLowerEarly.includes('what am i missing');
     if (isMissingCostScanEarly) {
@@ -1073,6 +1112,109 @@ router.post('/', async (req, res) => {
       console.log('✅ EARLY missing cost scan — returning immediately (bypassing router/CO flow)');
       return res.json({ reply, actions: [] });
     }
+
+    // ── EARLY: "X weeks too long" / "goes long" profit projection (NOT scenario analysis) ──
+    const numberWords = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    let extraWeeks = 0;
+    const numOrWord = '\\d+|a|one|two|three|four|five|six|seven|eight|nine|ten';
+    let weeksOverrunMatch = msgLowerEarly.match(new RegExp(`(?:goes?|runs?|extends?|delayed?|overrun[s]?)\\s+(?:by\\s+|for\\s+)?(${numOrWord})\\s+weeks?\\s+(?:too\\s+long|long(?:er)?|over|beyond)(?:\\s+than\\s+projected)?`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`(${numOrWord})\\s+weeks?\\s+(?:too\\s+long|long(?:er)?|over|overrun|beyond)(?:\\s+the\\s+timeline)?`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`(${numOrWord})\\s+weeks?\\s+longer(?:\\s+than\\s+projected)?`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`too\\s+long\\s+for\\s+(${numOrWord})\\s+weeks?`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`(?:goes?\\s+on\\s+)?too\\s+long\\s+for\\s+(${numOrWord})\\s+weeks?`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`(?:what\\s+if|what\\s+is|projected\\s+profit|if\\s+.*\\s+goes?)\\s+.*\\s+(${numOrWord})\\s+weeks?\\s+(?:too\\s+long|long(?:er)?|over|beyond)`, 'i')) ||
+      msgLowerEarly.match(new RegExp(`(?:what\\s+if|what\\s+is)\\s+.*\\s+(?:goes?|runs?|extends?)\\s+.*\\s+(${numOrWord})\\s+weeks?\\s+(?:beyond|longer)`, 'i'));
+    if (!weeksOverrunMatch && delayContextActive) {
+      weeksOverrunMatch = [...recentUserMessages]
+        .reverse()
+        .map((txt) => txt.toLowerCase().match(new RegExp(`(${numOrWord})\\s+weeks?`, 'i')))
+        .find(Boolean) || null;
+    }
+    if (weeksOverrunMatch) {
+      const val = weeksOverrunMatch[1].toLowerCase();
+      extraWeeks = numberWords[val] ?? parseInt(val, 10);
+    }
+    const continuationReply = /^(ok|okay|yes|yeah|yep|right|same|do it|run it|and what about)\b/i.test(msgLowerEarly.trim());
+    const hasWeeksOverrunIntent = (msgLowerEarly.includes('week') && (
+      msgLowerEarly.includes('too long') || msgLowerEarly.includes('goes long') || msgLowerEarly.includes('longer') ||
+      msgLowerEarly.includes('beyond') || msgLowerEarly.includes('extends') || msgLowerEarly.includes('overrun') ||
+      msgLowerEarly.includes('profit') || msgLowerEarly.includes('timeline') || msgLowerEarly.includes('schedule')
+    )) || (delayContextActive && (msgLowerEarly.includes('week') || continuationReply));
+    const isWeeksOverrunRequest = extraWeeks > 0 && hasWeeksOverrunIntent;
+
+    if (isWeeksOverrunRequest && extraWeeks > 0) {
+      const contractVal = Number(contractValue || 0) || (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
+      const actual = Number(actualCost || 0);
+      const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
+      const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
+      let baseCost = 0;
+      if (progressRatio > 0.01 && actual > 0) {
+        baseCost = actual / progressRatio;
+      } else {
+        baseCost = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
+        if (baseCost >= contractVal * 0.95) baseCost = 0;
+        if (baseCost <= 0) baseCost = actual;
+      }
+      const laborBudget = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0) ||
+        (parsedContext.buckets || currentProjectData?.buckets || []).reduce((s, b) => {
+          if ((b.name || '').toLowerCase().includes('labor')) return s + (Number(b.budget || b.bidBudget) || 0);
+          return s;
+        }, 0);
+      const overheadBudget = Number(parsedContext?.overhead || parsedContext?.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0);
+      const startISO = parsedContext?.startDate || parsedContext?.startISO || currentProjectData?.startISO || currentProjectData?.startDate;
+      const endISO = parsedContext?.endDate || parsedContext?.endISO || currentProjectData?.endISO || currentProjectData?.endDate;
+      let estimatedWeeks = 12;
+      if (startISO && endISO) {
+        const start = new Date(String(startISO));
+        const end = new Date(String(endISO));
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start) {
+          estimatedWeeks = Math.max(4, Math.round((end - start) / (7 * 24 * 60 * 60 * 1000)));
+        }
+      }
+      const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+      const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+      const weeklyDelayCost = weeklyLabor + weeklyOverhead;
+      const extraCostForWeeks = Math.round((weeklyDelayCost > 0 ? weeklyDelayCost : (laborBudget > 0 ? laborBudget / 12 : baseCost * 0.4 / 12)) * extraWeeks);
+      const projectedCostWithOverrun = Math.round(baseCost + extraCostForWeeks);
+      const projectedProfit = Math.round(contractVal - projectedCostWithOverrun);
+      const marginPct = contractVal > 0 ? ((projectedProfit / contractVal) * 100).toFixed(1) : 0;
+      const baselineProfit = Math.round(contractVal - baseCost);
+      const costPerWeekOfDelay = weeklyDelayCost > 0 ? Math.round(weeklyDelayCost) : Math.round(laborBudget / Math.max(estimatedWeeks, 4));
+      const breakEvenDelayWeeks = costPerWeekOfDelay > 0 && baselineProfit > 0 ? (baselineProfit / costPerWeekOfDelay).toFixed(1) : null;
+
+      let reply = `If this job goes **${extraWeeks} weeks too long**, your projected profit would be approximately **$${projectedProfit.toLocaleString()}** (${marginPct}% margin).\n\n`;
+      reply += `**Calculation:**\n`;
+      if (startISO && endISO) {
+        reply += `- Project duration: ~${estimatedWeeks} weeks (from schedule)\n`;
+      }
+      reply += `- Revenue (Contract Value): $${contractVal.toLocaleString()}\n`;
+      reply += `- Base projected cost (at current pace): $${Math.round(baseCost).toLocaleString()}\n`;
+      reply += `- Baseline profit: $${baselineProfit.toLocaleString()}\n`;
+      const laborPortion = Math.round(weeklyLabor * extraWeeks);
+      const overheadPortion = Math.round(weeklyOverhead * extraWeeks);
+      if (laborPortion > 0) reply += `- Extra labor for ${extraWeeks} weeks: ~$${laborPortion.toLocaleString()}\n`;
+      if (overheadPortion > 0) reply += `- Extra overhead for ${extraWeeks} weeks: ~$${overheadPortion.toLocaleString()}\n`;
+      reply += `- **Total extra cost** (labor + overhead only; materials don't burn during delay): ~$${extraCostForWeeks.toLocaleString()}\n`;
+      reply += `- **Total projected cost:** $${projectedCostWithOverrun.toLocaleString()}\n`;
+      reply += `- **Projected profit:** $${contractVal.toLocaleString()} − $${projectedCostWithOverrun.toLocaleString()} = **$${projectedProfit.toLocaleString()}**\n\n`;
+      if (costPerWeekOfDelay > 0) {
+        reply += `**Profit decay:** Each additional week of delay costs approximately **$${costPerWeekOfDelay.toLocaleString()}** in labor + overhead, reducing profit by the same amount.\n`;
+        if (breakEvenDelayWeeks && parseFloat(breakEvenDelayWeeks) > 0) {
+          reply += `Break-even delay: **${breakEvenDelayWeeks} weeks** — after that you start losing money.\n\n`;
+        } else {
+          reply += `\n`;
+        }
+      }
+      reply += `[DISCLAIMER]Materials are excluded from delay cost—they don't burn weekly. Only labor and overhead continue during extended weeks.[/DISCLAIMER]\n\n`;
+      reply += `➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this?`;
+
+      console.log('✅ EARLY weeks-overrun profit projection — returning immediately');
+      return res.json({ reply, actions: [] });
+    }
+
+    // NOTE: "Projected profit" / "Expected profit" no longer use early handler — they go to the full
+    // isProfitOrForecastRequest block below for the detailed breakdown (baseline, optimistic/likely,
+    // worst-case, key drivers).
 
     // Calculate material budget and remaining budget from available data
     let materialBudget = 0;
@@ -1302,38 +1444,40 @@ router.post('/', async (req, res) => {
           reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`;
         });
         reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
-        reply += `_Impact ranges are estimates based on typical project costs — not real-time market data._\n\n`;
+        reply += `[DISCLAIMER]Impact ranges are estimates based on typical project costs—not real-time market data.[/DISCLAIMER]\n\n`;
         reply += `➡️ Want me to add these as estimate line items now?`;
       }
 
       return res.json({ reply, actions: [] });
     }
 
-    // ── DETERMINISTIC: Forecast final profit (bypass LLM variability) ─────────
-    const isForecastRequest =
+    // ── DETERMINISTIC: Profit / Forecast (bypass LLM variability, use progress-adjusted logic) ─────────
+    const isProfitOrForecastRequest =
       msgLower.includes('forecast final profit') ||
       msgLower.includes('forecast profit') ||
       msgLower.includes('final profit') ||
       msgLower.includes('forecast final cost') ||
       (msgLower.includes('forecast') && msgLower.includes('profit')) ||
-      (msgLower.includes('forecast') && msgLower.includes('cost'));
+      (msgLower.includes('forecast') && msgLower.includes('cost')) ||
+      msgLower.includes('estimated profit') ||
+      msgLower.includes('projected profit') ||
+      msgLower.includes('expected profit') ||
+      msgLower.includes('what is my profit') ||
+      msgLower.includes('what\'s my profit') ||
+      msgLower.includes('my profit on this job') ||
+      (msgLower.includes('profit') && msgLower.includes('this job'));
 
-    if (isForecastRequest) {
-      const changeOrders = parsedContext.changeOrders || currentProjectData?.changeOrders || [];
-      const approvedChangeOrdersTotal = Array.isArray(changeOrders)
-        ? changeOrders.reduce((sum, co) => {
-            const amount = Number(co?.amount || 0);
-            const isApproved =
-              (typeof co?.approved === 'boolean' && co.approved) ||
-              (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
-            return isApproved ? sum + amount : sum;
-          }, 0)
-        : 0;
-
-      // Contract value = bid + approved COs (if COs not already reflected in bid).
-      // If bid already contains COs, this still works as long as COs are 0 in that case.
-      const contractValue = Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0);
-      const baseEstimate = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
+    if (isProfitOrForecastRequest) {
+      // Contract value = bid + approved COs (revenue we get paid)
+      const contractValueFinal = Number(contractValue || 0) || (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
+      // Pre-computed profit from mobile (matches Financial Health / Budget Totals UI) — use as primary when available
+      const precomputedProfit = parsedContext.projectedProfit;
+      const precomputedMargin = parsedContext.projectedMarginPct;
+      const precomputedForecastCost = parsedContext.forecastFinalCost;
+      const hasPrecomputed = precomputedProfit != null && Number.isFinite(Number(precomputedProfit));
+      // baseEstimate = our cost to complete. If estimatedCost >= contractValue it's wrong (revenue, not cost)
+      let baseEstimate = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
+      if (baseEstimate >= contractValueFinal * 0.95) baseEstimate = 0; // Wrong: estimatedCost was set to revenue
       const actual = Number(actualCost || 0);
       const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
       const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
@@ -1406,13 +1550,18 @@ router.post('/', async (req, res) => {
       const optimisticFinalCost = Math.max(actual, likelyFinalCost * (1 - costRiskPct));
       const conservativeFinalCost = likelyFinalCost * (1 + costRiskPct);
 
-      const likelyProfit = contractValue - likelyFinalCost;
-      const optimisticProfit = contractValue - optimisticFinalCost;
-      const conservativeProfit = contractValue - conservativeFinalCost;
+      // Use pre-computed values from mobile when available (matches UI)
+      const likelyFinalCostUse = hasPrecomputed && precomputedForecastCost != null ? Number(precomputedForecastCost) : likelyFinalCost;
+      const likelyProfitUse = hasPrecomputed ? Number(precomputedProfit) : (contractValueFinal - likelyFinalCost);
+      const likelyMarginPctUse = hasPrecomputed && precomputedMargin != null ? Number(precomputedMargin) : (contractValueFinal > 0 ? ((contractValueFinal - likelyFinalCost) / contractValueFinal) * 100 : 0);
 
-      const optimisticDelta = optimisticFinalCost - contractValue;
-      const likelyDelta = likelyFinalCost - contractValue;
-      const conservativeDelta = conservativeFinalCost - contractValue;
+      const likelyProfit = hasPrecomputed ? likelyProfitUse : (contractValueFinal - likelyFinalCost);
+      const optimisticProfit = contractValueFinal - optimisticFinalCost;
+      const conservativeProfit = contractValueFinal - conservativeFinalCost;
+
+      const optimisticDelta = optimisticFinalCost - contractValueFinal;
+      const likelyDelta = likelyFinalCostUse - contractValueFinal;
+      const conservativeDelta = conservativeFinalCost - contractValueFinal;
       const fmtDelta = (delta) => {
         if (Math.abs(delta) < 1) return 'On budget';
         return delta > 0
@@ -1420,9 +1569,9 @@ router.post('/', async (req, res) => {
           : `Under budget by $${Math.round(Math.abs(delta)).toLocaleString()}`;
       };
 
-      const likelyMarginPct = contractValue > 0 ? (likelyProfit / contractValue) * 100 : 0;
-      const optimisticMarginPct = contractValue > 0 ? (optimisticProfit / contractValue) * 100 : 0;
-      const conservativeMarginPct = contractValue > 0 ? (conservativeProfit / contractValue) * 100 : 0;
+      const likelyMarginPct = likelyMarginPctUse;
+      const optimisticMarginPct = contractValueFinal > 0 ? (optimisticProfit / contractValueFinal) * 100 : 0;
+      const conservativeMarginPct = contractValueFinal > 0 ? (conservativeProfit / contractValueFinal) * 100 : 0;
 
       const drivers = [];
       if (committedNotInActual > 0) drivers.push(`$${Math.round(committedNotInActual).toLocaleString()} in committed POs may convert to actual costs.`);
@@ -1434,9 +1583,15 @@ router.post('/', async (req, res) => {
       }
       if (drivers.length === 0) drivers.push('Current burn appears consistent with the budget baseline.');
 
-      let reply = `📈 Forecast final cost & profit for ${projectName ? `"${projectName}"` : 'this project'}:\n\n`;
+      const isSimpleProfitQ = /estimated profit|projected profit|expected profit|what is my profit|what'?s my profit|my profit on this job|profit on this job/i.test(msgLower) && !msgLower.includes('forecast');
+      let reply = '';
+      if (isSimpleProfitQ && contractValueFinal > 0) {
+        reply += `Your **estimated profit** on this job is approximately **$${Math.round(likelyProfit).toLocaleString()}**.\n\n`;
+        reply += `Based on your progress (${progressPct.toFixed(0)}% complete) and actual spend ($${Math.round(actual).toLocaleString()}), your projected cost at completion is ~$${Math.round(likelyFinalCostUse).toLocaleString()}. Revenue (Contract Value) is $${Math.round(contractValueFinal).toLocaleString()}, so profit = $${Math.round(contractValueFinal).toLocaleString()} − $${Math.round(likelyFinalCostUse).toLocaleString()} = **$${Math.round(likelyProfit).toLocaleString()}** (${likelyMarginPct.toFixed(1)}% margin).${hasPrecomputed ? ' These numbers match the Financial Health and Budget Totals in the app.' : ''}\n\n`;
+      }
+      reply += `📈 Forecast final cost & profit for ${projectName ? `"${projectName}"` : 'this project'}:\n\n`;
       reply += `📊 Baseline:\n`;
-      reply += `- Contract Value (Bid + approved COs): $${Math.round(contractValue).toLocaleString()}\n`;
+      reply += `- Contract Value (Bid + approved COs): $${Math.round(contractValueFinal).toLocaleString()}\n`;
       reply += `- Estimated Cost Baseline: $${Math.round(baseEstimate).toLocaleString()}\n`;
       reply += `- Actual Spent to Date: $${Math.round(actual).toLocaleString()}\n`;
       reply += `- Progress: ${progressPct.toFixed(0)}%\n`;
@@ -1444,14 +1599,15 @@ router.post('/', async (req, res) => {
 
       reply += `💰 Forecast (EAC):\n`;
       reply += `- Optimistic Final Cost: $${Math.round(optimisticFinalCost).toLocaleString()} (${fmtDelta(optimisticDelta)}) → Profit: $${Math.round(optimisticProfit).toLocaleString()} (${optimisticMarginPct.toFixed(1)}%)\n`;
-      reply += `- Likely Final Cost: $${Math.round(likelyFinalCost).toLocaleString()} (${fmtDelta(likelyDelta)}) → Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)\n`;
+      reply += `- Likely Final Cost: $${Math.round(likelyFinalCostUse).toLocaleString()} (${fmtDelta(likelyDelta)}) → Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)${hasPrecomputed ? ' ← matches app UI' : ''}\n`;
       reply += `- Worst-case (risk-adjusted) Final Cost: $${Math.round(conservativeFinalCost).toLocaleString()} (${fmtDelta(conservativeDelta)}) → Profit: $${Math.round(conservativeProfit).toLocaleString()} (${conservativeMarginPct.toFixed(1)}%)\n\n`;
 
       reply += `⚠️ Key drivers:\n`;
       drivers.slice(0, 3).forEach((d, i) => {
         reply += `${i + 1}. ${d}\n`;
       });
-      reply += `\n➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this forecast?`;
+      reply += `\n[DISCLAIMER]Forecasts are projections based on current burn rate and progress—not guarantees of actual final cost or profit.[/DISCLAIMER]\n\n`;
+      reply += `➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this forecast?`;
 
       return res.json({ reply, actions: [] });
     }
@@ -1468,6 +1624,7 @@ router.post('/', async (req, res) => {
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
+      contractValue, approvedChangeOrdersTotal,
       materialBudget, materialSpent, materialRemaining,
       laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
       progress, aiPmMode, pmAlerts,
@@ -1563,7 +1720,7 @@ router.post('/', async (req, res) => {
               },
               vendor: {
                 type: 'string',
-                description: 'The vendor or store where the material was purchased. Extract from user message if mentioned (e.g., "Home Depot", "Lowe\'s", "at home depot" → "Home Depot"). REQUIRED for MATERIALS - if missing, ask the user "Where was it purchased?" before calling the function. NOT required for LABOR expenses.',
+                description: 'For MATERIALS: the vendor/store (e.g., "Home Depot", "Lowe\'s"). REQUIRED - ask "Where was it purchased?" if missing. For LABOR: the sub/trade (e.g., "General Labor", "Framing", "Plumbing", "Electrical"). When user says "general labor", "it\'s general labor", or a trade name in response to vendor question, use that as vendor - do NOT ask again. The vendor field displays as "Sub/Trade" for labor.',
               },
               notes: {
                 type: 'string',
@@ -1689,6 +1846,82 @@ router.post('/', async (req, res) => {
               },
             },
             required: ['messageContent'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'assign_pm',
+          description: 'Assign a project manager (PM) to the current project. Use when user says "assign PM", "assign project manager", "name a project manager", "pick a PM", "choose a project manager for me", "can you name a project manager", "assign [name] as PM", "set [name] as project manager".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description: `The project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}`,
+              },
+              pmName: {
+                type: 'string',
+                description: 'The name of the person to assign as project manager. REQUIRED. Extract from user message or ask "Who would you like to assign as project manager?"',
+              },
+            },
+            required: ['projectId', 'pmName'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_team_member',
+          description: 'Add a new team member to the project. Use when user says "add team member", "add [name] to the team", "add a crew member". Always ask for phone number before confirming.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description: `The project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}`,
+              },
+              name: {
+                type: 'string',
+                description: 'The name of the team member to add. REQUIRED.',
+              },
+              phone: {
+                type: 'string',
+                description: 'Phone number for the team member. Ask "What is the phone number for [name]?" if not provided.',
+              },
+              role: {
+                type: 'string',
+                description: 'Role/trade (e.g., "Crew Member", "Foreman", "Electrician"). Optional, defaults to "Crew Member".',
+              },
+            },
+            required: ['projectId', 'name'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'update_team_member_status',
+          description: 'Update a team member\'s status to active or off duty. Use when user says "turn [name] off duty", "make [name] active", "change [name] to off duty", "set [name] to active", "can you turn [name] team member to off duty", etc. You CAN change team member statuses - use this tool.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description: `The project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}`,
+              },
+              memberName: {
+                type: 'string',
+                description: 'The name of the team member to update (e.g., "Nicholas", "John Smith"). REQUIRED.',
+              },
+              status: {
+                type: 'string',
+                description: 'The new status: "active" or "off_duty". REQUIRED.',
+                enum: ['active', 'off_duty'],
+              },
+            },
+            required: ['projectId', 'memberName', 'status'],
           },
         },
       },
@@ -2289,8 +2522,11 @@ router.post('/', async (req, res) => {
         } else {
           // For labor expenses, the trade (what labor was for) goes in the vendor field
           // This is because the UI uses vendor field to display "Sub / Trade" for labor
+          // Accept either notes OR vendor - user may say "general labor" in response to vendor question
           if (args.notes && args.notes.trim()) {
             vendor = args.notes.trim(); // Use notes (trade) as vendor for labor
+          } else if (args.vendor && args.vendor.trim()) {
+            vendor = args.vendor.trim(); // User said "general labor" etc. - use as sub/trade
           } else {
             vendor = 'N/A'; // Fallback if no trade provided
           }
@@ -2310,9 +2546,8 @@ router.post('/', async (req, res) => {
         if (isLaborExpense) {
           // For labor, use "Labor" as category
           // The trade (what labor was for) goes in vendor field (which displays as "Sub / Trade" in UI)
-          // Description can be in notes if provided, otherwise use the trade
           normalizedCategory = 'Labor';
-          materialName = args.notes && args.notes.trim() ? args.notes.trim() : 'Labor';
+          materialName = vendor !== 'N/A' ? vendor : 'Labor';
         } else {
           // For materials, normalize to "Materials/Equipment" and store specific material in notes
           materialName = args.category.trim();
@@ -2672,6 +2907,185 @@ router.post('/', async (req, res) => {
       console.log('📝 PRE-ROUTER: User is in daily log flow, skipping expense detection');
     }
 
+    // ── PRE-ROUTER: CANCEL CHANGE ORDER ─────────────────────────────────────
+    // If assistant was asking for change order details and user says cancel, exit flow immediately
+    const lastAssistantMsg = String([...messages].reverse().find((m) => m?.role === 'assistant')?.content || '').toLowerCase();
+    const assistantAskedCODetails = (lastAssistantMsg.includes('change order') && (lastAssistantMsg.includes('amount') || lastAssistantMsg.includes('vendor') || lastAssistantMsg.includes('what is the change order')));
+    const cancelIntent = /\b(cancel|nevermind|never mind|forget it|forget this|abort|stop|don't? need|dont need)\b/i.test(messageLower) ||
+      (messageLower.includes('cancel') && messageLower.includes('change order'));
+    if (assistantAskedCODetails && cancelIntent) {
+      console.log('🛑 PRE-ROUTER: User cancelled change order flow — returning early');
+      return res.json({
+        reply: 'Change order cancelled. What would you like to do next?',
+        actions: [],
+        projectUpdateData: null,
+      });
+    }
+
+    // ── PRE-ROUTER: ADD TEAM MEMBER (name provided) ──────────────────────────
+    // When assistant asked for name to ADD, user's response is the new member's name → ask for phone
+    const lastAssistantForAdd = String([...messages].reverse().find((m) => m?.role === 'assistant')?.content || '');
+    const lastAssistantLower = lastAssistantForAdd.toLowerCase();
+    const askedForNameToAdd = /(?:name of the team member you'?d like to add|team member you'?d like to add|team member.*like to add)/i.test(lastAssistantLower);
+    const looksLikeName = message.trim().length >= 2 && message.trim().length <= 50 && !/\d{3,}/.test(message) && !message.includes('$');
+    if (askedForNameToAdd && looksLikeName && projectId) {
+      const memberName = message.trim();
+      console.log('🛑 PRE-ROUTER: Add team member (name provided) — asking for phone');
+      return res.json({
+        reply: `What is the phone number for ${memberName}?`,
+        actions: [],
+        projectUpdateData: null,
+      });
+    }
+
+    // ── PRE-ROUTER: ADD TEAM MEMBER (phone provided) ────────────────────────
+    // When assistant asked for phone number for [name], user's response is the phone → execute add
+    const askedForPhoneForAdd = /what is the phone number for .+\?/i.test(lastAssistantForAdd);
+    const looksLikePhone = /[\d\s\-\(\)\.\+]{7,}/.test(message.trim()) || (message.trim().length >= 7 && /\d{3}/.test(message));
+    if (askedForPhoneForAdd && looksLikePhone && projectId) {
+      const phoneMatch = lastAssistantForAdd.match(/what is the phone number for (.+)\?/i);
+      const memberName = phoneMatch ? phoneMatch[1].trim() : '';
+      const phone = message.trim();
+      if (memberName) {
+        const addAction = {
+          type: 'add_team_member',
+          projectId,
+          teamMember: { name: memberName, role: 'Crew Member', phone },
+          projectName: parsedContext?.projectName || parsedContext?.bidTitle || 'this project',
+        };
+        console.log('🛑 PRE-ROUTER: Add team member (phone provided) — executing');
+        return res.json({
+          reply: `✅ Added ${memberName} to the team. They'll appear in your Team tab.`,
+          actions: [addAction],
+          projectUpdateData: null,
+        });
+      }
+    }
+
+    // ── PRE-ROUTER: ASSIGN PM (no name specified) ───────────────────────────
+    const assignPMIntent = /\b(assign|appoint|set|name|pick|choose|select)\s+(a\s+)?(project\s+manager|pm)\b/i.test(messageLower) ||
+      /\bassign\s+pm\b/i.test(messageLower) ||
+      /\b(project\s+manager|pm)\s+for\s+(me|this)/i.test(messageLower) ||
+      /\b(name|pick|choose)\s+(a\s+)?(project\s+manager|pm)\s+for\s+me/i.test(messageLower) ||
+      (messageLower.includes('project manager') && (messageLower.includes('assign') || messageLower.includes('appoint') || messageLower.includes('name') || messageLower.includes('pick') || messageLower.includes('choose')));
+    // User specified a name if message has "assign X as" or "assign X to be" or similar
+    const hasPMNameSpecified = /\b(assign|appoint|set)\s+[a-z]+\s+(as|to\s+be)\s+(project\s+manager|pm)/i.test(messageLower) ||
+      /^(assign|appoint|set)\s+[a-z][a-z\s]+$/i.test(message.trim()) && message.trim().split(/\s+/).length <= 4;
+    if (assignPMIntent && !hasPMNameSpecified) {
+      const teamMembers = parsedContext?.teamMembers || [];
+      let reply = 'Which team member do you want to appoint as project manager, or do you want to add a team member as PM?';
+      if (teamMembers.length > 0) {
+        const names = teamMembers.map(m => m.name || 'Unknown').filter(Boolean);
+        reply += `\n\nCurrent team: ${names.join(', ')}`;
+      }
+      console.log('🛑 PRE-ROUTER: Assign PM — asking for team member selection');
+      return res.json({ reply, actions: [], projectUpdateData: null });
+    }
+
+    // ── PRE-ROUTER: UPDATE TEAM MEMBER STATUS ─────────────────────────────────
+    // Match both: (1) follow-up "john active" after assistant asked, (2) direct "turn nicholas to off duty" / "can you make john active"
+    const lastAssistantForStatus = [...messages].reverse().find(m => m.role === 'assistant')?.content || '';
+    const askedAboutStatusUpdate = /which team member.*status|team member.*status.*update|what is the new status|status would you like to update/i.test(lastAssistantForStatus);
+    const msg = message.trim();
+    let memberName, newStatus;
+
+    // Pattern 1: "john active" or "john off duty" (short form)
+    const simplePattern = /^(.+?)\s+(active|off\s*duty|off_duty)$/i;
+    const simpleMatch = msg.match(simplePattern);
+    if (simpleMatch) {
+      memberName = simpleMatch[1].trim();
+      newStatus = (simpleMatch[2] || '').toLowerCase().replace(/\s+/g, '_');
+    }
+
+    // Pattern 2: "make/set/mark/put X active/off duty"
+    const makeSetPattern = /^(make|set|mark|put)\s+(.+?)\s+(active|off\s*duty|off_duty)$/i;
+    const makeMatch = msg.match(makeSetPattern);
+    if (makeMatch && !memberName) {
+      memberName = makeMatch[2].trim();
+      newStatus = (makeMatch[3] || '').toLowerCase().replace(/\s+/g, '_') || 'active';
+    }
+
+    // Pattern 3: "turn X (team member)? (to)? off duty/active" or "can you turn X team member to off duty"
+    const turnPattern = /(?:can you |please )?turn\s+(.+?)\s+(?:team\s+member\s+)?(?:to\s+)?(active|off\s*duty|off_duty)/i;
+    const turnMatch = msg.match(turnPattern);
+    if (turnMatch && !memberName) {
+      memberName = turnMatch[1].trim();
+      newStatus = (turnMatch[2] || '').toLowerCase().replace(/\s+/g, '_');
+    }
+
+    // Pattern 4: "change X (to)? off duty/active" or "change X team member to off duty"
+    const changePattern = /(?:can you |please )?change\s+(.+?)\s+(?:team\s+member\s+)?(?:to\s+)?(active|off\s*duty|off_duty)/i;
+    const changeMatch = msg.match(changePattern);
+    if (changeMatch && !memberName) {
+      memberName = changeMatch[1].trim();
+      newStatus = (changeMatch[2] || '').toLowerCase().replace(/\s+/g, '_');
+    }
+
+    // Pattern 5: "make X team member off duty" / "set X team member to active"
+    const makeTeamPattern = /(?:can you |please )?(make|set)\s+(.+?)\s+team\s+member\s+(?:to\s+)?(active|off\s*duty|off_duty)/i;
+    const makeTeamMatch = msg.match(makeTeamPattern);
+    if (makeTeamMatch && !memberName) {
+      memberName = makeTeamMatch[2].trim();
+      newStatus = (makeTeamMatch[3] || '').toLowerCase().replace(/\s+/g, '_');
+    }
+
+    if (newStatus === 'offduty') newStatus = 'off_duty';
+    const hasValidStatusUpdate = memberName && (newStatus === 'active' || newStatus === 'off_duty') && projectId;
+    // Execute for: direct requests (turn/change/make team member) OR follow-up (john active) after assistant asked
+    const isDirectRequest = !!(turnMatch || changeMatch || makeTeamMatch || makeMatch);
+    const shouldExecute = hasValidStatusUpdate && (isDirectRequest || (simpleMatch && askedAboutStatusUpdate));
+    if (shouldExecute) {
+        const updateAction = {
+          type: 'update_team_member_status',
+          projectId,
+          memberName,
+          status: newStatus,
+          projectName: parsedContext?.projectName || parsedContext?.bidTitle || 'this project',
+        };
+        console.log('🛑 PRE-ROUTER: Update team member status — executing', { memberName, newStatus });
+        return res.json({
+          reply: `✅ Updated ${memberName} to ${newStatus === 'active' ? 'active' : 'off duty'}.`,
+          actions: [updateAction],
+          projectUpdateData: null,
+        });
+    }
+
+    // ── PRE-ROUTER: TEAM STATUS ─────────────────────────────────────────────
+    // Deterministic team status: who's working, active, off duty
+    const teamStatusIntent = /\b(team\s+status|status\s+of\s+(?:your\s+)?team|who'?s\s+working|who\s+is\s+working|team\s+availability|active\s+team|who'?s\s+active|team\s+members?\s+status)\b/i.test(messageLower);
+    if (teamStatusIntent) {
+      const teamMembers = parsedContext?.teamMembers || [];
+      const teamStats = parsedContext?.teamStats || { total: 0, active: 0, offDuty: 0 };
+      if (teamMembers.length > 0) {
+        const activeList = teamMembers.filter(m => (m.status || '').toLowerCase() === 'active');
+        const offDutyList = teamMembers.filter(m => (m.status || '').toLowerCase() === 'off_duty' || (m.status || '').toLowerCase() === 'off duty');
+        let reply = `📊 **Team Status**\n\n`;
+        reply += `Total: ${teamStats.total || teamMembers.length} | Active: ${teamStats.active || activeList.length} | Off duty: ${teamStats.offDuty || offDutyList.length}\n\n`;
+        if (activeList.length > 0) {
+          reply += `**Working / Active:**\n`;
+          activeList.forEach(m => {
+            reply += `• ${m.name || 'Unknown'} (${m.role || 'N/A'})\n`;
+          });
+          reply += `\n`;
+        }
+        if (offDutyList.length > 0) {
+          reply += `**Off duty:**\n`;
+          offDutyList.forEach(m => {
+            reply += `• ${m.name || 'Unknown'} (${m.role || 'N/A'})\n`;
+          });
+        }
+        if (activeList.length === 0 && offDutyList.length === 0) {
+          reply += teamMembers.map(m => `• ${m.name || 'Unknown'} (${m.role || 'N/A'}, ${m.status || 'N/A'})`).join('\n');
+        }
+        console.log('🛑 PRE-ROUTER: Team status — returning deterministic reply');
+        return res.json({ reply, actions: [], projectUpdateData: null });
+      } else {
+        const reply = `📊 **Team Status**\n\nYou don't have any team members set up yet. Add team members in the Team tab, or say "Add team member" to add one via the assistant.`;
+        console.log('🛑 PRE-ROUTER: Team status (no members) — returning early');
+        return res.json({ reply, actions: [], projectUpdateData: null });
+      }
+    }
+
     // ── PRE-ROUTER: CHANGE ORDER DETECTION ──────────────────────────────────
     // Catch change order requests BEFORE router runs to ensure consistent behavior with bubble clicks
     const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a|the)?\s*(change\s+order|change\s+the\s+order|changeorder)\b/i;
@@ -2847,6 +3261,11 @@ router.post('/', async (req, res) => {
     // For generic "what if" requests, ask user to pick one preset scenario.
     // If user picks one, run immediately with no extra questions.
     const scenarioIntentRegex = /\b(what\s*if|scenario analysis|run a scenario analysis|run scenario analysis|project outcome scenario|outcome scenario)\b/i;
+    const delayOverrunIntentRegex = /\b(delay(?:ed)?|overrun|too\s+long|longer|beyond\s+(?:the\s+)?(?:timeline|schedule)|go(?:es|ing)?\s+on\s+too\s+long|run(?:s|ning)?\s+long|extends?)\b/i;
+    const delayOverrunContext = delayOverrunIntentRegex.test(String(message || '')) ||
+      [...history]
+        .slice(-6)
+        .some((m) => m?.role === 'user' && delayOverrunIntentRegex.test(String(m?.content || '')));
     const lastAssistantScenarioMsg = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
     ).toLowerCase();
@@ -2875,10 +3294,11 @@ router.post('/', async (req, res) => {
     const selectedScenario = scenarioChoiceMap.find(({ regex }) => regex.test(String(message || '')))?.value || null;
     const isGenericScenarioRequest =
       scenarioIntentRegex.test(String(message || '')) &&
-      !selectedScenario;
+      !selectedScenario &&
+      !delayOverrunContext;
     // CRITICAL: If user selected a scenario (even without "what if" in message), activate flow
     // This handles the case where user responds "Typical friction" to the AI's question
-    const isScenarioFlowActive = isGenericScenarioRequest || lastAssistantAskedScenarioChoice || selectedScenario;
+    const isScenarioFlowActive = !!selectedScenario || (!delayOverrunContext && (isGenericScenarioRequest || lastAssistantAskedScenarioChoice));
 
     if (isScenarioFlowActive) {
       routerResult.domain = 'scenario_analysis';
@@ -3874,21 +4294,34 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
             }
           }
           
-          // Check if notes are missing (for labor)
-          if (isLabor && (!functionArgs.notes || !functionArgs.notes.trim())) {
-            console.error('🚫 PRE-VALIDATION: No notes provided for labor expense - blocking function call');
-            messages.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({
-                success: false,
-                status: 'error',
-                error: `Notes are required for labor expenses. Please ask the user "What was the labor expense for?" (e.g., "framing", "drywall installation", "painting") before calling add_material_expense.`,
-                requiresNotes: true,
-                message: `I need to know what the labor was for. What was the labor expense for?`
-              })
-            });
-            continue; // Skip executing this function call
+          // Check if notes OR vendor (trade) is missing (for labor)
+          // "General labor", trade names go in vendor - do NOT ask again if user already provided
+          const hasLaborTrade = (isLabor && ((functionArgs.notes && functionArgs.notes.trim()) || (functionArgs.vendor && functionArgs.vendor.trim())));
+          if (isLabor && !hasLaborTrade) {
+            const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+            const tradeMatch = lastUserMsg.match(/\b(general\s+labor|it'?s\s+general\s+labor|it'?s\s+labor|labor|framing|plumbing|electrical|drywall|tile|painting|concrete|roofing|hvac|carpentry|drywall\s+installation|tile\s+work)\b/i);
+            const rawTrade = tradeMatch ? tradeMatch[1].replace(/^it'?s\s+/i, '').trim() : null;
+            const inferredTrade = rawTrade ? rawTrade.replace(/\b\w/g, c => c.toUpperCase()) : null;
+            if (inferredTrade) {
+              // User said "general labor" etc. - inject into functionArgs so executor has it
+              functionArgs.vendor = functionArgs.vendor || inferredTrade;
+              functionArgs.notes = functionArgs.notes || inferredTrade;
+              console.log('✅ PRE-VALIDATION: Injected labor trade from user message:', inferredTrade);
+            } else {
+              console.error('🚫 PRE-VALIDATION: No notes/vendor (trade) provided for labor expense - blocking function call');
+              messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({
+                  success: false,
+                  status: 'error',
+                  error: `For labor, you need the trade/sub (e.g., "general labor", "framing", "painting"). When user says "general labor" or a trade name, use it as vendor - do NOT ask again.`,
+                  requiresNotes: true,
+                  message: `I need to know what the labor was for. What trade or sub? (e.g., general labor, framing, painting)`
+                })
+              });
+              continue; // Skip executing this function call
+            }
           }
         }
 
@@ -4162,23 +4595,25 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
               requiresCategory: true
             };
           } else if (functionArgs.category && functionArgs.category.toLowerCase() === 'labor') {
-            // For labor expenses, require notes (what labor was for) - this will go in vendor field
-            // The vendor field in the UI is labeled "Sub / Trade" for labor expenses
-            if (!functionArgs.notes || !functionArgs.notes.trim()) {
-              console.error('❌ CRITICAL: Notes (what labor was for) is missing for labor expense', {
+            // For labor expenses, require notes OR vendor (what labor was for / sub/trade)
+            // "General labor", "it's general labor", trade names go in vendor field (Sub/Trade)
+            const hasTrade = (functionArgs.notes && functionArgs.notes.trim()) || (functionArgs.vendor && functionArgs.vendor.trim());
+            if (!hasTrade) {
+              console.error('❌ CRITICAL: Notes/vendor (what labor was for) is missing for labor expense', {
                 notes: functionArgs.notes,
+                vendor: functionArgs.vendor,
                 category: functionArgs.category
               });
               
               functionResult = {
                 success: false,
                 status: 'error',
-                error: `For labor expenses, you need to know what the labor was for. Please ask the user "What was the labor expense for?" (e.g., "framing", "drywall installation", "painting", "Tile work") and then call add_material_expense with the notes field. The trade will be stored in the vendor field (which displays as "Sub / Trade" in the UI).`,
+                error: `For labor expenses, you need to know what the labor was for. Please ask the user "What was the labor expense for?" or "What trade/sub?" (e.g., "general labor", "framing", "drywall installation", "painting") and then call add_material_expense with notes or vendor. The trade will be stored in the vendor field (Sub/Trade). When user says "general labor" or a trade name, use it - do NOT ask again.`,
                 requiresNotes: true
               };
             } else {
-              // Labor expense has notes (trade), proceed - it will be stored in vendor field
-              console.log('✅ Labor expense has trade/notes, will store in vendor field (Sub/Trade)');
+              // Labor expense has notes or vendor (trade), proceed
+              console.log('✅ Labor expense has trade (notes or vendor), will store in vendor field (Sub/Trade)');
             }
           } else if (!functionArgs.vendor || !functionArgs.vendor.trim() || functionArgs.vendor.trim().toLowerCase() === 'unknown vendor') {
             // For material expenses, vendor is required
@@ -4555,6 +4990,77 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
             },
             projectId: targetPid,
           };
+
+        // ── ASSIGN PM EXECUTOR ─────────────────────────────────────────────────
+        } else if (functionName === 'assign_pm') {
+          const targetPid = functionArgs.projectId || projectId;
+          const pmName = (functionArgs.pmName || '').trim();
+          if (!targetPid || !pmName) {
+            functionResult = { success: false, error: 'Project ID and PM name are required.' };
+          } else {
+            const assignAction = {
+              type: 'assign_pm',
+              projectId: targetPid,
+              pmName,
+              projectName: parsedContext?.projectName || parsedContext?.bidTitle || 'this project',
+            };
+            actions.push(assignAction);
+            functionResult = {
+              success: true,
+              message: `✅ Assigned ${pmName} as project manager.`,
+              projectId: targetPid,
+            };
+          }
+
+        // ── ADD TEAM MEMBER EXECUTOR ───────────────────────────────────────────
+        } else if (functionName === 'add_team_member') {
+          const targetPid = functionArgs.projectId || projectId;
+          const name = (functionArgs.name || '').trim();
+          const role = (functionArgs.role || 'Crew Member').trim();
+          const phone = (functionArgs.phone || '').trim();
+          if (!targetPid || !name) {
+            functionResult = { success: false, error: 'Project ID and team member name are required.' };
+          } else if (!phone) {
+            functionResult = { success: false, error: 'Phone number is required. Ask the user: "What is the phone number for ' + name + '?"', required_fields_missing: ['phone'] };
+          } else {
+            const addAction = {
+              type: 'add_team_member',
+              projectId: targetPid,
+              teamMember: { name, role, phone },
+              projectName: parsedContext?.projectName || parsedContext?.bidTitle || 'this project',
+            };
+            actions.push(addAction);
+            functionResult = {
+              success: true,
+              message: `✅ Added ${name} to the team. They'll appear in your Team tab.`,
+              projectId: targetPid,
+            };
+          }
+
+        // ── UPDATE TEAM MEMBER STATUS EXECUTOR ───────────────────────────────────
+        } else if (functionName === 'update_team_member_status') {
+          const targetPid = functionArgs.projectId || projectId;
+          const memberName = (functionArgs.memberName || '').trim();
+          const status = (functionArgs.status || 'active').toLowerCase().replace(/\s+/g, '_');
+          if (!targetPid || !memberName) {
+            functionResult = { success: false, error: 'Project ID and team member name are required.' };
+          } else if (status !== 'active' && status !== 'off_duty') {
+            functionResult = { success: false, error: 'Status must be "active" or "off_duty".' };
+          } else {
+            const updateAction = {
+              type: 'update_team_member_status',
+              projectId: targetPid,
+              memberName,
+              status,
+              projectName: parsedContext?.projectName || parsedContext?.bidTitle || 'this project',
+            };
+            actions.push(updateAction);
+            functionResult = {
+              success: true,
+              message: `✅ Updated ${memberName} to ${status === 'active' ? 'active' : 'off duty'}.`,
+              projectId: targetPid,
+            };
+          }
 
         // ── AI ESTIMATE GENERATOR EXECUTOR ──────────────────────────────────────
         } else if (functionName === 'generate_estimate') {
@@ -5056,9 +5562,10 @@ RULES:
     });
     
     if (isHealthCheck && (bidTotal > 0 || estimatedCost > 0 || materialBudget > 0)) {
-      const estMarginPct = bidTotal > 0 && estimatedCost > 0 ? ((bidTotal - estimatedCost) / bidTotal * 100) : 0;
-      const curMarginPct = bidTotal > 0 && actualCost > 0 ? ((bidTotal - actualCost) / bidTotal * 100) : estMarginPct;
-      const forecastProfit = bidTotal > 0 ? bidTotal - (actualCost > 0 ? actualCost : estimatedCost) : 0;
+      const revenue = contractValue > 0 ? contractValue : bidTotal;
+      const estMarginPct = revenue > 0 && estimatedCost > 0 ? ((revenue - estimatedCost) / revenue * 100) : 0;
+      const curMarginPct = revenue > 0 && actualCost > 0 ? ((revenue - actualCost) / revenue * 100) : estMarginPct;
+      const forecastProfit = revenue > 0 ? revenue - (actualCost > 0 ? actualCost : estimatedCost) : 0;
       const spentPct = estimatedCost > 0 ? (actualCost / estimatedCost * 100) : 0;
       const progressNum = Number(progress) || 0;
       
@@ -5091,11 +5598,11 @@ RULES:
       let riskReason = 'Project financials look healthy.';
       if (spentPct > progressNum + 20) { riskLevel = 'High'; riskReason = `Spent ${spentPct.toFixed(0)}% of budget but only ${progressNum}% complete.`; }
       else if (spentPct > progressNum + 10) { riskLevel = 'Medium'; riskReason = `Spending is ${(spentPct - progressNum).toFixed(0)} points ahead of progress.`; }
-      else if (curMarginPct < 10 && bidTotal > 0) { riskLevel = 'Medium'; riskReason = `Current margin (${curMarginPct.toFixed(1)}%) is below 10% target.`; }
+      else if (curMarginPct < 10 && revenue > 0) { riskLevel = 'Medium'; riskReason = `Current margin (${curMarginPct.toFixed(1)}%) is below 10% target.`; }
       
       // Budget status
       let budgetStatus = estimatedCost > 0 ? (spentPct < 50 ? 'On Track' : spentPct < 90 ? 'Watch' : 'Over') : 'Data needed';
-      let marginStatus = bidTotal > 0 ? `${curMarginPct.toFixed(1)}%` : 'Data needed';
+      let marginStatus = revenue > 0 ? `${curMarginPct.toFixed(1)}%` : 'Data needed';
       let scheduleStatus = progressNum > 0 ? `${progressNum}% complete` : (milestones.length > 0 ? `${milestones.length} milestones` : 'No schedule data');
 
       // Top cost drivers from expenses

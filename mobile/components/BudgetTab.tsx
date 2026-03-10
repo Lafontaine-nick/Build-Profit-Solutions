@@ -26,6 +26,7 @@ import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
+import { computeProfitForecast } from '../src/lib/profitForecast';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
@@ -118,6 +119,8 @@ const firstPositiveNumber = (...values: any[]): number | null => {
   return null;
 };
 
+const normalizeProjectId = (id: any) => String(id ?? '').trim();
+
 function lineBase(l: BudgetLine) {
   return safe(l.qty) * safe(l.unitCost);
 }
@@ -206,7 +209,7 @@ export default function BudgetTab({
 
   const router = useRouter();
   const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
-  const { projects } = useProjectList();
+  const { projects, getProjectById } = useProjectList();
   
   
   // Reload from storage when Budget tab is focused, but defer until nav interactions complete
@@ -275,6 +278,19 @@ export default function BudgetTab({
     committedPOs: contextProjectData?.committedPOs || data.committedPOs || 0,
     currency: data.currency || 'USD',
   } : contextProjectData;
+
+  const projectId = useMemo(
+    () => normalizeProjectId((projectData as any)?.id || data?.projectId),
+    [projectData, data?.projectId]
+  );
+  const projectFromList = useMemo(() => {
+    if (!projectId) return null;
+    try {
+      return getProjectById?.(projectId) ?? projects.find((p: any) => normalizeProjectId(p?.id) === projectId) ?? null;
+    } catch {
+      return null;
+    }
+  }, [projectId, getProjectById, projects]);
   
   const currency = projectData?.currency ?? 'USD';
 
@@ -318,13 +334,17 @@ export default function BudgetTab({
     // 7. plannedFromBuckets (sum of bucket budgets - original estimate breakdown)
     // DO NOT use data.plannedBudget or projectData.budgeted as they may already include approved change orders
     
+    const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
     const budgetCandidates = [
-      (projectData as any)?.estimateData?.grandTotal,  // PRIMARY: estimate's grandTotal ($7,200)
-      (projectData as any)?.estimateData?.bidPrice,    // Secondary: estimate's bidPrice
-      (projectData as any)?.estimateData?.total,       // Tertiary: estimate's total
-      (projectData as any)?.bidPrice,                   // Fallback: project bidPrice
-      (projectData as any)?.estimatedCost,             // Fallback: estimatedCost
-      data?.plannedBudget,                             // Last resort: from props (may be wrong)
+      ed?.grandTotal,
+      ed?.bidPrice,
+      ed?.total,
+      ed?.calculatedTotal,
+      (projectFromList as any)?.bidPrice,
+      (projectData as any)?.bidPrice,
+      data?.plannedBudget,
+      (projectFromList as any)?.estimatedCost,
+      (projectData as any)?.estimatedCost,
     ];
     const explicitBudget = firstPositiveNumber(...budgetCandidates);
     if (explicitBudget !== null) {
@@ -332,7 +352,7 @@ export default function BudgetTab({
       return explicitBudget;
     }
     return plannedFromBuckets;
-  }, [data?.plannedBudget, projectData, plannedFromBuckets]);
+  }, [data?.plannedBudget, projectData, projectFromList, plannedFromBuckets]);
 
   // Use baseBudget for planned (without change orders)
   // This ensures we don't double-count when adding coApproved
@@ -430,8 +450,8 @@ export default function BudgetTab({
     
     // Second, sum up expenses with category "Change Orders"
     const expenses = projectData?.expenses || [];
-    const coExpenses = expenses.filter(exp => 
-      (exp.category || '').toLowerCase() === 'change orders'
+    const coExpenses = expenses.filter((exp: any) =>
+      (exp?.category || '').toLowerCase() === 'change orders'
     );
     
     const coExpensesTotal = coExpenses.reduce((sum, exp) => {
@@ -497,6 +517,93 @@ export default function BudgetTab({
   }, [projectData?.spent, projectData?.expenses, receivedPOsTotal]);
   const committed = safe(projectData?.committedPOs || 0);
   const remaining = Math.max(adjustedBudget - actual - purchaseOrdersTotal, 0);
+  // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
+  const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
+  let baseBid = firstPositiveNumber(
+    ed?.grandTotal,
+    ed?.bidPrice,
+    ed?.total,
+    ed?.calculatedTotal,
+    (projectFromList as any)?.bidPrice,
+    (projectData as any)?.bidPrice,
+    ed?.estimateData?.grandTotal,
+    ed?.estimateData?.total
+  );
+  // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
+  if (baseBid == null && planned > 0) {
+    const marginPct = Number((projectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
+    baseBid = planned / (1 - effectiveMargin / 100);
+  }
+  const contractValue = baseBid != null && baseBid > 0 ? baseBid + coApproved : adjustedBudget;
+  // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
+  const estimateCostFromParts =
+    Number(ed?.materials || 0) +
+    Number(ed?.labor || 0) +
+    Number(ed?.equipment || 0) +
+    Number(ed?.facilities || 0) +
+    Number(ed?.insuranceOverhead || 0) +
+    Number(ed?.otherOverhead || 0) +
+    Number(ed?.planCost || 0) +
+    Number(ed?.permitCost || 0);
+  let costBase = Number(
+    ed?.estimatedCost ??
+    ed?.subtotal ??
+    ed?.totalCost ??
+    ed?.baseCost ??
+    (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
+    (projectFromList as any)?.estimatedCost ??
+    (projectData as any)?.estimatedCost ??
+    0
+  );
+  if (costBase <= 0 && baseBid != null && baseBid > 0) {
+    const marginPct = Number((projectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
+    else costBase = baseBid / 1.18; // Default 18% markup if no margin
+  }
+  if (costBase <= 0) costBase = planned;
+  const costBaseline = costBase + coApproved;
+  const milestoneProgressPct = useMemo(() => {
+    const milestoneSources = [
+      (projectFromList as any)?.milestones,
+      (projectData as any)?.milestones,
+      ed?.paymentMilestones,
+      ed?.milestones,
+    ];
+    const all = milestoneSources.find((arr) => Array.isArray(arr) && arr.length > 0) || [];
+    if (!Array.isArray(all) || all.length === 0) return 0;
+    const normalized = all.map((m: any) => {
+      const raw = Number(m?.progressPct);
+      if (Number.isFinite(raw) && raw >= 0) return Math.min(100, raw);
+      const st = String(m?.status || '').toLowerCase();
+      if (st === 'completed') return 100;
+      if (st === 'in_progress') return 50;
+      return 0;
+    });
+    return normalized.reduce((sum, n) => sum + n, 0) / normalized.length;
+  }, [projectFromList, projectData, ed]);
+  const progressForForecast = useMemo(() => {
+    const explicit = firstPositiveNumber(
+      (projectFromList as any)?.overallProgressPct,
+      (projectFromList as any)?.progress,
+      (projectData as any)?.overallProgressPct,
+      (projectData as any)?.progress
+    ) ?? 0;
+    return Math.max(explicit, milestoneProgressPct);
+  }, [projectFromList, projectData, milestoneProgressPct]);
+  const profitForecast = useMemo(() => computeProfitForecast({
+    contractValue,
+    adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
+    estimatedCostBaseline: costBase > 0 ? costBase : undefined,
+    actualExpenses: actual,
+    committedPOs: purchaseOrdersTotal,
+    progressPct: progressForForecast,
+  }), [contractValue, costBaseline, adjustedBudget, costBase, actual, purchaseOrdersTotal, progressForForecast]);
+  const profitStatusColor =
+    profitForecast.status === 'Strong' ? '#22C55E' :
+    profitForecast.status === 'Healthy' ? '#10B981' :
+    profitForecast.status === 'Tight' ? '#F59E0B' :
+    profitForecast.status === 'At Risk' ? '#F97316' : '#EF4444';
 
   // Calculate projected costs for alerts
   const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
@@ -772,6 +879,29 @@ export default function BudgetTab({
             label='Committed POs'
             value={money(purchaseOrdersTotal, currency)}
             theme={theme}
+          />
+          <Row
+            label='Forecast Final Cost'
+            value={money(profitForecast.forecastFinalCost, currency)}
+            theme={theme}
+          />
+          <Row
+            label='Forecast Profit'
+            value={money(profitForecast.projectedProfit, currency)}
+            theme={theme}
+            valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
+          />
+          <Row
+            label='Forecast Margin'
+            value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
+            theme={theme}
+            valueColor={profitStatusColor}
+          />
+          <Row
+            label='Profit Variance vs Estimate'
+            value={money(profitForecast.profitVarianceVsEstimate, currency)}
+            theme={theme}
+            valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
           />
           <View style={styles.remainingSection}>
             <Text style={[styles.remainingLabel, { color: theme.subtext }]}>
@@ -1623,10 +1753,12 @@ function Row({
   label,
   value,
   theme,
+  valueColor,
 }: {
   label: string;
   value: string;
   theme: any;
+  valueColor?: string;
 }) {
   return (
     <View style={styles.row}>
@@ -1634,7 +1766,7 @@ function Row({
       <Text
         style={[
           styles.rowValue,
-          { color: theme.text, fontVariant: ['tabular-nums'] },
+          { color: valueColor || theme.text, fontVariant: ['tabular-nums'] },
         ]}
       >
         {value}
@@ -1768,7 +1900,7 @@ function Bar({
     }
   };
 
-  const getBarGradient = () => {
+  const getBarGradient = (): [string, string] => {
     switch (tone) {
       case 'red':
         return ['#ef4444', '#f97316'];
@@ -2297,7 +2429,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     backgroundColor: 'transparent',
     borderWidth: 0,
-    outlineStyle: 'none',
     minHeight: 40,
   },
   totalBox: {

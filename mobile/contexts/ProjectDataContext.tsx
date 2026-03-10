@@ -75,7 +75,8 @@ interface ProjectDataContextType {
     pmAssigned: boolean,
     pmName?: string,
     crewCount?: number,
-    crewMembers?: string[]
+    crewMembers?: string[],
+    crewMemberPhones?: Record<string, string>
   ) => void;
   addMessage: (message: string, sender: string) => void;
   updateStatus: (status: string) => void;
@@ -512,18 +513,27 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     pmAssigned: boolean,
     pmName?: string,
     crewCount?: number,
-    crewMembers?: string[]
+    crewMembers?: string[],
+    crewMemberPhones?: Record<string, string>
   ) => {
-    applyProjectDataUpdate(prev => ({
-      ...prev,
-      team: {
-        pmAssigned,
-        pmName: pmName || prev.team.pmName,
-        crewMembers: crewMembers !== undefined ? crewMembers : (prev.team as any)?.crewMembers || [],
-      },
-      crewCount: crewCount !== undefined ? crewCount : (crewMembers?.length || prev.crewCount),
-      lastUpdated: new Date().toISOString(),
-    }));
+    applyProjectDataUpdate(prev => {
+      const prevTeam = prev.team as { pmName?: string; crewMembers?: string[]; crewMemberPhones?: Record<string, string> } | undefined;
+      const nextCrewMembers = crewMembers !== undefined ? crewMembers : (prevTeam?.crewMembers ?? []);
+      const nextCrewPhones = crewMemberPhones !== undefined
+        ? crewMemberPhones
+        : { ...(prevTeam?.crewMemberPhones ?? {}) };
+      return {
+        ...prev,
+        team: {
+          pmAssigned,
+          pmName: pmName ?? prevTeam?.pmName ?? '',
+          crewMembers: nextCrewMembers,
+          crewMemberPhones: nextCrewPhones,
+        },
+        crewCount: crewCount !== undefined ? crewCount : nextCrewMembers.length,
+        lastUpdated: new Date().toISOString(),
+      };
+    });
   };
 
   const addMessage = (message: string, sender: string) => {
