@@ -726,6 +726,434 @@ function runProactiveIntelligence(ctx) {
   return alerts;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECTS LIST INTELLIGENCE (additive)
+// Scans all projects and surfaces concise alerts for Projects screen.
+// ─────────────────────────────────────────────────────────────────────────────
+function runProjectsListIntelligence(parsedContext) {
+  const alerts = [];
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  if (!allProjects.length) return alerts;
+
+  const now = new Date();
+  const normalize = (v) => {
+    if (v == null) return 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const safeDate = (d) => {
+    const dt = new Date(d || 0);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+  };
+
+  allProjects.forEach((p) => {
+    const title = p?.title || p?.name || 'Project';
+    const estimateData = p?.estimateData || {};
+    const buckets = Array.isArray(p?.buckets) ? p.buckets : (Array.isArray(p?.projectData?.buckets) ? p.projectData.buckets : []);
+    const milestonesRaw = Array.isArray(p?.milestones) && p.milestones.length
+      ? p.milestones
+      : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []);
+
+    // Material overrun
+    const materialBucket = buckets.find((b) => {
+      const n = String(b?.name || '').toLowerCase();
+      return n.includes('material') || n.includes('equipment');
+    });
+    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? estimateData?.materialTotal ?? estimateData?.materials ?? 0);
+    const materialSpent = normalize(materialBucket?.spent ?? 0);
+    if (materialBudget > 0 && materialSpent > materialBudget) {
+      const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
+      alerts.push(`${title}: Materials ${overPct}% over budget`);
+    }
+
+    // Labor overrun
+    const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
+    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? estimateData?.laborTotal ?? estimateData?.labor ?? 0);
+    const laborSpent = normalize(laborBucket?.spent ?? 0);
+    if (laborBudget > 0 && laborSpent > laborBudget) {
+      const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
+      alerts.push(`${title}: Labor ${overPct}% over budget`);
+    }
+
+    // Overdue milestones/payments
+    const overdue = milestonesRaw.filter((m) => {
+      const status = String(m?.status || '').toLowerCase();
+      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
+      return !!dt && dt < now;
+    });
+    if (overdue.length > 0) {
+      const name = overdue[0]?.title || overdue[0]?.name || overdue[0]?.description || 'Milestone';
+      alerts.push(`${title}: ${name} overdue`);
+    }
+
+    // Low margin
+    const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+    const spentOrEstimate = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
+    const marginFallback = revenue > 0 ? ((revenue - spentOrEstimate) / revenue) * 100 : 0;
+    const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+    if (margin > 0 && margin < 10) {
+      alerts.push(`${title}: Margin at ${Math.round(margin)}%`);
+    }
+
+    // Upcoming payments
+    const upcoming = milestonesRaw.find((m) => {
+      const status = String(m?.status || '').toLowerCase();
+      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
+      if (!dt) return false;
+      const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      return days >= 0 && days <= 7;
+    });
+    if (upcoming) {
+      const upName = upcoming?.title || upcoming?.name || upcoming?.description || 'Payment';
+      alerts.push(`${title}: Upcoming ${upName} within 7 days`);
+    }
+
+    // Stalled project activity
+    const updatedAt = safeDate(p?.updatedAt || p?.lastUpdated || p?.projectData?.lastUpdated);
+    if (updatedAt) {
+      const daysSinceUpdate = Math.floor((now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceUpdate >= 14) {
+        alerts.push(`${title}: No major updates in ${daysSinceUpdate} days`);
+      }
+    }
+
+    // Missing receipts (expenses without receiptUri)
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    if (expenses.length > 0) {
+      const withReceipt = expenses.filter((e) => e?.receiptUri && String(e.receiptUri).trim());
+      const withoutReceipt = expenses.length - withReceipt.length;
+      if (withoutReceipt > 0 && withReceipt.length < expenses.length) {
+        alerts.push(`${title}: ${withoutReceipt} expense(s) missing receipts`);
+      }
+    }
+  });
+
+  // Add portfolio-level insights: lowest margin, most profitable
+  const withMargin = allProjects
+    .map((p) => {
+      const title = p?.title || p?.name || 'Project';
+      const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+      const spentOrEstimate = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
+      const marginFallback = revenue > 0 ? ((revenue - spentOrEstimate) / revenue) * 100 : 0;
+      const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+      return { title, margin, revenue };
+    })
+    .filter((x) => x.margin > 0 && x.revenue > 0);
+  if (withMargin.length >= 2) {
+    const byMargin = [...withMargin].sort((a, b) => a.margin - b.margin);
+    const lowest = byMargin[0];
+    const highest = byMargin[byMargin.length - 1];
+    if (lowest.margin < 25) {
+      alerts.push(`${lowest.title}: Lowest margin at ${Math.round(lowest.margin)}%`);
+    }
+    if (highest.margin > 20 && highest.title !== lowest.title) {
+      alerts.push(`${highest.title}: Trending most profitable (${Math.round(highest.margin)}% margin)`);
+    }
+  }
+
+  return alerts.slice(0, 10);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROFIT LEAK DETECTION — identify silent profit erosion across projects
+// ─────────────────────────────────────────────────────────────────────────────
+function runProfitLeakDetection(parsedContext) {
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const now = new Date();
+  const normalize = (v) => {
+    if (v == null) return 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    return Number.isFinite(Number(v)) ? Number(v) : 0;
+  };
+  const safeDate = (d) => {
+    const dt = new Date(d || 0);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+  };
+
+  const leaks = [];
+
+  allProjects.forEach((p) => {
+    const title = p?.title || p?.name || 'Project';
+    const buckets = p?.buckets || p?.projectData?.buckets || [];
+    const materialBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('material') || String(b?.name || '').toLowerCase().includes('equipment'));
+    const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
+    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
+    const materialSpent = normalize(materialBucket?.spent ?? 0);
+    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
+    const laborSpent = normalize(laborBucket?.spent ?? 0);
+    const progress = normalize(p?.progress ?? p?.overallProgressPct ?? 0);
+    const actualCost = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
+    const estimatedCost = normalize(p?.estimatedCost ?? 0);
+    const bidPrice = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+
+    if (laborBudget > 0 && laborSpent > laborBudget) {
+      const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
+      leaks.push({
+        project: title,
+        message: `${title} is ${overPct}% over projected labor at this phase.`,
+        cta: 'Review Costs',
+        prompt: `Review labor costs and expenses on ${title}`,
+        priority: 1,
+      });
+    }
+    if (materialBudget > 0 && materialSpent > materialBudget) {
+      const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
+      leaks.push({
+        project: title,
+        message: `${title} material costs are ${overPct}% above estimate.`,
+        cta: 'Review Costs',
+        prompt: `Compare estimate vs actual material costs on ${title}`,
+        priority: 2,
+      });
+    }
+    if (progress > 0 && estimatedCost > 0 && actualCost > 0) {
+      const expectedSpend = estimatedCost * (progress / 100);
+      if (actualCost > expectedSpend * 1.15) {
+        leaks.push({
+          project: title,
+          message: `Spend is ahead of progress on ${title}, which may compress margin.`,
+          cta: 'Forecast Margin',
+          prompt: `Forecast the final cost and profit for ${title}`,
+          priority: 3,
+        });
+      }
+    }
+
+    const withoutReceipt = expenses.filter((e) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+    if (withoutReceipt >= 3) {
+      leaks.push({
+        project: title,
+        message: `Missing receipts are reducing reporting accuracy on ${title}.`,
+        cta: 'Upload Receipts',
+        prompt: `Which expenses on ${title} are missing receipts?`,
+        priority: 4,
+      });
+    }
+
+    const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
+    const overdue = milestonesRaw.filter((m) => {
+      const status = String(m?.status || '').toLowerCase();
+      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
+      return !!dt && dt < now;
+    });
+    if (overdue.length > 0 && progress > 20) {
+      leaks.push({
+        project: title,
+        message: `${overdue[0]?.title || overdue[0]?.name || 'Payment'} appears overdue relative to completed work.`,
+        cta: 'Review Payments',
+        prompt: `What payments are overdue on ${title}?`,
+        priority: 5,
+      });
+    }
+  });
+
+  return leaks.sort((a, b) => a.priority - b.priority).slice(0, 5);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TODAY BRIEF — structured data for Global AI Command Center
+// Returns insights, recommended actions, quick actions, suggested follow-ups
+// ─────────────────────────────────────────────────────────────────────────────
+function runTodayBrief(parsedContext) {
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const now = new Date();
+  const normalize = (v) => {
+    if (v == null) return 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const safeDate = (d) => {
+    const dt = new Date(d || 0);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+  };
+
+  const insights = [];
+  const recommendedActions = [];
+  const projectNames = new Set();
+
+  // Aggregate missing receipts across all projects
+  let totalMissingReceipts = 0;
+  allProjects.forEach((p) => {
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    const withoutReceipt = expenses.filter((e) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+    totalMissingReceipts += withoutReceipt;
+  });
+  if (totalMissingReceipts > 0) {
+    insights.push(`${totalMissingReceipts} expense${totalMissingReceipts > 1 ? 's' : ''} missing receipts`);
+    recommendedActions.push({ label: 'Upload missing receipts', prompt: 'Which projects have missing receipts? I want to upload them.' });
+  }
+
+  // Lowest margin, most profitable
+  const withMargin = allProjects
+    .map((p) => {
+      const title = p?.title || p?.name || 'Project';
+      const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+      const spentOrEstimate = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
+      const marginFallback = revenue > 0 ? ((revenue - spentOrEstimate) / revenue) * 100 : 0;
+      const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+      return { title, margin, revenue };
+    })
+    .filter((x) => x.margin > 0 && x.revenue > 0);
+
+  if (withMargin.length >= 1) {
+    const byMargin = [...withMargin].sort((a, b) => a.margin - b.margin);
+    const lowest = byMargin[0];
+    const highest = byMargin[byMargin.length - 1];
+    if (lowest.margin < 25) {
+      insights.push(`${lowest.title} margin is trending lower`);
+      projectNames.add(lowest.title);
+      recommendedActions.push({ label: `Review ${lowest.title} costs`, prompt: `Review labor costs and expenses on ${lowest.title}` });
+    }
+    if (highest.margin > 20 && highest.title !== lowest.title) {
+      insights.push(`${highest.title} is your most profitable project`);
+      projectNames.add(highest.title);
+    }
+  }
+
+  // Upcoming inspections / milestones (tomorrow or within 7 days)
+  let upcomingCount = 0;
+  allProjects.forEach((p) => {
+    const title = p?.title || p?.name || 'Project';
+    const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
+    const upcoming = milestonesRaw.find((m) => {
+      const status = String(m?.status || '').toLowerCase();
+      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
+      if (!dt) return false;
+      const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      return days >= 0 && days <= 2;
+    });
+    if (upcoming) {
+      upcomingCount++;
+      projectNames.add(title);
+    }
+  });
+  if (upcomingCount > 0) {
+    insights.push(`${upcomingCount} payment${upcomingCount > 1 ? 's' : ''} due in the next 2 days`);
+    recommendedActions.push({ label: 'Confirm upcoming payments', prompt: 'What payments or milestones are due in the next few days?' });
+  }
+
+  // Labor / material overruns
+  allProjects.forEach((p) => {
+    const title = p?.title || p?.name || 'Project';
+    const buckets = p?.buckets || p?.projectData?.buckets || [];
+    const materialBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('material') || String(b?.name || '').toLowerCase().includes('equipment'));
+    const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
+    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
+    const materialSpent = normalize(materialBucket?.spent ?? 0);
+    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
+    const laborSpent = normalize(laborBucket?.spent ?? 0);
+    if (materialBudget > 0 && materialSpent > materialBudget) {
+      const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
+      insights.push(`${title} materials ${overPct}% over budget`);
+      projectNames.add(title);
+      recommendedActions.push({ label: `Review ${title} costs`, prompt: `Compare estimate vs actual material costs on ${title}` });
+    }
+    if (laborBudget > 0 && laborSpent > laborBudget) {
+      const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
+      insights.push(`${title} labor ${overPct}% over budget`);
+      projectNames.add(title);
+    }
+  });
+
+  // Overdue items
+  allProjects.forEach((p) => {
+    const title = p?.title || p?.name || 'Project';
+    const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
+    const overdue = milestonesRaw.filter((m) => {
+      const status = String(m?.status || '').toLowerCase();
+      if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+      const dt = safeDate(m?.plannedDate || m?.scheduledDate || m?.dueDate);
+      return !!dt && dt < now;
+    });
+    if (overdue.length > 0) {
+      insights.push(`${overdue[0]?.title || overdue[0]?.name || 'Payment'} overdue on ${title}`);
+      projectNames.add(title);
+    }
+  });
+
+  // Profit leak detection — contractor-friendly insights
+  const profitLeaks = runProfitLeakDetection(parsedContext);
+  profitLeaks.forEach((leak) => {
+    if (!insights.includes(leak.message)) insights.push(leak.message);
+    if (!recommendedActions.find((a) => a.prompt === leak.prompt)) {
+      recommendedActions.push({ label: leak.cta, prompt: leak.prompt });
+    }
+  });
+
+  // Dedupe insights, cap at 4 for concise premium feel
+  const uniqueInsights = [...new Set(insights)].slice(0, 4);
+  const uniqueRecommended = recommendedActions.slice(0, 3);
+
+  const quickActions = [
+    { label: 'Compare Projects', prompt: 'Compare all my projects for profitability and risk' },
+    { label: 'What Needs Attention', prompt: 'What should I focus on today?' },
+    { label: 'Forecast Profit', prompt: 'Forecast profit across my projects' },
+    { label: 'Check Budget Risks', prompt: 'Identify budget risks across my projects' },
+    { label: 'Missing Receipts', prompt: 'Which projects have expenses missing receipts?' },
+    { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
+  ];
+
+  const suggestedFollowUps = [];
+  const names = [...projectNames].slice(0, 3);
+  names.forEach((name) => {
+    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a health check on ${name}` });
+  });
+  if (names.length >= 2) {
+    suggestedFollowUps.push({ label: `Compare ${names[0]} vs ${names[1]}`, prompt: `Compare ${names[0]} and ${names[1]}` });
+  }
+  suggestedFollowUps.push({ label: 'Show lowest margin jobs', prompt: 'Which projects have the lowest margin?' });
+  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which projects are over budget?' });
+
+  // Biggest Risk: pick highest-priority issue (profit leak first, then low margin, overdue, missing receipts)
+  let biggestRisk = null;
+  if (profitLeaks.length > 0) {
+    const top = profitLeaks[0];
+    biggestRisk = {
+      title: top.project,
+      message: top.message,
+      detail: 'This may be eroding profit.',
+      cta: top.cta,
+      prompt: top.prompt,
+    };
+  } else if (withMargin && withMargin.length >= 1) {
+    const byMargin = [...withMargin].sort((a, b) => a.margin - b.margin);
+    const lowest = byMargin[0];
+    if (lowest.margin < 25) {
+      biggestRisk = {
+        title: lowest.title,
+        message: `${lowest.title} margin dropped to ${Math.round(lowest.margin)}%`,
+        detail: 'Labor costs may be higher than estimated.',
+        cta: 'Review Project',
+        prompt: `Review labor costs and expenses on ${lowest.title}`,
+      };
+    }
+  }
+
+  return {
+    insights: uniqueInsights,
+    recommendedActions: uniqueRecommended,
+    quickActions,
+    suggestedFollowUps: suggestedFollowUps.slice(0, 6),
+    biggestRisk,
+  };
+}
+
 function getAllMilestonesFromContext(parsedContext = {}) {
   return [
     ...(parsedContext?.milestones || []),
@@ -952,6 +1380,56 @@ router.post('/scan-missing-costs', async (req, res) => {
 });
 
 /**
+ * POST /api/ai-assistant/greeting
+ * Returns a personalized Today Brief for the Global AI Command Center.
+ * Used when the user opens the center nav AI pill with an empty conversation.
+ */
+router.post('/greeting', async (req, res) => {
+  try {
+    const { context = {}, userFirstName } = req.body;
+    let parsedContext = {};
+    try {
+      if (typeof context === 'string') {
+        parsedContext = JSON.parse(context);
+      } else if (typeof context === 'object') {
+        parsedContext = context;
+      }
+    } catch (e) {
+      parsedContext = {};
+    }
+
+    const brief = runTodayBrief(parsedContext);
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const namePart = userFirstName && String(userFirstName).trim()
+      ? ` ${String(userFirstName).trim()}`
+      : '';
+
+    let reply = `${greeting}${namePart}\n\nHere's what needs attention today.\n\n`;
+    if (brief.insights.length > 0) {
+      brief.insights.forEach((a) => {
+        reply += `• ${a}\n`;
+      });
+      reply += '\nWhat would you like to review?';
+    } else {
+      reply += "Your portfolio looks quiet right now. What would you like to review?";
+    }
+
+    return res.json({
+      reply,
+      insights: brief.insights,
+      recommendedActions: brief.recommendedActions,
+      quickActions: brief.quickActions,
+      suggestedFollowUps: brief.suggestedFollowUps,
+      biggestRisk: brief.biggestRisk,
+    });
+  } catch (err) {
+    console.error('Error in /greeting:', err);
+    return res.status(500).json({ error: 'Greeting failed', message: err.message });
+  }
+});
+
+/**
  * POST /api/ai-assistant
  * AI Assistant endpoint for project management
  */
@@ -1007,7 +1485,9 @@ router.post('/', async (req, res) => {
     
     // Extract project context
     const projectName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
-    let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId;
+    const selectedProjectIdHint = parsedContext.selectedProjectId || null;
+    const lastOpenedProjectIdHint = parsedContext.lastOpenedProjectId || null;
+    let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId || selectedProjectIdHint;
     const allProjects = parsedContext.allProjects || [];
     
     console.log('🔍 AI Assistant: Initial project context', {
@@ -1023,6 +1503,13 @@ router.post('/', async (req, res) => {
       parsedContextProjectName: parsedContext.projectName,
       parsedContextBidTitle: parsedContext.bidTitle
     });
+    if (parsedContext?.screen === 'Projects') {
+      console.log('🧭 Projects screen hints', {
+        selectedProjectIdHint,
+        lastOpenedProjectIdHint,
+        initialProjectId: projectId,
+      });
+    }
     
     // If we have a project name but no ID, try to find it in allProjects
     if (projectName && !projectId && allProjects.length > 0) {
@@ -1635,6 +2122,15 @@ router.post('/', async (req, res) => {
       upcomingCalendarEvents,
     });
 
+    // Additive: projects-list intelligence block (Global AI Assistant + Projects screen).
+    const screenForIntelligence = (parsedContext?.screen || '').toLowerCase();
+    if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
+      const listAlerts = runProjectsListIntelligence(parsedContext);
+      if (listAlerts.length > 0) {
+        systemPrompt += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 PORTFOLIO INTELLIGENCE (grounded in real data)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nRULES:\n→ Use these alerts when user asks cross-project or list-level questions\n→ Surface relevant insights proactively when they relate to the user's question\n→ Keep comparisons concise and actionable\n→ If request is project-specific and ambiguous, ask one clear follow-up question`;
+      }
+    }
+
     // Build messages array from history + new message
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -1658,6 +2154,37 @@ router.post('/', async (req, res) => {
               },
             },
             required: ['projectName'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'compare_projects',
+          description: 'Compare projects for profitability, budget exposure, schedule risk, and progress. Use for questions like "most profitable", "most over budget", "which project is behind", or "compare Chris vs Nick".',
+          parameters: {
+            type: 'object',
+            properties: {
+              status: {
+                type: 'string',
+                description: 'Optional status filter (e.g., active, won, estimate, completed).',
+              },
+              dateRange: {
+                type: 'string',
+                description: 'Optional date range hint like "30d", "90d", "this-month".',
+              },
+              projectNames: {
+                type: 'array',
+                description: 'Optional list of project names to compare directly.',
+                items: { type: 'string' },
+              },
+              sortBy: {
+                type: 'string',
+                description: 'Optional sort key: margin | overBudget | progress | risk.',
+                enum: ['margin', 'overBudget', 'progress', 'risk'],
+              },
+            },
+            required: [],
           },
         },
       },
@@ -2100,44 +2627,194 @@ router.post('/', async (req, res) => {
     // Final tool list: core always included, PM tools added when mode is on
     const functions = [...coreTools, ...pmTools];
 
-    // Helper function to execute get_project_by_name
+    // Helper function to execute get_project_by_name (enhanced fuzzy matching, additive)
     async function executeGetProjectByName(args) {
       try {
         if (!args.projectName) {
           return { success: false, error: 'Project name is required' };
         }
 
-        // Search in allProjects array
-        if (allProjects && Array.isArray(allProjects)) {
-          const found = allProjects.find(p => {
-            const title = (p.title || p.name || '').toLowerCase().trim();
-            const searchName = args.projectName.toLowerCase().trim();
-            return title === searchName || title.includes(searchName) || searchName.includes(title);
-          });
-
-          if (found) {
-            const projectStatus = (found.status || '').toLowerCase();
-            const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes(projectStatus);
-            const isActive = ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes(projectStatus);
-            
-            return {
-              success: true,
-              projectId: found.id,
-              projectName: found.title || found.name,
-              status: found.status || 'estimate',
-              isEstimate,
-              isActiveProject: isActive,
-              message: `Found project "${found.title || found.name}" (${projectStatus}).`,
-            };
-          }
+        if (!allProjects || !Array.isArray(allProjects) || allProjects.length === 0) {
+          return {
+            success: false,
+            error: `Could not find a project named "${args.projectName}". Please check the project name and try again.`,
+          };
         }
-        
+
+        const searchName = String(args.projectName || '').toLowerCase().trim();
+        const searchTokens = searchName.split(/\s+/).filter(Boolean);
+        const scoreCandidate = (p) => {
+          const title = String(p?.title || p?.name || '').toLowerCase().trim();
+          const customer = String(p?.customerName || p?.client || '').toLowerCase().trim();
+          const locationText = String(p?.location || '').toLowerCase().trim();
+          const corpus = `${title} ${customer} ${locationText}`.trim();
+          const corpusTokens = corpus.split(/\s+/).filter(Boolean);
+          let score = 0;
+          if (!corpus) return { score, title };
+
+          if (title === searchName || customer === searchName) score += 100;
+          if (title.includes(searchName) || customer.includes(searchName)) score += 65;
+          if (searchName.includes(title) && title.length > 3) score += 30;
+          const tokenMatches = searchTokens.filter((tok) =>
+            corpusTokens.some((ct) => ct.includes(tok) || tok.includes(ct))
+          ).length;
+          if (searchTokens.length > 0) {
+            score += Math.round((tokenMatches / searchTokens.length) * 45);
+          }
+          if (locationText && searchTokens.some((tok) => locationText.includes(tok))) score += 12;
+          return { score, title };
+        };
+
+        const ranked = allProjects
+          .map((p) => ({ p, ...scoreCandidate(p) }))
+          .sort((a, b) => b.score - a.score);
+        const best = ranked[0];
+        const second = ranked[1];
+        const confidence = Math.max(0, Math.min(1, (best?.score || 0) / 100));
+        const lowConfidence = !best || best.score < 40 || (second && (best.score - second.score) < 12);
+
+        console.log('🔎 get_project_by_name fuzzy resolution', {
+          query: args.projectName,
+          best: best ? { id: best.p?.id, title: best.p?.title || best.p?.name, score: best.score } : null,
+          second: second ? { id: second.p?.id, title: second.p?.title || second.p?.name, score: second.score } : null,
+          confidence: Number(confidence.toFixed(2)),
+          lowConfidence,
+        });
+
+        if (!best || best.score <= 0) {
+          return {
+            success: false,
+            error: `Could not find a project named "${args.projectName}". Please check the project name and try again.`,
+          };
+        }
+
+        if (lowConfidence) {
+          const likelyMatches = ranked
+            .slice(0, 3)
+            .filter((r) => r.score > 0)
+            .map((r) => ({
+              id: r.p?.id,
+              title: r.p?.title || r.p?.name || 'Untitled Project',
+              status: r.p?.status || 'unknown',
+              score: r.score,
+            }));
+          const names = likelyMatches.map((m) => m.title).join(', ');
+          return {
+            success: false,
+            requiresClarification: true,
+            likelyMatches,
+            confidence: Number(confidence.toFixed(2)),
+            clarificationQuestion: likelyMatches.length
+              ? `I found a few possible matches for "${args.projectName}": ${names}. Which one should I use?`
+              : `I couldn't confidently match "${args.projectName}". Which project should I use?`,
+            error: 'Low-confidence project match',
+          };
+        }
+
+        const found = best.p;
+        const projectStatus = (found.status || '').toLowerCase();
+        const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes(projectStatus);
+        const isActive = ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes(projectStatus);
         return {
-          success: false,
-          error: `Could not find a project named "${args.projectName}". Please check the project name and try again.`,
+          success: true,
+          projectId: found.id,
+          projectName: found.title || found.name,
+          status: found.status || 'estimate',
+          isEstimate,
+          isActiveProject: isActive,
+          confidence: Number(confidence.toFixed(2)),
+          message: `Found project "${found.title || found.name}" (${projectStatus}).`,
         };
       } catch (error) {
         console.error('Error in executeGetProjectByName:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    // Helper function to compare projects (additive tool)
+    async function executeCompareProjects(args = {}) {
+      try {
+        const normalize = (v) => {
+          if (v == null) return 0;
+          if (typeof v === 'string') {
+            const n = Number(v.replace(/[$,\s]/g, ''));
+            return Number.isFinite(n) ? n : 0;
+          }
+          const n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        };
+        const statusFilter = String(args?.status || '').toLowerCase().trim();
+        const nameFilters = Array.isArray(args?.projectNames)
+          ? args.projectNames.map((n) => String(n).toLowerCase().trim()).filter(Boolean)
+          : [];
+
+        let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
+        if (statusFilter) {
+          candidates = candidates.filter((p) => String(p?.status || '').toLowerCase().includes(statusFilter));
+        }
+        if (nameFilters.length > 0) {
+          candidates = candidates.filter((p) => {
+            const title = String(p?.title || p?.name || '').toLowerCase();
+            const customer = String(p?.customerName || p?.client || '').toLowerCase();
+            return nameFilters.some((q) => title.includes(q) || customer.includes(q));
+          });
+        }
+
+        const analyzed = candidates.map((p) => {
+          const title = p?.title || p?.name || 'Untitled Project';
+          const budget = normalize(p?.estimatedCost ?? p?.projectData?.estimatedCost ?? p?.estimateData?.totalCost ?? 0);
+          const spent = normalize(p?.actualCost ?? p?.totalSpent ?? p?.projectData?.spent ?? 0);
+          const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+          const marginFallback = revenue > 0 && budget > 0 ? ((revenue - budget) / revenue) * 100 : 0;
+          const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+          const progress = normalize(p?.progress ?? p?.overallProgressPct);
+          const milestones = Array.isArray(p?.milestones) && p.milestones.length
+            ? p.milestones
+            : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []);
+          const overdueItems = milestones.filter((m) => {
+            const status = String(m?.status || '').toLowerCase();
+            if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
+            const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+            return Number.isFinite(dt.getTime()) && dt.getTime() < Date.now();
+          });
+          const overBudgetPct = budget > 0 ? ((spent - budget) / budget) * 100 : 0;
+          const riskFlags = [];
+          if (overBudgetPct > 10) riskFlags.push('over_budget');
+          if (margin > 0 && margin < 10) riskFlags.push('low_margin');
+          if (overdueItems.length > 0) riskFlags.push('overdue_milestones');
+          return {
+            projectId: p?.id,
+            title,
+            status: p?.status || 'unknown',
+            margin: Math.round(margin * 10) / 10,
+            spent,
+            budget,
+            overBudgetPct: Math.round(overBudgetPct * 10) / 10,
+            progress: Math.round(progress),
+            overdueItems: overdueItems.length,
+            riskFlags,
+          };
+        });
+
+        const sortBy = String(args?.sortBy || '').toLowerCase();
+        const sorted = [...analyzed].sort((a, b) => {
+          if (sortBy === 'progress') return b.progress - a.progress;
+          if (sortBy === 'overbudget') return b.overBudgetPct - a.overBudgetPct;
+          if (sortBy === 'risk') return b.riskFlags.length - a.riskFlags.length;
+          return b.margin - a.margin; // default: most profitable first
+        });
+
+        return {
+          success: true,
+          comparedCount: sorted.length,
+          projects: sorted,
+          summary: sorted.slice(0, 5),
+          message: sorted.length
+            ? `Compared ${sorted.length} project(s) by margin, budget exposure, progress, and schedule risk.`
+            : 'No projects matched the requested filters.',
+        };
+      } catch (error) {
+        console.error('Error in executeCompareProjects:', error);
         return { success: false, error: error.message };
       }
     }
@@ -4343,6 +5020,14 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
               isActiveProject: functionResult.isActiveProject,
             };
           }
+        } else if (functionName === 'compare_projects') {
+          logPhase('tool_start', { functionName });
+          functionResult = await withTimeout(executeCompareProjects(functionArgs), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
+            success: false,
+            error: e.message,
+            status: 'timeout_error',
+          }));
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
         } else if (functionName === 'add_purchase_order') {
           // CRITICAL: If user wants to mark as received, DO NOT create a new PO
           // Check ALL user messages in the conversation to see if they want to mark as received

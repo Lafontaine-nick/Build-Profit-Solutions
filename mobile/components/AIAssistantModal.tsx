@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Animated } from "react-native";
 import {
   Modal,
@@ -17,6 +17,7 @@ import {
   StatusBar,
   Keyboard,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -32,7 +33,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
 import { 
@@ -197,6 +198,103 @@ function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 
   return 'general';
 }
 
+/** Client-side Today Brief — fallback when API hasn't returned; ensures insight-first UI always shows */
+function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string | null) {
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const now = new Date();
+  const normalize = (v: any) => {
+    if (v == null) return 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    return Number.isFinite(Number(v)) ? Number(v) : 0;
+  };
+  const safeDate = (d: any) => {
+    const dt = new Date(d || 0);
+    return Number.isFinite(dt.getTime()) ? dt : null;
+  };
+
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const namePart = userFirstName && String(userFirstName).trim() ? ` ${String(userFirstName).trim()}` : '';
+  const reply = `${greeting}${namePart}\n\nHere's what needs attention today.`;
+
+  const insights: string[] = [];
+  const recommendedActions: { label: string; prompt: string }[] = [];
+  const projectNames = new Set<string>();
+
+  let totalMissingReceipts = 0;
+  allProjects.forEach((p: any) => {
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    totalMissingReceipts += expenses.filter((e: any) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+  });
+  if (totalMissingReceipts > 0) {
+    insights.push(`${totalMissingReceipts} expense${totalMissingReceipts > 1 ? 's' : ''} missing receipts`);
+    recommendedActions.push({ label: 'Upload missing receipts', prompt: 'Which projects have missing receipts? I want to upload them.' });
+  }
+
+  const withMargin = allProjects
+    .map((p: any) => {
+      const title = p?.title || p?.name || 'Project';
+      const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+      const spent = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
+      const margin = revenue > 0 ? ((revenue - spent) / revenue) * 100 : 0;
+      return { title, margin, revenue };
+    })
+    .filter((x: { margin: number; revenue: number }) => x.margin > 0 && x.revenue > 0);
+
+  let biggestRisk: { title: string; message: string; detail: string; prompt: string; cta?: string } | null = null;
+  if (withMargin.length >= 1) {
+    const byMargin = [...withMargin].sort((a, b) => a.margin - b.margin);
+    const lowest = byMargin[0];
+    const highest = byMargin[byMargin.length - 1];
+    if (lowest.margin < 25) {
+      insights.push(`${lowest.title} margin is trending lower`);
+      projectNames.add(lowest.title);
+      recommendedActions.push({ label: `Review ${lowest.title} costs`, prompt: `Review labor costs and expenses on ${lowest.title}` });
+      biggestRisk = {
+        title: lowest.title,
+        message: `${lowest.title} margin dropped to ${Math.round(lowest.margin)}%`,
+        detail: 'Labor costs may be higher than estimated.',
+        prompt: `Review labor costs and expenses on ${lowest.title}`,
+        cta: 'Review Project',
+      };
+    }
+    if (highest.margin > 20 && highest.title !== lowest.title) {
+      insights.push(`${highest.title} is your most profitable project`);
+      projectNames.add(highest.title);
+    }
+  }
+
+  const quickActions = [
+    { label: 'Compare Projects', prompt: 'Compare all my projects for profitability and risk' },
+    { label: 'What Needs Attention', prompt: 'What should I focus on today?' },
+    { label: 'Forecast Profit', prompt: 'Forecast profit across my projects' },
+    { label: 'Check Budget Risks', prompt: 'Identify budget risks across my projects' },
+    { label: 'Missing Receipts', prompt: 'Which projects have expenses missing receipts?' },
+    { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
+  ];
+
+  const suggestedFollowUps: { label: string; prompt: string }[] = [];
+  [...projectNames].slice(0, 3).forEach((name) => {
+    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a health check on ${name}` });
+  });
+  suggestedFollowUps.push({ label: 'Which project is most profitable?', prompt: 'Which project is most profitable?' });
+  suggestedFollowUps.push({ label: 'Which job is slipping?', prompt: 'Which job is slipping?' });
+  suggestedFollowUps.push({ label: 'What should I focus on today?', prompt: 'What should I focus on today?' });
+  suggestedFollowUps.push({ label: 'Show my lowest margin project', prompt: 'Show my lowest margin project' });
+
+  return {
+    reply,
+    insights: insights.slice(0, 5),
+    recommendedActions: recommendedActions.slice(0, 3),
+    quickActions,
+    suggestedFollowUps: suggestedFollowUps.slice(0, 6),
+    biggestRisk,
+  };
+}
+
 const Colors = {
   bg: "#000000",
   card: "#000000",
@@ -244,6 +342,14 @@ type Props = {
   defaultZip?: string;
   // Optional initial question to send automatically
   initialQuestion?: string;
+  // Optional selected project hint (used by Projects screen)
+  selectedProjectId?: string | null;
+  // Optional callback when project is selected from chips
+  onSelectedProjectIdChange?: (projectId: string) => void;
+  // Optional callback when backend sends projectUpdate payload
+  onProjectUpdated?: (projectId: string, updates: any) => void;
+  /** When in Command Center, pass project chips directly (bypasses context parsing) */
+  projectOptionsOverride?: Array<{ id: string; title: string; status?: string }>;
 };
 
 const QUICK_ACTIONS = [
@@ -284,11 +390,23 @@ const isHealthRefreshMessage = (m: Message) => {
   return HEALTH_REFRESH_KEYWORDS.some((kw) => lc.includes(kw));
 };
 
-const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction, defaultZip = '89011', initialQuestion }) => {
+const AIAssistantModal: React.FC<Props> = ({
+  visible,
+  onClose,
+  context,
+  onAction,
+  defaultZip = '89011',
+  initialQuestion,
+  selectedProjectId,
+  onSelectedProjectIdChange,
+  onProjectUpdated,
+  projectOptionsOverride,
+}) => {
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
   const { getToken } = useAuth();
+  const { user } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -313,10 +431,20 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   const [lastOpenedProjectId, setLastOpenedProjectIdState] = useState<string | null>(null);
   const [recentSummary, setRecentSummary] = useState<{ content: string; timestamp?: Date } | null>(null);
   const [recentSummaryExpanded, setRecentSummaryExpanded] = useState(false);
+  const [todayBriefData, setTodayBriefData] = useState<{
+    reply: string;
+    insights: string[];
+    recommendedActions: { label: string; prompt: string }[];
+    quickActions: { label: string; prompt: string }[];
+    suggestedFollowUps: { label: string; prompt: string }[];
+    biggestRisk?: { title: string; message: string; detail: string; prompt: string } | null;
+  } | null>(null);
   const [teamMembersData, setTeamMembersData] = useState<any[] | null>(null);
   const autoRefreshInFlightRef = useRef(false);
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastAutoRefreshSnapshotRef = useRef<string>("");
+  const hasAutoExpandedProjectsRef = useRef(false);
+  const portfolioScopeOverrideRef = useRef(false);
   const wasVisibleRef = useRef(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const isUserScrollingRef = useRef(false);
@@ -341,6 +469,29 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
   useEffect(() => {
     getLastOpenedProjectId().then(setLastOpenedProjectIdState);
   }, []);
+
+  // Clear portfolio override when parent clears selection (header will use normal logic)
+  useEffect(() => {
+    if (!selectedProjectId) {
+      portfolioScopeOverrideRef.current = false;
+    }
+  }, [selectedProjectId]);
+
+  // On Projects screen: auto-expand AI Insights when available (portfolio-focused)
+  useEffect(() => {
+    if (!visible) {
+      hasAutoExpandedProjectsRef.current = false;
+      return;
+    }
+    if (!recentSummary) return;
+    try {
+      const p = context ? JSON.parse(context) : {};
+      if (p?.screen === 'Projects' && !hasAutoExpandedProjectsRef.current) {
+        setRecentSummaryExpanded(true);
+        hasAutoExpandedProjectsRef.current = true;
+      }
+    } catch (_e) { /* ignore */ }
+  }, [visible, recentSummary, context]);
 
   // Track keyboard height for proper scrolling
   useEffect(() => {
@@ -546,6 +697,78 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }
   }, [visible, initialQuestion, messages.length, loading, context, aiManagerEnabled]);
 
+  // Global AI Assistant: fetch greeting with portfolio insights when opening with empty conversation
+  const greetingShownRef = useRef(false);
+  const [briefRefreshing, setBriefRefreshing] = useState(false);
+
+  const refreshTodayBrief = useCallback(async () => {
+    if (!context) return;
+    let parsed: { screen?: string } = {};
+    try {
+      parsed = JSON.parse(context);
+    } catch (_e) {
+      setBriefRefreshing(false);
+      return;
+    }
+    if ((parsed.screen || '').toLowerCase() !== 'ai assistant tab') {
+      setBriefRefreshing(false);
+      return;
+    }
+    setBriefRefreshing(true);
+    try {
+      const AI_API_BASE = resolveAIBaseUrl();
+      const url = `${AI_API_BASE}/api/ai-assistant/greeting`;
+      const token = await getToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const userFirstName = (user as any)?.firstName ?? (user as any)?.first_name ?? null;
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ context, userFirstName: userFirstName || undefined }),
+      });
+      const data = await res.json();
+      if (data.reply) {
+        setTodayBriefData({
+          reply: data.reply,
+          insights: data.insights || [],
+          recommendedActions: data.recommendedActions || [],
+          quickActions: data.quickActions || [],
+          suggestedFollowUps: data.suggestedFollowUps || [],
+          biggestRisk: data.biggestRisk || null,
+        });
+      }
+    } catch (_e) {
+      // Keep existing brief on error
+    } finally {
+      setBriefRefreshing(false);
+    }
+  }, [context, getToken, user]);
+
+  useEffect(() => {
+    if (!visible || messages.length > 0 || loading || initialQuestion) return;
+    let parsed: { screen?: string } = {};
+    try {
+      parsed = context ? JSON.parse(context) : {};
+    } catch (_e) {
+      return;
+    }
+    if ((parsed.screen || '').toLowerCase() !== 'ai assistant tab') return;
+    if (greetingShownRef.current) return;
+    greetingShownRef.current = true;
+
+    refreshTodayBrief().catch(() => {
+      greetingShownRef.current = false;
+    });
+  }, [visible, messages.length, loading, initialQuestion, context, refreshTodayBrief]);
+
+  // Reset greeting ref and today brief when modal closes so it shows again on next open
+  useEffect(() => {
+    if (!visible) {
+      greetingShownRef.current = false;
+      setTodayBriefData(null);
+    }
+  }, [visible]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -666,6 +889,110 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
 
   // Missing Costs is for Estimates AI only — not shown in Projects AI
   const isEstimateContext = parsedContext?.screen === 'Estimate Generator';
+  const isProjectsScreenContext = parsedContext?.screen === 'Projects';
+  const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
+  const selectedProjectHintId = portfolioScopeOverrideRef.current
+    ? null
+    : (selectedProjectId ||
+        parsedContext?.selectedProjectId ||
+        parsedContext?.resolvedProjectId ||
+        null);
+
+  const ALLOWED_PROJECT_NAMES = ['chris', 'nick', 'jason'];
+  const PROJECT_ORDER = ['chris', 'jason', 'nick']; // Fixed order: exactly 3 projects
+  const projectSelectionOptions = useMemo(() => {
+    const source = Array.isArray(parsedContext?.allProjects) && parsedContext.allProjects.length
+      ? parsedContext.allProjects
+      : [...activeProjects, ...estimates];
+    const normalized = source
+      .map((p: any) => ({
+        id: String(p?.id || ''),
+        title: String(p?.title || p?.name || 'Untitled Project'),
+        status: String(p?.status || ''),
+        lastOpened: p?.lastOpened || p?.updatedAt || p?.createdAt || '',
+      }))
+      .filter((p: any) => p.id)
+      .filter((p: any) => {
+        const t = p.title.toLowerCase().trim();
+        return ALLOWED_PROJECT_NAMES.some((name) => t === name || t.startsWith(name + ' ') || t.startsWith(name + '-') || t.startsWith(name + "'"));
+      });
+    const sorted = normalized.sort((a: any, b: any) => {
+      const aKey = a.title.toLowerCase().trim();
+      const bKey = b.title.toLowerCase().trim();
+      const aIdx = PROJECT_ORDER.findIndex((n) => aKey === n || aKey.startsWith(n));
+      const bIdx = PROJECT_ORDER.findIndex((n) => bKey === n || bKey.startsWith(n));
+      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+      if (aIdx >= 0) return -1;
+      if (bIdx >= 0) return 1;
+      return (a.lastOpened ? new Date(a.lastOpened).getTime() : 0) - (b.lastOpened ? new Date(b.lastOpened).getTime() : 0);
+    });
+    // Dedupe: only one project per name (Chris, Jason, Nick) — prefer exact match
+    const seen = new Set<string>();
+    return sorted.filter((p: any) => {
+      const t = p.title.toLowerCase().trim();
+      const key = PROJECT_ORDER.find((n) => t === n || t.startsWith(n)) ?? t;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [parsedContext?.allProjects, activeProjects, estimates]);
+
+  /** Command Center: fallback — parse projects from context string when prop/useProjectList are empty */
+  const projectOptionsFromContext = useMemo(() => {
+    if (!context || !isGlobalAssistantContext) return [];
+    try {
+      const parsed = JSON.parse(context);
+      const arr = Array.isArray(parsed?.allProjects) ? parsed.allProjects : [];
+      return arr
+        .map((p: any) => ({
+          id: String(p?.id || ''),
+          title: String(p?.title || p?.name || 'Untitled Project'),
+          status: String(p?.status || ''),
+        }))
+        .filter((p: any) => p.id);
+    } catch (_e) {
+      return [];
+    }
+  }, [context, isGlobalAssistantContext]);
+
+  /** Command Center: show all current projects — use context.allProjects first (from Assistant screen), then activeProjects+estimates */
+  const projectSelectionOptionsForCommandCenter = useMemo(() => {
+    const fromContext = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+    const fromList = [...activeProjects, ...estimates];
+    const source = fromContext.length > 0 ? fromContext : fromList;
+    const normalized = source
+      .map((p: any) => ({
+        id: String(p?.id || ''),
+        title: String(p?.title || p?.name || 'Untitled Project'),
+        status: String(p?.status || ''),
+        lastOpened: p?.lastOpened || p?.updatedAt || p?.createdAt || '',
+      }))
+      .filter((p: any) => p.id);
+    // Dedupe by id
+    const byId = new Map<string, { id: string; title: string; status: string; lastOpened: string }>();
+    normalized.forEach((p: any) => {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    });
+    return Array.from(byId.values()).sort((a, b) =>
+      (b.lastOpened ? new Date(b.lastOpened).getTime() : 0) - (a.lastOpened ? new Date(a.lastOpened).getTime() : 0)
+    );
+  }, [parsedContext?.allProjects, activeProjects, estimates]);
+
+  // Client-side Today Brief fallback — ensures insight-first UI always shows in Global AI (even when API fails)
+  const todayBriefFromContext = useMemo(() => {
+    if (!context) return null;
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(context);
+    } catch (_e) {
+      return null;
+    }
+    if ((parsed?.screen || '').toLowerCase() !== 'ai assistant tab') return null;
+    const userFirstName = (user as any)?.firstName ?? (user as any)?.first_name ?? null;
+    return buildTodayBriefFromContext(parsed, userFirstName);
+  }, [context, user]);
+
+  const displayBrief = todayBriefData || todayBriefFromContext;
 
   // Flow-specific chips: detect from last assistant message
   const compactChipFlow = useMemo(() => {
@@ -769,10 +1096,22 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       if (baseContext.projectId && !baseContext.activeProjectId) {
         baseContext.activeProjectId = baseContext.projectId;
       }
+
+      // Add selectedProjectId hint for Projects list screen (soft hint only)
+      if (selectedProjectHintId) {
+        baseContext.selectedProjectId = selectedProjectHintId;
+      }
       
       // Add lastOpenedProjectId if available
       if (lastOpenedProjectId) {
         baseContext.lastOpenedProjectId = lastOpenedProjectId;
+      }
+      if (isProjectsScreenContext) {
+        console.log('🧩 AIAssistantModal context assembly (Projects)', {
+          selectedProjectId: baseContext.selectedProjectId || null,
+          lastOpenedProjectId: baseContext.lastOpenedProjectId || null,
+          allProjectsCount: Array.isArray(baseContext.allProjects) ? baseContext.allProjects.length : 0,
+        });
       }
 
       // Add deterministic routing hint so backend can choose the right toolset (project vs estimate)
@@ -827,7 +1166,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       console.error('Error enhancing context:', e);
       return context || '{}';
     }
-  }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject, teamMembersData]);
+  }, [context, activeProjects, estimates, lastOpenedProjectId, updateProject, teamMembersData, selectedProjectHintId, isProjectsScreenContext]);
 
   // Load team data when modal opens, project changes, or team changes (e.g. after deletions)
   useEffect(() => {
@@ -1146,6 +1485,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     setTimeout(() => {
       sendMessage();
     }, 100);
+  };
+
+  // Handler for projects-screen persistent project targeting chips
+  const handleProjectsScreenProjectSelection = async (projectId: string) => {
+    try {
+      portfolioScopeOverrideRef.current = false;
+      await setLastOpenedProjectId(projectId);
+      setLastOpenedProjectIdState(projectId);
+      onSelectedProjectIdChange?.(projectId);
+      console.log('🎯 Projects AI selectedProjectId updated', { projectId });
+    } catch (e) {
+      console.warn('⚠️ Failed to persist selectedProjectId for Projects AI:', e);
+    }
   };
 
   // Handler for analysis type selection from chips
@@ -1608,6 +1960,13 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
     }, 50);
 
     try {
+      // Portfolio-scope detection: compare/risks/profitability across all projects — never use single-project context
+      const isPortfolioScopeMessage =
+        isProjectsScreenContext &&
+        /\b(compare\s+(all\s+)?(active\s+)?projects?|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|health\s+check\s+across\s+all)\b/i.test(
+          messageToSend
+        );
+
       // Smart URL detection:
       // - Web: use localhost
       // - All mobile (simulator/device): use Mac's LAN IP (most reliable)
@@ -1633,6 +1992,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       let finalContext = enhancedContext;
       let resolvedProjectId: string | null = null;
       const intent = detectProjectIntent(newMessage.content);
+      const messageLower = newMessage.content.toLowerCase();
       
       // Check if this is a follow-up after chip selection (project ID might be in pendingAnalysisType)
       if (pendingAnalysisType && !intent.needsProject) {
@@ -1642,13 +2002,6 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
       
       if (intent.needsProject || resolvedProjectId) {
         try {
-          const uiState: UIState = {
-            activeProjectId: parsedContext?.projectId || parsedContext?.activeProjectId,
-            selectedProjectId: parsedContext?.projectId,
-            currentScreen: parsedContext?.screen || 'AI Assistant',
-            lastOpenedProjectId: lastOpenedProjectId,
-          };
-          
           const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
             id: p.id,
             title: p.title || p.name || 'Untitled Project',
@@ -1658,6 +2011,31 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               ((p.status || '') as string).toLowerCase()
             ),
           }));
+
+          // Projects screen behavior: use selected project as strong hint unless user explicitly names another project
+          const explicitlyMentionedProject = recentProjects.find((p) => {
+            const title = (p.title || '').toLowerCase();
+            if (!title) return false;
+            return title.includes(messageLower) || messageLower.includes(title);
+          });
+          if (
+            !resolvedProjectId &&
+            isProjectsScreenContext &&
+            selectedProjectHintId &&
+            !explicitlyMentionedProject &&
+            intent.needsProject &&
+            !isPortfolioScopeMessage
+          ) {
+            resolvedProjectId = selectedProjectHintId;
+            console.log('🧭 Using selectedProjectId as active hint on Projects screen', { selectedProjectHintId });
+          }
+
+          const uiState: UIState = {
+            activeProjectId: parsedContext?.projectId || parsedContext?.activeProjectId,
+            selectedProjectId: selectedProjectHintId || parsedContext?.projectId,
+            currentScreen: parsedContext?.screen || 'AI Assistant',
+            lastOpenedProjectId: lastOpenedProjectId,
+          };
           
           // If we already have a resolved project ID from chip selection, use it
           if (!resolvedProjectId) {
@@ -1689,6 +2067,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             // Store as last opened
             await setLastOpenedProjectId(resolvedProjectId);
             setLastOpenedProjectIdState(resolvedProjectId);
+            onSelectedProjectIdChange?.(resolvedProjectId);
             
             // Check if we need to ask about analysis type (only if not already selected)
             // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
@@ -1709,12 +2088,12 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
             const isTeamActionIntent = /\b(add|update)\s+(team\s+member|a\s+team\s+member)/i.test(newMessage.content) ||
                                       /\b(turn|make|set|change)\s+.+\s+(active|off\s*duty)/i.test(newMessage.content) ||
                                       /\bteam\s+member.*(off\s*duty|active)/i.test(newMessage.content);
-            if (!pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
               });
-              // Add a message asking about analysis type
+              // Add a message asking about analysis type (single-project only; never for "compare all projects")
               const analysisTypeMsg: Message = {
                 id: Date.now().toString() + '-analysis-type',
                 role: 'assistant',
@@ -1880,6 +2259,19 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         }
       }
       
+      // For portfolio-scope messages, strip single-project context so AI uses allProjects
+      let contextToSend = finalContext;
+      if (isPortfolioScopeMessage && contextToSend) {
+        try {
+          const ctx = JSON.parse(contextToSend);
+          delete ctx.selectedProjectId;
+          delete ctx.resolvedProjectId;
+          delete ctx.projectId;
+          delete ctx.activeProjectId;
+          contextToSend = JSON.stringify(ctx);
+        } catch (_e) { /* keep original */ }
+      }
+
       const response = await fetchWithFallback(
         urlsToTry,
         {
@@ -1887,7 +2279,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
         headers,
         body: JSON.stringify({
           message: newMessage.content,
-          context: finalContext,
+          context: contextToSend,
           history: messages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -2066,6 +2458,20 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs, // Update committed POs
                 },
               });
+              if (parsedContext?.screen === 'Projects' && onProjectUpdated) {
+                onProjectUpdated(projectId, {
+                  actualCost: actualCost || totalSpent || 0,
+                  expenses: mergedExpenses,
+                  projectData: {
+                    ...currentProject.projectData,
+                    actualCost: actualCost || totalSpent || 0,
+                    spent: totalSpent || 0,
+                    expenses: mergedExpenses,
+                    purchaseOrders: mergedPOs,
+                    committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOs,
+                  },
+                });
+              }
               
               console.log('✅ Synced project data after update:', {
                 projectId,
@@ -2153,6 +2559,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 // Force a re-render by triggering the onAction again if needed
                 console.log('🔄 Triggering project data refresh for Materials & Equipment page');
               }, 100);
+            } else if (parsedContext?.screen === 'Projects' && onProjectUpdated) {
+              onProjectUpdated(projectId, data.projectUpdate);
             }
           }
         } catch (error) {
@@ -2726,14 +3134,25 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   AI Assistant
                 </Text>
               </View>
-                {projectInfo && (
+                {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
                   <>
                     <Text style={[styles.headerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
-                      {projectInfo.title} • {projectInfo.phase}
+                      {isGlobalAssistantContext
+                        ? 'Command Center • All Projects'
+                        : isProjectsScreenContext
+                        ? (selectedProjectHintId
+                            ? (() => {
+                                const sel = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
+                                return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
+                              })()
+                            : 'Portfolio View • All Projects')
+                        : `${projectInfo!.title} • ${projectInfo!.phase}`}
                     </Text>
-                    <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
-                      Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup {projectInfo.markup}%
-                    </Text>
+                    {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
+                      <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
+                        Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup {projectInfo.markup}%
+                      </Text>
+                    )}
                   </>
                 )}
               </View>
@@ -2767,6 +3186,15 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 alwaysBounceVertical={false}
                 scrollEventThrottle={16}
               ListFooterComponent={renderTypingIndicator}
+                refreshControl={
+                  isGlobalAssistantContext && displayBrief ? (
+                    <RefreshControl
+                      refreshing={briefRefreshing}
+                      onRefresh={refreshTodayBrief}
+                      tintColor={darkMode ? Colors.green : undefined}
+                    />
+                  ) : undefined
+                }
                 onScrollBeginDrag={() => {
                   isUserScrollingRef.current = true;
                 }}
@@ -2792,7 +3220,144 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               }}
               ListHeaderComponent={
                 <>
-                  {/* AI Project Manager Mode card */}
+                  {/* Global AI: Today Brief card — hero, insight-first */}
+                  {isGlobalAssistantContext && displayBrief && (
+                    <>
+                      <View
+                        style={[styles.todayBriefCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                        accessibilityLabel="Today Brief"
+                        accessibilityRole="summary"
+                      >
+                        <LinearGradient
+                          colors={["rgba(0, 100, 90, 0.22)", "rgba(0, 70, 65, 0.12)"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.todayBriefGradient}
+                        >
+                          <Text style={[styles.todayBriefCardTitle, !darkMode && { color: ThemeColors.sub }]}>
+                            Today Brief
+                          </Text>
+                          <Text style={[styles.todayBriefGreeting, !darkMode && { color: ThemeColors.text }]}>
+                            {displayBrief.reply.split('\n\n')[0]}
+                          </Text>
+                          <Text style={[styles.todayBriefSubGreeting, !darkMode && { color: ThemeColors.sub }]}>
+                            Here's what needs attention today.
+                          </Text>
+                          {displayBrief.insights.length > 0 ? (
+                            <View style={styles.todayBriefInsights}>
+                              {displayBrief.insights.map((insight, i) => (
+                                <Text key={i} style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}>
+                                  • {insight}
+                                </Text>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, !darkMode && { color: ThemeColors.sub }]}>
+                              Your portfolio looks quiet — no urgent items.
+                            </Text>
+                          )}
+                        </LinearGradient>
+                      </View>
+
+                      {/* Biggest Risk card — or All clear when no risks */}
+                      {displayBrief.biggestRisk ? (
+                        <View style={[styles.biggestRiskCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}>
+                          <View style={styles.biggestRiskHeader}>
+                            <Ionicons name="warning" size={20} color="#F97316" />
+                            <Text style={[styles.biggestRiskTitle, !darkMode && { color: ThemeColors.text }]}>
+                              Biggest Risk
+                            </Text>
+                          </View>
+                          <Text style={[styles.biggestRiskMessage, !darkMode && { color: ThemeColors.text }]}>
+                            {displayBrief.biggestRisk.message}
+                          </Text>
+                          <Text style={[styles.biggestRiskDetail, !darkMode && { color: ThemeColors.sub }]}>
+                            {displayBrief.biggestRisk.detail}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              handleQuickAction(displayBrief.biggestRisk!.prompt);
+                            }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            accessibilityLabel={(displayBrief.biggestRisk as { cta?: string })?.cta || "Review Project"}
+                            accessibilityRole="button"
+                            style={[styles.biggestRiskButton, !darkMode && { borderColor: ThemeColors.line }]}
+                          >
+                            <Text style={[styles.biggestRiskButtonText, !darkMode && { color: ThemeColors.text }]}>
+                              {(displayBrief.biggestRisk as { cta?: string })?.cta || "Review Project"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View
+                          style={[styles.allClearCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                          accessibilityLabel="All clear. No critical risks across your projects."
+                          accessibilityRole="summary"
+                        >
+                          <Ionicons name="checkmark-circle" size={20} color="rgba(34, 197, 94, 0.8)" />
+                          <View>
+                            <Text style={[styles.allClearTitle, !darkMode && { color: ThemeColors.text }]}>
+                              All clear
+                            </Text>
+                            <Text style={[styles.allClearSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                              No critical risks across your projects.
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Quick actions */}
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0 }, !darkMode && { color: ThemeColors.sub }]}>
+                        Quick actions
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
+                        {(displayBrief.quickActions || []).slice(0, 6).map((qa, i) => (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              handleQuickAction(qa.prompt);
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel={qa.label}
+                            accessibilityRole="button"
+                            style={[styles.todayBriefQuickChip, !darkMode && { borderColor: ThemeColors.line }]}
+                          >
+                            <Text style={[styles.todayBriefQuickChipText, !darkMode && { color: ThemeColors.text }]}>
+                              {qa.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+
+                      {/* Suggested questions */}
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0 }, !darkMode && { color: ThemeColors.sub }]}>
+                        Suggested questions
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
+                        {(displayBrief.suggestedFollowUps || []).slice(0, 6).map((sf, i) => (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              handleQuickAction(sf.prompt);
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel={sf.label}
+                            accessibilityRole="button"
+                            style={[styles.todayBriefFollowChip, !darkMode && { borderColor: ThemeColors.line }]}
+                          >
+                            <Text style={[styles.todayBriefFollowChipText, !darkMode && { color: ThemeColors.text }]}>
+                              {sf.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </>
+                  )}
+                  {/* AI Project Manager Mode card - hidden on Projects screen and Global Assistant */}
+                  {!isProjectsScreenContext && !isGlobalAssistantContext && (
                   <View style={styles.managerCardContainer}>
                     <LinearGradient
                       colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -2871,9 +3436,10 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                       </View>
                     </LinearGradient>
                   </View>
+                  )}
 
-                  {/* Current Project Strip */}
-                  {projectInfo && (
+                  {/* Current Project Strip - hidden on Projects screen and Global AI (project chips handle selection) */}
+                  {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
                     <View style={styles.projectStripContainer}>
                       <LinearGradient
                         colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -2915,8 +3481,11 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                 </>
               }
               ListEmptyComponent={
-                <View style={[styles.greetingWrapper, !darkMode && { backgroundColor: ThemeColors.bg }]}>
-                  <View style={styles.greetingIconCircleWrapper}>
+                isGlobalAssistantContext && displayBrief ? (
+                  <View style={{ height: 24 }} />
+                ) : (
+                <View style={[styles.greetingWrapper, !darkMode && { backgroundColor: ThemeColors.bg }, isProjectsScreenContext && { marginBottom: 8 }]}>
+                  <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
                     <LinearGradient
                       colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
                       start={{ x: 0.05, y: 0.15 }}
@@ -2930,12 +3499,23 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   </View>
 
                   <Text style={[styles.greetingTitle, !darkMode && { color: ThemeColors.text }]}>
-                    Hi! I'm your AI project manager.
+                    {(isProjectsScreenContext || isGlobalAssistantContext) ? "Hi — I'm your AI Project Manager." : "Hi! I'm your AI project manager."}
                   </Text>
 
                   <Text style={[styles.greetingSubtitle, !darkMode && { color: ThemeColors.sub }]}>
-                    Ask me about the <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text>. I can update your estimate, set payment schedules, find subs,
-                    or protect your profit.
+                    {(isProjectsScreenContext || isGlobalAssistantContext) ? (
+                      <>
+                        I can help you:{'\n'}
+                        • Compare projects{'\n'}
+                        • Add expenses or purchase orders{'\n'}
+                        • Log payments or daily logs{'\n'}
+                        • Check project health{'\n'}
+                        • Identify budget risks{'\n\n'}
+                        Select a project below or ask me anything.
+                      </>
+                    ) : (
+                      <>Ask me about the <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text>. I can update your estimate, set payment schedules, find subs, or protect your profit.</>
+                    )}
                   </Text>
 
                   {recentSummary && (
@@ -2956,7 +3536,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                           >
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.recentSummaryTitle, !darkMode && { color: ThemeColors.text }]}>
-                                Recent Health Check
+                                AI Insights
                               </Text>
                               <Text style={[styles.recentSummaryMeta, !darkMode && { color: ThemeColors.sub }]}>
                                 {recentSummary.timestamp ? formatTimestamp(recentSummary.timestamp) : "Just now"}
@@ -2995,7 +3575,8 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     </View>
                   )}
 
-                  {/* Primary AI actions */}
+                  {/* Primary AI actions - hidden on Projects screen (quick actions row covers these) */}
+                  {!isProjectsScreenContext && (
                   <View style={styles.primaryActions}>
                     <View style={styles.primaryButtonWrapper}>
                       <LinearGradient
@@ -3042,7 +3623,9 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     </View>
                     )}
                   </View>
+                  )}
                 </View>
+                )
               }
             />
             </View>
@@ -3057,8 +3640,75 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
               paddingTop: 4,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }]}>
-              {/* ── QUICK ACTION CHIPS ── */}
-              {messages.length <= 1 ? (
+              {/* Global AI & Projects: Smart Quick Actions */}
+              {(isGlobalAssistantContext || isProjectsScreenContext) && (
+                <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>
+                  {/* Projects screen only: project chips. Command Center: no Select Project row. */}
+                  {isProjectsScreenContext && projectSelectionOptions.length > 0 && (
+                    <ProjectSelectionChips
+                      options={projectSelectionOptions}
+                      darkMode={darkMode}
+                      compact
+                      onSelect={handleProjectsScreenProjectSelection}
+                    />
+                  )}
+                  {isProjectsScreenContext && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginTop: 2, maxHeight: 34 }}
+                      contentContainerStyle={{ gap: 6, alignItems: 'center', flexDirection: 'row', paddingBottom: 2 }}
+                    >
+                      {[
+                        { label: 'Compare Projects', basePrompt: 'Compare all my projects for profitability and risk', portfolioScope: true },
+                        { label: 'What Needs Attention', basePrompt: 'What should I focus on today?', portfolioScope: true },
+                        { label: 'Forecast Profit', basePrompt: 'Forecast profit across my projects', portfolioScope: true },
+                        { label: 'Budget Risks', basePrompt: 'Identify budget risks across my projects', portfolioScope: true },
+                        { label: 'Missing Receipts', basePrompt: 'Which projects have expenses missing receipts?', portfolioScope: true },
+                        { label: 'Upcoming Deadlines', basePrompt: 'What payments or deadlines are coming up?', portfolioScope: true },
+                        { label: '➕ Add expense', basePrompt: 'Add an expense', portfolioScope: false },
+                        { label: '📦 Add PO', basePrompt: 'Create a purchase order', portfolioScope: false },
+                        { label: '📝 Daily log', basePrompt: 'Add a daily log for today', portfolioScope: false },
+                        { label: '🔄 Change order', basePrompt: 'Create a change order', portfolioScope: false },
+                      ].map((chip) => (
+                        <TouchableOpacity
+                          key={chip.label}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          onPress={() => {
+                            const selected = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
+                            const message = (chip as any).portfolioScope || !selected
+                              ? (chip as any).basePrompt
+                              : `${(chip as any).basePrompt} for ${selected.title}`;
+                            if ((chip as any).portfolioScope) {
+                              portfolioScopeOverrideRef.current = true;
+                              onSelectedProjectIdChange?.(null as any);
+                            }
+                            handleQuickAction(message);
+                          }}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: 18,
+                            borderWidth: 1,
+                            borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
+                            backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
+                          }}
+                        >
+                          <Text style={{
+                            fontSize: 12,
+                            fontWeight: '600',
+                            color: darkMode ? 'rgba(45, 255, 196, 0.95)' : 'rgba(0, 120, 200, 0.9)',
+                          }}>
+                            {chip.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+              {/* ── QUICK ACTION CHIPS ── (Projects screen has its own row above, skip default & flow chips when empty) */}
+              {messages.length <= 1 && !isProjectsScreenContext && !isGlobalAssistantContext ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -3156,7 +3806,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                   ));
                   })()}
                 </ScrollView>
-              ) : (
+              ) : (isGlobalAssistantContext || (isProjectsScreenContext && messages.length <= 1)) ? null : (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -3281,7 +3931,7 @@ const AIAssistantModal: React.FC<Props> = ({ visible, onClose, context, onAction
                     ) : (
                       <TextInput
                         style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                        placeholder="Ask anything about this project…"
+                        placeholder={isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : "Ask anything about this project…"}
                         placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
                         value={input}
                         onChangeText={setInput}
@@ -3727,6 +4377,182 @@ const styles = StyleSheet.create({
   greetingHighlight: {
     fontWeight: "700",
     color: Colors.text,
+  },
+  todayBriefCard: {
+    marginHorizontal: 0,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: "rgba(0, 140, 120, 0.2)",
+    shadowColor: "rgba(0, 100, 90, 0.25)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  todayBriefGradient: {
+    padding: 16,
+    borderRadius: 15,
+  },
+  todayBriefCardTitle: {
+    color: Colors.sub,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  todayBriefGreeting: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  todayBriefSubGreeting: {
+    color: Colors.sub,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  todayBriefInsights: {
+    marginBottom: 12,
+  },
+  todayBriefInsightItem: {
+    color: Colors.text,
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 2,
+  },
+  todayBriefEmptyInsight: {
+    fontStyle: "italic",
+    color: Colors.sub,
+  },
+  todayBriefSectionLabel: {
+    color: Colors.sub,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  todayBriefActionChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.3)",
+    marginBottom: 6,
+  },
+  todayBriefActionText: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  todayBriefChipsScroll: {
+    maxHeight: 36,
+    marginBottom: 4,
+  },
+  todayBriefChipsContent: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  todayBriefQuickChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.25)",
+  },
+  todayBriefQuickChipText: {
+    color: Colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  todayBriefFollowChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.3)",
+  },
+  todayBriefFollowChipText: {
+    color: Colors.sub,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  allClearCard: {
+    marginHorizontal: 0,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(34, 197, 94, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.2)",
+  },
+  allClearTitle: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  allClearSubtitle: {
+    color: Colors.sub,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  biggestRiskCard: {
+    marginHorizontal: 0,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: "rgba(249, 115, 22, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(249, 115, 22, 0.25)",
+  },
+  biggestRiskHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  biggestRiskTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  biggestRiskMessage: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  biggestRiskDetail: {
+    color: Colors.sub,
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  biggestRiskButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(249, 115, 22, 0.4)",
+  },
+  biggestRiskButtonText: {
+    color: "#F97316",
+    fontSize: 14,
+    fontWeight: "600",
   },
   recentSummaryContainer: {
     width: "100%",

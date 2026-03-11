@@ -30,7 +30,7 @@ export default function AssistantScreen() {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
-  const { activeProjects, estimates, updateProject } = useProjectList();
+  const { activeProjects, estimates, projects, updateProject } = useProjectList();
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
   const [isReady, setIsReady] = useState(false);
 
@@ -45,13 +45,13 @@ export default function AssistantScreen() {
     }, [])
   );
 
-  // Build context for AI Assistant
-  const context = React.useMemo(() => {
-    const allProjectsList = [...activeProjects, ...estimates];
-    const mappedProjects = allProjectsList.map(p => ({
+  // Build context and project options for AI Assistant — use full projects list for chips (includes all statuses)
+  const { context, projectOptions } = React.useMemo(() => {
+    const allProjectsList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+    const mappedProjects = allProjectsList.map((p: any) => ({
       id: p.id,
       title: p.title,
-      customerName: (p as any).client || p.title,
+      customerName: p.client || p.title,
       status: p.status,
       bidPrice: p.bidPrice || 0,
       estimatedCost: p.estimatedCost || 0,
@@ -62,6 +62,10 @@ export default function AssistantScreen() {
       totalBudget: p.estimatedCost || p.bidPrice || 0,
       margin: p.margin || 0,
       markup: p.markup || 0,
+      buckets: p.projectData?.buckets || p.buckets || [],
+      milestones: p.projectData?.milestones || p.milestones || p.projectData?.weeklyPayments || [],
+      estimateData: p.projectData?.estimateData || p.estimateData || {},
+      updatedAt: p.projectData?.lastUpdated || p.updatedAt || p.lastUpdated,
     }));
     
     // If there's only one project, or if there's a "won" or "active" project, use it as current
@@ -92,14 +96,23 @@ export default function AssistantScreen() {
       contextObj.bidTotal = currentProject.bidPrice || currentProject.estimatedCost || 0;
       contextObj.total = currentProject.bidPrice || currentProject.estimatedCost || 0;
       contextObj.estimatedCost = currentProject.estimatedCost || 0;
-      contextObj.actualCost = currentProject.actualCost || currentProject.totalSpent || (currentProject.projectData?.actualCost || currentProject.projectData?.spent || 0);
+      contextObj.actualCost = (currentProject as any).actualCost || (currentProject as any).totalSpent || (currentProject.projectData?.actualCost || currentProject.projectData?.spent || 0);
       contextObj.margin = currentProject.margin || 0;
       contextObj.markup = currentProject.markup || 0;
       contextObj.overheadPct = 12; // Default
     }
     
-    return JSON.stringify(contextObj);
-  }, [activeProjects, estimates]);
+    const projectOptions = mappedProjects.map((p: any) => ({
+      id: String(p.id || ''),
+      title: String(p.title || p.name || 'Untitled Project'),
+      status: String(p.status || ''),
+    })).filter((p: any) => p.id);
+
+    return {
+      context: JSON.stringify(contextObj),
+      projectOptions,
+    };
+  }, [projects, activeProjects, estimates]);
 
   const handleClose = () => {
     // Close the modal first, then navigate to dashboard
@@ -122,6 +135,7 @@ export default function AssistantScreen() {
         visible={showAIAssistant}
         onClose={handleClose}
         context={context}
+        projectOptionsOverride={projectOptions}
         onAction={async (action) => {
           console.log('AI Action from Assistant page:', action);
           

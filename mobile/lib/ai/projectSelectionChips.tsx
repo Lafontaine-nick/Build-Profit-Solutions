@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
@@ -20,17 +20,59 @@ type ProjectSelectionChipsProps = {
   options: ProjectOption[];
   onSelect: (projectId: string) => void;
   darkMode?: boolean;
+  /** Compact mode: horizontal scroll, smaller chips, inline label */
+  compact?: boolean;
 };
 
 export default function ProjectSelectionChips({
   options,
   onSelect,
   darkMode = true,
+  compact = false,
 }: ProjectSelectionChipsProps) {
   const handleSelect = (projectId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSelect(projectId);
   };
+
+  if (compact) {
+    return (
+      <View style={styles.compactContainer}>
+        <Text style={[styles.compactLabel, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+          Select Project
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.compactScrollWrapper}
+          contentContainerStyle={styles.compactScrollContent}
+        >
+          {options.map((option) => (
+            <TouchableOpacity
+              key={option.id}
+              onPress={() => handleSelect(option.id)}
+              activeOpacity={0.7}
+              style={styles.compactChipWrapper}
+            >
+              <LinearGradient
+                colors={darkMode
+                  ? ['rgba(45, 255, 196, 0.15)', 'rgba(0, 166, 255, 0.15)']
+                  : ['rgba(45, 255, 196, 0.1)', 'rgba(0, 166, 255, 0.1)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.compactChip}
+              >
+                <Text style={[styles.compactChipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]} numberOfLines={1}>
+                  {option.title}
+                  {option.status ? ` · ${option.status}` : ''}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -106,5 +148,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     textTransform: 'capitalize',
+  },
+  // Compact mode
+  compactContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 6,
+    marginHorizontal: 0,
+    gap: 8,
+  },
+  compactLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  compactScrollWrapper: {
+    flex: 1,
+    maxHeight: 36,
+  },
+  compactScrollContent: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    paddingRight: 8,
+  },
+  compactChipWrapper: {
+    marginRight: 0,
+  },
+  compactChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.3)',
+    minWidth: 60,
+  },
+  compactChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 0,
   },
 });
