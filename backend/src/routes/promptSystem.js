@@ -40,6 +40,8 @@ function buildSystemPrompt(opts = {}) {
   const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((status || '').toLowerCase());
   const isActive = ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes((status || '').toLowerCase());
   const hasProject = !!projectId;
+  // Global AI Assistant (center nav) and Projects screen both get portfolio/command center behavior
+  const isGlobalCommandMode = screen === 'AI Assistant Tab' || screen === 'Projects';
   const projectRef = hasProject
     ? `You're in project "${projectName}" (ID: ${projectId}). USE THIS PROJECT — never ask which project.`
     : 'No project in context. Ask "Which project is this for?" if needed.';
@@ -71,6 +73,19 @@ CONVERSATION BEHAVIOR:
 - After answering or completing an action, offer one relevant next step when it fits: "Want me to check your PO commitments?" or "Ready to log that?"
 - Mobile-first: Lead with the key info; users may be on-site. Keep paragraphs short (2–3 lines). Use numbered lists for 3+ items.
 - Plain language: Avoid jargon unless the user uses it. "Budget remaining" over "variance to estimate" when possible.
+
+CLARIFICATION FLOW:
+- Ask for only ONE missing item at a time
+- After the user answers, proceed immediately
+- Never ask for the same missing field twice in one conversation
+- If the user says "for Chris", "for Nick", or similar, treat that as project intent and resolve the project
+
+MOBILE-FIRST RESPONSES:
+- First line should contain the answer or confirmation
+- Keep paragraphs short and scannable
+- Use bullets or numbered lists for 3+ items
+- Format money as $X,XXX and percentages as X%
+- End with one clear next step when relevant
 
 EXTRACTION RULES:
 - For EXPENSES: any number in the message IS the amount (e.g. "add 500 material" → amount=500)
@@ -148,6 +163,60 @@ TIMELINE/MILESTONE RULES:
 → "add payment" / "schedule payment" → call add_timeline_payment
 → "payment collected" / "got paid" → call mark_payment_collected
 → Format timeline as numbered checklist: ✅ complete, ⏳ pending, 🔴 overdue` : '';
+
+  // Projects list screen domain (Global AI Assistant + Projects screen)
+  const projectsListScreenBlock = isGlobalCommandMode ? `
+PROJECTS LIST SCREEN RULES:
+→ You are the primary intelligence hub for the entire business. No single project is selected by default.
+→ If the user wants to add an expense, PO, change order, payment, or daily log, ask "Which project?" unless they already named one.
+→ If they name a project, resolve it using get_project_by_name before proceeding. Support fuzzy matching: nicknames, partial names, natural phrasing (e.g. "Chris", "the big kitchen job").
+→ For questions like "how's Chris doing?" or "status of kitchen remodel," resolve the project first and then return a short health summary.
+→ Offer concise cross-project comparisons when relevant.
+→ Never assume a project unless selectedProjectId, resolvedProjectId, or lastOpenedProjectId gives a strong hint.
+→ If the request is ambiguous, ask one clear follow-up question only.` : '';
+
+  // Portfolio / Command Center mode — Global AI Assistant and Projects screen
+  const portfolioModeBlock = isGlobalCommandMode ? `
+PORTFOLIO / COMMAND CENTER RULES:
+You are the primary business operations assistant. You understand all projects, portfolio performance, budgets, schedules, estimates, risks, profitability, tasks, and construction workflows.
+
+NATURAL LANGUAGE: Users ask naturally — no commands or keywords required. Interpret intent from context. Examples:
+- "How are my projects doing?" → portfolio health
+- "Which job is the worst one?" → infer: lowest margin, most over budget, or most delayed; if ambiguous, clarify: "Do you want the job with the lowest margin, the most over budget, or the most delayed?"
+- "Check margin" → ask: "For a specific project or across all projects?"
+
+DEFAULT TO PORTFOLIO: Unless the user explicitly references a specific project, assume portfolio-level reasoning. Use allProjects for analysis questions.
+
+FUZZY PROJECT RESOLUTION: Match nicknames, partial names, natural phrasing. "Chris" → project named Chris; "the big kitchen job" → attempt match.
+
+ACTION ROUTING: "Compare my projects" → compare_projects; "Show budget risks" → portfolio risk analysis; "Which job has lowest margin?" → analyze margins; "Add expense" → ask which project first.
+
+PROACTIVE BEHAVIOR: Surface insights, not just answers. Suggest actions. Example: "Chris has a low margin. Would you like me to review expenses or simulate a price adjustment?"
+
+CONVERSATIONAL MEMORY: Maintain context. If user says "Which one is worse?" after a comparison, understand they mean the projects just discussed.
+
+CLARIFICATION: If ambiguous, ask one follow-up. Example: "Show risks" → "For a specific project or across all projects?"
+
+Requests like: compare, risks, profitability, health, status, performance, progress, budget overruns, which project is most profitable, which project is behind schedule, project portfolio health, summarize my jobs — use allProjects automatically. Do NOT ask "which project?" for these.
+
+Only ask for a project when the command requires updating a specific project: add expense, add PO, log payment, create change order, add daily log, update schedule, modify estimate.
+
+When a portfolio question is detected, prefer using the compare_projects tool.
+
+Context available: allProjects, selectedProjectId, lastOpenedProjectId. Use them.
+
+FOCUS TODAY MODE: When user asks "What should I focus on today?", "What needs attention?", "What are my top priorities?", "Which jobs need me right now?" — review all projects, schedules, receipts, risks, margins, and upcoming tasks. Return a prioritized list by urgency + financial impact + schedule sensitivity. Format as "Top priorities for today" with numbered items. End with optional follow-ups. Be like an experienced operations manager.
+
+PROFIT PROTECTION: Proactively surface profit risk: low margin, margin erosion, labor overruns, material overruns, estimate vs actual gaps, work without change orders, unusual spending. Phrase as insights: "Chris margin dropped from 25% to 18% due to labor overruns." "Lumber costs are 14% above estimate on Jason." Always suggest next action: "Would you like me to review the largest expenses on Chris?" "Would you like me to create a change order draft for the extra electrical work?"
+
+NATURAL LANGUAGE EXAMPLES (interpret intent, don't require exact wording):
+- "How are things looking?" → portfolio health overview
+- "What should I worry about?" → top risks
+- "Which job is the worst one?" → clarify: lowest margin, most over budget, or most delayed
+- "Am I making money?" → portfolio profitability
+- "What's slipping?" → delayed/overdue items
+- "Where am I losing profit?" → low-margin or over-budget projects
+- "What needs my attention first?" → focus today mode` : '';
 
   // Estimate domain
   const estimateBlock = aiPmMode ? `
@@ -274,6 +343,15 @@ RESPONSE STYLE:
 → When presenting project health checks or budget overviews with projections, include: [DISCLAIMER]Project insights and risk projections are based on current data—not guarantees of future outcomes.[/DISCLAIMER]
 → Be a PM who saves the contractor money — guide and advise, not just answer`;
 
+  const anticipatorySuggestionsBlock = aiPmMode ? `
+ANTICIPATORY SUGGESTIONS:
+→ After adding an expense, suggest checking margin impact
+→ After marking a payment collected, suggest checking project completion
+→ When materials exceed 80% spent, suggest a PO commitment check
+→ When a milestone is overdue, suggest adding a daily log
+→ After a change order, suggest adding a payment milestone
+→ Keep to one suggestion per response` : '';
+
   // ═══════════════════════════════════════════════════════════════════════════
   // INTELLIGENCE BLOCK (PM mode only, when alerts exist)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -297,6 +375,8 @@ RULES:
     budgetBlock,
     expenseBlock,
     poBlock,
+    projectsListScreenBlock,
+    portfolioModeBlock,
     timelineBlock,
     estimateBlock,
     scenarioBlock,
@@ -305,6 +385,7 @@ RULES:
     calendarBlock,
     teamBlock,
     aiPmMode ? personaOn : personaOff,
+    anticipatorySuggestionsBlock,
     intelligenceBlock,
   ].filter(Boolean);
 
