@@ -9,6 +9,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
 
 const getStyles = (Colors: any) => StyleSheet.create({
   container: {
@@ -31,6 +32,7 @@ export default function AssistantScreen() {
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   const { activeProjects, estimates, projects, updateProject } = useProjectList();
+  const { compareData: compareProjectsData, progressByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates);
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
   const [isReady, setIsReady] = useState(false);
 
@@ -48,12 +50,34 @@ export default function AssistantScreen() {
   // Build context and project options for AI Assistant — use full projects list for chips (includes all statuses)
   const { context, projectOptions } = React.useMemo(() => {
     const allProjectsList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
-    const mappedProjects = allProjectsList.map((p: any) => ({
+    const mappedProjects = allProjectsList.map((p: any) => {
+      const bidPrice = p.bidPrice || p.projectData?.bidPrice || p.estimateData?.bidPrice || 0;
+      const changeOrders = p.changeOrders || p.projectData?.changeOrders || [];
+      const approvedCOs = changeOrders.reduce((s: number, co: any) => {
+        const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
+        return ok ? s + (Number(co?.amount) || 0) : s;
+      }, 0);
+      const contractValue = bidPrice + approvedCOs;
+      // Use timeline progress (progressByProjectId or compareProjectsData) so backend and fallback match Projects page.
+      // progressByProjectId is set as soon as timeline loads; compareProjectsData may still be [] on first paint.
+      const pid = String(p?.id ?? '');
+      const titleKey = String(p?.title || p?.name || '').trim().toLowerCase();
+      const titleSlug = titleKey.replace(/\s+/g, '-');
+      const compareItem = compareProjectsData.find(
+        (c: any) => (c.title || '').toLowerCase() === (p.title || p.name || '').toLowerCase().trim()
+      );
+      const progress = progressByProjectId[pid] ??
+        progressByProjectId[titleKey] ??
+        progressByProjectId[titleSlug] ??
+        compareItem?.progress ??
+        (p.progress ?? p.overallProgressPct ?? p.projectData?.progress ?? 0);
+      return {
       id: p.id,
       title: p.title,
       customerName: p.client || p.title,
       status: p.status,
-      bidPrice: p.bidPrice || 0,
+      bidPrice,
+      contractValue: contractValue > 0 ? contractValue : bidPrice,
       estimatedCost: p.estimatedCost || 0,
       actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
       totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
@@ -63,10 +87,14 @@ export default function AssistantScreen() {
       margin: p.margin || 0,
       markup: p.markup || 0,
       buckets: p.projectData?.buckets || p.buckets || [],
+      changeOrders: p.projectData?.changeOrders || p.changeOrders || [],
       milestones: p.projectData?.milestones || p.milestones || p.projectData?.weeklyPayments || [],
       estimateData: p.projectData?.estimateData || p.estimateData || {},
       updatedAt: p.projectData?.lastUpdated || p.updatedAt || p.lastUpdated,
-    }));
+      progress,
+      calendarEvents: p.projectData?.calendarEvents || p.calendarEvents || [],
+    };
+    });
     
     // If there's only one project, or if there's a "won" or "active" project, use it as current
     let currentProject = null;
@@ -85,6 +113,19 @@ export default function AssistantScreen() {
       screen: "AI Assistant Tab",
       allProjects: mappedProjects,
     };
+    if (compareProjectsData.length > 0) {
+      // Ensure compare data progress always uses timeline progress when available.
+      contextObj.compareProjectsData = compareProjectsData.map((item: any) => {
+        const key = String(item?.title || '').trim().toLowerCase();
+        const slug = key.replace(/\s+/g, '-');
+        const resolvedProgress = progressByProjectId[key] ?? progressByProjectId[slug] ?? progressByProjectId[String(item?.id ?? '')] ?? item?.progress;
+        return resolvedProgress == null ? item : { ...item, progress: resolvedProgress };
+      });
+    }
+    // Backend can use this to override progress when building compare from allProjects fallback
+    if (Object.keys(progressByProjectId).length > 0) {
+      contextObj.progressByProjectId = progressByProjectId;
+    }
     
     // Include current project info if available
     if (currentProject) {
@@ -112,7 +153,15 @@ export default function AssistantScreen() {
       context: JSON.stringify(contextObj),
       projectOptions,
     };
-  }, [projects, activeProjects, estimates]);
+  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId]);
+
+  // Do not allow compare actions until we have loaded for the CURRENT project set.
+  // This prevents stale ProjectListContext progress (e.g. old 60%) from being used.
+  const totalProjectCount = (projects?.length ?? 0) || ([...activeProjects, ...estimates].length ?? 0);
+  const hasComparePayload =
+    compareProjectsData.length > 0 || Object.keys(progressByProjectId || {}).length > 0;
+  const isCompareContextReady =
+    isTimelineLoaded && (totalProjectCount === 0 || hasComparePayload);
 
   const handleClose = () => {
     // Close the modal first, then navigate to dashboard
@@ -136,6 +185,7 @@ export default function AssistantScreen() {
         onClose={handleClose}
         context={context}
         projectOptionsOverride={projectOptions}
+        isContextReady={isCompareContextReady}
         onAction={async (action) => {
           console.log('AI Action from Assistant page:', action);
           

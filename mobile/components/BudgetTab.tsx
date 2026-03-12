@@ -26,7 +26,7 @@ import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
-import { computeProfitForecast } from '../src/lib/profitForecast';
+import { computeProfitForecast, type ProfitForecastOutput } from '../src/lib/profitForecast';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
@@ -189,10 +189,13 @@ export default function BudgetTab({
   data = demo,
   onRefetch,
   embedded = false,
+  profitForecastOverride,
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
   embedded?: boolean;
+  /** When provided (e.g. from project-detail), use this instead of computing — ensures Overview and Budget match */
+  profitForecastOverride?: ProfitForecastOutput;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -506,15 +509,12 @@ export default function BudgetTab({
     return total;
   }, [projectData?.purchaseOrders]);
 
-  // Actual Expenses = Regular expenses + Received Purchase Orders
+  // Actual Expenses = sum(expenses) + received POs. For Nick: 6500 materials + 1500 POs = 8000.
+  // Use sum(expenses) + receivedPOsTotal (not spent) so received POs are always included.
   const actual = useMemo(() => {
-    const expensesTotal = projectData?.spent || (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0);
-    const total = expensesTotal + receivedPOsTotal;
-    
-    // Reduced logging to prevent terminal glitching
-    
-    return total;
-  }, [projectData?.spent, projectData?.expenses, receivedPOsTotal]);
+    const expensesTotal = (projectData?.expenses || []).reduce((s, e) => s + safe(e.amount), 0);
+    return expensesTotal + receivedPOsTotal;
+  }, [projectData?.expenses, receivedPOsTotal]);
   const committed = safe(projectData?.committedPOs || 0);
   const remaining = Math.max(adjustedBudget - actual - purchaseOrdersTotal, 0);
   // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
@@ -583,6 +583,8 @@ export default function BudgetTab({
     return normalized.reduce((sum, n) => sum + n, 0) / normalized.length;
   }, [projectFromList, projectData, ed]);
   const progressForForecast = useMemo(() => {
+    const status = String((projectFromList as any)?.status ?? (projectData as any)?.status ?? '').toLowerCase();
+    if (status === 'completed') return 100;
     const explicit = firstPositiveNumber(
       (projectFromList as any)?.overallProgressPct,
       (projectFromList as any)?.progress,
@@ -591,14 +593,20 @@ export default function BudgetTab({
     ) ?? 0;
     return Math.max(explicit, milestoneProgressPct);
   }, [projectFromList, projectData, milestoneProgressPct]);
-  const profitForecast = useMemo(() => computeProfitForecast({
+  const isProjectCompleted = useMemo(() => {
+    const status = String((projectFromList as any)?.status ?? (projectData as any)?.status ?? '').toLowerCase();
+    return status === 'completed';
+  }, [projectFromList, projectData]);
+  const computedProfitForecast = useMemo(() => computeProfitForecast({
     contractValue,
     adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
     estimatedCostBaseline: costBase > 0 ? costBase : undefined,
     actualExpenses: actual,
     committedPOs: purchaseOrdersTotal,
     progressPct: progressForForecast,
-  }), [contractValue, costBaseline, adjustedBudget, costBase, actual, purchaseOrdersTotal, progressForForecast]);
+    isCompleted: isProjectCompleted,
+  }), [contractValue, costBaseline, adjustedBudget, costBase, actual, purchaseOrdersTotal, progressForForecast, isProjectCompleted]);
+  const profitForecast = profitForecastOverride ?? computedProfitForecast;
   const profitStatusColor =
     profitForecast.status === 'Strong' ? '#22C55E' :
     profitForecast.status === 'Healthy' ? '#10B981' :
@@ -882,6 +890,13 @@ export default function BudgetTab({
           />
           <Row
             label='Forecast Final Cost'
+            sublabel={
+              profitForecast.forecastMethod === 'run-rate'
+                ? 'Trend forecast'
+                : profitForecast.forecastMethod === 'completed'
+                ? 'Actual (job complete)'
+                : undefined
+            }
             value={money(profitForecast.forecastFinalCost, currency)}
             theme={theme}
             valueColor='#ef4444'
@@ -1752,18 +1767,25 @@ export default function BudgetTab({
 // Components -------------------------------------------------------
 function Row({
   label,
+  sublabel,
   value,
   theme,
   valueColor,
 }: {
   label: string;
+  sublabel?: string;
   value: string;
   theme: any;
   valueColor?: string;
 }) {
   return (
     <View style={styles.row}>
-      <Text style={[styles.rowLabel, { color: theme.subtext }]}>{label}</Text>
+      <View>
+        <Text style={[styles.rowLabel, { color: theme.subtext }]}>{label}</Text>
+        {sublabel ? (
+          <Text style={[styles.rowLabel, { color: theme.subtext, fontSize: 11, opacity: 0.8, marginTop: 1 }]}>{sublabel}</Text>
+        ) : null}
+      </View>
       <Text
         style={[
           styles.rowValue,

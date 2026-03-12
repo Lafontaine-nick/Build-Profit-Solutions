@@ -932,16 +932,9 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         p.id === poId ? { ...p, status: 'Received' as const } : p
       );
 
-      const newExpense = {
-        id: `exp-${Date.now()}`,
-        category: po.category,
-        vendor: po.vendor,
-        amount: po.amount,
-        date: new Date().toISOString(),
-        notes: `${po.description || ''} (from ${po.poNumber})`.trim(),
-        receiptUri: null,
-      };
-
+      // Do NOT add to expenses — received POs are tracked in purchaseOrders. Actual cost
+      // = expenses + received POs. Adding to expenses would double-count when computing
+      // forecast final cost for completed projects (Nick, Jason).
       const updatedBuckets = prev.buckets.map(bucket => {
         if (bucket.name.toLowerCase() === po.category.toLowerCase()) {
           return {
@@ -959,7 +952,6 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
       return {
         ...prev,
         purchaseOrders: updatedPOs,
-        expenses: [...(prev.expenses || []), newExpense],
         buckets: updatedBuckets,
         spent: prev.spent + po.amount,
         committedPOs: newCommittedPOs,

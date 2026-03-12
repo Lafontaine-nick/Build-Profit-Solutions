@@ -10,6 +10,167 @@ const openai = new OpenAI({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION MEMORY — lightweight server-side session state
+// Extracts key facts from conversation and persists across messages
+// ─────────────────────────────────────────────────────────────────────────────
+const conversationSessions = new Map();
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getOrCreateSession(sessionId) {
+  if (!sessionId) return null;
+  let session = conversationSessions.get(sessionId);
+  if (!session) {
+    session = {
+      id: sessionId,
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      facts: [],
+      lastTopics: [],
+      projectsDiscussed: [],
+      userPreferences: {},
+    };
+    conversationSessions.set(sessionId, session);
+  }
+  session.lastActiveAt = Date.now();
+  return session;
+}
+
+function extractConversationFacts(message, aiReply, session) {
+  if (!session) return;
+  const msgLower = (message || '').toLowerCase();
+
+  const projectMentions = [];
+  const projectPatterns = /(?:on|about|for|review|check|how(?:'s| is))\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/g;
+  let match;
+  while ((match = projectPatterns.exec(message)) !== null) {
+    const name = match[1].trim();
+    if (name.length > 2 && !['The', 'This', 'That', 'What', 'Which', 'How', 'Where', 'When'].includes(name)) {
+      projectMentions.push(name);
+    }
+  }
+  if (projectMentions.length > 0) {
+    projectMentions.forEach(p => {
+      if (!session.projectsDiscussed.includes(p)) session.projectsDiscussed.push(p);
+    });
+    session.projectsDiscussed = session.projectsDiscussed.slice(-5);
+  }
+
+  const topics = [];
+  if (/margin|profit|money|revenue|earning/i.test(msgLower)) topics.push('profitability');
+  if (/budget|cost|spend|expense|over budget/i.test(msgLower)) topics.push('costs');
+  if (/risk|danger|worry|concern|problem/i.test(msgLower)) topics.push('risks');
+  if (/schedule|timeline|deadline|overdue|behind/i.test(msgLower)) topics.push('schedule');
+  if (/receipt|missing.*receipt/i.test(msgLower)) topics.push('receipts');
+  if (/compare|versus|vs/i.test(msgLower)) topics.push('comparison');
+  if (/forecast|project|predict|trending/i.test(msgLower)) topics.push('forecasting');
+  if (topics.length > 0) session.lastTopics = topics.slice(-3);
+
+  if (session.facts.length > 20) session.facts = session.facts.slice(-15);
+}
+
+function buildMemoryContext(session) {
+  if (!session || (!session.projectsDiscussed.length && !session.lastTopics.length)) return '';
+  let ctx = '\n\nCONVERSATION MEMORY:';
+  if (session.projectsDiscussed.length > 0) {
+    ctx += `\n→ Projects discussed this session: ${session.projectsDiscussed.join(', ')}`;
+  }
+  if (session.lastTopics.length > 0) {
+    ctx += `\n→ Recent topics: ${session.lastTopics.join(', ')}`;
+  }
+  ctx += '\n→ Use this context to maintain continuity — if user says "that one" or "tell me more", they likely mean the project or topic above.';
+  return ctx;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of conversationSessions) {
+    if (now - session.lastActiveAt > SESSION_TTL_MS) conversationSessions.delete(id);
+  }
+}, 5 * 60 * 1000);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SMART SUGGESTIONS — generate contextual follow-ups after every response
+// ─────────────────────────────────────────────────────────────────────────────
+function generateSmartSuggestions(message, reply, parsedContext, session) {
+  const suggestions = [];
+  const msgLower = (message || '').toLowerCase();
+  const replyLower = (reply || '').toLowerCase();
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const projectNames = allProjects.map(p => p?.title || p?.name || '').filter(Boolean);
+
+  const mentionedProject = projectNames.find(name =>
+    replyLower.includes(name.toLowerCase()) || msgLower.includes(name.toLowerCase())
+  );
+
+  if (replyLower.includes('margin') || replyLower.includes('profit')) {
+    if (mentionedProject) {
+      suggestions.push({ label: `Forecast ${mentionedProject} profit`, prompt: `Forecast the final profit for ${mentionedProject} based on current spending` });
+    }
+    suggestions.push({ label: 'Compare all margins', prompt: 'Compare margins across all my projects' });
+  }
+
+  if (replyLower.includes('over budget') || replyLower.includes('overrun') || replyLower.includes('above estimate')) {
+    if (mentionedProject) {
+      suggestions.push({ label: `Break down ${mentionedProject} expenses`, prompt: `Show me an expense breakdown for ${mentionedProject} by category and vendor` });
+    }
+    suggestions.push({ label: 'Check all budget risks', prompt: 'Which projects have budget risks?' });
+  }
+
+  if (replyLower.includes('receipt') || replyLower.includes('missing')) {
+    suggestions.push({ label: 'Show all missing receipts', prompt: 'List all expenses missing receipts across my projects' });
+  }
+
+  if (replyLower.includes('overdue') || replyLower.includes('payment')) {
+    suggestions.push({ label: 'Show all overdue payments', prompt: 'What payments are overdue across all my projects?' });
+  }
+
+  if (mentionedProject && !msgLower.includes('health') && !msgLower.includes('check')) {
+    suggestions.push({ label: `Full health check: ${mentionedProject}`, prompt: `Give me a full health check on ${mentionedProject}` });
+  }
+
+  if (replyLower.includes('compare') || msgLower.includes('compare')) {
+    if (projectNames.length >= 2) {
+      suggestions.push({ label: 'Rank by risk', prompt: 'Rank my projects by risk — which needs the most attention?' });
+    }
+  }
+
+  if (suggestions.length < 2 && mentionedProject) {
+    suggestions.push({ label: `Review ${mentionedProject} costs`, prompt: `Break down all costs on ${mentionedProject}` });
+  }
+
+  if (suggestions.length < 3 && allProjects.length > 1) {
+    suggestions.push({ label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' });
+  }
+
+  return suggestions.slice(0, 4);
+}
+
+// Sum line items (materialLineItems, laborLineItems) for budget fallback when materialTotal/laborTotal missing
+const sumLineItems = (items, normalize) => {
+  const n = (v) => (normalize ? normalize(v) : (v == null ? 0 : Number(v) || 0));
+  return (Array.isArray(items) ? items : []).reduce(
+    (s, i) => s + n(i?.total ?? i?.amount ?? i?.cost ?? i?.price ?? i?.budget ?? 0),
+    0
+  );
+};
+
+// Match Budget tab: derive category spend from expense categories first.
+const sumExpensesByCategory = (expenses, kind, normalize) => {
+  const n = (v) => (normalize ? normalize(v) : (v == null ? 0 : Number(v) || 0));
+  return (Array.isArray(expenses) ? expenses : []).reduce((sum, e) => {
+    const cat = String(e?.category || '').toLowerCase();
+    if (kind === 'material') {
+      if (!(cat.includes('material') || cat.includes('equipment'))) return sum;
+    } else if (kind === 'labor') {
+      if (!cat.includes('labor')) return sum;
+    } else {
+      return sum;
+    }
+    return sum + n(e?.amount ?? 0);
+  }, 0);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // STAGE 1: ROUTER — determines intent and checks required fields before any tool call
 // Returns structured JSON so we skip keyword heuristics entirely.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -752,29 +913,50 @@ function runProjectsListIntelligence(parsedContext) {
 
   allProjects.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
-    const estimateData = p?.estimateData || {};
+    const estimateData = p?.estimateData || p?.projectData?.estimateData || {};
     const buckets = Array.isArray(p?.buckets) ? p.buckets : (Array.isArray(p?.projectData?.buckets) ? p.projectData.buckets : []);
     const milestonesRaw = Array.isArray(p?.milestones) && p.milestones.length
       ? p.milestones
       : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []);
 
-    // Material overrun
+    // Material overrun — use larger of bucket vs estimate (avoid false positives from stale buckets)
     const materialBucket = buckets.find((b) => {
       const n = String(b?.name || '').toLowerCase();
       return n.includes('material') || n.includes('equipment');
     });
-    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? estimateData?.materialTotal ?? estimateData?.materials ?? 0);
-    const materialSpent = normalize(materialBucket?.spent ?? 0);
-    if (materialBudget > 0 && materialSpent > materialBudget) {
+    const materialBudgetFromBucket = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
+    const materialBudgetFromEst = normalize(estimateData?.materialTotal ?? estimateData?.materials ?? 0) || sumLineItems(estimateData?.materialLineItems ?? estimateData?.materialsCart, normalize);
+    const materialBudget = Math.max(materialBudgetFromBucket, materialBudgetFromEst);
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    const materialSpentFromExpenses = sumExpensesByCategory(expenses, 'material', normalize);
+    const materialSpent = materialSpentFromExpenses > 0 ? materialSpentFromExpenses : normalize(materialBucket?.spent ?? 0);
+    const estimatedCost = normalize(p?.estimatedCost ?? 0);
+    const bidPrice = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+    const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+    const approvedCOs = changeOrders.reduce((s, co) => {
+      const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+      return ok ? s + normalize(co?.amount ?? 0) : s;
+    }, 0);
+    const estimateCostFromEd = normalize(estimateData?.totalCost ?? estimateData?.estimatedCost ?? estimateData?.baseCost ?? 0);
+    const plannedCost = estimatedCost > 0 ? estimatedCost : (estimateCostFromEd > 0 ? estimateCostFromEd : bidPrice);
+    const adjustedCostBudget = plannedCost + approvedCOs;
+    const actualCost = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
+    const projectWithinBudget = adjustedCostBudget > 0 && actualCost <= adjustedCostBudget;
+    const materialBudgetSuspicious = plannedCost > 0 && materialBudget > 0 && materialBudget < plannedCost * 0.05;
+
+    if (!projectWithinBudget && !materialBudgetSuspicious && materialBudget > 0 && materialSpent > materialBudget) {
       const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
       alerts.push(`${title}: Materials ${overPct}% over budget`);
     }
 
-    // Labor overrun
+    // Labor overrun — same logic
     const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
-    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? estimateData?.laborTotal ?? estimateData?.labor ?? 0);
-    const laborSpent = normalize(laborBucket?.spent ?? 0);
-    if (laborBudget > 0 && laborSpent > laborBudget) {
+    const laborBudgetFromBucket = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
+    const laborBudgetFromEst = normalize(estimateData?.laborTotal ?? estimateData?.labor ?? 0) || sumLineItems(estimateData?.laborLineItems, normalize);
+    const laborBudget = Math.max(laborBudgetFromBucket, laborBudgetFromEst);
+    const laborSpentFromExpenses = sumExpensesByCategory(expenses, 'labor', normalize);
+    const laborSpent = laborSpentFromExpenses > 0 ? laborSpentFromExpenses : normalize(laborBucket?.spent ?? 0);
+    if (!projectWithinBudget && laborBudget > 0 && laborSpent > laborBudget) {
       const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
       alerts.push(`${title}: Labor ${overPct}% over budget`);
     }
@@ -824,7 +1006,6 @@ function runProjectsListIntelligence(parsedContext) {
     }
 
     // Missing receipts (expenses without receiptUri)
-    const expenses = p?.expenses || p?.projectData?.expenses || [];
     if (expenses.length > 0) {
       const withReceipt = expenses.filter((e) => e?.receiptUri && String(e.receiptUri).trim());
       const withoutReceipt = expenses.length - withReceipt.length;
@@ -834,30 +1015,427 @@ function runProjectsListIntelligence(parsedContext) {
     }
   });
 
-  // Add portfolio-level insights: lowest margin, most profitable
-  const withMargin = allProjects
+  // Portfolio-level financial summary — use contract value (bid + approved COs) for revenue
+  const withFinancials = allProjects
     .map((p) => {
       const title = p?.title || p?.name || 'Project';
-      const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
-      const spentOrEstimate = normalize(p?.actualCost ?? p?.totalSpent ?? p?.estimatedCost ?? 0);
+      const baseBid = normalize(p?.bidPrice ?? p?.projectData?.bidPrice ?? 0);
+      const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+      const approvedCOs = changeOrders.reduce((s, co) => {
+        const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
+        return ok ? s + normalize(co?.amount ?? 0) : s;
+      }, 0);
+      const revenue = normalize(p?.contractValue ?? 0) > 0 ? normalize(p.contractValue) : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
+      const estCost = normalize(p?.estimatedCost ?? 0);
+      const spent = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
+      const spentOrEstimate = spent > 0 ? spent : estCost;
       const marginFallback = revenue > 0 ? ((revenue - spentOrEstimate) / revenue) * 100 : 0;
       const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
-      return { title, margin, revenue };
+      const progress = normalize(p?.progress ?? p?.overallProgressPct ?? 0);
+      const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estCost;
+      const projectedMargin = revenue > 0 && projectedFinalCost > 0 ? ((revenue - projectedFinalCost) / revenue) * 100 : margin;
+      return { title, margin, revenue, estCost, spent, progress, projectedFinalCost, projectedMargin };
     })
-    .filter((x) => x.margin > 0 && x.revenue > 0);
-  if (withMargin.length >= 2) {
-    const byMargin = [...withMargin].sort((a, b) => a.margin - b.margin);
+    .filter((x) => x.revenue > 0);
+
+  if (withFinancials.length >= 1) {
+    const totalRevenue = withFinancials.reduce((s, x) => s + x.revenue, 0);
+    const totalEstCost = withFinancials.reduce((s, x) => s + x.estCost, 0);
+    const totalSpent = withFinancials.reduce((s, x) => s + x.spent, 0);
+    const totalProjectedCost = withFinancials.reduce((s, x) => s + x.projectedFinalCost, 0);
+    const portfolioProjectedProfit = totalRevenue - totalProjectedCost;
+    const portfolioMarginPct = totalRevenue > 0 ? (portfolioProjectedProfit / totalRevenue * 100) : 0;
+
+    alerts.push(`📊 PORTFOLIO SUMMARY: ${withFinancials.length} projects | Total Revenue: $${totalRevenue.toLocaleString()} | Total Spent: $${totalSpent.toLocaleString()} | Projected Profit: $${Math.round(portfolioProjectedProfit).toLocaleString()} (${portfolioMarginPct.toFixed(1)}%)`);
+
+    const byMargin = [...withFinancials].sort((a, b) => a.margin - b.margin);
     const lowest = byMargin[0];
     const highest = byMargin[byMargin.length - 1];
     if (lowest.margin < 25) {
-      alerts.push(`${lowest.title}: Lowest margin at ${Math.round(lowest.margin)}%`);
+      alerts.push(`⚠️ ${lowest.title}: Lowest margin at ${Math.round(lowest.margin)}% — needs attention`);
     }
     if (highest.margin > 20 && highest.title !== lowest.title) {
-      alerts.push(`${highest.title}: Trending most profitable (${Math.round(highest.margin)}% margin)`);
+      alerts.push(`✅ ${highest.title}: Most profitable (${Math.round(highest.margin)}% margin)`);
     }
+
+    // Margin erosion detection
+    withFinancials.forEach((x) => {
+      if (x.progress > 10 && x.margin > 0 && x.projectedMargin < x.margin) {
+        const erosion = x.margin - x.projectedMargin;
+        if (erosion > 5) {
+          alerts.push(`📉 ${x.title}: Margin erosion — estimated ${Math.round(x.margin)}% but trending toward ${Math.round(x.projectedMargin)}% based on current spend rate`);
+        }
+      }
+    });
+
+    // Spend vs progress mismatch
+    withFinancials.forEach((x) => {
+      if (x.progress > 0 && x.estCost > 0 && x.spent > 0) {
+        const burnPct = (x.spent / x.estCost) * 100;
+        if (burnPct > x.progress + 20) {
+          alerts.push(`🔴 ${x.title}: Spending ahead of progress — ${Math.round(burnPct)}% of budget spent but only ${Math.round(x.progress)}% complete`);
+        }
+      }
+    });
   }
 
-  return alerts.slice(0, 10);
+  return alerts.slice(0, 15);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPARE PROJECTS — deterministic fast path (no LLM) for "compare all projects"
+// Uses same logic as mobile Projects page (getProjectRevenue, actualCost, computeProfitForecast)
+// Only includes Chris, Nick, Jason to match Projects page display.
+// ─────────────────────────────────────────────────────────────────────────────
+const ALLOWED_PROJECT_NAMES = ['chris', 'nick', 'jason'];
+const PROJECT_ORDER = ['chris', 'jason', 'nick']; // Fixed order to match Projects page
+
+function runCompareProjects(parsedContext) {
+  // Prefer client-provided compareProjectsData (matches Projects page exactly — includes overrides & timeline)
+  let precomputed = Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData : [];
+  const progressByProjectId = parsedContext?.progressByProjectId || {};
+  // Override progress with timeline data when available (client may have sent stale compareProjectsData)
+  if (precomputed.length > 0 && Object.keys(progressByProjectId).length > 0) {
+    precomputed = precomputed.map((x) => {
+      const key = String(x?.title || '').trim().toLowerCase();
+      const slug = key.replace(/\s+/g, '-');
+      const override = progressByProjectId[key] ?? progressByProjectId[slug] ?? progressByProjectId[String(x?.id ?? '')];
+      return override != null ? { ...x, progress: override } : x;
+    });
+  }
+  if (precomputed.length > 0) {
+    const data = precomputed;
+    const totalRevenue = data.reduce((s, x) => s + Number(x.revenue || 0), 0);
+    const totalProfit = data.reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+    const highestMargin = data.reduce((best, x) => (x.margin > (best?.margin ?? 0) ? x : best), null);
+    const highestProfit = data.reduce((best, x) => (Number(x.projectedProfit || 0) > Number(best?.projectedProfit || 0) ? x : best), null);
+    const needsAttention = data.filter((x) => x.missingReceipts > 0 || (Array.isArray(x.riskFlags) && x.riskFlags.length > 0));
+
+    const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    let summary = '';
+    if (highestMargin && highestProfit) {
+      const sameProject = highestMargin.title === highestProfit.title;
+      if (sameProject) {
+        summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%) and highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+      } else {
+        summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%); ${highestProfit.title} has the highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+      }
+    } else if (highestMargin) {
+      summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%)`;
+    } else if (highestProfit) {
+      summary += `${highestProfit.title} has the highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+    }
+    if (needsAttention.length > 0) {
+      const receiptOnly = needsAttention.filter((x) => x.missingReceipts > 0).length === needsAttention.length &&
+        needsAttention.every((x) => !Array.isArray(x.riskFlags) || x.riskFlags.length === 0 || (x.riskFlags.length === 1 && x.riskFlags[0] === 'missing_receipts'));
+      if (needsAttention.length === data.length && receiptOnly) {
+        summary += summary ? '. All projects need attention for missing receipts' : 'All projects need attention for missing receipts';
+      } else {
+        const names = needsAttention.map((x) => x.title).join(', ');
+        summary += summary ? `. ${needsAttention.length} project(s) need attention: ${names}` : `${needsAttention.length} project(s) need attention: ${names}`;
+      }
+    }
+    summary = summary ? summary + '.\n\n' : '';
+
+    let reply = "Here's the comparison of all your projects for profitability and risk:\n\n" + summary;
+    data.forEach((x) => {
+      const riskParts = [];
+      if (x.missingReceipts > 0) riskParts.push(`${x.missingReceipts} missing receipts`);
+      if (Array.isArray(x.riskFlags) && x.riskFlags.length > 0) {
+        riskParts.push(...x.riskFlags.filter((r) => r !== 'missing_receipts').map((r) => String(r).replace(/_/g, ' ')));
+      }
+      const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
+      reply += `**${x.title}**\n`;
+      reply += `• Margin: ${x.margin}%\n`;
+      reply += `• Spent: $${fmt(x.spent || 0)}\n`;
+      if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
+      reply += `• Projected Profit: $${fmt(x.projectedProfit || 0)}\n`;
+      if (x.revenue != null && x.revenue > 0) reply += `• Revenue: $${fmt(x.revenue)}\n`;
+      if (x.budgetUsedPct != null && x.budgetUsedPct > 0) reply += `• Budget used: ${x.budgetUsedPct}%\n`;
+      if (x.progress != null) reply += `• Progress: ${Math.round(x.progress)}%\n`;
+      if (x.status) reply += `• Status: ${x.status}\n`;
+      reply += `• ${riskStr}\n\n`;
+    });
+
+    reply += `**Portfolio totals** — Revenue: $${fmt(totalRevenue)} | Projected profit: $${fmt(totalProfit)}\n\n`;
+    if (needsAttention.length > 0) {
+      const receiptProjects = needsAttention.filter((x) => x.missingReceipts > 0);
+      if (receiptProjects.length > 0) {
+        reply += `**Focus on:** ${receiptProjects.map((x) => x.title).join(', ')} — upload missing receipts to reduce risk.\n`;
+      }
+    }
+    return reply;
+  }
+
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  if (allProjects.length === 0) return null;
+
+  const normalize = (v) => {
+    if (v == null) return 0;
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/[$,\s]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const sanitizePositive = (v) => {
+    const n = normalize(v);
+    return n > 0 ? n : 0;
+  };
+
+  // getProjectRevenue — matches Projects page (estimateData.grandTotal, bidPrice, etc. + approved COs)
+  function getProjectRevenue(project) {
+    const ed = project?.estimateData || project?.projectData?.estimateData || {};
+    const originalBudgetCandidates = [
+      ed?.grandTotal,
+      ed?.bidPrice,
+      ed?.total,
+      project?.bidPrice,
+      project?.projectData?.bidPrice,
+      project?.projectData?.totalBidPrice,
+      project?.estimatedCost,
+      project?.projectData?.estimatedCost,
+      project?.total,
+      project?.totalRevenue,
+      project?.contractValue,
+    ];
+    let originalBudget = 0;
+    for (const c of originalBudgetCandidates) {
+      const s = sanitizePositive(c);
+      if (s > 0) { originalBudget = s; break; }
+    }
+    if (originalBudget <= 0) return 0;
+
+    const coSources = [
+      project?.projectData?.changeOrders,
+      project?.changeOrders,
+      project?.rawProject?.projectData?.changeOrders,
+      project?.rawProject?.changeOrders,
+    ];
+    const collected = [];
+    for (const src of coSources) {
+      if (Array.isArray(src) && src.length) collected.push(...src);
+    }
+    const seen = new Set();
+    const unique = collected.filter((co) => {
+      const key = co?.id != null ? `id:${co.id}` : `sig:${String(co?.title || '')}:${Number(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    let approvedCOs = unique.reduce((sum, co) => {
+      const amt = Number(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0);
+      const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
+      return ok ? sum + amt : sum;
+    }, 0);
+    if (approvedCOs <= 0) {
+      approvedCOs = sanitizePositive(
+        project?.projectData?.changeOrderTotal ?? project?.changeOrderTotal ?? project?.rawProject?.projectData?.changeOrderTotal
+      );
+    }
+    return originalBudget + approvedCOs;
+  }
+
+  // computeProfitForecast — matches mobile profitForecast.ts
+  function computeProfitForecast(contractValue, adjustedBudget, actualExpenses, committedPOs, progressPct, isCompleted) {
+    const cv = normalize(contractValue);
+    const adj = normalize(adjustedBudget);
+    const actual = normalize(actualExpenses);
+    const committed = normalize(committedPOs);
+    const pct = Math.min(100, Math.max(0, normalize(progressPct)));
+    const ratio = pct > 0 ? pct / 100 : 0;
+    const done = isCompleted || ratio >= 1;
+
+    let forecastFinalCost = adj;
+    if (actual > 0 || committed > 0) {
+      const actualPlusCommitted = actual + committed;
+      if (done) {
+        forecastFinalCost = actual;
+      } else if (ratio > 0.01 && actual > 0) {
+        const cpiForecast = actual / ratio;
+        forecastFinalCost = Math.max(actualPlusCommitted, cpiForecast);
+      } else {
+        forecastFinalCost = Math.max(adj, actualPlusCommitted);
+      }
+    }
+    const projectedProfit = cv - forecastFinalCost;
+    const projectedMarginPct = cv > 0 ? (projectedProfit / cv) * 100 : 0;
+    return { projectedProfit, projectedMarginPct };
+  }
+
+  // Filter to Chris, Nick, Jason only (same as Projects page)
+  const filtered = allProjects.filter((p) => {
+    const t = String(p?.title || p?.name || '').toLowerCase().trim();
+    return ALLOWED_PROJECT_NAMES.some((n) => t === n || t.startsWith(n + ' ') || t.startsWith(n + '-') || t.startsWith(n + "'"));
+  });
+
+  // Dedupe by name (prefer exact match)
+  const seen = new Set();
+  const deduped = filtered.filter((p) => {
+    const t = String(p?.title || p?.name || '').toLowerCase().trim();
+    const key = PROJECT_ORDER.find((n) => t === n || t.startsWith(n)) ?? t;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const analyzed = deduped.map((p) => {
+    const title = p?.title || p?.name || 'Untitled Project';
+    const pd = p?.projectData ?? p;
+    const status = String(p?.status || pd?.status || '').toLowerCase();
+
+    // Actual cost — same as Projects page: expenses + received POs
+    const expensesTotal = sanitizePositive(pd?.spent) ||
+      (Array.isArray(pd?.expenses) && pd.expenses.length
+        ? pd.expenses.reduce((s, e) => s + normalize(e?.amount ?? 0), 0)
+        : Array.isArray(pd?.buckets)
+          ? pd.buckets.reduce((s, b) => s + normalize(b?.spent ?? 0), 0)
+          : 0);
+    const rawPOs = pd?.purchaseOrders ?? p?.purchaseOrders ?? [];
+    const receivedPOsTotal = Array.isArray(rawPOs)
+      ? rawPOs
+          .filter((po) => String(po?.status || '').toLowerCase() === 'received')
+          .reduce((s, po) => s + normalize(po?.amount ?? 0), 0)
+      : 0;
+    const actualCost = expensesTotal + receivedPOsTotal || normalize(p?.actualCost ?? p?.totalSpent ?? pd?.actualCost ?? 0);
+
+    const estimatedCost = normalize(
+      p?.estimatedCost ?? pd?.estimatedCost ?? p?.estimateData?.totalCost ?? pd?.estimateData?.totalCost ?? 0
+    );
+    const committedPOs = Array.isArray(rawPOs)
+      ? rawPOs
+          .filter((po) => String(po?.status || '').toLowerCase() !== 'received')
+          .reduce((s, po) => s + normalize(po?.amount ?? 0), 0)
+      : 0;
+
+    const revenue = getProjectRevenue(p);
+    const progressPct = normalize(p?.progress ?? p?.overallProgressPct ?? pd?.progress ?? 0);
+    const finalProgress = status === 'completed' ? 100 : progressPct;
+    const isCompleted = status === 'completed';
+
+    const forecast = revenue > 0
+      ? computeProfitForecast(
+          revenue,
+          estimatedCost > 0 ? estimatedCost : revenue,
+          actualCost,
+          committedPOs,
+          finalProgress,
+          isCompleted
+        )
+      : { projectedProfit: 0, projectedMarginPct: 0 };
+
+    const expenses = p?.expenses || pd?.expenses || [];
+    const missingReceipts = expenses.filter((e) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+
+    const margin = forecast.projectedMarginPct;
+    const budget = estimatedCost > 0 ? estimatedCost : revenue;
+    const overBudgetPct = budget > 0 ? ((actualCost - budget) / budget) * 100 : 0;
+    const milestones = p?.milestones || pd?.milestones || p?.weeklyPayments || pd?.weeklyPayments || [];
+    const overdueItems = Array.isArray(milestones) ? milestones.filter((m) => {
+      const st = String(m?.status || '').toLowerCase();
+      if (st.includes('complete') || st.includes('paid') || st.includes('collected')) return false;
+      const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+      return Number.isFinite(dt.getTime()) && dt.getTime() < Date.now();
+    }) : [];
+
+    const riskFlags = [];
+    if (overBudgetPct > 10) riskFlags.push('over_budget');
+    if (margin > 0 && margin < 10) riskFlags.push('low_margin');
+    if (overdueItems.length > 0) riskFlags.push('overdue_milestones');
+    if (progressPct > 0 && budget > 0 && (actualCost / budget * 100) > progressPct + 20) riskFlags.push('spend_ahead_of_progress');
+    if (missingReceipts >= 3) riskFlags.push('missing_receipts');
+    if (actualCost === 0 && revenue > 0) riskFlags.push('margin_erosion'); // No spend yet — margin may drop once work starts
+
+    const displayStatus = status === 'completed' ? 'Completed' : (status === 'won' || status === 'in_progress' || status === 'active') ? 'Active' : 'Submitted';
+    // Budget used %: match project-detail — spent / (contract value + approved COs)
+    const budgetUsedPct = revenue > 0 ? Math.round((actualCost / revenue) * 100) : 0;
+    return {
+      title,
+      margin: Math.round(margin * 10) / 10,
+      spent: Math.round(actualCost),
+      projectedProfit: Math.round(forecast.projectedProfit),
+      revenue,
+      progress: finalProgress,
+      status: displayStatus,
+      missingReceipts,
+      riskFlags,
+      committedPOs: Math.round(committedPOs),
+      budgetUsedPct,
+    };
+  });
+
+  // Sort by fixed order: Chris, Jason, Nick
+  const sorted = [...analyzed].sort((a, b) => {
+    const aIdx = PROJECT_ORDER.findIndex((n) => (a.title || '').toLowerCase().startsWith(n));
+    const bIdx = PROJECT_ORDER.findIndex((n) => (b.title || '').toLowerCase().startsWith(n));
+    if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+    if (aIdx >= 0) return -1;
+    if (bIdx >= 0) return 1;
+    return 0;
+  });
+
+  const totalRevenue = sorted.reduce((s, x) => s + Number(x.revenue || 0), 0);
+  const totalProfit = sorted.reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+  const highestMargin = sorted.reduce((best, x) => (x.margin > (best?.margin ?? 0) ? x : best), null);
+  const highestProfit = sorted.reduce((best, x) => (Number(x.projectedProfit || 0) > Number(best?.projectedProfit || 0) ? x : best), null);
+  const needsAttention = sorted.filter((x) => x.missingReceipts > 0 || (Array.isArray(x.riskFlags) && x.riskFlags.length > 0));
+
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let summary = '';
+  if (highestMargin && highestProfit) {
+    const sameProject = highestMargin.title === highestProfit.title;
+    if (sameProject) {
+      summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%) and highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+    } else {
+      summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%); ${highestProfit.title} has the highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+    }
+  } else if (highestMargin) {
+    summary += `${highestMargin.title} has the highest margin (${highestMargin.margin}%)`;
+  } else if (highestProfit) {
+    summary += `${highestProfit.title} has the highest projected profit ($${fmt(highestProfit.projectedProfit || 0)})`;
+  }
+  if (needsAttention.length > 0) {
+    const receiptOnly = needsAttention.filter((x) => x.missingReceipts > 0).length === needsAttention.length &&
+      needsAttention.every((x) => !Array.isArray(x.riskFlags) || x.riskFlags.length === 0 || (x.riskFlags.length === 1 && x.riskFlags[0] === 'missing_receipts'));
+    if (needsAttention.length === sorted.length && receiptOnly) {
+      summary += summary ? '. All projects need attention for missing receipts' : 'All projects need attention for missing receipts';
+    } else {
+      const names = needsAttention.map((x) => x.title).join(', ');
+      summary += summary ? `. ${needsAttention.length} project(s) need attention: ${names}` : `${needsAttention.length} project(s) need attention: ${names}`;
+    }
+  }
+  summary = summary ? summary + '.\n\n' : '';
+
+  let reply = "Here's the comparison of all your projects for profitability and risk:\n\n" + summary;
+  sorted.forEach((x) => {
+    const riskParts = [];
+    if (x.missingReceipts > 0) riskParts.push(`${x.missingReceipts} missing receipts`);
+    if (Array.isArray(x.riskFlags) && x.riskFlags.length > 0) {
+      riskParts.push(...x.riskFlags.filter((r) => r !== 'missing_receipts').map((r) => String(r).replace(/_/g, ' ')));
+    }
+    const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
+    reply += `**${x.title}**\n`;
+    reply += `• Margin: ${x.margin}%\n`;
+    reply += `• Spent: $${fmt(x.spent || 0)}\n`;
+    if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
+    reply += `• Projected Profit: $${fmt(x.projectedProfit || 0)}\n`;
+    if (x.revenue != null && x.revenue > 0) reply += `• Revenue: $${fmt(x.revenue)}\n`;
+    if (x.budgetUsedPct != null && x.budgetUsedPct > 0) reply += `• Budget used: ${x.budgetUsedPct}%\n`;
+    if (x.progress != null) reply += `• Progress: ${Math.round(x.progress)}%\n`;
+    if (x.status) reply += `• Status: ${x.status}\n`;
+    reply += `• ${riskStr}\n\n`;
+  });
+
+  reply += `**Portfolio totals** — Revenue: $${fmt(totalRevenue)} | Projected profit: $${fmt(totalProfit)}\n\n`;
+  if (needsAttention.length > 0) {
+    const receiptProjects = needsAttention.filter((x) => x.missingReceipts > 0);
+    if (receiptProjects.length > 0) {
+      reply += `**Focus on:** ${receiptProjects.map((x) => x.title).join(', ')} — upload missing receipts to reduce risk.\n`;
+    }
+  }
+  return reply;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -884,19 +1462,41 @@ function runProfitLeakDetection(parsedContext) {
   allProjects.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
     const buckets = p?.buckets || p?.projectData?.buckets || [];
+    const ed = p?.estimateData || p?.projectData?.estimateData || {};
     const materialBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('material') || String(b?.name || '').toLowerCase().includes('equipment'));
     const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
-    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
-    const materialSpent = normalize(materialBucket?.spent ?? 0);
-    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
-    const laborSpent = normalize(laborBucket?.spent ?? 0);
+    // Use the LARGER of bucket budget vs estimate total — project list buckets can be stale/wrong;
+    // Budget tab uses estimate line items. Avoid false "400% over" when bucket has tiny value.
+    const materialBudgetFromBucket = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
+    const materialBudgetFromEst = normalize(ed?.materialTotal ?? ed?.materials ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, normalize);
+    const materialBudget = Math.max(materialBudgetFromBucket, materialBudgetFromEst);
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    const materialSpentFromExpenses = sumExpensesByCategory(expenses, 'material', normalize);
+    const materialSpent = materialSpentFromExpenses > 0 ? materialSpentFromExpenses : normalize(materialBucket?.spent ?? 0);
+    const laborBudgetFromBucket = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
+    const laborBudgetFromEst = normalize(ed?.laborTotal ?? ed?.labor ?? 0) || sumLineItems(ed?.laborLineItems, normalize);
+    const laborBudget = Math.max(laborBudgetFromBucket, laborBudgetFromEst);
+    const laborSpentFromExpenses = sumExpensesByCategory(expenses, 'labor', normalize);
+    const laborSpent = laborSpentFromExpenses > 0 ? laborSpentFromExpenses : normalize(laborBucket?.spent ?? 0);
     const progress = normalize(p?.progress ?? p?.overallProgressPct ?? 0);
     const actualCost = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
     const estimatedCost = normalize(p?.estimatedCost ?? 0);
     const bidPrice = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
-    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+    const approvedCOs = changeOrders.reduce((s, co) => {
+      const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+      return ok ? s + normalize(co?.amount ?? 0) : s;
+    }, 0);
+    // Cost budget = planned cost + change orders (matches Budget tab's adjustedBudget)
+    const estimateCostFromEd = normalize(ed?.totalCost ?? ed?.estimatedCost ?? ed?.baseCost ?? 0);
+    const plannedCost = estimatedCost > 0 ? estimatedCost : (estimateCostFromEd > 0 ? estimateCostFromEd : bidPrice);
+    const adjustedCostBudget = plannedCost + approvedCOs;
+    // Skip category overrun flags when project is within cost budget overall — likely stale bucket data
+    const projectWithinBudget = adjustedCostBudget > 0 && actualCost <= adjustedCostBudget;
+    // Also skip when material budget is unrealistically small (<5% of total) — likely bad bucket data
+    const materialBudgetSuspicious = plannedCost > 0 && materialBudget > 0 && materialBudget < plannedCost * 0.05;
 
-    if (laborBudget > 0 && laborSpent > laborBudget) {
+    if (!projectWithinBudget && laborBudget > 0 && laborSpent > laborBudget) {
       const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
       leaks.push({
         project: title,
@@ -906,7 +1506,7 @@ function runProfitLeakDetection(parsedContext) {
         priority: 1,
       });
     }
-    if (materialBudget > 0 && materialSpent > materialBudget) {
+    if (!projectWithinBudget && !materialBudgetSuspicious && materialBudget > 0 && materialSpent > materialBudget) {
       const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
       leaks.push({
         project: title,
@@ -1048,23 +1648,45 @@ function runTodayBrief(parsedContext) {
     recommendedActions.push({ label: 'Confirm upcoming payments', prompt: 'What payments or milestones are due in the next few days?' });
   }
 
-  // Labor / material overruns
+  // Labor / material overruns — use larger of bucket vs estimate; skip when project within budget overall
   allProjects.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
     const buckets = p?.buckets || p?.projectData?.buckets || [];
+    const ed = p?.estimateData || p?.projectData?.estimateData || {};
     const materialBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('material') || String(b?.name || '').toLowerCase().includes('equipment'));
     const laborBucket = buckets.find((b) => String(b?.name || '').toLowerCase().includes('labor'));
-    const materialBudget = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
-    const materialSpent = normalize(materialBucket?.spent ?? 0);
-    const laborBudget = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
-    const laborSpent = normalize(laborBucket?.spent ?? 0);
-    if (materialBudget > 0 && materialSpent > materialBudget) {
+    const materialBudgetFromBucket = normalize(materialBucket?.budget ?? materialBucket?.bidBudget ?? 0);
+    const materialBudgetFromEst = normalize(ed?.materialTotal ?? ed?.materials ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, normalize);
+    const materialBudget = Math.max(materialBudgetFromBucket, materialBudgetFromEst);
+    const expenses = p?.expenses || p?.projectData?.expenses || [];
+    const materialSpentFromExpenses = sumExpensesByCategory(expenses, 'material', normalize);
+    const materialSpent = materialSpentFromExpenses > 0 ? materialSpentFromExpenses : normalize(materialBucket?.spent ?? 0);
+    const laborBudgetFromBucket = normalize(laborBucket?.budget ?? laborBucket?.bidBudget ?? 0);
+    const laborBudgetFromEst = normalize(ed?.laborTotal ?? ed?.labor ?? 0) || sumLineItems(ed?.laborLineItems, normalize);
+    const laborBudget = Math.max(laborBudgetFromBucket, laborBudgetFromEst);
+    const laborSpentFromExpenses = sumExpensesByCategory(expenses, 'labor', normalize);
+    const laborSpent = laborSpentFromExpenses > 0 ? laborSpentFromExpenses : normalize(laborBucket?.spent ?? 0);
+    const estimatedCost = normalize(p?.estimatedCost ?? 0);
+    const bidPrice = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+    const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+    const approvedCOs = changeOrders.reduce((s, co) => {
+      const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+      return ok ? s + normalize(co?.amount ?? 0) : s;
+    }, 0);
+    const estimateCostFromEd = normalize(ed?.totalCost ?? ed?.estimatedCost ?? ed?.baseCost ?? 0);
+    const plannedCost = estimatedCost > 0 ? estimatedCost : (estimateCostFromEd > 0 ? estimateCostFromEd : bidPrice);
+    const adjustedCostBudget = plannedCost + approvedCOs;
+    const actualCost = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
+    const projectWithinBudget = adjustedCostBudget > 0 && actualCost <= adjustedCostBudget;
+    const materialBudgetSuspicious = plannedCost > 0 && materialBudget > 0 && materialBudget < plannedCost * 0.05;
+
+    if (!projectWithinBudget && !materialBudgetSuspicious && materialBudget > 0 && materialSpent > materialBudget) {
       const overPct = Math.round(((materialSpent - materialBudget) / materialBudget) * 100);
       insights.push(`${title} materials ${overPct}% over budget`);
       projectNames.add(title);
       recommendedActions.push({ label: `Review ${title} costs`, prompt: `Compare estimate vs actual material costs on ${title}` });
     }
-    if (laborBudget > 0 && laborSpent > laborBudget) {
+    if (!projectWithinBudget && laborBudget > 0 && laborSpent > laborBudget) {
       const overPct = Math.round(((laborSpent - laborBudget) / laborBudget) * 100);
       insights.push(`${title} labor ${overPct}% over budget`);
       projectNames.add(title);
@@ -1102,32 +1724,37 @@ function runTodayBrief(parsedContext) {
 
   const quickActions = [
     { label: 'Compare Projects', prompt: 'Compare all my projects for profitability and risk' },
-    { label: 'What Needs Attention', prompt: 'What should I focus on today?' },
-    { label: 'Forecast Profit', prompt: 'Forecast profit across my projects' },
-    { label: 'Check Budget Risks', prompt: 'Identify budget risks across my projects' },
+    { label: 'What Needs Attention', prompt: 'What should I focus on today? Give me my top priorities.' },
+    { label: 'Forecast Profit', prompt: 'Forecast profit across my entire portfolio — show projected numbers' },
+    { label: 'Check Budget Risks', prompt: 'Which projects have budget risks? Show me specifics.' },
     { label: 'Missing Receipts', prompt: 'Which projects have expenses missing receipts?' },
-    { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
+    { label: 'Portfolio Health', prompt: 'Give me a full portfolio health check — margins, risks, and what to focus on' },
   ];
 
   const suggestedFollowUps = [];
   const names = [...projectNames].slice(0, 3);
   names.forEach((name) => {
-    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a health check on ${name}` });
+    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a full health check on ${name} — budget, margin, risks, and what I should do next` });
   });
   if (names.length >= 2) {
-    suggestedFollowUps.push({ label: `Compare ${names[0]} vs ${names[1]}`, prompt: `Compare ${names[0]} and ${names[1]}` });
+    suggestedFollowUps.push({ label: `Compare ${names[0]} vs ${names[1]}`, prompt: `Compare ${names[0]} and ${names[1]} — which is performing better and why?` });
   }
-  suggestedFollowUps.push({ label: 'Show lowest margin jobs', prompt: 'Which projects have the lowest margin?' });
-  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which projects are over budget?' });
+  suggestedFollowUps.push({ label: 'Where am I losing money?', prompt: 'Where am I losing money across my projects? Show me the biggest profit leaks.' });
+  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which projects are over budget and by how much?' });
 
   // Biggest Risk: pick highest-priority issue (profit leak first, then low margin, overdue, missing receipts)
   let biggestRisk = null;
   if (profitLeaks.length > 0) {
     const top = profitLeaks[0];
+    const impactDetail = top.priority === 1 ? 'Labor overruns directly compress your margin.'
+      : top.priority === 2 ? 'Material costs above estimate reduce your profit.'
+      : top.priority === 3 ? 'Spending ahead of progress may compress margin significantly.'
+      : top.priority === 4 ? 'Missing receipts reduce reporting accuracy and tax deductions.'
+      : 'Overdue payments affect your cash flow.';
     biggestRisk = {
       title: top.project,
       message: top.message,
-      detail: 'This may be eroding profit.',
+      detail: impactDetail,
       cta: top.cta,
       prompt: top.prompt,
     };
@@ -1137,10 +1764,10 @@ function runTodayBrief(parsedContext) {
     if (lowest.margin < 25) {
       biggestRisk = {
         title: lowest.title,
-        message: `${lowest.title} margin dropped to ${Math.round(lowest.margin)}%`,
-        detail: 'Labor costs may be higher than estimated.',
+        message: `${lowest.title} margin at ${Math.round(lowest.margin)}% — your lowest`,
+        detail: 'Review costs to protect this margin before it erodes further.',
         cta: 'Review Project',
-        prompt: `Review labor costs and expenses on ${lowest.title}`,
+        prompt: `Give me a full health check on ${lowest.title} — budget, margin, risks, and what I should do next`,
       };
     }
   }
@@ -1410,9 +2037,8 @@ router.post('/greeting', async (req, res) => {
       brief.insights.forEach((a) => {
         reply += `• ${a}\n`;
       });
-      reply += '\nWhat would you like to review?';
     } else {
-      reply += "Your portfolio looks quiet right now. What would you like to review?";
+      reply += "Your portfolio looks quiet — no urgent items right now.";
     }
 
     return res.json({
@@ -1426,6 +2052,104 @@ router.post('/greeting', async (req, res) => {
   } catch (err) {
     console.error('Error in /greeting:', err);
     return res.status(500).json({ error: 'Greeting failed', message: err.message });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/stream
+ * Streaming AI Assistant endpoint — returns Server-Sent Events for real-time token display
+ */
+router.post('/stream', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'AI service unavailable' });
+    }
+
+    const { message, context, history = [], user_settings = {}, sessionId } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    let parsedContext = {};
+    try {
+      if (typeof context === 'string') parsedContext = JSON.parse(context);
+      else if (typeof context === 'object') parsedContext = context || {};
+    } catch (e) { parsedContext = {}; }
+
+    const session = getOrCreateSession(sessionId || `stream-${Date.now()}`);
+    const aiPmMode = user_settings.ai_project_manager_mode || false;
+    const allProjects = parsedContext.allProjects || [];
+    const screen = parsedContext.screen || 'assistant_tab';
+    const screenLower = screen.toLowerCase();
+    const isCommandCenter = screenLower === 'projects' || screenLower === 'ai assistant tab';
+
+    // Build a simplified system prompt for streaming (portfolio mode only)
+    let streamSystemPrompt = buildSystemPrompt({
+      projectName: parsedContext.currentProject || parsedContext.projectName,
+      projectId: parsedContext.projectId,
+      status: parsedContext.status || 'active',
+      bidTotal: Number(parsedContext.bidTotal || 0),
+      estimatedCost: Number(parsedContext.estimatedCost || 0),
+      actualCost: Number(parsedContext.actualCost || 0),
+      progress: Number(parsedContext.progress || 0),
+      aiPmMode, pmAlerts: [],
+      screen,
+    });
+
+    if (isCommandCenter) {
+      const listAlerts = runProjectsListIntelligence(parsedContext);
+      if (listAlerts.length > 0) {
+        streamSystemPrompt += `\n\n📌 PORTFOLIO INTELLIGENCE:\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}`;
+      }
+    }
+
+    const memoryBlock = buildMemoryContext(session);
+    if (memoryBlock) streamSystemPrompt += memoryBlock;
+
+    const messages = [
+      { role: 'system', content: streamSystemPrompt },
+      ...history.filter(m => m.role && m.content),
+      { role: 'user', content: message },
+    ];
+
+    // Set up SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    try {
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        temperature: 0.3,
+        max_tokens: 2000,
+        stream: true,
+      });
+
+      let fullReply = '';
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          fullReply += content;
+          res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
+        }
+      }
+
+      extractConversationFacts(message, fullReply, session);
+      const suggestedFollowUps = generateSmartSuggestions(message, fullReply, parsedContext, session);
+
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps, sessionId: session?.id })}\n\n`);
+      res.end();
+    } catch (streamErr) {
+      console.error('Stream error:', streamErr.message);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: streamErr.message })}\n\n`);
+      res.end();
+    }
+  } catch (err) {
+    console.error('Error in /stream:', err);
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    res.end();
   }
 });
 
@@ -1461,11 +2185,14 @@ router.post('/', async (req, res) => {
       console.log('✅ AI Assistant request has auth token (length:', authToken.length, ')');
     }
 
-    const { message, context, history = [], user_settings = {} } = req.body;
+    const { message, context, history = [], user_settings = {}, sessionId } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
+
+    // Conversation memory: get or create session
+    const session = getOrCreateSession(sessionId || `auto-${Date.now()}`);
 
     // Parse context
     let parsedContext = {};
@@ -1598,6 +2325,20 @@ router.post('/', async (req, res) => {
       });
       console.log('✅ EARLY missing cost scan — returning immediately (bypassing router/CO flow)');
       return res.json({ reply, actions: [] });
+    }
+
+    // ── EARLY: Compare all projects (profitability + risk) — fast path, no LLM ──
+    const isCompareAllProjects = allProjects.length > 0 &&
+      msgLowerEarly.includes('compare') &&
+      (msgLowerEarly.includes('all') || msgLowerEarly.includes('my') || msgLowerEarly.includes('each')) &&
+      (msgLowerEarly.includes('project') || msgLowerEarly.includes('projects')) &&
+      (msgLowerEarly.includes('profit') || msgLowerEarly.includes('risk') || msgLowerEarly.includes('margin'));
+    if (isCompareAllProjects) {
+      const reply = runCompareProjects(parsedContext);
+      if (reply) {
+        console.log('✅ EARLY compare all projects — returning immediately (bypassing router/LLM)');
+        return res.json({ reply, actions: [] });
+      }
     }
 
     // ── EARLY: "X weeks too long" / "goes long" profit projection (NOT scenario analysis) ──
@@ -2127,9 +2868,40 @@ router.post('/', async (req, res) => {
     if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
       const listAlerts = runProjectsListIntelligence(parsedContext);
       if (listAlerts.length > 0) {
-        systemPrompt += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 PORTFOLIO INTELLIGENCE (grounded in real data)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nRULES:\n→ Use these alerts when user asks cross-project or list-level questions\n→ Surface relevant insights proactively when they relate to the user's question\n→ Keep comparisons concise and actionable\n→ If request is project-specific and ambiguous, ask one clear follow-up question`;
+        systemPrompt += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 PORTFOLIO INTELLIGENCE (grounded in real data — use these numbers)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nRULES:\n→ Use these alerts as your source of truth for financial data — every number you cite must come from here or from tool results\n→ When user asks about portfolio health, profitability, or risks — reference these alerts directly\n→ Surface relevant insights proactively when they relate to the user's question\n→ When answering, always structure as: direct answer → supporting insight → suggested action\n→ Connect financial data to actionable recommendations\n→ If request is project-specific and ambiguous, ask one clear follow-up question\n→ Never dump all alerts at once — pick the most relevant ones for the user's question`;
+      }
+
+      // Inject calendar events from all projects into Command Center context
+      const portfolioCalendarEvents = [];
+      const allProjectsForCalendar = parsedContext?.allProjects || [];
+      allProjectsForCalendar.forEach(p => {
+        const pTitle = p?.title || p?.name || 'Project';
+        const events = p?.calendarEvents || p?.projectData?.calendarEvents || [];
+        events.forEach(ev => {
+          if (ev.completed) return;
+          const evDate = new Date(ev.date || 0);
+          if (!Number.isFinite(evDate.getTime())) return;
+          const daysUntil = Math.ceil((evDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          if (daysUntil >= -1 && daysUntil <= 7) {
+            portfolioCalendarEvents.push({ ...ev, projectName: pTitle, daysUntil });
+          }
+        });
+      });
+      if (portfolioCalendarEvents.length > 0) {
+        portfolioCalendarEvents.sort((a, b) => a.daysUntil - b.daysUntil);
+        const calItems = portfolioCalendarEvents.slice(0, 8).map((ev, i) => {
+          const dateStr = new Date(ev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const timeStr = ev.time ? ` at ${ev.time}` : '';
+          const dayLabel = ev.daysUntil === 0 ? 'Today' : ev.daysUntil === 1 ? 'Tomorrow' : `${ev.daysUntil} days`;
+          return `${i + 1}. ${ev.title || ev.type || 'Event'} (${ev.projectName}) — ${dateStr}${timeStr} (${dayLabel})`;
+        }).join('\n');
+        systemPrompt += `\n\n📅 UPCOMING EVENTS (across all projects):\n${calItems}\n→ Mention relevant events when they relate to the user's question or project`;
       }
     }
+
+    // Inject conversation memory
+    const memoryBlock = buildMemoryContext(session);
+    if (memoryBlock) systemPrompt += memoryBlock;
 
     // Build messages array from history + new message
     const messages = [
@@ -2182,6 +2954,62 @@ router.post('/', async (req, res) => {
                 type: 'string',
                 description: 'Optional sort key: margin | overBudget | progress | risk.',
                 enum: ['margin', 'overBudget', 'progress', 'risk'],
+              },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_project_health',
+          description: 'Get a comprehensive health check for a specific project. Returns budget status, margin, risks, expense breakdown, overdue items, and recommendations. Use when user asks "how is [project] doing?", "health check on [project]", "status of [project]", or "review [project]".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectName: {
+                type: 'string',
+                description: 'The name of the project to check.',
+              },
+            },
+            required: ['projectName'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'forecast_profit',
+          description: 'Forecast final cost, profit, and margin for one or all projects based on current spending rate. Use when user asks "forecast profit", "projected profit", "how much will I make", "what will the final cost be", "am I on track to make money".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectName: {
+                type: 'string',
+                description: 'Optional project name. If omitted, forecasts all projects.',
+              },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'analyze_expenses',
+          description: 'Break down expenses by category, vendor, and time period for one or all projects. Use when user asks "show expenses", "expense breakdown", "where am I spending", "biggest expenses", "who am I paying the most".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectName: {
+                type: 'string',
+                description: 'Optional project name. If omitted, analyzes all projects.',
+              },
+              groupBy: {
+                type: 'string',
+                description: 'How to group expenses: category, vendor, or month.',
+                enum: ['category', 'vendor', 'month'],
               },
             },
             required: [],
@@ -2764,7 +3592,16 @@ router.post('/', async (req, res) => {
           const title = p?.title || p?.name || 'Untitled Project';
           const budget = normalize(p?.estimatedCost ?? p?.projectData?.estimatedCost ?? p?.estimateData?.totalCost ?? 0);
           const spent = normalize(p?.actualCost ?? p?.totalSpent ?? p?.projectData?.spent ?? 0);
-          const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
+          // Revenue = contract value (bid + approved change orders). Never use estimateData.total — that's often cost, not revenue.
+          const baseBid = normalize(p?.bidPrice ?? p?.projectData?.bidPrice ?? 0);
+          const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+          const approvedCOs = changeOrders.reduce((s, co) => {
+            const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
+            return ok ? s + normalize(co?.amount ?? 0) : s;
+          }, 0);
+          const revenue = normalize(p?.contractValue ?? 0) > 0
+            ? normalize(p.contractValue)
+            : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
           const marginFallback = revenue > 0 && budget > 0 ? ((revenue - budget) / revenue) * 100 : 0;
           const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
           const progress = normalize(p?.progress ?? p?.overallProgressPct);
@@ -2778,10 +3615,25 @@ router.post('/', async (req, res) => {
             return Number.isFinite(dt.getTime()) && dt.getTime() < Date.now();
           });
           const overBudgetPct = budget > 0 ? ((spent - budget) / budget) * 100 : 0;
+
+          // Projected final cost and margin
+          const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : budget;
+          const projectedProfit = revenue - projectedFinalCost;
+          const projectedMarginPct = revenue > 0 ? (projectedProfit / revenue * 100) : 0;
+          const estimatedProfit = revenue - budget;
+
+          // Expenses analysis
+          const expenses = p?.expenses || p?.projectData?.expenses || [];
+          const missingReceipts = expenses.filter((e) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+
           const riskFlags = [];
           if (overBudgetPct > 10) riskFlags.push('over_budget');
           if (margin > 0 && margin < 10) riskFlags.push('low_margin');
           if (overdueItems.length > 0) riskFlags.push('overdue_milestones');
+          if (progress > 0 && budget > 0 && (spent / budget * 100) > progress + 20) riskFlags.push('spend_ahead_of_progress');
+          if (margin > 0 && projectedMarginPct > 0 && (margin - projectedMarginPct) > 5) riskFlags.push('margin_erosion');
+          if (missingReceipts >= 3) riskFlags.push('missing_receipts');
+
           return {
             projectId: p?.id,
             title,
@@ -2789,9 +3641,15 @@ router.post('/', async (req, res) => {
             margin: Math.round(margin * 10) / 10,
             spent,
             budget,
+            revenue,
             overBudgetPct: Math.round(overBudgetPct * 10) / 10,
             progress: Math.round(progress),
             overdueItems: overdueItems.length,
+            projectedFinalCost: Math.round(projectedFinalCost),
+            estimatedProfit: Math.round(estimatedProfit),
+            projectedProfit: Math.round(projectedProfit),
+            projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
+            missingReceipts,
             riskFlags,
           };
         });
@@ -2804,17 +3662,299 @@ router.post('/', async (req, res) => {
           return b.margin - a.margin; // default: most profitable first
         });
 
+        // Portfolio totals
+        const totalRevenue = analyzed.reduce((s, x) => s + x.revenue, 0);
+        const totalSpent = analyzed.reduce((s, x) => s + x.spent, 0);
+        const totalBudget = analyzed.reduce((s, x) => s + x.budget, 0);
+        const totalProjectedProfit = analyzed.reduce((s, x) => s + x.projectedProfit, 0);
+        const avgMargin = analyzed.length > 0 ? analyzed.reduce((s, x) => s + x.margin, 0) / analyzed.length : 0;
+
         return {
           success: true,
           comparedCount: sorted.length,
           projects: sorted,
           summary: sorted.slice(0, 5),
+          portfolioTotals: {
+            totalRevenue,
+            totalSpent,
+            totalBudget,
+            totalProjectedProfit: Math.round(totalProjectedProfit),
+            averageMargin: Math.round(avgMargin * 10) / 10,
+          },
           message: sorted.length
-            ? `Compared ${sorted.length} project(s) by margin, budget exposure, progress, and schedule risk.`
+            ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT: Present metrics for ALL ${sorted.length} projects in your response — do not focus on only one.`
             : 'No projects matched the requested filters.',
         };
       } catch (error) {
         console.error('Error in executeCompareProjects:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    // ── get_project_health executor ──────────────────────────────────────────
+    async function executeGetProjectHealth(args = {}) {
+      try {
+        const normalize = (v) => {
+          if (v == null) return 0;
+          if (typeof v === 'string') { const n = Number(v.replace(/[$,\s]/g, '')); return Number.isFinite(n) ? n : 0; }
+          const n = Number(v); return Number.isFinite(n) ? n : 0;
+        };
+        const searchName = String(args.projectName || '').toLowerCase().trim();
+        const match = allProjects.find(p => {
+          const t = String(p?.title || p?.name || '').toLowerCase();
+          return t === searchName || t.includes(searchName) || searchName.includes(t);
+        });
+        if (!match) return { success: false, error: `Could not find project "${args.projectName}".` };
+
+        const title = match.title || match.name || 'Project';
+        const baseBid = normalize(match.bidPrice ?? match.projectData?.bidPrice ?? 0);
+        const changeOrders = match.changeOrders || match.projectData?.changeOrders || [];
+        const approvedCOs = changeOrders.reduce((s, co) => {
+          const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+          return ok ? s + normalize(co?.amount ?? 0) : s;
+        }, 0);
+        const revenue = normalize(match.contractValue ?? 0) > 0 ? normalize(match.contractValue) : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
+        const estCost = normalize(match.estimatedCost ?? 0);
+        const spent = normalize(match.actualCost ?? match.totalSpent ?? 0);
+        const progress = normalize(match.progress ?? match.overallProgressPct ?? 0);
+        const ed = match.estimateData || match.projectData?.estimateData || {};
+        const expenses = match.expenses || match.projectData?.expenses || [];
+        const milestones = match.milestones || match.weeklyPayments || [];
+
+        const materialBudget = normalize(ed?.materialTotal ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, normalize);
+        const laborBudget = normalize(ed?.laborTotal ?? 0) || sumLineItems(ed?.laborLineItems, normalize);
+        const materialSpent = sumExpensesByCategory(expenses, 'material', normalize);
+        const laborSpent = sumExpensesByCategory(expenses, 'labor', normalize);
+
+        const adjustedBudget = estCost > 0 ? estCost + approvedCOs : revenue;
+        const marginPct = revenue > 0 && estCost > 0 ? ((revenue - estCost) / revenue * 100) : 0;
+        const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estCost;
+        const projectedProfit = revenue - projectedFinalCost;
+        const projectedMarginPct = revenue > 0 ? (projectedProfit / revenue * 100) : 0;
+        const budgetUsedPct = estCost > 0 ? (spent / estCost * 100) : 0;
+
+        const missingReceipts = expenses.filter(e => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+        const now = new Date();
+        const overdueItems = milestones.filter(m => {
+          const st = String(m?.status || '').toLowerCase();
+          if (st.includes('complete') || st.includes('paid') || st.includes('collected')) return false;
+          const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+          return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
+        });
+        const upcomingPayments = milestones.filter(m => {
+          const st = String(m?.status || '').toLowerCase();
+          if (st.includes('complete') || st.includes('paid') || st.includes('collected')) return false;
+          const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+          if (!Number.isFinite(dt.getTime())) return false;
+          const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          return days >= 0 && days <= 7;
+        });
+
+        const expByCategory = {};
+        expenses.forEach(e => {
+          const cat = e?.category || 'Other';
+          expByCategory[cat] = (expByCategory[cat] || 0) + normalize(e?.amount ?? 0);
+        });
+        const topCosts = Object.entries(expByCategory).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([cat, amt]) => ({ category: cat, amount: Math.round(amt), percentage: spent > 0 ? Math.round(amt / spent * 100) : 0 }));
+
+        const risks = [];
+        if (budgetUsedPct > progress + 20) risks.push(`Spending ${Math.round(budgetUsedPct)}% of budget but only ${Math.round(progress)}% complete`);
+        if (marginPct > 0 && projectedMarginPct < marginPct - 5) risks.push(`Margin eroding: estimated ${Math.round(marginPct)}% → projected ${Math.round(projectedMarginPct)}%`);
+        if (materialBudget > 0 && materialSpent > materialBudget) risks.push(`Material costs ${Math.round((materialSpent - materialBudget) / materialBudget * 100)}% over budget`);
+        if (laborBudget > 0 && laborSpent > laborBudget) risks.push(`Labor costs ${Math.round((laborSpent - laborBudget) / laborBudget * 100)}% over budget`);
+        if (overdueItems.length > 0) risks.push(`${overdueItems.length} overdue payment(s)`);
+        if (missingReceipts >= 3) risks.push(`${missingReceipts} expenses missing receipts`);
+
+        return {
+          success: true,
+          project: title,
+          status: match.status || 'unknown',
+          financials: {
+            revenue, estimatedCost: estCost, actualSpent: spent,
+            adjustedBudget: Math.round(adjustedBudget),
+            budgetUsedPct: Math.round(budgetUsedPct),
+            estimatedMarginPct: Math.round(marginPct * 10) / 10,
+            projectedFinalCost: Math.round(projectedFinalCost),
+            projectedProfit: Math.round(projectedProfit),
+            projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
+            approvedChangeOrders: approvedCOs,
+          },
+          budgetBreakdown: {
+            materialBudget: Math.round(materialBudget), materialSpent: Math.round(materialSpent),
+            laborBudget: Math.round(laborBudget), laborSpent: Math.round(laborSpent),
+          },
+          progress: Math.round(progress),
+          topCostDrivers: topCosts,
+          overdueItems: overdueItems.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? 0) })),
+          upcomingPayments: upcomingPayments.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? 0), date: m.plannedDate || m.scheduledDate || m.dueDate })),
+          missingReceipts,
+          changeOrdersCount: changeOrders.length,
+          risks,
+          riskLevel: risks.length >= 3 ? 'High' : risks.length >= 1 ? 'Medium' : 'Low',
+        };
+      } catch (error) {
+        console.error('Error in executeGetProjectHealth:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    // ── forecast_profit executor ──────────────────────────────────────────────
+    async function executeForecastProfit(args = {}) {
+      try {
+        const normalize = (v) => {
+          if (v == null) return 0;
+          if (typeof v === 'string') { const n = Number(v.replace(/[$,\s]/g, '')); return Number.isFinite(n) ? n : 0; }
+          const n = Number(v); return Number.isFinite(n) ? n : 0;
+        };
+        let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
+        const searchName = String(args.projectName || '').toLowerCase().trim();
+        if (searchName) {
+          candidates = candidates.filter(p => {
+            const t = String(p?.title || p?.name || '').toLowerCase();
+            return t.includes(searchName) || searchName.includes(t);
+          });
+        }
+        if (candidates.length === 0) return { success: false, error: searchName ? `No project found matching "${args.projectName}".` : 'No projects available.' };
+
+        const forecasts = candidates.map(p => {
+          const title = p?.title || p?.name || 'Project';
+          const baseBid = normalize(p?.bidPrice ?? p?.projectData?.bidPrice ?? 0);
+          const changeOrders = p?.changeOrders || p?.projectData?.changeOrders || [];
+          const approvedCOs = changeOrders.reduce((s, co) => {
+            const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+            return ok ? s + normalize(co?.amount ?? 0) : s;
+          }, 0);
+          const contractValue = normalize(p?.contractValue ?? 0) > 0 ? normalize(p.contractValue) : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
+          const estCost = normalize(p?.estimatedCost ?? 0);
+          const spent = normalize(p?.actualCost ?? p?.totalSpent ?? 0);
+          const progress = normalize(p?.progress ?? p?.overallProgressPct ?? 0);
+
+          const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estCost;
+          const estimatedProfit = contractValue - estCost;
+          const estimatedMarginPct = contractValue > 0 ? (estimatedProfit / contractValue * 100) : 0;
+          const projectedProfit = contractValue - projectedFinalCost;
+          const projectedMarginPct = contractValue > 0 ? (projectedProfit / contractValue * 100) : 0;
+          const marginChange = estimatedMarginPct - projectedMarginPct;
+          const costVariance = projectedFinalCost - estCost;
+          const profitAtRisk = estimatedProfit - projectedProfit;
+
+          let outlook = 'On Track';
+          if (marginChange > 10) outlook = 'At Risk';
+          else if (marginChange > 5) outlook = 'Watch';
+          else if (projectedMarginPct > estimatedMarginPct) outlook = 'Better Than Expected';
+
+          return {
+            project: title,
+            contractValue: Math.round(contractValue),
+            estimatedCost: Math.round(estCost),
+            actualSpent: Math.round(spent),
+            progress: Math.round(progress),
+            projectedFinalCost: Math.round(projectedFinalCost),
+            estimatedProfit: Math.round(estimatedProfit),
+            projectedProfit: Math.round(projectedProfit),
+            estimatedMarginPct: Math.round(estimatedMarginPct * 10) / 10,
+            projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
+            marginChange: Math.round(marginChange * 10) / 10,
+            costVariance: Math.round(costVariance),
+            profitAtRisk: Math.round(profitAtRisk),
+            outlook,
+          };
+        });
+
+        const totalContractValue = forecasts.reduce((s, f) => s + f.contractValue, 0);
+        const totalProjectedProfit = forecasts.reduce((s, f) => s + f.projectedProfit, 0);
+        const totalEstimatedProfit = forecasts.reduce((s, f) => s + f.estimatedProfit, 0);
+        const totalProfitAtRisk = totalEstimatedProfit - totalProjectedProfit;
+
+        return {
+          success: true,
+          forecasts,
+          portfolioSummary: {
+            totalContractValue: Math.round(totalContractValue),
+            totalEstimatedProfit: Math.round(totalEstimatedProfit),
+            totalProjectedProfit: Math.round(totalProjectedProfit),
+            totalProfitAtRisk: Math.round(totalProfitAtRisk),
+            averageProjectedMargin: forecasts.length > 0 ? Math.round(forecasts.reduce((s, f) => s + f.projectedMarginPct, 0) / forecasts.length * 10) / 10 : 0,
+          },
+          message: `Forecast for ${forecasts.length} project(s): projected profit $${Math.round(totalProjectedProfit).toLocaleString()} ($${Math.round(totalProfitAtRisk).toLocaleString()} at risk vs. estimate).`,
+        };
+      } catch (error) {
+        console.error('Error in executeForecastProfit:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    // ── analyze_expenses executor ──────────────────────────────────────────────
+    async function executeAnalyzeExpenses(args = {}) {
+      try {
+        const normalize = (v) => {
+          if (v == null) return 0;
+          const n = Number(typeof v === 'string' ? v.replace(/[$,\s]/g, '') : v);
+          return Number.isFinite(n) ? n : 0;
+        };
+        let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
+        const searchName = String(args.projectName || '').toLowerCase().trim();
+        if (searchName) {
+          candidates = candidates.filter(p => {
+            const t = String(p?.title || p?.name || '').toLowerCase();
+            return t.includes(searchName) || searchName.includes(t);
+          });
+        }
+
+        const allExpenses = [];
+        candidates.forEach(p => {
+          const title = p?.title || p?.name || 'Project';
+          const exps = p?.expenses || p?.projectData?.expenses || [];
+          exps.forEach(e => allExpenses.push({ ...e, projectName: title }));
+        });
+
+        if (allExpenses.length === 0) return { success: true, message: 'No expenses found.', breakdown: [], totalSpent: 0 };
+
+        const groupBy = String(args.groupBy || 'category').toLowerCase();
+        const grouped = {};
+
+        allExpenses.forEach(e => {
+          let key;
+          if (groupBy === 'vendor') key = e?.vendor || e?.store || 'Unknown Vendor';
+          else if (groupBy === 'month') {
+            const d = new Date(e?.date || e?.createdAt || 0);
+            key = Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'Unknown';
+          }
+          else key = e?.category || 'Other';
+          if (!grouped[key]) grouped[key] = { items: 0, total: 0, expenses: [] };
+          grouped[key].items++;
+          grouped[key].total += normalize(e?.amount ?? 0);
+          if (grouped[key].expenses.length < 3) {
+            grouped[key].expenses.push({ amount: normalize(e?.amount ?? 0), description: e?.description || e?.notes || '', project: e.projectName, date: e?.date });
+          }
+        });
+
+        const totalSpent = allExpenses.reduce((s, e) => s + normalize(e?.amount ?? 0), 0);
+        const breakdown = Object.entries(grouped)
+          .map(([name, data]) => ({
+            name,
+            total: Math.round(data.total),
+            count: data.items,
+            percentage: totalSpent > 0 ? Math.round(data.total / totalSpent * 100) : 0,
+            topExpenses: data.expenses,
+          }))
+          .sort((a, b) => b.total - a.total);
+
+        const missingReceipts = allExpenses.filter(e => !e?.receiptUri || !String(e.receiptUri).trim()).length;
+
+        return {
+          success: true,
+          totalSpent: Math.round(totalSpent),
+          expenseCount: allExpenses.length,
+          missingReceipts,
+          groupedBy: groupBy,
+          breakdown: breakdown.slice(0, 10),
+          projectsCovered: [...new Set(allExpenses.map(e => e.projectName))],
+          message: `Analyzed ${allExpenses.length} expenses totaling $${Math.round(totalSpent).toLocaleString()} across ${candidates.length} project(s), grouped by ${groupBy}.`,
+        };
+      } catch (error) {
+        console.error('Error in executeAnalyzeExpenses:', error);
         return { success: false, error: error.message };
       }
     }
@@ -5028,6 +6168,18 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
             status: 'timeout_error',
           }));
           logPhase('tool_done', { functionName, success: !!functionResult?.success });
+        } else if (functionName === 'get_project_health') {
+          logPhase('tool_start', { functionName });
+          functionResult = await executeGetProjectHealth(functionArgs);
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
+        } else if (functionName === 'forecast_profit') {
+          logPhase('tool_start', { functionName });
+          functionResult = await executeForecastProfit(functionArgs);
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
+        } else if (functionName === 'analyze_expenses') {
+          logPhase('tool_start', { functionName });
+          functionResult = await executeAnalyzeExpenses(functionArgs);
+          logPhase('tool_done', { functionName, success: !!functionResult?.success });
         } else if (functionName === 'add_purchase_order') {
           // CRITICAL: If user wants to mark as received, DO NOT create a new PO
           // Check ALL user messages in the conversation to see if they want to mark as received
@@ -6354,11 +7506,19 @@ RULES:
       };
     }
     
+    // Extract conversation facts for memory
+    extractConversationFacts(message, reply, session);
+
+    // Generate smart suggestions for follow-up
+    const suggestedFollowUps = generateSmartSuggestions(message, reply, parsedContext, session);
+
     const responseData = {
       reply,
       ...(projectUpdateData ? { projectUpdate: projectUpdateData } : {}),
       ...(actions.length > 0 ? { actions: actions } : {}),
       ...(analysisCard ? { analysisCard } : {}),
+      ...(suggestedFollowUps.length > 0 ? { suggestedFollowUps } : {}),
+      ...(session ? { sessionId: session.id } : {}),
     };
     
     // Debug: Log if analysisCard was built

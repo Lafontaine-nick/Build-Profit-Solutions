@@ -350,6 +350,8 @@ type Props = {
   onProjectUpdated?: (projectId: string, updates: any) => void;
   /** When in Command Center, pass project chips directly (bypasses context parsing) */
   projectOptionsOverride?: Array<{ id: string; title: string; status?: string }>;
+  /** When false, disables send until timeline/project data is loaded (avoids stale progress in compare) */
+  isContextReady?: boolean;
 };
 
 const QUICK_ACTIONS = [
@@ -401,6 +403,7 @@ const AIAssistantModal: React.FC<Props> = ({
   onSelectedProjectIdChange,
   onProjectUpdated,
   projectOptionsOverride,
+  isContextReady = true,
 }) => {
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
@@ -412,6 +415,10 @@ const AIAssistantModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [showContractorModal, setShowContractorModal] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [chatSuggestions, setChatSuggestions] = useState<Array<{label: string; prompt: string}>>([]);
+  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const [streamingText, setStreamingText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const { enabled: aiManagerEnabled, loading: aiModeLoading, toggleEnabled } = useAIManagerMode();
   const insets = useSafeAreaInsets();
@@ -1041,6 +1048,7 @@ const AIAssistantModal: React.FC<Props> = ({
             expensesCount: expenses.length,
             // Include buckets (budget breakdown) for AI to calculate material budget
             buckets: p.buckets || p.projectData?.buckets || [],
+            changeOrders: p.projectData?.changeOrders || p.changeOrders || [],
             // Include estimateData for AI to calculate material budget from line items
             estimateData: ed,
             // Include key estimate fields directly for AI access
@@ -1078,6 +1086,7 @@ const AIAssistantModal: React.FC<Props> = ({
               expenses,
               expensesCount: expenses.length || existing.expensesCount || 0,
               buckets: fullProject.buckets || fullProject.projectData?.buckets || existing.buckets || [],
+              changeOrders: fullProject.projectData?.changeOrders || fullProject.changeOrders || existing.changeOrders || [],
               estimateData: ed || existing.estimateData || null,
               materialTotal: ed?.materialTotal || existing.materialTotal || 0,
               laborTotal: ed?.laborTotal || existing.laborTotal || 0,
@@ -1085,6 +1094,8 @@ const AIAssistantModal: React.FC<Props> = ({
               markupPct: ed?.markupPct || ed?.markup || existing.markupPct || 0,
               profit: ed?.profit || existing.profit || 0,
               marginPct: ed?.marginPct || existing.marginPct || 0,
+              // Preserve progress from context (timeline-based from Assistant) — do not overwrite with fullProject
+              progress: existing.progress ?? fullProject.progress ?? fullProject.overallProgressPct ?? 0,
             };
           }
           return existing;
@@ -1961,9 +1972,10 @@ const AIAssistantModal: React.FC<Props> = ({
 
     try {
       // Portfolio-scope detection: compare/risks/profitability across all projects — never use single-project context
+      // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
-        isProjectsScreenContext &&
-        /\b(compare\s+(all\s+)?(active\s+)?projects?|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|health\s+check\s+across\s+all)\b/i.test(
+        (isProjectsScreenContext || isGlobalAssistantContext) &&
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+deadlines)\b/i.test(
           messageToSend
         );
 
@@ -2000,7 +2012,8 @@ const AIAssistantModal: React.FC<Props> = ({
         resolvedProjectId = pendingAnalysisType.projectId;
       }
       
-      if (intent.needsProject || resolvedProjectId) {
+      // Skip project resolver for portfolio/compare-all messages — send directly to backend
+      if (!isPortfolioScopeMessage && (intent.needsProject || resolvedProjectId)) {
         try {
           const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
             id: p.id,
@@ -2287,6 +2300,7 @@ const AIAssistantModal: React.FC<Props> = ({
           user_settings: {
             ai_project_manager_mode: aiManagerEnabled,
           },
+          sessionId,
         }),
         },
         AI_REQUEST_TIMEOUT_MS
@@ -2583,6 +2597,13 @@ const AIAssistantModal: React.FC<Props> = ({
 
       setIsTyping(false);
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // Update smart suggestions from response
+      if (data.suggestedFollowUps && Array.isArray(data.suggestedFollowUps) && data.suggestedFollowUps.length > 0) {
+        setChatSuggestions(data.suggestedFollowUps);
+      } else {
+        setChatSuggestions([]);
+      }
       
       // Smooth scroll to bottom
       setTimeout(() => {
@@ -2751,11 +2772,18 @@ const AIAssistantModal: React.FC<Props> = ({
       return;
     }
 
+    // Block compare/portfolio actions until timeline data is loaded (avoids stale progress)
+    const isCompareOrPortfolio = /\b(compare|all my projects|profitability|risk|forecast|budget risks|missing receipts|deadlines|portfolio)\b/i.test(labelOrPrompt);
+    if (isCompareOrPortfolio && !isContextReady) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return; // Chips are disabled visually; user sees "Syncing project data…" placeholder
+    }
+
     // Determine the actual message to send
     let messageToSend = labelOrPrompt;
 
     // If it's not already a full prompt, use suggestion mapping.
-    const looksLikeSentencePrompt = /^(i\s+need|please|create|add|mark|show|scan|forecast|can\s+you)\b/i.test(labelOrPrompt.trim());
+    const looksLikeSentencePrompt = /^(i\s+need|please|create|add|mark|show|scan|forecast|can\s+you|compare|what|which|identify|review)\b/i.test(labelOrPrompt.trim());
     if (!labelOrPrompt.includes("?") && !labelOrPrompt.includes(".") && !looksLikeSentencePrompt) {
       const suggestions: { [key: string]: string } = {
         "Add Material": "Can you add material to this estimate?",
@@ -3185,7 +3213,42 @@ const AIAssistantModal: React.FC<Props> = ({
                 bounces={Platform.OS === 'ios'}
                 alwaysBounceVertical={false}
                 scrollEventThrottle={16}
-              ListFooterComponent={renderTypingIndicator}
+              ListFooterComponent={() => (
+                <>
+                  {renderTypingIndicator()}
+                  {!isTyping && chatSuggestions.length > 0 && messages.length > 0 && (
+                    <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                        {chatSuggestions.map((s, i) => (
+                          <TouchableOpacity
+                            key={`suggestion-${i}`}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setChatSuggestions([]);
+                              handleQuickAction(s.prompt);
+                            }}
+                            style={{
+                              paddingHorizontal: 14,
+                              paddingVertical: 8,
+                              borderRadius: 16,
+                              backgroundColor: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)',
+                              borderWidth: 1,
+                              borderColor: darkMode ? 'rgba(34,197,94,0.25)' : 'rgba(34,197,94,0.2)',
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                          >
+                            <Text style={{
+                              fontSize: 13,
+                              color: darkMode ? '#86efac' : '#166534',
+                              fontWeight: '500',
+                            }}>{s.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </>
+              )}
                 refreshControl={
                   isGlobalAssistantContext && displayBrief ? (
                     <RefreshControl
@@ -3312,23 +3375,28 @@ const AIAssistantModal: React.FC<Props> = ({
                         Quick actions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
-                        {(displayBrief.quickActions || []).slice(0, 6).map((qa, i) => (
+                        {(displayBrief.quickActions || []).slice(0, 6).map((qa, i) => {
+                          const isCompareChip = /\b(compare|profitability|risk|forecast|budget|receipts|deadlines|portfolio)\b/i.test(qa.prompt || qa.label || '');
+                          const chipDisabled = isCompareChip && !isContextReady;
+                          return (
                           <TouchableOpacity
                             key={i}
                             onPress={() => {
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               handleQuickAction(qa.prompt);
                             }}
+                            disabled={chipDisabled}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={qa.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefQuickChip, !darkMode && { borderColor: ThemeColors.line }]}
+                            style={[styles.todayBriefQuickChip, !darkMode && { borderColor: ThemeColors.line }, chipDisabled && { opacity: 0.5 }]}
                           >
                             <Text style={[styles.todayBriefQuickChipText, !darkMode && { color: ThemeColors.text }]}>
                               {qa.label}
                             </Text>
                           </TouchableOpacity>
-                        ))}
+                          );
+                        })}
                       </ScrollView>
 
                       {/* Suggested questions */}
@@ -3670,10 +3738,14 @@ const AIAssistantModal: React.FC<Props> = ({
                         { label: '📦 Add PO', basePrompt: 'Create a purchase order', portfolioScope: false },
                         { label: '📝 Daily log', basePrompt: 'Add a daily log for today', portfolioScope: false },
                         { label: '🔄 Change order', basePrompt: 'Create a change order', portfolioScope: false },
-                      ].map((chip) => (
+                      ].map((chip) => {
+                        const isCompareChip = (chip as any).portfolioScope;
+                        const chipDisabled = isCompareChip && !isContextReady;
+                        return (
                         <TouchableOpacity
                           key={chip.label}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          disabled={chipDisabled}
                           onPress={() => {
                             const selected = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
                             const message = (chip as any).portfolioScope || !selected
@@ -3692,6 +3764,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             borderWidth: 1,
                             borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
                             backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
+                            opacity: chipDisabled ? 0.5 : 1,
                           }}
                         >
                           <Text style={{
@@ -3702,7 +3775,8 @@ const AIAssistantModal: React.FC<Props> = ({
                             {chip.label}
                           </Text>
                         </TouchableOpacity>
-                      ))}
+                        );
+                      })}
                     </ScrollView>
                   )}
                 </View>
@@ -3931,7 +4005,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     ) : (
                       <TextInput
                         style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                        placeholder={isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : "Ask anything about this project…"}
+                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : "Ask anything about this project…")}
                         placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
                         value={input}
                         onChangeText={setInput}
@@ -3975,7 +4049,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   <TouchableOpacity
                     style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
                     onPress={() => sendMessage()}
-                    disabled={!input.trim() || loading}
+                    disabled={!input.trim() || loading || !isContextReady}
                     activeOpacity={0.7}
                   >
                     {loading ? (

@@ -1305,6 +1305,7 @@ function ProjectDetailContent() {
     const base = convertToBudgetData(projectData);
     return {
       ...base,
+      status: (projectData as any)?.status ?? (realProjectData as any)?.status,
       // CRITICAL: Use originalBudget (without change orders), NOT budgetedValue (includes COs)
       // BudgetTab will add change orders separately to get adjusted budget
       plannedBudget: originalBudget > 0 
@@ -1418,25 +1419,19 @@ function ProjectDetailContent() {
       }, 0);
     })();
     
-    // Committed POs (not yet received) for profit forecast
+    // Committed POs = Pending only (matches BudgetTab — exclude Received and Cancelled)
     const committedPOsTotal = (() => {
       const rawPOs = safeProjectData?.purchaseOrders || [];
-      const nonReceived = rawPOs.filter((po: any) => po.status !== 'Received');
-      return nonReceived.reduce((sum: number, po: any) => {
+      const pendingPOs = rawPOs.filter((po: any) => po.status === 'Pending');
+      return pendingPOs.reduce((sum: number, po: any) => {
         const amount = Number(po.amount) || parseFloat(String(po.amount || '')) || 0;
         return sum + amount;
       }, 0);
     })();
     
-    // Total Spent = Regular expenses + Received Purchase Orders
-    const baseSpent =
-      expensesTotal > 0
-        ? expensesTotal
-        : Number(safeProjectData?.spent ?? 0) > 0
-        ? Number(safeProjectData?.spent ?? 0)
-        : bucketSpentTotal;
-    
-    const totalSpent = baseSpent + receivedPOsTotal;
+    // Total Spent = expenses + received POs. Nick: 6500 + 1500 = 8000. Jason: 1550 + 500 + 550 = 2600.
+    // When we have expenses: sum(expenses) + receivedPOsTotal. Else: bucketSpentTotal (includes POs).
+    const totalSpent = expensesTotal > 0 ? expensesTotal + receivedPOsTotal : bucketSpentTotal;
 
     const budgetProgress = adjustedBudget > 0 ? (totalSpent / adjustedBudget) * 100 : 0;
 
@@ -1452,6 +1447,9 @@ function ProjectDetailContent() {
           workMilestones.length
         )
       : (safeProjectData?.overallProgressPct ?? safeProjectData?.progress ?? 0);
+    const projectStatus = String((safeProjectData as any)?.status ?? '').toLowerCase();
+    const isProjectCompleted = projectStatus === 'completed';
+    const progressForForecast = isProjectCompleted ? 100 : scheduleProgress;
 
     const getDaysLeft = () => {
       if (!safeProjectData?.endISO) return 0;
@@ -1615,7 +1613,8 @@ function ProjectDetailContent() {
       estimatedCostBaseline: costBase > 0 ? costBase : undefined,
       actualExpenses: totalSpent,
       committedPOs: committedPOsTotal,
-      progressPct: scheduleProgress,
+      progressPct: progressForForecast,
+      isCompleted: isProjectCompleted,
     });
 
     return {
@@ -1777,7 +1776,15 @@ function ProjectDetailContent() {
                       </Text>
                     </View>
                     <View style={styles.budgetRow}>
-                      <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+                      <View>
+                        <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+                        {metrics.profitForecast?.forecastMethod === 'run-rate' && (
+                          <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Trend forecast</Text>
+                        )}
+                        {metrics.profitForecast?.forecastMethod === 'completed' && (
+                          <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Actual (job complete)</Text>
+                        )}
+                      </View>
                       <Text style={[styles.budgetValue, { color: '#EF4444' }]}>
                         ${(metrics.profitForecast?.forecastFinalCost ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
@@ -1973,7 +1980,7 @@ function ProjectDetailContent() {
                   Changes are tracked automatically
                 </Text>
               </View>
-              <BudgetTab data={budgetData} embedded />
+              <BudgetTab data={budgetData} embedded profitForecastOverride={overviewMetrics.profitForecast} />
             </View>
           );
         case 'Timeline':

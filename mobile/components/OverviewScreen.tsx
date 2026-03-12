@@ -295,12 +295,12 @@ export default function OverviewScreen({
     }, 0);
   })();
 
-  // Actual Expenses = Regular expenses + Received Purchase Orders
+  // Actual Expenses = Regular expenses + Received POs (matches BudgetTab: prefer spent over expenses)
   const actualSpent = (() => {
-    const baseExpenses = expensesTotal > 0
-      ? expensesTotal
-      : Number(project.spent ?? 0) > 0
+    const baseExpenses = Number(project.spent ?? 0) > 0
       ? Number(project.spent ?? 0)
+      : expensesTotal > 0
+      ? expensesTotal
       : bucketSpentTotal;
     
     return baseExpenses + receivedPOsTotal;
@@ -452,13 +452,17 @@ export default function OverviewScreen({
   }
   if (costBase <= 0) costBase = baseBudget;
   const costBaseline = costBase + approvedChangeOrdersTotal;
+  const projectStatus = String((project as any)?.status ?? '').toLowerCase();
+  const isProjectCompleted = projectStatus === 'completed';
+  const progressForForecast = isProjectCompleted ? 100 : (project.overallProgressPct ?? 0);
   const profitForecast = computeProfitForecast({
     contractValue,
     adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
     estimatedCostBaseline: costBase > 0 ? costBase : undefined,
     actualExpenses: actualSpent,
     committedPOs: purchaseOrdersTotal,
-    progressPct: project.overallProgressPct,
+    progressPct: progressForForecast,
+    isCompleted: isProjectCompleted,
   });
   const profitStatusColor =
     profitForecast.status === 'Strong' ? '#22C55E' :
@@ -615,7 +619,15 @@ export default function OverviewScreen({
               <Text style={styles.budgetValue}>{formatMoney(profitForecast.contractValue)}</Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+              <View>
+                <Text style={styles.budgetLabel}>Projected Final Cost</Text>
+                {profitForecast.forecastMethod === 'run-rate' && (
+                  <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Trend forecast</Text>
+                )}
+                {profitForecast.forecastMethod === 'completed' && (
+                  <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Actual (job complete)</Text>
+                )}
+              </View>
               <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
@@ -755,7 +767,15 @@ export default function OverviewScreen({
             )}
 
             <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
-              <Text style={styles.budgetLabel}>Forecast Final Cost</Text>
+              <View>
+                <Text style={styles.budgetLabel}>Forecast Final Cost</Text>
+                {profitForecast.forecastMethod === 'run-rate' && (
+                  <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Trend forecast</Text>
+                )}
+                {profitForecast.forecastMethod === 'completed' && (
+                  <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Actual (job complete)</Text>
+                )}
+              </View>
               <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>

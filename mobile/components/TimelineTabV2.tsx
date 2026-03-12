@@ -568,7 +568,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(milestones)).catch(() => {});
   }, [milestones, isLoaded, project?.id]);
 
-  /* ---------- sync milestones to ProjectList ---------- */
+  /* ---------- sync milestones + progress to ProjectList (deposit excluded) ---------- */
 
   useEffect(() => {
     if (!isLoaded || !project?.id || !updateProject || isUpdatingRef.current) return;
@@ -581,8 +581,20 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     lastSyncedMilestonesRef.current = serialized;
     isUpdatingRef.current = true;
 
+    // Timeline progress (deposit excluded) is source of truth — copy to Projects/Dashboard
+    const overallPct = Math.round(computeOverallPct(milestones));
+
     const t = setTimeout(() => {
-      updateProject(project.id, { milestones: projectMilestones });
+      updateProject(project.id, {
+        milestones: projectMilestones,
+        progress: overallPct,
+        overallProgressPct: overallPct,
+      });
+      // Also write to bps.project.${id}.progress so ProjectListContext hydration gets it
+      AsyncStorage.setItem(
+        `bps.project.${project.id}.progress`,
+        JSON.stringify({ progress: overallPct, overallProgressPct: overallPct, updatedAt: new Date().toISOString() })
+      ).catch(() => {});
       setTimeout(() => (isUpdatingRef.current = false), 200);
     }, 250);
 

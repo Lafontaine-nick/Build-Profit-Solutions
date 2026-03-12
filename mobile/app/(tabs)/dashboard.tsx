@@ -70,10 +70,14 @@ const progressFromItems = (items: any[]): number => {
 };
 
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
-  // First, check if we have timeline progress from AsyncStorage (source of truth)
+  // Timeline is source of truth (deposit excluded) — try pid, then title
   if (timelineProgressMap[projectId] !== undefined) {
     return timelineProgressMap[projectId];
   }
+  const titleLower = String(project?.title || project?.name || '').trim().toLowerCase();
+  const titleSlug = titleLower.replace(/\s+/g, '-');
+  if (titleLower && timelineProgressMap[titleLower] !== undefined) return timelineProgressMap[titleLower];
+  if (titleSlug && timelineProgressMap[titleSlug] !== undefined) return timelineProgressMap[titleSlug];
 
   // Fallback to direct progress fields
   const directProgress = Math.max(
@@ -1012,42 +1016,63 @@ const DashboardScreen: React.FC = () => {
     initials: "NL",
   };
 
-  // Load timeline progress from AsyncStorage (same as projects page)
+  // Load timeline progress from AsyncStorage (same as projects page — pre-scan, title fallback)
   const loadTimelineProgress = useCallback(async () => {
     const all = [...activeProjects, ...estimates];
     const progressMap: Record<string, number> = {};
+    const normalizeKey = (v: string) =>
+      String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
 
     try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const timelineKeys = allKeys.filter(
+        (k) => k.startsWith('bps.timeline.v2.') || k.startsWith('timeline_')
+      );
+
+      // Pre-scan ALL timeline keys → suffix→progress (deposit excluded)
+      const suffixToProgress: Record<string, number> = {};
+      for (const k of timelineKeys) {
+        const suffix = k.startsWith('bps.timeline.v2.')
+          ? k.replace('bps.timeline.v2.', '')
+          : k.startsWith('timeline_')
+            ? k.replace('timeline_', '')
+            : '';
+        if (!suffix) continue;
+        try {
+          const raw = await AsyncStorage.getItem(k);
+          if (raw) {
+            const milestones = JSON.parse(raw);
+            if (Array.isArray(milestones)?.length) {
+              const pct = computeOverallPctFromItems(milestones);
+              const suffixLower = suffix.toLowerCase();
+              const suffixNorm = normalizeKey(suffix);
+              suffixToProgress[suffixLower] = pct;
+              suffixToProgress[suffixNorm] = pct;
+              suffixToProgress[suffix] = pct;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Resolve progress for each project (pid, title, slug)
       for (const project of all) {
         const pid = String(project?.id ?? '');
         if (!pid) continue;
-        
-        // Try v2 timeline storage first (source of truth)
-        try {
-          const timelineV2Key = `bps.timeline.v2.${pid}`;
-          const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
-          if (timelineV2Raw) {
-            const timelineMilestones = JSON.parse(timelineV2Raw);
-            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
-              const calculated = computeOverallPctFromItems(timelineMilestones);
-              progressMap[pid] = calculated;
-              continue;
-            }
-          }
-          
-          // Fallback to v1 timeline storage
-          const timelineV1Key = `timeline_${pid}`;
-          const timelineV1Raw = await AsyncStorage.getItem(timelineV1Key);
-          if (timelineV1Raw) {
-            const timelineMilestones = JSON.parse(timelineV1Raw);
-            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
-              const calculated = computeOverallPctFromItems(timelineMilestones);
-              progressMap[pid] = calculated;
-              continue;
-            }
-          }
-        } catch (error) {
-          // Ignore errors for individual projects
+        const titleRaw = String(project?.title ?? project?.name ?? '').trim().toLowerCase();
+        const titleSlug = normalizeKey(titleRaw);
+        const titleCompact = titleRaw.replace(/\s+/g, '');
+        const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+        let foundProgress: number | undefined;
+        for (const c of candidates) {
+          foundProgress = suffixToProgress[c] ?? suffixToProgress[normalizeKey(c)];
+          if (foundProgress !== undefined) break;
+        }
+        if (foundProgress !== undefined) {
+          progressMap[pid] = foundProgress;
+          if (titleRaw) progressMap[titleRaw] = foundProgress;
+          if (titleSlug) progressMap[titleSlug] = foundProgress;
         }
       }
     } catch {
