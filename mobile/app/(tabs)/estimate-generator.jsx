@@ -4742,21 +4742,23 @@ export default function EstimateGeneratorScreen() {
         // Re-save the bid snapshot with updated materialLineItems
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
 
+          const totalOverhead = (estimateContext.overhead ?? 0) + (estimateContext.permitCosts ?? 0);
+          const profitRaw = estimateContext.profit ?? 0;
+          const netProfit = Math.max(0, profitRaw - totalOverhead);
+          const margin = estimateContext.total > 0 ? (netProfit / estimateContext.total) * 100 : 0;
           const estimateData = {
             id: snapshotBid.id,
             title: snapshotBid.title || 'Untitled Bid',
           status: existingProject?.status || snapshotBid.status || 'estimate',
             estimatedCost: estimateContext.subtotal,
             bidPrice: estimateContext.total,
+            profit: netProfit,
             materials: estimateContext.materials ?? 0,
             labor: estimateContext.labor ?? 0,
-            overhead: (estimateContext.overhead ?? 0) + (estimateContext.permitCosts ?? 0),
+            overhead: totalOverhead,
             subtotal: estimateContext.subtotal ?? 0,
           actualCost: existingProject?.actualCost || 0,
-            margin:
-              estimateContext.subtotal > 0
-                ? Math.round((estimateContext.profit / estimateContext.subtotal) * 100)
-                : 0,
+            margin,
             markup: estimateContext.markup,
             location,
             city: snapshotBid.customerCity,
@@ -6580,17 +6582,20 @@ export default function EstimateGeneratorScreen() {
       // Add safety checks for calc values
       const estimatedCost = Number(calc?.subtotal) || 0;
       const bidPrice = Number(calc?.grandTotal) || 0;
-      const margin = Number(calc?.marginPercent) || 0;
       const markup = Number(bid.markupPct) || 0;
+      const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
+      const profitRaw = calc?.profit ?? 0;
+      const netProfit = Math.max(0, profitRaw - totalOverhead);
+      const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
       
       console.log('🔍 Debug - calculated values:', {
         estimatedCost,
         bidPrice,
         margin,
         markup,
+        netProfit,
         calcSubtotal: calc?.subtotal,
-        calcGrandTotal: calc?.grandTotal,
-        calcMargin: calc?.marginPercent
+        calcGrandTotal: calc?.grandTotal
       });
       
       // Preserve existing status if bid was already submitted
@@ -6603,6 +6608,7 @@ export default function EstimateGeneratorScreen() {
         status: preservedStatus, // Preserve existing status (estimate, bid_submitted, won, etc.)
         estimatedCost,
         bidPrice,
+        profit: netProfit,
         materials: calc?.materials ?? 0,
         labor: calc?.labor ?? 0,
         overhead: calc?.overhead ?? 0,
@@ -6668,10 +6674,13 @@ export default function EstimateGeneratorScreen() {
               const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
               const estimatedCost = Number(calc?.subtotal || 0);
               const bidPrice = Number(calc?.total || 0);
-              const margin = Number(calc?.marginPercent || 0);
               const markup = Number(bid.markupPct || 0);
+              const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
+              const profitRaw = calc?.profit ?? 0;
+              const netProfit = Math.max(0, profitRaw - totalOverhead);
+              const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
               
-              console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup });
+              console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
               
               const estimateData = {
                 id: bid.id,
@@ -6679,6 +6688,7 @@ export default function EstimateGeneratorScreen() {
                 status: 'bid_submitted', // Set status to bid_submitted so it shows as "Submitted" in projects
                 estimatedCost,
                 bidPrice,
+                profit: netProfit,
                 actualCost: 0,
                 margin,
                 markup,
@@ -6815,8 +6825,11 @@ export default function EstimateGeneratorScreen() {
         const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
         const estimatedCost = Number(calc?.subtotal) || 0;
         const bidPrice = Number(calc?.grandTotal) || 0;
-        const margin = Number(calc?.marginPercent) || 0;
         const markup = Number(bid.markupPct) || 0;
+        const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
+        const profitRaw = calc?.profit ?? 0;
+        const netProfit = Math.max(0, profitRaw - totalOverhead);
+        const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
         
         const estimateData = {
           id: bid.id,
@@ -6824,6 +6837,7 @@ export default function EstimateGeneratorScreen() {
           status: 'won', // Set status to 'won' so it shows as "Active" in projects
           estimatedCost,
           bidPrice,
+          profit: netProfit,
           actualCost: 0,
           margin,
           markup,
@@ -9221,9 +9235,7 @@ export default function EstimateGeneratorScreen() {
                               (bid.planCost || 0) +
                               (bid.permitCost || 0);
         
-        // Calculate overhead as percentage of job total
         const jobTotal = calc?.grandTotal || calc?.total || 0;
-        const overheadPct = jobTotal > 0 ? (totalOverhead / jobTotal) * 100 : 0;
         
         // Calculate recommended markup based on contractor type and job characteristics
         const materialsTotal = calc?.materials || 0;
@@ -9255,11 +9267,12 @@ export default function EstimateGeneratorScreen() {
         }
         recommendedMarkup = Math.round(recommendedMarkup);
         
-        // Calculate net profit (markup - overhead as % of subtotal)
         const currentMarkup = bid.markupPct || 0;
         const profit = calc?.profit || 0;
         const subtotal = calc?.subtotal || 0;
-        const netProfitPct = subtotal > 0 ? ((profit - totalOverhead) / subtotal) * 100 : 0;
+        // Net profit = markup minus overhead (what you actually keep). Updates when overhead changes.
+        const netProfit = Math.max(0, profit - totalOverhead);
+        const netProfitPct = jobTotal > 0 ? (netProfit / jobTotal) * 100 : 0;
         
         // AI badge always shows - determine message and button text
         let showApplyButton = true; // Always show the AI badge
@@ -9400,7 +9413,7 @@ export default function EstimateGeneratorScreen() {
         let markupStatusColor = '#38d39f';
         
         if (subtotal > 0) {
-          // Calculate based on net profit when we have subtotal
+          // Status based on net profit (after overhead) — true profitability
           if (netProfitPct < 5) {
             markupStatus = 'risk';
             markupStatusText = 'Too low – net profit too low, increase markup';
@@ -9698,71 +9711,6 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
               
-              {/* Total Overhead Summary */}
-              {totalOverhead > 0 && (
-                <View style={{
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                  borderRadius: 12,
-                  padding: 16,
-                  marginTop: 8,
-                  marginBottom: 8,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                }}>
-                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
-                    Total Overhead: <Text style={{ color: '#22d3ee' }}>{money(totalOverhead)}</Text>
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                    ≈ {overheadPct.toFixed(1)}% of job total
-                  </Text>
-                </View>
-              )}
-              
-              {/* Total Overhead and Markup Summary */}
-              {(totalOverhead > 0 || (calc?.profit && calc.profit > 0)) && (
-                <View style={{
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                  borderRadius: 12,
-                  padding: 16,
-                  marginTop: 8,
-                  marginBottom: 8,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                }}>
-                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
-                    Total Overhead & Markup: <Text style={{ color: '#22d3ee' }}>{money(totalOverhead + (calc?.profit || 0))}</Text>
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                    Overhead: {money(totalOverhead)} + Markup: {money(calc?.profit || 0)}
-                  </Text>
-                  {jobTotal > 0 && (
-                    <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>
-                      ≈ {((totalOverhead + (calc?.profit || 0)) / jobTotal * 100).toFixed(1)}% of job total
-                    </Text>
-                  )}
-                </View>
-              )}
-              
-              {/* Total Bid Summary */}
-              {calc && (
-                <View style={{
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                  borderRadius: 12,
-                  padding: 16,
-                  marginTop: 8,
-                  marginBottom: 16,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                }}>
-                  <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', marginBottom: 4 }}>
-                    Total Bid: <Text style={{ color: '#22d3ee' }}>{money(calc?.grandTotal || calc?.total || 0)}</Text>
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                    Final project total including all costs, overhead, and markup
-                  </Text>
-                </View>
-              )}
-              
               <View style={s.inputGroup}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <Text style={s.label}>Markup Percentage</Text>
@@ -9858,18 +9806,6 @@ export default function EstimateGeneratorScreen() {
                   }}
                   blurOnSubmit={true}
                 />
-                {contractorInfo ? (
-                  <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 6 }}>
-                    Typical markup for {contractorInfo.name}: {contractorInfo.safeMarkupRange.min}–{contractorInfo.safeMarkupRange.max}%
-                  </Text>
-                ) : (
-                  <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 6 }}>
-                    Typical GC markup: 15–25% residential
-                  </Text>
-                )}
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
-                  Current markup: {money(calc.profit)} ({currentMarkup}%)
-                </Text>
                 
                 {/* Contextual Message */}
                 {contextualMessage && (
@@ -9906,34 +9842,6 @@ export default function EstimateGeneratorScreen() {
                   </View>
                 )}
                 
-                {/* Net Profit Calculation */}
-                {currentMarkup > 0 && subtotal > 0 && (
-                  <View style={{
-                    marginTop: 8,
-                    padding: 10,
-                    borderRadius: 8,
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.15)',
-                  }}>
-                    <Text style={{ 
-                      color: Colors.text, 
-                      fontSize: 12, 
-                      fontWeight: '600',
-                      marginBottom: 2,
-                    }}>
-                      Estimated Net Profit: <Text style={{ color: '#22d3ee' }}>{netProfitPct.toFixed(1)}%</Text>
-                    </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 11 }}>
-                      At {currentMarkup}% markup: {money(profit - totalOverhead)} after overhead
-                      {netProfitPct < 5 && ' (risky)'}
-                      {netProfitPct >= 5 && netProfitPct < 8 && ' (thin margins)'}
-                      {netProfitPct >= 8 && netProfitPct < 15 && ' (healthy)'}
-                      {netProfitPct >= 15 && ' (strong)'}
-                    </Text>
-                  </View>
-                )}
-                
                 {/* Health Badge - Always Visible, Based on Net Profit */}
                 <View style={{
                   flexDirection: 'row',
@@ -9963,6 +9871,49 @@ export default function EstimateGeneratorScreen() {
                   </Text>
                 </View>
               </View>
+              
+              {/* Bid Breakdown */}
+              {calc && (
+                <View style={{
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                  borderRadius: 12,
+                  padding: 16,
+                  marginTop: 8,
+                  marginBottom: 16,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: Colors.text, fontSize: 13 }}>Total Cost</Text>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.subtotal || 0)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ color: '#38d39f', fontSize: 13 }}>+ Markup</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 15, fontWeight: '600' }}>{money(calc.profit || 0)}</Text>
+                  </View>
+                  <View style={{ height: 1, backgroundColor: darkMode ? 'rgba(255,255,255,0.2)' : Colors.line, marginVertical: 8 }} />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Bid Price</Text>
+                    <Text style={{ color: '#22d3ee', fontSize: 18, fontWeight: '800' }}>{money(calc?.grandTotal || calc?.total || 0)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: Colors.text, fontSize: 13 }}>Gross Profit (Markup)</Text>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.profit || 0)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ color: '#f97316', fontSize: 13 }}>- Overhead</Text>
+                    <Text style={{ color: '#f97316', fontSize: 15, fontWeight: '600' }}>{money(totalOverhead)}</Text>
+                  </View>
+                  <View style={{ height: 1, backgroundColor: darkMode ? 'rgba(255,255,255,0.2)' : Colors.line, marginVertical: 8 }} />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Net Profit</Text>
+                      <Text style={{ color: '#38d39f', fontSize: 12, marginTop: 2 }}>{netProfitPct.toFixed(1)}% of bid</Text>
+                    </View>
+                    <Text style={{ color: '#38d39f', fontSize: 18, fontWeight: '800' }}>{money(Math.max(0, (calc.profit || 0) - totalOverhead))}</Text>
+                  </View>
+                </View>
+              )}
               </GlassBorderCard>
               
               {/* Legal Disclaimer */}
@@ -10277,22 +10228,6 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
-            {/* Payment Strategy Header */}
-            <GlassBorderCard radius={24} innerRadius={22} pad={20} lightBg style={{ marginBottom: 16 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                  <Ionicons name="cash-outline" size={20} color="#2DFFC4" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Payment Strategy</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>How and when you get paid on this job</Text>
-                </View>
-              </View>
-              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 8, fontStyle: 'italic' }}>
-                Payment schedules vary by contract. Use this as a starting template.
-              </Text>
-            </GlassBorderCard>
-            
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>

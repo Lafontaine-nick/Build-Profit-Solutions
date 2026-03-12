@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { computeProfitForecast } from '@/src/lib/profitForecast';
 
 // Utility functions (same as dashboard)
 const formatCurrencyShort = (value: number) => {
@@ -104,11 +105,14 @@ const progressFromItems = (items: any[]): number => {
 };
 
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
-  // First, check if we have timeline progress from AsyncStorage (source of truth)
+  // Timeline is source of truth (deposit excluded) — try pid, then title
   if (timelineProgressMap[projectId] !== undefined) {
-    console.log(`📊 Using timeline progress for ${projectId}: ${timelineProgressMap[projectId]}%`);
     return timelineProgressMap[projectId];
   }
+  const titleLower = String(project?.title || project?.name || '').trim().toLowerCase();
+  const titleSlug = titleLower.replace(/\s+/g, '-');
+  if (titleLower && timelineProgressMap[titleLower] !== undefined) return timelineProgressMap[titleLower];
+  if (titleSlug && timelineProgressMap[titleSlug] !== undefined) return timelineProgressMap[titleSlug];
 
   // Fallback to direct progress fields
   const directProgress = Math.max(
@@ -259,8 +263,8 @@ export default function ProjectsScreen() {
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
   const params = useLocalSearchParams();
-  const [activeTab, setActiveTab] = useState<'active' | 'submitted'>(
-    params.tab === 'submitted' ? 'submitted' : 'active'
+  const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(
+    params.tab === 'submitted' ? 'submitted' : params.tab === 'completed' ? 'completed' : 'active'
   );
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
@@ -271,9 +275,15 @@ export default function ProjectsScreen() {
     const next: Record<string, any> = {};
     const progressMap: Record<string, number> = {};
 
+    const normalizeKey = (v: string) =>
+      String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
+
     try {
       const allKeys = await AsyncStorage.getAllKeys();
       const projectKeys = allKeys.filter((k) => k.startsWith('bps.project.'));
+      const timelineKeys = allKeys.filter(
+        (k) => k.startsWith('bps.timeline.v2.') || k.startsWith('timeline_')
+      );
       const entries = await AsyncStorage.multiGet(projectKeys);
 
       const byId: Record<string, any> = {};
@@ -294,39 +304,62 @@ export default function ProjectsScreen() {
         }
       }
 
-      // Load timeline progress for all projects
+      // Pre-scan ALL timeline keys → suffix→progress (matches useProjectsCompareData exactly)
+      const suffixToProgress: Record<string, number> = {};
+      for (const k of timelineKeys) {
+        const suffix = k.startsWith('bps.timeline.v2.')
+          ? k.replace('bps.timeline.v2.', '')
+          : k.startsWith('timeline_')
+            ? k.replace('timeline_', '')
+            : '';
+        if (!suffix) continue;
+        try {
+          const raw = await AsyncStorage.getItem(k);
+          if (raw) {
+            const milestones = JSON.parse(raw);
+            if (Array.isArray(milestones)?.length) {
+              const pct = computeOverallPctFromItems(milestones);
+              const suffixLower = suffix.toLowerCase();
+              const suffixNorm = normalizeKey(suffix);
+              suffixToProgress[suffixLower] = pct;
+              suffixToProgress[suffixNorm] = pct;
+              suffixToProgress[suffix] = pct;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Resolve progress for each project from pre-scanned map
       for (const project of all) {
         const pid = String(project?.id ?? '');
         if (!pid) continue;
-        
-        // Try v2 timeline storage first (source of truth)
-        try {
-          const timelineV2Key = `bps.timeline.v2.${pid}`;
-          const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
-          if (timelineV2Raw) {
-            const timelineMilestones = JSON.parse(timelineV2Raw);
-            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
-              const calculated = computeOverallPctFromItems(timelineMilestones);
-              progressMap[pid] = calculated;
-              console.log(`📊 Loaded timeline progress for ${pid}: ${calculated}% (${timelineMilestones.length} milestones)`);
-              continue;
-            }
+
+        const titleRaw = String(project?.title ?? project?.name ?? '').trim().toLowerCase();
+        const titleSlug = normalizeKey(titleRaw);
+        const titleCompact = titleRaw.replace(/\s+/g, '');
+        const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+        let foundProgress: number | undefined;
+        for (const c of candidates) {
+          foundProgress = suffixToProgress[c] ?? suffixToProgress[normalizeKey(c)];
+          if (foundProgress !== undefined) break;
+        }
+
+        if (foundProgress !== undefined) {
+          progressMap[pid] = foundProgress;
+          if (titleRaw) progressMap[titleRaw] = foundProgress;
+          if (titleSlug) progressMap[titleSlug] = foundProgress;
+          // Sync to bps.project.${pid}.progress so ProjectListContext/AI use correct value
+          try {
+            AsyncStorage.setItem(`bps.project.${pid}.progress`, JSON.stringify({
+              progress: foundProgress,
+              overallProgressPct: foundProgress,
+              updatedAt: new Date().toISOString(),
+            }));
+          } catch {
+            /* ignore */
           }
-          
-          // Fallback to v1 timeline storage
-          const timelineV1Key = `timeline_${pid}`;
-          const timelineV1Raw = await AsyncStorage.getItem(timelineV1Key);
-          if (timelineV1Raw) {
-            const timelineMilestones = JSON.parse(timelineV1Raw);
-            if (Array.isArray(timelineMilestones) && timelineMilestones.length > 0) {
-              const calculated = computeOverallPctFromItems(timelineMilestones);
-              progressMap[pid] = calculated;
-              console.log(`📊 Loaded v1 timeline progress for ${pid}: ${calculated}% (${timelineMilestones.length} milestones)`);
-              continue;
-            }
-          }
-        } catch (error) {
-          console.error(`❌ Error loading timeline progress for ${pid}:`, error);
         }
 
         // Load project data override
@@ -363,6 +396,8 @@ export default function ProjectsScreen() {
           setShowSubmitBanner(false);
         }, 3000);
       }
+    } else if (params.tab === 'completed') {
+      setActiveTab('completed');
     }
   }, [params.tab, params.fromSubmit]);
 
@@ -417,17 +452,70 @@ export default function ProjectsScreen() {
         else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
 
       const revenue = getProjectRevenue(mergedProject);
-      const margin = p.margin || 0;
-      const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
-      
-      // Only show revenue for submitted/active/completed projects, show $0 for drafts
-      const displayAmount = (displayStatus === 'Draft' || status === 'estimate') ? 0 : revenue;
-      
-      // Prefer merged/latest project data, then derive from either milestones or weekly payments.
       const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
       const rawProgress = progressPct / 100; // Convert to 0-1
       const finalProgress = status === 'completed' ? 1.0 : rawProgress;
-      
+
+      // Compute actual cost same as Budget tab: expenses + received POs (not stale list fields)
+      const pd = mergedProject?.projectData ?? mergedProject;
+      const expensesTotal = toFiniteNumber(pd?.spent) || (Array.isArray(pd?.expenses) && pd.expenses.length > 0
+        ? pd.expenses.reduce((s: number, e: any) => s + toFiniteNumber(e?.amount ?? 0), 0)
+        : Array.isArray(pd?.buckets)
+          ? pd.buckets.reduce((s: number, b: any) => s + toFiniteNumber(b?.spent ?? 0), 0)
+          : 0);
+      const rawPOs = pd?.purchaseOrders ?? mergedProject?.purchaseOrders ?? [];
+      const receivedPOsTotal = Array.isArray(rawPOs)
+        ? rawPOs
+            .filter((po: any) => String(po?.status || '').toLowerCase() === 'received')
+            .reduce((s: number, po: any) => s + toFiniteNumber(po?.amount ?? 0), 0)
+        : 0;
+      const actualCost = expensesTotal + receivedPOsTotal || toFiniteNumber(
+        mergedProject?.actualCost ?? mergedProject?.totalSpent ?? pd?.actualCost ?? 0
+      );
+      const estimatedCost = toFiniteNumber(
+        mergedProject?.estimatedCost ?? mergedProject?.projectData?.estimatedCost ??
+        mergedProject?.estimateData?.totalCost ?? mergedProject?.estimateData?.estimatedCost ?? 0
+      );
+      const committedPOs = Array.isArray(rawPOs)
+        ? rawPOs
+            .filter((po: any) => String(po?.status || '').toLowerCase() !== 'received')
+            .reduce((sum: number, po: any) => sum + toFiniteNumber(po?.amount ?? 0), 0)
+        : 0;
+
+      const profitForecast = revenue > 0
+        ? computeProfitForecast({
+            contractValue: revenue,
+            adjustedBudget: estimatedCost > 0 ? estimatedCost : revenue,
+            estimatedCostBaseline: estimatedCost > 0 ? estimatedCost : undefined,
+            actualExpenses: actualCost,
+            committedPOs,
+            progressPct: finalProgress * 100,
+            isCompleted: status === 'completed',
+          })
+        : null;
+
+      // Prefer estimate's profit & margin when project came from estimate and has no real spending yet
+      const estimateProfit = toFiniteNumber(p.profit ?? mergedProject?.estimateData?.profit);
+      const rawMargin = p.margin ?? mergedProject?.estimateData?.marginPercent ?? mergedProject?.estimateData?.margin;
+      const estimateMarginNum = typeof rawMargin === 'number' && Number.isFinite(rawMargin)
+        ? (Math.abs(rawMargin) > 1 ? rawMargin : rawMargin * 100)
+        : null;
+      const hasNoRealSpend = actualCost === 0 || (revenue > 0 && actualCost < 0.01 * revenue);
+      const useEstimateValues = hasNoRealSpend && (estimateProfit > 0 || estimateMarginNum != null);
+
+      const derivedMarginFromProfit = revenue > 0 && estimateProfit > 0 ? (estimateProfit / revenue) * 100 : null;
+      const derivedProfitFromMargin = revenue > 0 && estimateMarginNum != null ? revenue * (estimateMarginNum / 100) : null;
+      const displayProfit = useEstimateValues && (estimateProfit > 0 || derivedProfitFromMargin != null)
+        ? (estimateProfit > 0 ? estimateProfit : derivedProfitFromMargin!)
+        : profitForecast?.projectedProfit;
+      // When using estimate profit, derive margin from it so they match (e.g. 20% not 21%)
+      const displayMargin = useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
+        ? (derivedMarginFromProfit ?? estimateMarginNum!)
+        : (profitForecast?.projectedMarginPct ?? (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0));
+
+      // Only show revenue for submitted/active/completed projects, show $0 for drafts
+      const displayAmount = (displayStatus === 'Draft' || status === 'estimate') ? 0 : revenue;
+
       return {
         id: p.id,
         name: p.title || 'Untitled Project',
@@ -435,8 +523,12 @@ export default function ProjectsScreen() {
         location: p.location || 'Unknown, Unknown',
         progress: finalProgress,
         amount: displayAmount,
-        margin: marginRatio * 100,
-        marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
+        margin: displayMargin,
+        marginDisplay:
+          displayProfit != null && Number.isFinite(displayProfit)
+            ? `${displayMargin.toFixed(1)}% margin · $${Math.round(displayProfit).toLocaleString()} profit`
+            : `${displayMargin.toFixed(1)}% margin`,
+        projectedProfit: displayProfit,
         dateLabel: p.endDate
           ? status === 'completed'
             ? `Completed ${new Date(p.endDate).toISOString().split('T')[0]}`
@@ -452,8 +544,10 @@ export default function ProjectsScreen() {
   const projects = useMemo(() => {
     if (activeTab === 'submitted') {
       return allProjects.filter(p => p.status === 'Submitted' || p.rawStatus === 'bid_submitted' || p.rawStatus === 'submitted');
+    } else if (activeTab === 'completed') {
+      return allProjects.filter(p => p.status === 'Completed' || p.rawStatus === 'completed');
     } else {
-      return allProjects.filter(p => p.status === 'Active' || p.status === 'Completed' || p.rawStatus === 'won' || p.rawStatus === 'in_progress' || p.rawStatus === 'active' || p.rawStatus === 'completed');
+      return allProjects.filter(p => p.status === 'Active' || p.rawStatus === 'won' || p.rawStatus === 'in_progress' || p.rawStatus === 'active');
     }
   }, [allProjects, activeTab]);
 
@@ -549,7 +643,7 @@ export default function ProjectsScreen() {
           <View>
             <Text style={styles.screenTitle}>{t('projects.allProjects')}</Text>
             <Text style={styles.screenSubtitle}>
-              {projects.length} {activeTab === 'submitted' ? 'submitted' : 'active'} {projects.length === 1 ? 'project' : 'projects'}
+              {projects.length} {activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} {projects.length === 1 ? 'project' : 'projects'}
             </Text>
           </View>
 
@@ -589,6 +683,17 @@ export default function ProjectsScreen() {
           >
             <Text style={[styles.tabText, activeTab === 'submitted' && styles.tabTextActive]}>
               Submitted
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'completed' && styles.tabActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab('completed');
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === 'completed' && styles.tabTextActive]}>
+              Completed
             </Text>
           </TouchableOpacity>
         </View>

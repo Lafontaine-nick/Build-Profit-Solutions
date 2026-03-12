@@ -201,11 +201,13 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
   // Base values from the current bid
   const base = useMemo(() => {
-    // Calculate total overhead same way as step 6
-    const totalOverhead = (bid?.insuranceOverhead || 0) + 
-                          (bid?.equipment || 0) + 
-                          (bid?.facilities || 0) + 
-                          (bid?.otherOverhead || 0);
+    // Calculate total overhead same way as Step 5 (Overhead & Markup)
+    const totalOverhead = (bid?.insuranceOverhead || 0) +
+                          (bid?.equipment || 0) +
+                          (bid?.facilities || 0) +
+                          (bid?.otherOverhead || 0) +
+                          (bid?.planCost || 0) +
+                          (bid?.permitCost || 0);
     
     return {
       labor: Number(calc?.labor || 0),
@@ -864,6 +866,28 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 >
                   {sim.netProfitMarginPct.toFixed(1)}%
                 </Animated.Text>
+              </View>
+              {/* Break-Even Model */}
+              <View style={[styles.simRow, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Break-even bid:</Text>
+                <Text style={[styles.simValue, { opacity: palette.subtleOpacity }]}>
+                  ${(sim.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={styles.simRow}>
+                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Current bid:</Text>
+                <Text style={[styles.simValue, { fontWeight: '600' }]}>
+                  ${(sim.totalBid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={styles.simRow}>
+                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Cushion above break-even:</Text>
+                <Text style={[styles.simValue, { 
+                  color: (sim.totalBid - sim.subtotal) >= 0 ? palette.green : palette.red,
+                  fontWeight: '700'
+                }]}>
+                  ${((sim.totalBid || 0) - (sim.subtotal || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
               </View>
               {/* Break-Even Line */}
               {sim.netProfitOnCostPct > 0 && (
