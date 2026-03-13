@@ -219,7 +219,15 @@ async function runRouter(message, history, ctxSummary) {
     if (askedForLaborVendor && looksLikeLaborTrade) {
       contextMessage += '\n\nCRITICAL: The assistant asked for vendor for LABOR. The user\'s message ("' + message.trim() + '") IS the sub/trade. For labor, vendor = sub/trade. Use tool_args_draft.vendor = user\'s message (e.g. "General Labor") and tool_args_draft.notes = same. Do NOT ask for vendor again. Execute add_material_expense with category=Labor, vendor=user\'s trade, amount from prior context.';
     }
-    
+
+    // CRITICAL: When assistant asked "which project?" and user says "my completed projects" / "completed jobs" / "all of them" — SCOPE clarification, NOT a project name
+    const askedWhichProject = /(?:which project|what project|which one|which job).*(?:mean|referring|talking about)/i.test(lastAssistantMessage) ||
+      /(?:which|what) project\s*(?:do you|do they)?\s*mean/i.test(lastAssistantMessage);
+    const looksLikeScopeClarification = /\b(my completed projects|completed projects|completed jobs|all my jobs|all of them|all completed|from my completed|the completed ones)\b/i.test(message.trim());
+    if (askedWhichProject && looksLikeScopeClarification) {
+      contextMessage += '\n\nCRITICAL: The assistant asked "which project?" but the user is clarifying SCOPE: they want ALL completed projects, not a single project name. Set domain = "portfolio", proposed_tool = "compare_projects", tool_args_draft = { status: "completed" }. The user wants aggregate profit/sum across completed projects. Do NOT treat "my completed projects" as a project name.';
+    }
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
