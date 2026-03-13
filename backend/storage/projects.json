@@ -203,5 +203,65 @@
     "budgetItems": [],
     "createdAt": "2026-03-10T03:04:29.729Z",
     "updatedAt": "2026-03-10T03:04:29.731Z"
+  },
+  {
+    "id": "1773376224957",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Bob",
+    "title": "Bob",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 24000,
+    "estimatedCost": 10000,
+    "bidPrice": 24000,
+    "totalSpent": 3500,
+    "remaining": 20500,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "txn-1773376343810",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 1000,
+        "date": "2026-03-13T04:32:23.810Z",
+        "notes": "",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "normal"
+      },
+      {
+        "id": "expense-1773377495120",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 500,
+        "date": "2026-03-13",
+        "notes": "Tile from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1773377681104",
+        "category": "Labor",
+        "vendor": "tile work",
+        "amount": 1000,
+        "date": "2026-03-13",
+        "notes": "",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1773378242239",
+        "category": "Labor",
+        "vendor": "Shower",
+        "amount": 1000,
+        "date": "2026-03-13",
+        "notes": "",
+        "createdAt": "2026-03-13T05:04:02.239Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-13T04:51:35.118Z",
+    "updatedAt": "2026-03-13T05:04:02.239Z"
   }
 ]
