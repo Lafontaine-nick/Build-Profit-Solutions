@@ -103,10 +103,15 @@ function generateSmartSuggestions(message, reply, parsedContext, session) {
   );
 
   if (replyLower.includes('margin') || replyLower.includes('profit')) {
+    const isActive = (s) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
+    const getStatus = (p) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase();
+    const activeCount = allProjects.filter((p) => isActive(getStatus(p))).length;
     if (mentionedProject) {
       suggestions.push({ label: `Forecast ${mentionedProject} profit`, prompt: `Forecast the final profit for ${mentionedProject} based on current spending` });
     }
-    suggestions.push({ label: 'Compare all margins', prompt: 'Compare margins across all my projects' });
+    if (activeCount >= 2) {
+      suggestions.push({ label: 'Compare active project margins', prompt: 'Compare margins across my active projects' });
+    }
   }
 
   if (replyLower.includes('over budget') || replyLower.includes('overrun') || replyLower.includes('above estimate')) {
@@ -129,8 +134,16 @@ function generateSmartSuggestions(message, reply, parsedContext, session) {
   }
 
   if (replyLower.includes('compare') || msgLower.includes('compare')) {
-    if (projectNames.length >= 2) {
-      suggestions.push({ label: 'Rank by risk', prompt: 'Rank my projects by risk — which needs the most attention?' });
+    const isActive = (s) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
+    const isCompleted = (s) => (s || '').toLowerCase() === 'completed';
+    const getStatus = (p) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase();
+    const activeCount = allProjects.filter((p) => isActive(getStatus(p))).length;
+    const completedCount = allProjects.filter((p) => isCompleted(getStatus(p))).length;
+    if (activeCount >= 2) {
+      suggestions.push({ label: 'Rank active projects by risk', prompt: 'Rank my active projects by risk — which needs the most attention?' });
+    }
+    if (completedCount >= 2 && activeCount < 2) {
+      suggestions.push({ label: 'Compare completed projects', prompt: 'Compare my completed projects — which was most profitable?' });
     }
   }
 
@@ -888,6 +901,174 @@ function runProactiveIntelligence(ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROJECT STATUS BLOCK — authoritative active vs completed breakdown
+// Ensures AI always knows which projects need attention vs are done.
+// ─────────────────────────────────────────────────────────────────────────────
+function buildProjectStatusBlock(parsedContext) {
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  if (!allProjects.length) return '';
+
+  const isActive = (s) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
+  const isCompleted = (s) => (s || '').toLowerCase() === 'completed';
+  const isEstimate = (s) => ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((s || '').toLowerCase());
+
+  const getStatus = (p) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase().replace(/\s+/g, '_');
+  const active = allProjects.filter((p) => isActive(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
+  const completed = allProjects.filter((p) => isCompleted(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
+  const estimates = allProjects.filter((p) => isEstimate(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
+
+  let lines = [];
+  if (active.length > 0) lines.push(`Active (need attention): ${active.join(', ')}`);
+  if (completed.length > 0) lines.push(`Completed (done): ${completed.join(', ')}`);
+  if (estimates.length > 0) lines.push(`Estimates (not yet won): ${estimates.join(', ')}`);
+
+  if (lines.length === 0) return '';
+  return `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 PROJECT STATUS (authoritative — use this for active vs completed)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${lines.join('\n')}
+
+RULES:
+→ This status comes from the current app context. Users can delete projects or change status (e.g. submitted → active).
+→ Always use this list — never assume a project exists or has a status from prior conversation.
+→ For "focus today" / "what needs attention" — only list ACTIVE projects. Exclude completed.
+→ Do not reference deleted projects. If a project is not in this list, it no longer exists.
+→ CRITICAL: If "Active (need attention)" lists project names (e.g. Bob), you MUST mention them. NEVER say "no active projects" or "no projects need attention" when the Active list has names.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECT DATA SNAPSHOT (additive)
+// Builds a concise per-project data block so the AI always has key facts
+// in-context without needing tool calls for basic questions.
+// ─────────────────────────────────────────────────────────────────────────────
+function buildProjectDataSnapshot(parsedContext) {
+  const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  if (!allProjects.length) return '';
+
+  const now = new Date();
+  const fmt = (v) => {
+    const n = Number(typeof v === 'string' ? v.replace(/[$,\s]/g, '') : v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const lines = allProjects.map((p) => {
+    const title = p?.title || p?.name || 'Untitled';
+    const status = (p?.status || 'unknown').replace(/_/g, ' ');
+    const contract = fmt(p?.contractValue || p?.bidPrice);
+    const spent = fmt(p?.totalSpent || p?.actualCost);
+    const estimated = fmt(p?.estimatedCost);
+    const profit = contract > 0 ? contract - (estimated || spent) : 0;
+    const marginPct = contract > 0 ? ((profit / contract) * 100).toFixed(1) : '0.0';
+    const progress = fmt(p?.progress);
+
+    let parts = [`**${title}** (${status}) | Progress: ${progress}%`];
+    if (contract > 0) parts.push(`Contract: $${contract.toLocaleString()} | Spent: $${spent.toLocaleString()} | Est. Cost: $${estimated.toLocaleString()} | Profit: $${profit.toLocaleString()} (${marginPct}%)`);
+
+    // Milestones / payments
+    const milestones = Array.isArray(p?.milestones) ? p.milestones : [];
+    const pStatus = (p?.status || '').toLowerCase();
+    const projectDone = pStatus === 'completed' || pStatus === 'done' || pStatus === 'finished' || progress >= 100;
+    const isCollected = (m) => {
+      if (projectDone) return true;
+      const s = String(m?.status || m?.state || '').toLowerCase();
+      return s === 'collected' || s === 'paid' || s === 'done' || s === 'complete' || s === 'completed' || s === 'finished' || (m?.progressPct >= 100) || (m?.progress >= 100);
+    };
+    const unpaid = milestones.filter((m) => !isCollected(m));
+    const paid = milestones.filter((m) => isCollected(m));
+    if (milestones.length > 0) {
+      const paidSummary = paid.map((m) => `${m?.title || m?.name || 'Payment'} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} (PAID)`).join(', ');
+      const unpaidSummary = unpaid.map((m) => {
+        const dt = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
+        const dateStr = dt ? new Date(dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'no date';
+        return `${m?.title || m?.name || 'Payment'} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} due ${dateStr} (UNPAID)`;
+      }).join(', ');
+      if (paidSummary) parts.push(`Paid: ${paidSummary}`);
+      if (unpaidSummary) parts.push(`Upcoming: ${unpaidSummary}`);
+    }
+
+    // Top expense vendors
+    const expenses = Array.isArray(p?.expenses) ? p.expenses : [];
+    if (expenses.length > 0) {
+      const vendorTotals = {};
+      expenses.forEach((e) => {
+        const v = (e?.vendor || 'Unknown').trim();
+        vendorTotals[v] = (vendorTotals[v] || 0) + fmt(e?.amount);
+      });
+      const topVendors = Object.entries(vendorTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([v, total]) => `${v} ($${total.toLocaleString()})`)
+        .join(', ');
+      parts.push(`Vendors: ${topVendors} | ${expenses.length} total expenses`);
+    }
+
+    // Purchase orders
+    const pos = Array.isArray(p?.purchaseOrders) ? p.purchaseOrders : [];
+    if (pos.length > 0) {
+      const openPOs = pos.filter((po) => !(po?.received || po?.status === 'received'));
+      const totalCommitted = pos.reduce((s, po) => s + fmt(po?.amount || po?.total), 0);
+      parts.push(`POs: ${pos.length} total ($${totalCommitted.toLocaleString()} committed), ${openPOs.length} open`);
+    }
+
+    // Calendar events / inspections
+    const events = Array.isArray(p?.calendarEvents) ? p.calendarEvents : [];
+    const upcoming = events
+      .filter((ev) => {
+        if (ev?.completed) return false;
+        const d = new Date(ev?.date || 0);
+        return Number.isFinite(d.getTime()) && d.getTime() >= now.getTime() - 86400000;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 3);
+    if (upcoming.length > 0) {
+      const evStr = upcoming.map((ev) => {
+        const dateStr = new Date(ev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const timeStr = ev.time ? ` at ${ev.time}` : '';
+        return `${ev.title || ev.type || 'Event'}${timeStr} ${dateStr}`;
+      }).join(', ');
+      parts.push(`Events: ${evStr}`);
+    }
+
+    // Daily logs (recent)
+    const logs = Array.isArray(p?.dailyLogs) ? p.dailyLogs : [];
+    if (logs.length > 0) {
+      const recent = logs.slice(-3);
+      const logStr = recent.map((l) => {
+        const dateStr = l?.date ? new Date(l.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const summary = l?.summary || l?.notes || l?.description || '';
+        return `${dateStr}: ${summary.slice(0, 80)}`;
+      }).filter(Boolean).join(' | ');
+      if (logStr) parts.push(`Recent logs: ${logStr}`);
+    }
+
+    // Change orders
+    const cos = Array.isArray(p?.changeOrders) ? p.changeOrders : [];
+    if (cos.length > 0) {
+      const approved = cos.filter((co) => co?.approved || (co?.status || '').toLowerCase() === 'approved');
+      const totalApproved = approved.reduce((s, co) => s + fmt(co?.amount), 0);
+      parts.push(`Change orders: ${cos.length} total, ${approved.length} approved ($${totalApproved.toLocaleString()})`);
+    }
+
+    return parts.join('\n  ');
+  });
+
+  return `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 PROJECT DATA SNAPSHOT (authoritative — answer questions directly from this data)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${lines.join('\n---\n')}
+
+RULES:
+→ This snapshot contains real, current data from the user's app. Use it as your primary source of truth.
+→ When the user asks about payments, expenses, vendors, inspections, profit, or budget — answer DIRECTLY from this snapshot.
+→ Do NOT say "I don't have that information" or "let me check" when the answer is clearly in this snapshot.
+→ If the user asks about a specific vendor (e.g. "Home Depot"), search the Vendors line for that name.
+→ If the user asks about upcoming payments, look at the "Upcoming" line for UNPAID milestones.
+→ If the user asks about inspections or events, check the "Events" line.
+→ For profit/margin questions, use the Contract, Spent, and Profit numbers directly.
+→ Only use tools (compare_projects, get_project_health, etc.) for deeper analysis or actions — not for basic data lookups.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROJECTS LIST INTELLIGENCE (additive)
 // Scans all projects and surfaces concise alerts for Projects screen.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1146,8 +1327,9 @@ function runCompareProjects(parsedContext) {
       }
       const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
       const profitLabel = isCompleted(x) ? 'Net Profit' : 'Projected Profit';
+      const marginLabel = isCompleted(x) ? 'Margin' : 'Current margin';
       reply += `**${x.title}**\n`;
-      reply += `• Margin: ${x.margin}%\n`;
+      reply += `• ${marginLabel}: ${x.margin}%\n`;
       reply += `• Spent: $${fmt(x.spent || 0)}\n`;
       if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
       reply += `• ${profitLabel}: $${fmt(x.projectedProfit || 0)}\n`;
@@ -1416,8 +1598,9 @@ function runCompareProjects(parsedContext) {
     }
     const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
     const profitLabelFallback = isCompletedFallback(x) ? 'Net Profit' : 'Projected Profit';
+    const marginLabelFallback = isCompletedFallback(x) ? 'Margin' : 'Current margin';
     reply += `**${x.title}**\n`;
-    reply += `• Margin: ${x.margin}%\n`;
+    reply += `• ${marginLabelFallback}: ${x.margin}%\n`;
     reply += `• Spent: $${fmt(x.spent || 0)}\n`;
     if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
     reply += `• ${profitLabelFallback}: $${fmt(x.projectedProfit || 0)}\n`;
@@ -1733,19 +1916,40 @@ function runTodayBrief(parsedContext) {
     { label: 'Forecast Profit', prompt: 'Forecast profit across my entire portfolio — show projected numbers' },
     { label: 'Check Budget Risks', prompt: 'Which projects have budget risks? Show me specifics.' },
     { label: 'Missing Receipts', prompt: 'Which projects have expenses missing receipts?' },
-    { label: 'Portfolio Health', prompt: 'Give me a full portfolio health check — margins, risks, and what to focus on' },
+    { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
   ];
 
+  const isActive = (s) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
+  const isCompleted = (s) => (s || '').toLowerCase() === 'completed';
+  const getStatus = (p) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase().replace(/\s+/g, '_');
+  const activeProjects = allProjects.filter((p) => isActive(getStatus(p))).map((p) => p?.title || p?.name || '').filter(Boolean);
+  const completedProjects = allProjects.filter((p) => isCompleted(getStatus(p))).map((p) => p?.title || p?.name || '').filter(Boolean);
+
   const suggestedFollowUps = [];
-  const names = [...projectNames].slice(0, 3);
+  const names = [...projectNames].slice(0, 2);
   names.forEach((name) => {
     suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a full health check on ${name} — budget, margin, risks, and what I should do next` });
   });
-  if (names.length >= 2) {
-    suggestedFollowUps.push({ label: `Compare ${names[0]} vs ${names[1]}`, prompt: `Compare ${names[0]} and ${names[1]} — which is performing better and why?` });
+  if (activeProjects.length >= 2) {
+    const a = activeProjects[0];
+    const b = activeProjects[1];
+    suggestedFollowUps.push({ label: `Compare ${a} vs ${b}`, prompt: `Compare ${a} and ${b} — which active project is performing better and why?` });
   }
-  suggestedFollowUps.push({ label: 'Where am I losing money?', prompt: 'Where am I losing money across my projects? Show me the biggest profit leaks.' });
-  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which projects are over budget and by how much?' });
+  if (completedProjects.length >= 2 && activeProjects.length < 2) {
+    const a = completedProjects[0];
+    const b = completedProjects[1];
+    suggestedFollowUps.push({ label: `Compare ${a} vs ${b}`, prompt: `Compare ${a} and ${b} — which completed project was more profitable and why?` });
+  }
+  suggestedFollowUps.push({ label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' });
+  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which active projects are over budget and by how much?' });
+
+  const seenPrompts = new Set();
+  const dedupedSuggested = suggestedFollowUps.filter((s) => {
+    const key = (s.prompt || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seenPrompts.has(key)) return false;
+    seenPrompts.add(key);
+    return true;
+  });
 
   // Biggest Risk: pick highest-priority issue (profit leak first, then low margin, overdue, missing receipts)
   let biggestRisk = null;
@@ -1781,7 +1985,7 @@ function runTodayBrief(parsedContext) {
     insights: uniqueInsights,
     recommendedActions: uniqueRecommended,
     quickActions,
-    suggestedFollowUps: suggestedFollowUps.slice(0, 6),
+    suggestedFollowUps: dedupedSuggested.slice(0, 5),
     biggestRisk,
   };
 }
@@ -2177,6 +2381,9 @@ router.post('/stream', async (req, res) => {
     });
 
     if (isCommandCenter) {
+      const projectStatusBlock = buildProjectStatusBlock(parsedContext);
+      if (projectStatusBlock) streamSystemPrompt += projectStatusBlock;
+
       const listAlerts = runProjectsListIntelligence(parsedContext);
       if (listAlerts.length > 0) {
         streamSystemPrompt += `\n\n📌 PORTFOLIO INTELLIGENCE:\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}`;
@@ -2202,7 +2409,7 @@ router.post('/stream', async (req, res) => {
 
     try {
       const stream = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages,
         temperature: 0.3,
         max_tokens: 2000,
@@ -2948,6 +3155,14 @@ router.post('/', async (req, res) => {
     // Additive: projects-list intelligence block (Global AI Assistant + Projects screen).
     const screenForIntelligence = (parsedContext?.screen || '').toLowerCase();
     if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
+      // Always inject project status block so AI knows active vs completed (users can delete/change status)
+      const projectStatusBlock = buildProjectStatusBlock(parsedContext);
+      if (projectStatusBlock) systemPrompt += projectStatusBlock;
+
+      // Inject comprehensive project data snapshot so AI can answer basic questions directly
+      const dataSnapshot = buildProjectDataSnapshot(parsedContext);
+      if (dataSnapshot) systemPrompt += dataSnapshot;
+
       const listAlerts = runProjectsListIntelligence(parsedContext);
       if (listAlerts.length > 0) {
         systemPrompt += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 PORTFOLIO INTELLIGENCE (grounded in real data — use these numbers)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${listAlerts.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nRULES:\n→ Use these alerts as your source of truth for financial data — every number you cite must come from here or from tool results\n→ When user asks about portfolio health, profitability, or risks — reference these alerts directly\n→ Surface relevant insights proactively when they relate to the user's question\n→ When answering, always structure as: direct answer → supporting insight → suggested action\n→ Connect financial data to actionable recommendations\n→ If request is project-specific and ambiguous, ask one clear follow-up question\n→ Never dump all alerts at once — pick the most relevant ones for the user's question`;
@@ -2979,6 +3194,11 @@ router.post('/', async (req, res) => {
         }).join('\n');
         systemPrompt += `\n\n📅 UPCOMING EVENTS (across all projects):\n${calItems}\n→ Mention relevant events when they relate to the user's question or project`;
       }
+    } else {
+      // Non-command-center screen (project detail, estimate, etc.) — still inject data snapshot
+      // for the current project so AI has context for specific questions
+      const dataSnapshot = buildProjectDataSnapshot(parsedContext);
+      if (dataSnapshot) systemPrompt += dataSnapshot;
     }
 
     // Inject conversation memory
@@ -3015,7 +3235,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'compare_projects',
-          description: 'Compare projects for profitability, budget exposure, schedule risk, and progress. Use for questions like "most profitable", "most over budget", "which project is behind", or "compare Chris vs Nick".',
+          description: 'Compare projects for profitability, budget exposure, schedule risk, progress, and payment schedule. Use for "most profitable", "most over budget", "compare Chris vs Nick", and "when am I getting paid" / "next payment" — returns upcomingPayments and overduePayments per project. Each project has marginLabel and profitLabel — use them exactly: completed = "Margin" and "Net Profit"; active = "Current margin" and "Projected Profit".',
           parameters: {
             type: 'object',
             properties: {
@@ -3037,6 +3257,10 @@ router.post('/', async (req, res) => {
                 description: 'Optional sort key: margin | overBudget | progress | risk.',
                 enum: ['margin', 'overBudget', 'progress', 'risk'],
               },
+              activeOnly: {
+                type: 'boolean',
+                description: 'If true, exclude completed projects. Use for "What needs attention?", "focus today", "top priorities" — only list active projects.',
+              },
             },
             required: [],
           },
@@ -3046,7 +3270,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'get_project_health',
-          description: 'Get a comprehensive health check for a specific project. Returns budget status, margin, risks, expense breakdown, overdue items, and recommendations. Use when user asks "how is [project] doing?", "health check on [project]", "status of [project]", or "review [project]".',
+          description: 'Get a comprehensive health check for a specific project. Returns budget status, margin, risks, expense breakdown, overdue/upcoming payments, and recommendations. Use when user asks "how is [project] doing?", "health check on [project]", "status of [project]", "review [project]", "when am I getting paid on [project]", "what should I do next for [project]", or "recommendations for [project]". Use financials.currentMarginPct for "current margin" (matches Projects page).',
           parameters: {
             type: 'object',
             properties: {
@@ -3080,7 +3304,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'analyze_expenses',
-          description: 'Break down expenses by category, vendor, and time period for one or all projects. Use when user asks "show expenses", "expense breakdown", "where am I spending", "biggest expenses", "who am I paying the most".',
+          description: 'Break down expenses by category, vendor, or month for one or all projects. Use when user asks "show expenses", "expense breakdown", "where am I spending", "biggest expenses", "who am I paying the most", "material vs labor", "cost breakdown", "top vendors".',
           parameters: {
             type: 'object',
             properties: {
@@ -3534,8 +3758,27 @@ router.post('/', async (req, res) => {
       },
     ] : [];
 
-    // Final tool list: core always included, PM tools added when mode is on
-    const functions = [...coreTools, ...pmTools];
+    // Command Center tools: get_timeline_items for schedule questions (e.g. "schedule for Chris") — need projectId via get_project_by_name
+    const isCommandCenter = ['projects', 'ai assistant tab'].includes(screenForIntelligence);
+    const commandCenterTools = isCommandCenter && !pmTools.some(t => t.function.name === 'get_timeline_items') ? [
+      {
+        type: 'function',
+        function: {
+          name: 'get_timeline_items',
+          description: 'Get timeline/milestones for a project. Use when user asks "schedule for [project]", "when is [project] due", "milestones on [project]", "payment schedule for [project]". Call get_project_by_name first to get projectId if needed.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Project ID. Use get_project_by_name to resolve project name to ID first.' },
+            },
+            required: ['projectId'],
+          },
+        },
+      },
+    ] : [];
+
+    // Final tool list: core + PM tools (when on) + Command Center tools (schedule queries when PM off)
+    const functions = [...coreTools, ...pmTools, ...commandCenterTools];
 
     // Helper function to execute get_project_by_name (enhanced fuzzy matching, additive)
     async function executeGetProjectByName(args) {
@@ -3654,6 +3897,7 @@ router.post('/', async (req, res) => {
           return Number.isFinite(n) ? n : 0;
         };
         const statusFilter = String(args?.status || '').toLowerCase().trim();
+        const activeOnly = args?.activeOnly === true;
         const nameFilters = Array.isArray(args?.projectNames)
           ? args.projectNames.map((n) => String(n).toLowerCase().trim()).filter(Boolean)
           : [];
@@ -3661,6 +3905,37 @@ router.post('/', async (req, res) => {
         let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
         if (statusFilter) {
           candidates = candidates.filter((p) => String(p?.status || '').toLowerCase().includes(statusFilter));
+        }
+        if (activeOnly) {
+          // Keep "completed" projects when they still have unpaid milestones,
+          // otherwise payment questions can lose the project entirely.
+          candidates = candidates.filter((p) => {
+            const statusLower = String(p?.status || '').toLowerCase();
+            if (statusLower !== 'completed') return true;
+
+            const milestonesRaw =
+              p?.milestones ||
+              p?.weeklyPayments ||
+              p?.projectData?.milestones ||
+              p?.projectData?.weeklyPayments ||
+              p?.estimateData?.milestones ||
+              p?.estimateData?.paymentMilestones ||
+              p?.estimateData?.weeklyPayments ||
+              p?.projectData?.estimateData?.milestones ||
+              p?.projectData?.estimateData?.paymentMilestones ||
+              p?.projectData?.estimateData?.weeklyPayments ||
+              [];
+            const milestones = Array.isArray(milestonesRaw) ? milestonesRaw : [];
+            const hasUnpaid = milestones.some((m) => {
+              const st = String(m?.status || m?.state || '').toLowerCase();
+              if (st.includes('complete') || st.includes('paid') || st.includes('collected') || st === 'done' || st === 'finished') return false;
+              if (m?.collected === true || m?.isPaid === true) return false;
+              const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+              if (Number.isFinite(pct) && pct >= 100) return false;
+              return true;
+            });
+            return hasUnpaid;
+          });
         }
         if (nameFilters.length > 0) {
           candidates = candidates.filter((p) => {
@@ -3670,8 +3945,19 @@ router.post('/', async (req, res) => {
           });
         }
 
+        const progressByProjectId = parsedContext?.progressByProjectId || {};
+        const compareProjectsData = Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData : [];
+
         const analyzed = candidates.map((p) => {
           const title = p?.title || p?.name || 'Untitled Project';
+          const pid = String(p?.id ?? '');
+          const titleKey = (title || '').toLowerCase().trim();
+          const titleSlug = titleKey.replace(/\s+/g, '-');
+          // Prefer timeline progress (matches Projects page) over stale allProjects.progress
+          const progressOverride = progressByProjectId[pid] ?? progressByProjectId[titleKey] ?? progressByProjectId[titleSlug]
+            ?? compareProjectsData.find((c) => (c?.title || '').toLowerCase().trim() === titleKey)?.progress;
+          const progress = progressOverride != null ? Number(progressOverride) : normalize(p?.progress ?? p?.overallProgressPct);
+
           const budget = normalize(p?.estimatedCost ?? p?.projectData?.estimatedCost ?? p?.estimateData?.totalCost ?? 0);
           const spent = normalize(p?.actualCost ?? p?.totalSpent ?? p?.projectData?.spent ?? 0);
           // Revenue = contract value (bid + approved change orders). Never use estimateData.total — that's often cost, not revenue.
@@ -3685,24 +3971,76 @@ router.post('/', async (req, res) => {
             ? normalize(p.contractValue)
             : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
           const marginFallback = revenue > 0 && budget > 0 ? ((revenue - budget) / revenue) * 100 : 0;
-          const margin = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
-          const progress = normalize(p?.progress ?? p?.overallProgressPct);
-          const milestones = Array.isArray(p?.milestones) && p.milestones.length
-            ? p.milestones
-            : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []);
+          const estimatedMarginPct = normalize(p?.margin ?? p?.marginPct ?? marginFallback);
+          const milestonesRaw =
+            p?.milestones ||
+            p?.weeklyPayments ||
+            p?.projectData?.milestones ||
+            p?.projectData?.weeklyPayments ||
+            p?.estimateData?.milestones ||
+            p?.estimateData?.paymentMilestones ||
+            p?.estimateData?.weeklyPayments ||
+            p?.projectData?.estimateData?.milestones ||
+            p?.projectData?.estimateData?.paymentMilestones ||
+            p?.projectData?.estimateData?.weeklyPayments ||
+            [];
+          const milestones = Array.isArray(milestonesRaw) && milestonesRaw.length ? milestonesRaw : [];
+          if (milestones.length > 0) {
+            console.log(`📋 compare_projects milestones for "${title}" (status: ${p?.status}, progress: ${progress}):`, milestones.map(m => ({
+              title: m?.title || m?.name, status: m?.status, state: m?.state,
+              progressPct: m?.progressPct, progress: m?.progress, collected: m?.collected, isPaid: m?.isPaid,
+              amount: m?.amount || m?.paymentAmount,
+            })));
+          }
+          const now = new Date();
+          const pStatus = String(p?.status || '').toLowerCase();
+          const pIsCompleted = pStatus === 'completed' || pStatus === 'done' || pStatus === 'finished' || progress >= 100;
+          const isPaymentCollected = (m) => {
+            if (pIsCompleted) return true;
+            const status = String(m?.status || m?.state || '').toLowerCase();
+            if (status.includes('complete') || status.includes('paid') || status.includes('collected') || status === 'done' || status === 'finished') return true;
+            if (m?.collected === true || m?.isPaid === true) return true;
+            const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+            if (Number.isFinite(pct) && pct >= 100) return true;
+            return false;
+          };
+          const getMilestoneDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
           const overdueItems = milestones.filter((m) => {
-            const status = String(m?.status || '').toLowerCase();
-            if (status.includes('complete') || status.includes('paid') || status.includes('collected')) return false;
-            const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
-            return Number.isFinite(dt.getTime()) && dt.getTime() < Date.now();
+            if (isPaymentCollected(m)) return false;
+            const dt = new Date(getMilestoneDate(m) || 0);
+            return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
           });
+          const upcomingPayments = milestones.filter((m) => {
+            if (isPaymentCollected(m)) return false;
+            const dt = new Date(getMilestoneDate(m) || 0);
+            if (!Number.isFinite(dt.getTime())) return false;
+            const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            return days >= 0; // all future payments (no upper limit — "when am I getting paid next" should show next payment regardless of how far out)
+          }).sort((a, b) => {
+            const da = new Date(getMilestoneDate(a) || 0).getTime();
+            const db = new Date(getMilestoneDate(b) || 0).getTime();
+            return da - db;
+          }).map((m) => ({
+            name: m?.title || m?.name || 'Payment',
+            amount: normalize(m?.amount ?? m?.paymentAmount ?? 0),
+            date: getMilestoneDate(m),
+          }));
           const overBudgetPct = budget > 0 ? ((spent - budget) / budget) * 100 : 0;
 
-          // Projected final cost and margin
+          // Projected final cost and margin (matches Projects page "current margin")
           const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : budget;
           const projectedProfit = revenue - projectedFinalCost;
           const projectedMarginPct = revenue > 0 ? (projectedProfit / revenue * 100) : 0;
           const estimatedProfit = revenue - budget;
+
+          // Use projected margin when we have progress + spend (matches Projects page 79.9%); else use compareProjectsData or estimated
+          const compareItem = compareProjectsData.find((c) => (c?.title || '').toLowerCase().trim() === titleKey);
+          const hasRealSpend = progress > 5 && spent > 0;
+          const displayMargin = hasRealSpend
+            ? projectedMarginPct
+            : (compareItem?.margin != null && Number.isFinite(compareItem.margin))
+              ? Number(compareItem.margin)
+              : estimatedMarginPct;
 
           // Expenses analysis
           const expenses = p?.expenses || p?.projectData?.expenses || [];
@@ -3710,23 +4048,31 @@ router.post('/', async (req, res) => {
 
           const riskFlags = [];
           if (overBudgetPct > 10) riskFlags.push('over_budget');
-          if (margin > 0 && margin < 10) riskFlags.push('low_margin');
+          if (displayMargin > 0 && displayMargin < 10) riskFlags.push('low_margin');
           if (overdueItems.length > 0) riskFlags.push('overdue_milestones');
           if (progress > 0 && budget > 0 && (spent / budget * 100) > progress + 20) riskFlags.push('spend_ahead_of_progress');
-          if (margin > 0 && projectedMarginPct > 0 && (margin - projectedMarginPct) > 5) riskFlags.push('margin_erosion');
+          if (estimatedMarginPct > 0 && projectedMarginPct > 0 && (estimatedMarginPct - projectedMarginPct) > 5) riskFlags.push('margin_erosion');
           if (missingReceipts >= 3) riskFlags.push('missing_receipts');
 
+          const marginRounded = Math.round(displayMargin * 10) / 10;
+          const statusLower = (p?.status || '').toString().toLowerCase();
+          const isCompletedProject = statusLower === 'completed';
           return {
             projectId: p?.id,
             title,
             status: p?.status || 'unknown',
-            margin: Math.round(margin * 10) / 10,
+            margin: marginRounded,
+            currentMargin: marginRounded,
+            marginLabel: isCompletedProject ? 'Margin' : 'Current margin',
+            profitLabel: isCompletedProject ? 'Net Profit' : 'Projected Profit',
             spent,
             budget,
             revenue,
             overBudgetPct: Math.round(overBudgetPct * 10) / 10,
             progress: Math.round(progress),
             overdueItems: overdueItems.length,
+            overduePayments: overdueItems.map((m) => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? 0), date: m?.plannedDate || m?.scheduledDate || m?.dueDate })),
+            upcomingPayments,
             projectedFinalCost: Math.round(projectedFinalCost),
             estimatedProfit: Math.round(estimatedProfit),
             projectedProfit: Math.round(projectedProfit),
@@ -3736,8 +4082,115 @@ router.post('/', async (req, res) => {
           };
         });
 
+        // Fallback: when activeOnly returns 0 projects but client sent compareProjectsData with active items, use it
+        let analyzedFinal = analyzed;
+        if (analyzed.length === 0 && activeOnly && compareProjectsData.length > 0) {
+          const activeFromCompare = compareProjectsData.filter((c) => {
+            const statusLower = (c?.status || '').toLowerCase();
+            if (statusLower !== 'completed') return true;
+            const matchingProject = (Array.isArray(allProjects) ? allProjects : []).find((p) => {
+              const pt = String(p?.title || p?.name || '').toLowerCase().trim();
+              const ct = String(c?.title || '').toLowerCase().trim();
+              return pt && ct && (pt === ct || pt.includes(ct) || ct.includes(pt));
+            });
+            const mRaw =
+              matchingProject?.milestones ||
+              matchingProject?.weeklyPayments ||
+              matchingProject?.projectData?.milestones ||
+              matchingProject?.projectData?.weeklyPayments ||
+              matchingProject?.estimateData?.milestones ||
+              matchingProject?.estimateData?.paymentMilestones ||
+              matchingProject?.estimateData?.weeklyPayments ||
+              matchingProject?.projectData?.estimateData?.milestones ||
+              matchingProject?.projectData?.estimateData?.paymentMilestones ||
+              matchingProject?.projectData?.estimateData?.weeklyPayments ||
+              [];
+            const mList = Array.isArray(mRaw) ? mRaw : [];
+            return mList.some((m) => {
+              const st = String(m?.status || m?.state || '').toLowerCase();
+              if (st.includes('complete') || st.includes('paid') || st.includes('collected') || st === 'done' || st === 'finished') return false;
+              if (m?.collected === true || m?.isPaid === true) return false;
+              const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+              if (Number.isFinite(pct) && pct >= 100) return false;
+              return true;
+            });
+          });
+          if (activeFromCompare.length > 0) {
+            const now = new Date();
+            const getDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
+            analyzedFinal = activeFromCompare.map((c) => {
+              const matchingProject = (Array.isArray(allProjects) ? allProjects : []).find((p) => {
+                const pt = String(p?.title || p?.name || '').toLowerCase().trim();
+                const ct = String(c?.title || '').toLowerCase().trim();
+                return pt && ct && (pt === ct || pt.includes(ct) || ct.includes(pt));
+              });
+              const mpStatus = String(matchingProject?.status || c?.status || '').toLowerCase();
+              const mpProgress = Number(matchingProject?.progress ?? c?.progress ?? 0);
+              const mpIsCompleted = mpStatus === 'completed' || mpStatus === 'done' || mpStatus === 'finished' || mpProgress >= 100;
+              const isCollected = (m) => {
+                if (mpIsCompleted) return true;
+                const st = String(m?.status || m?.state || '').toLowerCase();
+                if (st.includes('complete') || st.includes('paid') || st.includes('collected') || st === 'done' || st === 'finished') return true;
+                if (m?.collected === true || m?.isPaid === true) return true;
+                const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+                return Number.isFinite(pct) && pct >= 100;
+              };
+              const mRaw = matchingProject
+                ? (matchingProject.milestones || matchingProject.weeklyPayments || matchingProject.projectData?.milestones || matchingProject.projectData?.weeklyPayments || matchingProject.estimateData?.milestones || matchingProject.estimateData?.paymentMilestones || matchingProject.estimateData?.weeklyPayments || matchingProject.projectData?.estimateData?.milestones || matchingProject.projectData?.estimateData?.paymentMilestones || matchingProject.projectData?.estimateData?.weeklyPayments || [])
+                : [];
+              const milestones = Array.isArray(mRaw) ? mRaw : [];
+              const overdueItems = milestones.filter((m) => {
+                if (isCollected(m)) return false;
+                const dt = new Date(getDate(m) || 0);
+                return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
+              });
+              const upcomingPayments = milestones.filter((m) => {
+                if (isCollected(m)) return false;
+                const dt = new Date(getDate(m) || 0);
+                if (!Number.isFinite(dt.getTime())) return false;
+                const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return days >= 0;
+              }).sort((a, b) => new Date(getDate(a) || 0).getTime() - new Date(getDate(b) || 0).getTime()).map((m) => ({
+                name: m?.title || m?.name || 'Payment',
+                amount: normalize(m?.amount ?? m?.paymentAmount ?? 0),
+                date: getDate(m),
+              }));
+              const rev = Number(c?.revenue ?? 0);
+              const projProfit = Number(c?.projectedProfit ?? 0);
+              const marginVal = rev > 0 && projProfit != null ? (projProfit / rev * 100) : (c?.margin ?? 0);
+              const marginRounded = Math.round(marginVal * 10) / 10;
+              const statusLower = (c?.status || '').toString().toLowerCase();
+              const isCompletedProject = statusLower === 'completed';
+              return {
+                projectId: matchingProject?.id ?? c?.id,
+                title: c?.title || 'Untitled',
+                status: c?.status || 'unknown',
+                margin: marginRounded,
+                currentMargin: marginRounded,
+                marginLabel: isCompletedProject ? 'Margin' : 'Current margin',
+                profitLabel: isCompletedProject ? 'Net Profit' : 'Projected Profit',
+                spent: c?.spent ?? 0,
+                budget: 0,
+                revenue: c?.revenue ?? 0,
+                overBudgetPct: 0,
+                progress: c?.progress ?? 0,
+                overdueItems: overdueItems.length,
+                overduePayments: overdueItems.map((m) => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? m?.paymentAmount ?? 0), date: getDate(m) })),
+                upcomingPayments,
+                projectedFinalCost: 0,
+                estimatedProfit: 0,
+                projectedProfit: c?.projectedProfit ?? 0,
+                projectedMarginPct: marginRounded,
+                missingReceipts: c?.missingReceipts ?? 0,
+                riskFlags: c?.riskFlags ?? [],
+              };
+            });
+            console.log('✅ compare_projects: used compareProjectsData fallback (activeOnly returned 0 from allProjects)', { count: analyzedFinal.length });
+          }
+        }
+
         const sortBy = String(args?.sortBy || '').toLowerCase();
-        const sorted = [...analyzed].sort((a, b) => {
+        const sorted = [...analyzedFinal].sort((a, b) => {
           if (sortBy === 'progress') return b.progress - a.progress;
           if (sortBy === 'overbudget') return b.overBudgetPct - a.overBudgetPct;
           if (sortBy === 'risk') return b.riskFlags.length - a.riskFlags.length;
@@ -3745,11 +4198,11 @@ router.post('/', async (req, res) => {
         });
 
         // Portfolio totals
-        const totalRevenue = analyzed.reduce((s, x) => s + x.revenue, 0);
-        const totalSpent = analyzed.reduce((s, x) => s + x.spent, 0);
-        const totalBudget = analyzed.reduce((s, x) => s + x.budget, 0);
-        const totalProjectedProfit = analyzed.reduce((s, x) => s + x.projectedProfit, 0);
-        const avgMargin = analyzed.length > 0 ? analyzed.reduce((s, x) => s + x.margin, 0) / analyzed.length : 0;
+        const totalRevenue = analyzedFinal.reduce((s, x) => s + x.revenue, 0);
+        const totalSpent = analyzedFinal.reduce((s, x) => s + x.spent, 0);
+        const totalBudget = analyzedFinal.reduce((s, x) => s + x.budget, 0);
+        const totalProjectedProfit = analyzedFinal.reduce((s, x) => s + x.projectedProfit, 0);
+        const avgMargin = analyzedFinal.length > 0 ? analyzedFinal.reduce((s, x) => s + x.margin, 0) / analyzedFinal.length : 0;
 
         return {
           success: true,
@@ -3764,7 +4217,7 @@ router.post('/', async (req, res) => {
             averageMargin: Math.round(avgMargin * 10) / 10,
           },
           message: sorted.length
-            ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT: Present metrics for ALL ${sorted.length} projects in your response — do not focus on only one.`
+            ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT: Each project has marginLabel, profitLabel, upcomingPayments (array of {name, amount, date}), and overduePayments. When user asks "when am I getting paid" or "next payment", list the soonest upcoming payment(s) from upcomingPayments across projects — include project name, payment name, amount, and date. For completed projects use "Margin" and "Net Profit"; for active use "Current margin" and "Projected Profit". Present metrics for ALL ${sorted.length} projects when comparing — for payment questions, lead with the next payment(s).`
             : 'No projects matched the requested filters.',
         };
       } catch (error) {
@@ -3798,10 +4251,36 @@ router.post('/', async (req, res) => {
         const revenue = normalize(match.contractValue ?? 0) > 0 ? normalize(match.contractValue) : (baseBid + approvedCOs > 0 ? baseBid + approvedCOs : baseBid);
         const estCost = normalize(match.estimatedCost ?? 0);
         const spent = normalize(match.actualCost ?? match.totalSpent ?? 0);
-        const progress = normalize(match.progress ?? match.overallProgressPct ?? 0);
+        const pid = String(match?.id ?? '');
+        const titleKey = (match?.title || match?.name || '').toLowerCase().trim();
+        const titleSlug = titleKey.replace(/\s+/g, '-');
+        const progressOverride = parsedContext?.progressByProjectId?.[pid] ?? parsedContext?.progressByProjectId?.[titleKey] ?? parsedContext?.progressByProjectId?.[titleSlug]
+          ?? (Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData.find((c) => (c?.title || '').toLowerCase().trim() === titleKey)?.progress : null);
+        const progress = progressOverride != null ? Number(progressOverride) : normalize(match.progress ?? match.overallProgressPct ?? 0);
         const ed = match.estimateData || match.projectData?.estimateData || {};
         const expenses = match.expenses || match.projectData?.expenses || [];
-        const milestones = match.milestones || match.weeklyPayments || [];
+        const milestonesRaw =
+          match.milestones ||
+          match.weeklyPayments ||
+          match.projectData?.milestones ||
+          match.projectData?.weeklyPayments ||
+          match.estimateData?.milestones ||
+          match.estimateData?.paymentMilestones ||
+          match.estimateData?.weeklyPayments ||
+          match.projectData?.estimateData?.milestones ||
+          match.projectData?.estimateData?.paymentMilestones ||
+          match.projectData?.estimateData?.weeklyPayments ||
+          [];
+        const milestones = Array.isArray(milestonesRaw) ? milestonesRaw : [];
+
+        // Log milestone data for debugging
+        if (milestones.length > 0) {
+          console.log(`📋 get_project_health milestones for "${title}":`, milestones.map(m => ({
+            title: m?.title || m?.name, status: m?.status, state: m?.state,
+            progressPct: m?.progressPct, progress: m?.progress, collected: m?.collected, isPaid: m?.isPaid,
+            amount: m?.amount || m?.paymentAmount,
+          })));
+        }
 
         const materialBudget = normalize(ed?.materialTotal ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, normalize);
         const laborBudget = normalize(ed?.laborTotal ?? 0) || sumLineItems(ed?.laborLineItems, normalize);
@@ -3809,27 +4288,45 @@ router.post('/', async (req, res) => {
         const laborSpent = sumExpensesByCategory(expenses, 'labor', normalize);
 
         const adjustedBudget = estCost > 0 ? estCost + approvedCOs : revenue;
-        const marginPct = revenue > 0 && estCost > 0 ? ((revenue - estCost) / revenue * 100) : 0;
+        const rawEstMargin = ed?.marginPct ?? ed?.margin ?? ed?.marginPercent ?? match?.margin ?? match?.marginPct;
+        let marginPct = 0;
+        if (typeof rawEstMargin === 'number' && Number.isFinite(rawEstMargin) && rawEstMargin >= 0) {
+          marginPct = rawEstMargin <= 1 ? rawEstMargin * 100 : rawEstMargin;
+        }
+        if (marginPct <= 0 || marginPct > 100) {
+          marginPct = revenue > 0 && estCost > 0 ? ((revenue - estCost) / revenue * 100) : 0;
+        }
         const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estCost;
         const projectedProfit = revenue - projectedFinalCost;
         const projectedMarginPct = revenue > 0 ? (projectedProfit / revenue * 100) : 0;
         const budgetUsedPct = estCost > 0 ? (spent / estCost * 100) : 0;
+        const currentMarginPct = progress > 5 && spent > 0 ? projectedMarginPct : marginPct;
 
         const missingReceipts = expenses.filter(e => !e?.receiptUri || !String(e.receiptUri).trim()).length;
         const now = new Date();
+        const projectStatus = String(match?.status || '').toLowerCase();
+        const projectIsCompleted = projectStatus === 'completed' || projectStatus === 'done' || projectStatus === 'finished' || progress >= 100;
+        const isPaymentCollected = (m) => {
+          if (projectIsCompleted) return true;
+          const st = String(m?.status || m?.state || '').toLowerCase();
+          if (st.includes('complete') || st.includes('paid') || st.includes('collected') || st === 'done' || st === 'finished') return true;
+          if (m?.collected === true || m?.isPaid === true) return true;
+          const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+          if (Number.isFinite(pct) && pct >= 100) return true;
+          return false;
+        };
+        const getMilestoneDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
         const overdueItems = milestones.filter(m => {
-          const st = String(m?.status || '').toLowerCase();
-          if (st.includes('complete') || st.includes('paid') || st.includes('collected')) return false;
-          const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+          if (isPaymentCollected(m)) return false;
+          const dt = new Date(getMilestoneDate(m) || 0);
           return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
         });
         const upcomingPayments = milestones.filter(m => {
-          const st = String(m?.status || '').toLowerCase();
-          if (st.includes('complete') || st.includes('paid') || st.includes('collected')) return false;
-          const dt = new Date(m?.plannedDate || m?.scheduledDate || m?.dueDate || 0);
+          if (isPaymentCollected(m)) return false;
+          const dt = new Date(getMilestoneDate(m) || 0);
           if (!Number.isFinite(dt.getTime())) return false;
           const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          return days >= 0 && days <= 7;
+          return days >= 0; // all future payments — "when am I getting paid next" should show next regardless of how far out
         });
 
         const expByCategory = {};
@@ -3852,11 +4349,13 @@ router.post('/', async (req, res) => {
           success: true,
           project: title,
           status: match.status || 'unknown',
+          message: `Health check for ${title}. Current margin: ${Math.round(currentMarginPct * 10) / 10}% (matches Projects page).`,
           financials: {
             revenue, estimatedCost: estCost, actualSpent: spent,
             adjustedBudget: Math.round(adjustedBudget),
             budgetUsedPct: Math.round(budgetUsedPct),
             estimatedMarginPct: Math.round(marginPct * 10) / 10,
+            currentMarginPct: Math.round(currentMarginPct * 10) / 10,
             projectedFinalCost: Math.round(projectedFinalCost),
             projectedProfit: Math.round(projectedProfit),
             projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
@@ -3869,7 +4368,7 @@ router.post('/', async (req, res) => {
           progress: Math.round(progress),
           topCostDrivers: topCosts,
           overdueItems: overdueItems.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? 0) })),
-          upcomingPayments: upcomingPayments.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? 0), date: m.plannedDate || m.scheduledDate || m.dueDate })),
+          upcomingPayments: upcomingPayments.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? m.paymentAmount ?? 0), date: getMilestoneDate(m) })),
           missingReceipts,
           changeOrdersCount: changeOrders.length,
           risks,
@@ -5523,12 +6022,12 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
     logPhase('executor_llm_start', { toolChoice: typeof finalToolChoice === 'string' ? finalToolChoice : finalToolChoice?.function?.name });
     let completion = await withTimeout(openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: messages,
       tools: functions,
       tool_choice: finalToolChoice,
-      temperature: 0.3, // Lower temperature for more deterministic behavior - DO NOT increase
-      max_tokens: 2000, // Increased to prevent truncation - DO NOT decrease
+      temperature: 0.3,
+      max_tokens: 2000,
     }), 30000, 'executor_llm');
     logPhase('executor_llm_done');
 
@@ -6261,6 +6760,14 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           }
         } else if (functionName === 'compare_projects') {
           logPhase('tool_start', { functionName });
+          // Focus-today / what needs attention: only list ACTIVE projects (exclude completed)
+          const lastUserMsg = (messages.filter((m) => m.role === 'user').pop()?.content || '').toLowerCase();
+          const focusTodayIntent = /\b(focus on today|top priorities|what needs attention|what should i focus|needs my attention|urgent)\b/.test(lastUserMsg);
+          const routerSaysActiveOnly = routerResult?.tool_args_draft?.activeOnly === true;
+          if ((focusTodayIntent || routerSaysActiveOnly) && !functionArgs.activeOnly) {
+            functionArgs.activeOnly = true;
+            console.log('✅ compare_projects: focus-today intent → activeOnly=true (exclude completed)');
+          }
           functionResult = await withTimeout(executeCompareProjects(functionArgs), TOOL_EXEC_TIMEOUT_MS, `${functionName}`).catch((e) => ({
             success: false,
             error: e.message,
@@ -7042,7 +7549,7 @@ RULES:
 
             logPhase('estimate_llm_start');
             const estimateCompletion = await withTimeout(openai.chat.completions.create({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4o',
               messages: [{ role: 'user', content: estimatePrompt }],
               temperature: 0.3,
               max_tokens: 3000,
@@ -7408,7 +7915,7 @@ RULES:
       // tools list cuts thousands of prompt tokens and prevents OpenAI from hanging.
       logPhase('final_llm_start');
       completion = await withTimeout(openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: messages,
         temperature: 0.3,
         max_tokens: 2000,

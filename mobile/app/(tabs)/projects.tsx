@@ -139,9 +139,6 @@ const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgr
 
   // Use the strongest available signal so weekly and milestone schedules are treated equally.
   const final = Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
-  if (final > 0) {
-    console.log(`📊 Progress fallback for ${projectId}: ${final}% (direct: ${directProgress}, milestones: ${derivedFromMilestones}, weekly: ${derivedFromWeekly})`);
-  }
   return final;
 };
 

@@ -427,25 +427,25 @@ export default function RootLayout() {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <ErrorBoundary>
-          <ApiProvider>
-            <UserRoleProvider>
-              <ProjectListProvider>
-                <ProjectProvider>
-                  <ChatProvider>
-                    <ThemeProvider>
-                      <LanguageProvider>
-                        <NotificationProvider>
-                          <ThemeAwareLayout>
-                            <AuthGate useClerk={false} />
-                          </ThemeAwareLayout>
-                        </NotificationProvider>
-                      </LanguageProvider>
-                    </ThemeProvider>
-                  </ChatProvider>
-                </ProjectProvider>
-              </ProjectListProvider>
-            </UserRoleProvider>
-          </ApiProvider>
+        <ApiProvider>
+          <UserRoleProvider>
+            <ProjectListProvider>
+              <ProjectProvider>
+                <ChatProvider>
+                <ThemeProvider>
+                  <LanguageProvider>
+                    <NotificationProvider>
+                      <ThemeAwareLayout>
+                        <AuthGate useClerk={false} />
+                      </ThemeAwareLayout>
+                    </NotificationProvider>
+                  </LanguageProvider>
+                </ThemeProvider>
+              </ChatProvider>
+            </ProjectProvider>
+            </ProjectListProvider>
+          </UserRoleProvider>
+        </ApiProvider>
         </ErrorBoundary>
       </GestureHandlerRootView>
     );
@@ -460,19 +460,19 @@ export default function RootLayout() {
               <ProjectListProvider>
                 <ProjectProvider>
                   <ChatProvider>
-                    <ThemeProvider>
-                      <LanguageProvider>
-                        <NotificationProvider>
-                          <ThemeAwareLayout>
-                            <AuthGate useClerk={true} />
-                          </ThemeAwareLayout>
-                        </NotificationProvider>
-                      </LanguageProvider>
-                    </ThemeProvider>
-                  </ChatProvider>
-                </ProjectProvider>
-              </ProjectListProvider>
-            </UserRoleProvider>
+                  <ThemeProvider>
+                    <LanguageProvider>
+                      <NotificationProvider>
+                        <ThemeAwareLayout>
+                          <AuthGate useClerk={true} />
+                        </ThemeAwareLayout>
+                      </NotificationProvider>
+                    </LanguageProvider>
+                  </ThemeProvider>
+                </ChatProvider>
+              </ProjectProvider>
+            </ProjectListProvider>
+          </UserRoleProvider>
           </ClerkProvider>
         </ApiProvider>
       </ErrorBoundary>

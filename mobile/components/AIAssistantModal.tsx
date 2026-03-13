@@ -119,6 +119,8 @@ function resolveAIBaseUrl(): string {
   return localhostFallback;
 }
 
+const PRODUCTION_AI_API = 'https://build-profit-solutions-backend.onrender.com/api/ai-assistant';
+
 /** Estimated cost baseline = materials + labor + overhead (incl. plans & permits). Matches BudgetTab/project-detail. */
 function getEstimatedCostBaseline(project: any, estimateData: any): number {
   const ed = estimateData;
@@ -282,21 +284,44 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
     { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
   ];
 
+  const isActive = (s: string) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
+  const isCompleted = (s: string) => (s || '').toLowerCase() === 'completed';
+  const getStatus = (p: any) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase().replace(/\s+/g, '_');
+  const activeProjects = allProjects.filter((p: any) => isActive(getStatus(p))).map((p: any) => p?.title || p?.name || '').filter(Boolean);
+  const completedProjects = allProjects.filter((p: any) => isCompleted(getStatus(p))).map((p: any) => p?.title || p?.name || '').filter(Boolean);
+
   const suggestedFollowUps: { label: string; prompt: string }[] = [];
-  [...projectNames].slice(0, 3).forEach((name) => {
-    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a health check on ${name}` });
+  const names = [...projectNames].slice(0, 2);
+  names.forEach((name) => {
+    suggestedFollowUps.push({ label: `Review ${name}`, prompt: `Give me a full health check on ${name} — budget, margin, risks, and what I should do next` });
   });
-  suggestedFollowUps.push({ label: 'Which project is most profitable?', prompt: 'Which project is most profitable?' });
-  suggestedFollowUps.push({ label: 'Which job is slipping?', prompt: 'Which job is slipping?' });
-  suggestedFollowUps.push({ label: 'What should I focus on today?', prompt: 'What should I focus on today?' });
-  suggestedFollowUps.push({ label: 'Show my lowest margin project', prompt: 'Show my lowest margin project' });
+  if (activeProjects.length >= 2) {
+    const a = activeProjects[0];
+    const b = activeProjects[1];
+    suggestedFollowUps.push({ label: `Compare ${a} vs ${b}`, prompt: `Compare ${a} and ${b} — which active project is performing better and why?` });
+  }
+  if (completedProjects.length >= 2 && activeProjects.length < 2) {
+    const a = completedProjects[0];
+    const b = completedProjects[1];
+    suggestedFollowUps.push({ label: `Compare ${a} vs ${b}`, prompt: `Compare ${a} and ${b} — which completed project was more profitable and why?` });
+  }
+  suggestedFollowUps.push({ label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' });
+  suggestedFollowUps.push({ label: 'Show projects over budget', prompt: 'Which active projects are over budget and by how much?' });
+
+  const seenPrompts = new Set<string>();
+  const dedupedSuggested = suggestedFollowUps.filter((s) => {
+    const key = (s.prompt || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seenPrompts.has(key)) return false;
+    seenPrompts.add(key);
+    return true;
+  });
 
   return {
     reply,
     insights: insights.slice(0, 5),
     recommendedActions: recommendedActions.slice(0, 3),
     quickActions,
-    suggestedFollowUps: suggestedFollowUps.slice(0, 6),
+    suggestedFollowUps: dedupedSuggested.slice(0, 5),
     biggestRisk,
   };
 }
@@ -627,7 +652,12 @@ const AIAssistantModal: React.FC<Props> = ({
                   urlsToTry.push('http://localhost:3001/api/ai-assistant');
                   console.log('🔄 Will fallback to localhost if primary URL fails (simulator/web detected)');
                 }
-                
+                // When using local backend, add production as last resort so AI works even if backend is down
+                if (primaryUrl.includes('localhost') || primaryUrl.includes('192.168.') || primaryUrl.includes('10.0.2.2')) {
+                  urlsToTry.push(PRODUCTION_AI_API);
+                  console.log('🔄 Will fallback to production API if local backend unreachable');
+                }
+
                 console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
                 
                 // Get auth token from Clerk
@@ -682,8 +712,10 @@ const AIAssistantModal: React.FC<Props> = ({
                 if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
                   errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
                 } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
-                  const AI_API_BASE = resolveAIBaseUrl();
-                  errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
+                  const triedProduction = urlsToTry.some((u) => u.includes('render.com'));
+                  errorMessage = triedProduction
+                    ? `Couldn't reach the AI (tried local and production). Check your internet connection, or start the local backend:\n\ncd backend && npm start`
+                    : `I can't connect to the AI backend at ${resolveAIBaseUrl()}.\n\n1. Start backend: cd backend && npm start\n2. Same network (physical devices)\n3. Check: http://localhost:3001/health`;
                 } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
                   errorMessage = error.message;
                 } else if (error?.message) {
@@ -1041,6 +1073,7 @@ const AIAssistantModal: React.FC<Props> = ({
             // Include buckets (budget breakdown) for AI to calculate material budget
             buckets: p.buckets || p.projectData?.buckets || [],
             changeOrders: p.projectData?.changeOrders || p.changeOrders || [],
+            purchaseOrders: p.projectData?.purchaseOrders || p.purchaseOrders || [],
             // Include estimateData for AI to calculate material budget from line items
             estimateData: ed,
             // Include key estimate fields directly for AI access
@@ -1079,6 +1112,7 @@ const AIAssistantModal: React.FC<Props> = ({
               expensesCount: expenses.length || existing.expensesCount || 0,
               buckets: fullProject.buckets || fullProject.projectData?.buckets || existing.buckets || [],
               changeOrders: fullProject.projectData?.changeOrders || fullProject.changeOrders || existing.changeOrders || [],
+              purchaseOrders: fullProject.projectData?.purchaseOrders || fullProject.purchaseOrders || existing.purchaseOrders || [],
               estimateData: ed || existing.estimateData || null,
               materialTotal: ed?.materialTotal || existing.materialTotal || 0,
               laborTotal: ed?.laborTotal || existing.laborTotal || 0,
@@ -1991,7 +2025,12 @@ const AIAssistantModal: React.FC<Props> = ({
         urlsToTry.push('http://localhost:3001/api/ai-assistant');
         console.log('🔄 Will fallback to localhost if primary URL fails (simulator/web detected)');
       }
-      
+      // When using local backend, add production as last resort so AI works even if backend is down
+      if (primaryUrl.includes('localhost') || primaryUrl.includes('192.168.') || primaryUrl.includes('10.0.2.2')) {
+        urlsToTry.push(PRODUCTION_AI_API);
+        console.log('🔄 Will fallback to production API if local backend unreachable');
+      }
+
       console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
 
       // Use project context resolver for queries that need project context
@@ -2739,8 +2778,10 @@ const AIAssistantModal: React.FC<Props> = ({
       if (error?.name === 'AbortError' || error?.message?.includes("aborted") || error?.message?.includes("timeout")) {
         errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
       } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
-        const AI_API_BASE = resolveAIBaseUrl();
-        errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
+        const triedProduction = urlsToTry.some((u) => u.includes('render.com'));
+        errorMessage = triedProduction
+          ? `Couldn't reach the AI (tried local and production). Check your internet connection, or start the local backend:\n\ncd backend && npm start`
+          : `I can't connect to the AI backend at ${resolveAIBaseUrl()}.\n\n1. Start backend: cd backend && npm start\n2. Same network (physical devices)\n3. Check: http://localhost:3001/health`;
       } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
         errorMessage = error.message;
       } else if (error?.message) {

@@ -32,9 +32,43 @@ export default function AssistantScreen() {
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   const { activeProjects, estimates, projects, updateProject } = useProjectList();
-  const { compareData: compareProjectsData, progressByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates);
+  const allProjectsForTimeline = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+  const { compareData: compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates, allProjectsForTimeline);
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
   const [isReady, setIsReady] = useState(false);
+  const [dailyLogsByProjectId, setDailyLogsByProjectId] = useState<Record<string, any[]>>({});
+  const [calendarEventsByProjectId, setCalendarEventsByProjectId] = useState<Record<string, any[]>>({});
+
+  // Load daily logs and calendar events from AsyncStorage for all projects
+  useEffect(() => {
+    const loadExtraProjectData = async () => {
+      const allList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+      const logsMap: Record<string, any[]> = {};
+      const eventsMap: Record<string, any[]> = {};
+      for (const p of allList) {
+        const pid = String(p?.id ?? '');
+        if (!pid) continue;
+        try {
+          const [logsRaw, eventsRaw] = await Promise.all([
+            AsyncStorage.getItem(`daily_logs_${pid}`),
+            AsyncStorage.getItem(`calendar_events_${pid}`),
+          ]);
+          if (logsRaw) {
+            const parsed = JSON.parse(logsRaw);
+            const arr = Array.isArray(parsed) ? parsed : [];
+            logsMap[pid] = arr.slice(-20);
+          }
+          if (eventsRaw) {
+            const parsed = JSON.parse(eventsRaw);
+            eventsMap[pid] = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch {}
+      }
+      setDailyLogsByProjectId(logsMap);
+      setCalendarEventsByProjectId(eventsMap);
+    };
+    loadExtraProjectData();
+  }, [projects, activeProjects, estimates]);
 
   // Auto-open modal when this tab is focused
   useFocusEffect(
@@ -88,11 +122,13 @@ export default function AssistantScreen() {
       markup: p.markup || 0,
       buckets: p.projectData?.buckets || p.buckets || [],
       changeOrders: p.projectData?.changeOrders || p.changeOrders || [],
-      milestones: p.projectData?.milestones || p.milestones || p.projectData?.weeklyPayments || [],
+      milestones: timelineMilestonesByProjectId[pid] || timelineMilestonesByProjectId[titleKey] || timelineMilestonesByProjectId[titleSlug] || p.milestones || p.projectData?.milestones || p.projectData?.weeklyPayments || p.estimateData?.milestones || p.estimateData?.paymentMilestones || p.estimateData?.weeklyPayments || [],
       estimateData: p.projectData?.estimateData || p.estimateData || {},
+      purchaseOrders: p.projectData?.purchaseOrders || p.purchaseOrders || [],
+      dailyLogs: dailyLogsByProjectId[pid] || [],
       updatedAt: p.projectData?.lastUpdated || p.updatedAt || p.lastUpdated,
       progress,
-      calendarEvents: p.projectData?.calendarEvents || p.calendarEvents || [],
+      calendarEvents: calendarEventsByProjectId[pid] || p.projectData?.calendarEvents || p.calendarEvents || [],
     };
     });
     
@@ -153,7 +189,7 @@ export default function AssistantScreen() {
       context: JSON.stringify(contextObj),
       projectOptions,
     };
-  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId]);
+  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId]);
 
   // Do not allow compare actions until we have loaded for the CURRENT project set.
   // This prevents stale ProjectListContext progress (e.g. old 60%) from being used.

@@ -736,23 +736,6 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     pendingBidsCount: estimates.filter(p => p.status === 'bid_submitted').length,
   };
 
-  if (__DEV__) {
-    console.log(
-      '📊 Dashboard revenue breakdown',
-      activeProjects.map((project) => {
-        const detail = resolveProjectRevenueDetail(project);
-        return {
-          id: project.id,
-          title: project.title,
-          status: project.status,
-          revenueSelected: detail.value,
-          source: detail.source,
-          candidates: detail.breakdown,
-        };
-      })
-    );
-  }
-
   // Generic operations
   const getProjectById = (id: string) => {
     const targetId = normalizeProjectId(id);

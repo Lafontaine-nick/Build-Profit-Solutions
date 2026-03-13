@@ -29,16 +29,21 @@ export interface UseProjectsCompareDataResult {
   compareData: CompareProjectItem[];
   /** Progress by project id (from timeline) — use to override allProjects.progress so backend fallback matches Projects page */
   progressByProjectId: Record<string, number>;
+  /** Milestones from timeline (bps.timeline.v2) per project — source of truth for completion status (Completed/Pending) */
+  timelineMilestonesByProjectId: Record<string, any[]>;
   /** True after first AsyncStorage load completes — use to avoid sending stale compare data before timeline is loaded */
   isLoaded: boolean;
 }
 
 export function useProjectsCompareData(
   activeProjects: any[],
-  estimates: any[]
+  estimates: any[],
+  /** Optional full projects list — when provided, load timeline for all (ensures context has milestones for every project) */
+  allProjects?: any[]
 ): UseProjectsCompareDataResult {
   const [overrides, setOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
+  const [timelineMilestonesByProjectId, setTimelineMilestonesByProjectId] = useState<Record<string, any[]>>({});
   const [compareData, setCompareData] = useState<CompareProjectItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -47,7 +52,7 @@ export function useProjectsCompareData(
     // from a previous (possibly empty) project list.
     setIsLoaded(false);
 
-    const all = [...activeProjects, ...estimates];
+    const all = (allProjects && allProjects.length > 0) ? allProjects : [...activeProjects, ...estimates];
     const next: Record<string, any> = {};
     const progressMap: Record<string, number> = {};
 
@@ -79,9 +84,10 @@ export function useProjectsCompareData(
         }
       }
 
-      // Pre-scan ALL timeline keys → build suffix→progress map (matches Projects page exactly)
-      // This ensures we find timeline even when project id ≠ storage key (e.g. pid=uuid, storage=chris)
+      // Pre-scan ALL timeline keys → build suffix→progress and suffix→milestones maps
+      // Timeline is source of truth for completion status (Completed/Pending)
       const suffixToProgress: Record<string, number> = {};
+      const suffixToMilestones: Record<string, any[]> = {};
       for (const k of timelineKeys) {
         const suffix = k.startsWith('bps.timeline.v2.')
           ? k.replace('bps.timeline.v2.', '')
@@ -93,13 +99,16 @@ export function useProjectsCompareData(
           const raw = await AsyncStorage.getItem(k);
           if (raw) {
             const milestones = JSON.parse(raw);
-            if (Array.isArray(milestones)?.length) {
+            if (Array.isArray(milestones) && milestones.length) {
               const pct = computeOverallPctFromItems(milestones);
               const suffixLower = suffix.toLowerCase();
               const suffixNorm = normalizeKey(suffix);
               suffixToProgress[suffixLower] = pct;
               suffixToProgress[suffixNorm] = pct;
-              suffixToProgress[suffix] = pct; // exact key too
+              suffixToProgress[suffix] = pct;
+              suffixToMilestones[suffixLower] = milestones;
+              suffixToMilestones[suffixNorm] = milestones;
+              suffixToMilestones[suffix] = milestones;
             }
           }
         } catch {
@@ -107,7 +116,8 @@ export function useProjectsCompareData(
         }
       }
 
-      // For each project, resolve progress from pre-scanned map (pid, title, slug, etc.)
+      // For each project, resolve progress and milestones from pre-scanned maps
+      const milestonesByPid: Record<string, any[]> = {};
       for (const project of all) {
         const pid = String(project?.id ?? '');
         if (!pid) continue;
@@ -117,9 +127,16 @@ export function useProjectsCompareData(
         const titleCompact = titleRaw.replace(/\s+/g, '');
         const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
         let foundProgress: number | undefined;
+        let foundMilestones: any[] | undefined;
         for (const c of candidates) {
           foundProgress = suffixToProgress[c] ?? suffixToProgress[normalizeKey(c)];
-          if (foundProgress !== undefined) break;
+          foundMilestones = suffixToMilestones[c] ?? suffixToMilestones[normalizeKey(c)];
+          if (foundProgress !== undefined || foundMilestones !== undefined) break;
+        }
+        if (foundMilestones !== undefined) {
+          milestonesByPid[pid] = foundMilestones;
+          if (titleRaw) milestonesByPid[titleRaw] = foundMilestones;
+          if (titleSlug) milestonesByPid[titleSlug] = foundMilestones;
         }
 
         if (foundProgress !== undefined) {
@@ -147,12 +164,13 @@ export function useProjectsCompareData(
 
       setOverrides(next);
       setTimelineProgress(progressMap);
+      setTimelineMilestonesByProjectId(milestonesByPid);
     } catch {
       /* keep existing */
     } finally {
       setIsLoaded(true);
     }
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, allProjects]);
 
   useEffect(() => {
     load();
@@ -170,5 +188,5 @@ export function useProjectsCompareData(
     setCompareData(data);
   }, [activeProjects, estimates, overrides, timelineProgress]);
 
-  return { compareData, progressByProjectId: timelineProgress, isLoaded };
+  return { compareData, progressByProjectId: timelineProgress, timelineMilestonesByProjectId, isLoaded };
 }
