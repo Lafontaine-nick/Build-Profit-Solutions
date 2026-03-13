@@ -10,6 +10,7 @@ import {
   Alert,
   TouchableOpacity,
   Modal,
+  InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -260,7 +261,7 @@ export default function ProjectsScreen() {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
-  const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject } = useProjectList();
+  const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(
@@ -269,8 +270,10 @@ export default function ProjectsScreen() {
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
+  const skipNextRefreshRef = React.useRef(false);
 
   const loadProjectDataOverrides = React.useCallback(async () => {
+    if (skipNextRefreshRef.current) return;
     const all = [...activeProjects, ...estimates];
     const next: Record<string, any> = {};
     const progressMap: Record<string, number> = {};
@@ -376,13 +379,37 @@ export default function ProjectsScreen() {
   }, [activeProjects, estimates]);
 
   useEffect(() => {
-    loadProjectDataOverrides();
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadProjectDataOverrides();
+    });
+    return () => task.cancel();
   }, [loadProjectDataOverrides]);
 
   useFocusEffect(
     React.useCallback(() => {
-      loadProjectDataOverrides();
-    }, [loadProjectDataOverrides])
+      // Skip refresh right after delete — Alert dismiss can trigger focus and cause a glitchy re-render
+      if (skipNextRefreshRef.current) return;
+      // Check for pending tab from Submit Bid (tab params can be empty with tab navigator)
+      (async () => {
+        try {
+          const pendingTab = await AsyncStorage.getItem('bps.pendingProjectsTab');
+          const fromSubmit = await AsyncStorage.getItem('bps.fromSubmitBid');
+          if (pendingTab === 'submitted') {
+            setActiveTab('submitted');
+            setShowSubmitBanner(fromSubmit === 'true');
+            if (fromSubmit === 'true') setTimeout(() => setShowSubmitBanner(false), 3000);
+          }
+          await AsyncStorage.removeItem('bps.pendingProjectsTab');
+          await AsyncStorage.removeItem('bps.fromSubmitBid');
+        } catch {
+          /* ignore */
+        }
+      })();
+      const task = InteractionManager.runAfterInteractions(() => {
+        refreshProjects();
+      });
+      return () => task.cancel();
+    }, [refreshProjects])
   );
 
   // Update tab if route param changes
@@ -472,15 +499,91 @@ export default function ProjectsScreen() {
       const actualCost = expensesTotal + receivedPOsTotal || toFiniteNumber(
         mergedProject?.actualCost ?? mergedProject?.totalSpent ?? pd?.actualCost ?? 0
       );
-      const estimatedCost = toFiniteNumber(
-        mergedProject?.estimatedCost ?? mergedProject?.projectData?.estimatedCost ??
-        mergedProject?.estimateData?.totalCost ?? mergedProject?.estimateData?.estimatedCost ?? 0
-      );
+      // Cost baseline: prefer line items + buckets (matches Overview/BudgetTab) so margin matches estimate
+      const ed = mergedProject?.estimateData;
+      const costFromLineItems = (() => {
+        const bid = ed ?? mergedProject;
+        const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+        const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+        const overhead =
+          Number(bid?.equipment || 0) +
+          Number(bid?.facilities || 0) +
+          Number(bid?.insuranceOverhead || 0) +
+          Number(bid?.otherOverhead || 0) +
+          Number(bid?.planCost || 0) +
+          Number(bid?.permitCost || 0);
+        if (materials + labor + overhead > 0) return materials + labor + overhead;
+        const buckets = mergedProject?.buckets ?? pd?.buckets ?? [];
+        const costBuckets = buckets.filter((b: any) =>
+          (b?.name || '').toLowerCase().includes('labor') ||
+          (b?.name || '').toLowerCase().includes('material') ||
+          (b?.name || '').toLowerCase().includes('overhead')
+        );
+        const fromBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
+        if (fromBuckets > 0) return fromBuckets;
+        const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
+        const markupAmt = Number(markupBucket?.budget || 0);
+        if (revenue > 0 && markupAmt > 0 && markupAmt < revenue) return revenue - markupAmt;
+        return 0;
+      })();
       const committedPOs = Array.isArray(rawPOs)
         ? rawPOs
             .filter((po: any) => String(po?.status || '').toLowerCase() !== 'received')
             .reduce((sum: number, po: any) => sum + toFiniteNumber(po?.amount ?? 0), 0)
         : 0;
+      // Prefer estimate-stored margin first so cards stay anchored to original bid settings.
+      const rawMargin = mergedProject?.estimateData?.marginPercent ?? mergedProject?.estimateData?.margin ?? p.margin;
+      const estimateMarginNum = typeof rawMargin === 'number' && Number.isFinite(rawMargin)
+        ? (Math.abs(rawMargin) > 1 ? rawMargin : rawMargin * 100)
+        : null;
+      // Only use p.margin for cost when it came from estimateData — p.margin can be stale (e.g. 10% from wrong cost).
+      const hasStoredEstimateMargin = (mergedProject?.estimateData?.marginPercent != null || mergedProject?.estimateData?.margin != null);
+      // Prefer estimate-stored net profit first (source of truth from estimate submission payload).
+      const estimateProfit = toFiniteNumber(mergedProject?.estimateData?.profit ?? p.profit);
+      const overheadFromEstimate =
+        toFiniteNumber(ed?.equipment) + toFiniteNumber(ed?.facilities) + toFiniteNumber(ed?.insuranceOverhead) +
+        toFiniteNumber(ed?.otherOverhead) + toFiniteNumber(ed?.planCost) + toFiniteNumber(ed?.permitCost);
+      const derivedNetProfit =
+        costFromLineItems > 0 && revenue > costFromLineItems
+          ? Math.max(0, (revenue - costFromLineItems) - overheadFromEstimate)
+          : 0;
+      const effectiveEstimateProfit = estimateProfit > 0 ? estimateProfit : (derivedNetProfit > 0 && derivedNetProfit < revenue ? derivedNetProfit : 0);
+      // Use estimate's net-profit cost whenever we have it so card margin stays at estimate (e.g. 15%) after adding expenses (matches Overview/Budget).
+      const costFromEstimateProfit =
+        revenue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < revenue
+          ? revenue - effectiveEstimateProfit
+          : 0;
+      // Only use stored margin % when it came from estimateData — p.margin can be stale and would reinforce wrong %.
+      const costFromStoredMargin =
+        hasStoredEstimateMargin && revenue > 0 && estimateMarginNum != null && estimateMarginNum > 0 && estimateMarginNum < 100
+          ? revenue * (1 - estimateMarginNum / 100)
+          : 0;
+      // Estimate's cost fields (from bid calc) — use before costFromLineItems; subtotal = materials+labor+overhead.
+      const costFromEstimateData = toFiniteNumber(ed?.estimatedCost ?? ed?.totalCost ?? ed?.subtotal ?? ed?.baseCost);
+      const estimateCostFromParts =
+        toFiniteNumber(ed?.materials ?? (mergedProject as any)?.materials) +
+        toFiniteNumber(ed?.labor ?? (mergedProject as any)?.labor) +
+        toFiniteNumber(ed?.equipment ?? (mergedProject as any)?.equipment) +
+        toFiniteNumber(ed?.facilities ?? (mergedProject as any)?.facilities) +
+        toFiniteNumber(ed?.insuranceOverhead ?? (mergedProject as any)?.insuranceOverhead) +
+        toFiniteNumber(ed?.otherOverhead ?? (mergedProject as any)?.otherOverhead) +
+        toFiniteNumber(ed?.planCost ?? (mergedProject as any)?.planCost) +
+        toFiniteNumber(ed?.permitCost ?? (mergedProject as any)?.permitCost);
+      const estimatedCost = costFromEstimateProfit > 0
+        ? costFromEstimateProfit
+        : costFromStoredMargin > 0
+        ? costFromStoredMargin
+        : costFromEstimateData > 0 && costFromEstimateData < revenue
+        ? costFromEstimateData
+        : estimateCostFromParts > 0 && estimateCostFromParts < revenue
+        ? estimateCostFromParts
+        : costFromLineItems > 0
+        ? costFromLineItems
+        : toFiniteNumber(
+            mergedProject?.estimatedCost ?? mergedProject?.projectData?.estimatedCost ??
+            mergedProject?.estimateData?.totalCost ?? mergedProject?.estimateData?.estimatedCost ??
+            mergedProject?.estimateData?.subtotal ?? 0
+          );
 
       const profitForecast = revenue > 0
         ? computeProfitForecast({
@@ -495,18 +598,13 @@ export default function ProjectsScreen() {
         : null;
 
       // Prefer estimate's profit & margin when project came from estimate and has no real spending yet
-      const estimateProfit = toFiniteNumber(p.profit ?? mergedProject?.estimateData?.profit);
-      const rawMargin = p.margin ?? mergedProject?.estimateData?.marginPercent ?? mergedProject?.estimateData?.margin;
-      const estimateMarginNum = typeof rawMargin === 'number' && Number.isFinite(rawMargin)
-        ? (Math.abs(rawMargin) > 1 ? rawMargin : rawMargin * 100)
-        : null;
       const hasNoRealSpend = actualCost === 0 || (revenue > 0 && actualCost < 0.01 * revenue);
-      const useEstimateValues = hasNoRealSpend && (estimateProfit > 0 || estimateMarginNum != null);
+      const useEstimateValues = hasNoRealSpend && (effectiveEstimateProfit > 0 || estimateMarginNum != null);
 
-      const derivedMarginFromProfit = revenue > 0 && estimateProfit > 0 ? (estimateProfit / revenue) * 100 : null;
+      const derivedMarginFromProfit = revenue > 0 && effectiveEstimateProfit > 0 ? (effectiveEstimateProfit / revenue) * 100 : null;
       const derivedProfitFromMargin = revenue > 0 && estimateMarginNum != null ? revenue * (estimateMarginNum / 100) : null;
-      const displayProfit = useEstimateValues && (estimateProfit > 0 || derivedProfitFromMargin != null)
-        ? (estimateProfit > 0 ? estimateProfit : derivedProfitFromMargin!)
+      const displayProfit = useEstimateValues && (effectiveEstimateProfit > 0 || derivedProfitFromMargin != null)
+        ? (effectiveEstimateProfit > 0 ? effectiveEstimateProfit : derivedProfitFromMargin!)
         : profitForecast?.projectedProfit;
       // When using estimate profit, derive margin from it so they match (e.g. 20% not 21%)
       const displayMargin = useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
@@ -563,9 +661,16 @@ export default function ProjectsScreen() {
   const handleDeleteProject = async (project: any, e: any) => {
     // Stop event propagation so it doesn't trigger the card press
     e?.stopPropagation();
-    
+
+    // Set immediately when entering delete flow so any focus event from Alert show/dismiss
+    // skips refreshProjects (which would load stale AsyncStorage and bring the project back)
+    skipNextRefreshRef.current = true;
+    const cancelTimeout = setTimeout(() => {
+      skipNextRefreshRef.current = false;
+    }, 3000);
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+
     Alert.alert(
       t('projects.deleteProject'),
       t('projects.deleteConfirm', { name: project.name }),
@@ -573,17 +678,25 @@ export default function ProjectsScreen() {
         {
           text: t('common.cancel'),
           style: 'cancel',
+          onPress: () => {
+            clearTimeout(cancelTimeout);
+            skipNextRefreshRef.current = false;
+          },
         },
         {
           text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
+            clearTimeout(cancelTimeout);
             try {
               await deleteProject(project.id);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (error) {
               console.error('Error deleting project:', error);
               Alert.alert(t('common.error'), t('projects.deleteError'));
+              skipNextRefreshRef.current = false;
+            } finally {
+              setTimeout(() => { skipNextRefreshRef.current = false; }, 800);
             }
           },
         },
@@ -828,13 +941,20 @@ export default function ProjectsScreen() {
                           {project.status}
                         </Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={(e) => handleDeleteProject(project, e)}
-                        style={styles.deleteButton}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      <View
+                        onStartShouldSetResponder={() => true}
+                        onTouchEnd={(e) => e.stopPropagation()}
+                        style={{ marginLeft: 4 }}
                       >
-                        <MaterialIcons name="delete-outline" size={18} color={darkMode ? "#7C8BA0" : "#475569"} />
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={(e) => handleDeleteProject(project, e)}
+                          style={styles.deleteButton}
+                          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons name="delete-outline" size={18} color={darkMode ? "#7C8BA0" : "#475569"} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
 

@@ -136,13 +136,15 @@ When user asks about budget/remaining → give this full breakdown directly, inc
   const expenseBlock = `
 EXPENSE RULES:
 Required for MATERIALS: amount + category + vendor + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
-Required for LABOR: amount + category("Labor") + notes OR vendor (sub/trade) + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
-→ For LABOR: "general labor", "it's general labor", "framing", "plumbing", etc. ARE the sub/trade. Use as vendor. NEVER ask for vendor again once user provides a trade.
-→ Vendor IS REQUIRED for material expenses - ALWAYS ask if missing
-→ Call add_material_expense (covers both materials and labor)
-→ Call add_labor_expense for labor with trade/description fields
-→ CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for." DO NOT proceed until you know the expense type.
-→ CRITICAL: If user confirms "it's for material" / "material" / "materials" → you MUST ask for amount, category, AND vendor if any are missing. Example: "Please provide the amount, category, and vendor for the material expense."`;
+Required for LABOR: amount + trade + description + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
+→ For LABOR: ask ONLY for amount, trade, and description. NEVER ask for "vendor" or "expected delivery" or "pickup date" — those are for materials/POs only. Trade = what the labor was for (e.g., "Tile work", "Framing", "General Labor"). When user says "Bathroom, for tile work", that IS trade + description — use it, do NOT ask for vendor.
+→ For LABOR: "general labor", "framing", "plumbing", "tile work" etc. ARE the trade. Store in vendor field internally but NEVER use the word "vendor" when asking — say "trade" or "what was the labor for?"
+→ Vendor IS REQUIRED for material expenses only - ALWAYS ask "Where was it purchased?" if missing
+→ CRITICAL: For labor expenses, NEVER ask for expected delivery or pickup date. That is for purchase orders only.
+→ Call add_material_expense (covers both materials and labor) or add_labor_expense for labor
+→ CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, trade, and description of the work." DO NOT proceed until you know the expense type.
+→ CRITICAL: If user confirms "it's for labor" / "labor" → ask ONLY: "Please provide the amount, trade, and description for the labor expense." NEVER ask for vendor or delivery date.
+→ CRITICAL: If user confirms "it's for material" / "material" / "materials" → ask for amount, category, AND vendor if any are missing. Example: "Please provide the amount, category, and vendor for the material expense."`;
 
   // Purchase order domain
   const poBlock = `
@@ -573,12 +575,11 @@ Change order detection:
 - NEVER ask for "expected delivery" or "received date" for change orders - they don't need delivery dates
 
 Required-field rules:
-- add_material_expense: amount, category, vendor (vendor only required for non-labor)
-  * CRITICAL: If user says "it's for material" / "material" / "materials" → expense type is MATERIAL, so vendor IS required
-  * After user confirms it's material, check for: amount, category, vendor. If any missing, ask for ALL missing fields including vendor.
-  * Example: User says "it's for material" → if amount/category/vendor missing → ask "Please provide the amount, category, and vendor for the material expense."
+- add_material_expense: amount, category, vendor (vendor only for materials; for labor use trade+description, NEVER ask "vendor")
+  * For LABOR: amount, trade, description. NEVER ask for vendor or expected delivery. Ask "What trade and what was the work?"
+  * For MATERIALS: amount, category, vendor. If user says "it's for material" → ask "Please provide the amount, category, and vendor."
 - add_labor_expense: amount, trade, description
-- CRITICAL: If user says "log expense" / "log an expense" / "can you log an expense" / "I need to log an expense" / "add expense" / "record expense" WITHOUT specifying materials or labor → set domain = "expenses", proposed_tool = "add_material_expense", required_fields_missing = ["expense_type"], and clarification_question = "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, category (Labor), and what the labor was for."
+- CRITICAL: If user says "log expense" / "log an expense" / "can you log an expense" / "I need to log an expense" / "add expense" / "record expense" WITHOUT specifying materials or labor → set domain = "expenses", proposed_tool = "add_material_expense", required_fields_missing = ["expense_type"], and clarification_question = "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, trade, and description of the work."
 - add_purchase_order: amount, vendor, category, expectedDelivery (if missing, ask "What is the expected delivery or received date?")
 - For add_purchase_order multi-turn flows: if prior user messages already include amount/vendor/category/date, DO NOT ask for them again; only ask for truly missing fields.
 - mark_purchase_order_received: no required fields

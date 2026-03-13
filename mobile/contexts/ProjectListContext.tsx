@@ -16,6 +16,8 @@ export interface UnifiedProject {
   actualCost?: number;
   margin: number;
   markup: number;
+  /** Net profit from estimate (gross profit − overhead); used so Projects page can show estimate margin */
+  profit?: number;
   
   // Location
   location: string;
@@ -54,7 +56,7 @@ interface ProjectListContextType {
 
   // Estimates
   estimates: UnifiedProject[];
-  addEstimate: (estimate: UnifiedProject) => void;
+  addEstimate: (estimate: UnifiedProject) => Promise<void>;
 
   // Active Projects
   activeProjects: UnifiedProject[];
@@ -75,6 +77,7 @@ interface ProjectListContextType {
   getProjectById: (id: string) => UnifiedProject | undefined;
   updateProject: (id: string, updates: Partial<UnifiedProject>) => void;
   deleteProject: (id: string) => Promise<void>;
+  refreshProjects: () => Promise<void>;
 }
 
 const STORAGE_KEY = 'bps.unifiedProjects.v1';
@@ -603,94 +606,67 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   });
 
   // Add estimate from Estimates page
-  const addEstimate = (estimate: UnifiedProject) => {
+  const addEstimate = async (estimate: UnifiedProject) => {
+    let nextProjects: UnifiedProject[] = [];
     setProjects(prev => {
       // Check if estimate already exists to prevent duplicates
       const existingIndex = prev.findIndex(p => p.id === estimate.id);
       if (existingIndex !== -1) {
-        console.log(`⚠️ Estimate ${estimate.id} already exists, updating instead of adding`);
-        console.log(`💰 Updating bidPrice: ${prev[existingIndex].bidPrice} -> ${estimate.bidPrice}`);
-        console.log(`💰 Updating estimatedCost: ${prev[existingIndex].estimatedCost} -> ${estimate.estimatedCost}`);
-        // Preserve the status from the estimate if provided, otherwise keep existing status
-        // CRITICAL: Always update bidPrice and estimatedCost from the new estimate (they're the source of truth)
-        // If estimate has bidPrice/estimatedCost, always use them (even if 0, as long as they're provided)
-        return prev.map((p, index) => 
-          index === existingIndex 
-            ? { 
-                ...p, 
-                ...estimate, 
-                // CRITICAL: Always update bidPrice and estimatedCost from estimate if they exist
-                // Use estimate values if provided (even if they're different), otherwise keep existing
-                bidPrice: estimate.bidPrice !== undefined && estimate.bidPrice !== null 
-                  ? estimate.bidPrice 
-                  : p.bidPrice,
-                estimatedCost: estimate.estimatedCost !== undefined && estimate.estimatedCost !== null
-                  ? estimate.estimatedCost
-                  : p.estimatedCost,
-                status: estimate.status || p.status, // Use provided status or keep existing
-                updatedAt: new Date().toISOString() 
+        nextProjects = prev.map((p, index) =>
+          index === existingIndex
+            ? {
+                ...p,
+                ...estimate,
+                bidPrice: estimate.bidPrice !== undefined && estimate.bidPrice !== null ? estimate.bidPrice : p.bidPrice,
+                estimatedCost: estimate.estimatedCost !== undefined && estimate.estimatedCost !== null ? estimate.estimatedCost : p.estimatedCost,
+                margin: estimate.margin !== undefined && estimate.margin !== null ? estimate.margin : p.margin,
+                profit: estimate.profit !== undefined && estimate.profit !== null ? estimate.profit : p.profit,
+                status: estimate.status || p.status,
+                updatedAt: new Date().toISOString()
               }
             : p
         );
+      } else {
+        nextProjects = [
+          {
+            ...estimate,
+            status: (estimate.status || 'estimate') as UnifiedProject['status'],
+            createdAt: estimate.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          ...prev
+        ];
       }
-      
-      console.log(`✅ Adding new estimate: ${estimate.id} with status: ${estimate.status || 'estimate'}`);
-      console.log(`💰 New estimate bidPrice: ${estimate.bidPrice}, estimatedCost: ${estimate.estimatedCost}`);
-      return [
-        {
-          ...estimate,
-          status: estimate.status || 'estimate', // Use provided status or default to 'estimate'
-          createdAt: estimate.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        ...prev
-      ];
+      return nextProjects;
     });
+    // Await save so Projects tab refreshProjects won't overwrite with stale AsyncStorage
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextProjects));
+      if (__DEV__) console.log(`💾 Saved estimate to AsyncStorage`);
+    } catch (error) {
+      console.error('Error saving estimate:', error);
+    }
   };
 
   // Convert won bid to active project
   const convertBidToProject = (bidId: string) => {
     setProjects(prev => {
       const found = prev.find(p => p.id === bidId);
-      console.log(`🔍 [convertBidToProject] Looking for bid ${bidId} in ${prev.length} projects`);
-      console.log(`🔍 [convertBidToProject] Available project IDs:`, prev.map(p => `${p.id} (${p.status})`));
-      
-      if (!found) {
-        console.log(`⚠️ [convertBidToProject] Bid ${bidId} not found in projects. This might be a new bid that hasn't been saved yet.`);
-        console.log(`💡 [convertBidToProject] Tip: Make sure to save the estimate first, or it will be created with status 'in_progress'`);
-        return prev; // Return unchanged if not found
-      }
-      
-      console.log(`✅ [convertBidToProject] Found bid ${bidId} with status: ${found.status}`);
+      if (!found) return prev;
       
       // Check if any project matches and update it
       let updated = false;
       const updatedProjects = prev.map(p => {
         if (p.id === bidId) {
-          // Convert from any valid status (estimate, bid_submitted, or in_progress) to 'won' (Active)
-          console.log(`🔄 [convertBidToProject] Converting bid ${bidId} from '${p.status}' to 'won'`);
           updated = true;
-          const updatedProject = {
+          return {
             ...p,
-            status: 'won' as const, // Set to 'won' so it shows as "Active" in projects
+            status: 'won' as const,
             updatedAt: new Date().toISOString(),
           };
-          console.log(`✅ [convertBidToProject] Updated project:`, {
-            id: updatedProject.id,
-            title: updatedProject.title,
-            status: updatedProject.status
-          });
-          return updatedProject;
         }
         return p;
       });
-      
-      if (!updated) {
-        console.log(`⚠️ [convertBidToProject] Could not update bid ${bidId} - matching project not found in map`);
-      } else {
-        console.log(`✅ [convertBidToProject] Successfully updated ${updatedProjects.length} projects. Updated bid ${bidId} status to 'won'`);
-      }
-      
       return updatedProjects;
     });
   };
@@ -724,21 +700,19 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
   // Delete project
   const deleteProject = async (projectId: string) => {
+    let filtered: UnifiedProject[] = [];
     setProjects(prev => {
-      const filtered = prev.filter(p => p.id !== projectId);
-      console.log(`🗑️ Deleted project ${projectId}. Remaining projects: ${filtered.length}`);
-      // Immediately save to AsyncStorage to ensure persistence
-      const saveDeleted = async () => {
-        try {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-          console.log(`💾 Saved deleted project state to AsyncStorage`);
-        } catch (error) {
-          console.error('Error saving deleted project:', error);
-        }
-      };
-      saveDeleted();
+      filtered = prev.filter(p => p.id !== projectId);
       return filtered;
     });
+    // Await save before returning so useFocusEffect/refreshProjects won't overwrite
+    // with stale AsyncStorage data when the Alert dismisses on iOS
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      if (__DEV__) console.log(`💾 Saved deleted project state to AsyncStorage`);
+    } catch (error) {
+      console.error('Error saving deleted project:', error);
+    }
   };
 
   // Calculate dashboard metrics
@@ -938,6 +912,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  const refreshProjects = async () => {
+    await loadProjects();
+  };
+
   return (
     <ProjectListContext.Provider
       value={{
@@ -951,6 +929,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
         getProjectById,
         updateProject,
         deleteProject,
+        refreshProjects,
       }}
     >
       {children}

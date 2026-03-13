@@ -4,8 +4,7 @@
  */
 import { computeProfitForecast } from './profitForecast';
 
-const ALLOWED_NAMES = ['chris', 'nick', 'jason'];
-const PROJECT_ORDER = ['chris', 'jason', 'nick'];
+// Include all projects — no hardcoded name filter (was ['chris','nick','jason'])
 
 const toFinite = (v: any): number => {
   if (v == null) return 0;
@@ -154,8 +153,8 @@ export function computeProjectsCompareData(
     const pid = String(p?.id ?? '');
     const title = String(p?.title || p?.name || '').trim();
     const t = title.toLowerCase();
-    if (!ALLOWED_NAMES.some((n) => t === n || t.startsWith(n + ' ') || t.startsWith(n + '-') || t.startsWith(n + "'"))) continue;
-    const key = PROJECT_ORDER.find((n) => t === n || t.startsWith(n)) ?? t;
+    if (!t) continue;
+    const key = pid;
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -242,12 +241,5 @@ export function computeProjectsCompareData(
     });
   }
 
-  return items.sort((a, b) => {
-    const aIdx = PROJECT_ORDER.findIndex((n) => (a.title || '').toLowerCase().startsWith(n));
-    const bIdx = PROJECT_ORDER.findIndex((n) => (b.title || '').toLowerCase().startsWith(n));
-    if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-    if (aIdx >= 0) return -1;
-    if (bIdx >= 0) return 1;
-    return 0;
-  });
+  return items.sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
 }

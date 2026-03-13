@@ -28,14 +28,6 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   initialDate,
   events = [],
 }) => {
-  useEffect(() => {
-    if (__DEV__) {
-      console.log('📅 GreyCalendar: Received events:', events.length);
-      if (events.length > 0) {
-        console.log('📅 GreyCalendar: Sample events:', events.slice(0, 3));
-      }
-    }
-  }, [events]);
 
   const [currentDate, setCurrentDate] = useState(() => {
     if (initialDate) {

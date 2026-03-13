@@ -11,6 +11,10 @@ import {
   Dimensions,
   Modal,
   Platform,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -31,6 +35,7 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
@@ -187,7 +192,9 @@ const getProjectRevenue = (project: any): number => {
 
   // If no original estimate value exists, return 0
   if (originalBudget <= 0) {
-    if (__DEV__) {
+    // Only warn for projects that should have a budget (not draft/estimate)
+    const status = (project?.status || '').toString().toLowerCase();
+    if (__DEV__ && status !== 'estimate' && status !== 'draft') {
       const projectName = project?.title || project?.name || 'Unknown';
       console.warn(`⚠️ [Dashboard] No original budget found for ${projectName}. Estimate fields missing.`);
     }
@@ -276,20 +283,12 @@ const computePipelineTotals = (projects: any[]) => {
     // Total Bids includes: active projects (won, in_progress, active) AND submitted bids (bid_submitted, submitted) AND completed projects
     if (validStatuses.includes(status)) {
       totalBidValue += revenue;
-      if (__DEV__ && revenue > 0) {
-        console.log(`[Dashboard] Adding to totalBids: ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
-      }
-    } else if (__DEV__ && revenue > 0) {
-      console.log(`[Dashboard] Skipping project (invalid status): ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
     }
 
     // Active Projects includes: only active projects (won, in_progress, active) - NOT submitted, NOT completed
     const activeStatuses = ["active", "won", "in_progress", "in-progress"];
     if (activeStatuses.includes(status)) {
       activeProjectsValue += revenue;
-      if (__DEV__ && revenue > 0) {
-        console.log(`[Dashboard] Adding to activeProjects: ${project?.title || project?.name || 'Unknown'} - Status: ${status}, Revenue: $${revenue.toFixed(2)}`);
-      }
     }
 
     if (status === "completed" && revenue > 0) {
@@ -314,11 +313,6 @@ const computePipelineTotals = (projects: any[]) => {
     }
   });
 
-  // Return exact values (no rounding) to match projects page
-  if (__DEV__) {
-    console.log(`[Dashboard] computePipelineTotals result: totalBidValue=$${totalBidValue.toFixed(2)}, activeProjectsValue=$${activeProjectsValue.toFixed(2)}, projects processed=${projects.length}`);
-  }
-  
   return { 
     totalBidValue: totalBidValue, 
     activeProjectsValue: activeProjectsValue, 
@@ -342,18 +336,62 @@ const CALENDAR_CATEGORY_COLORS = {
   deadline: '#ef4444', // red
 } as const;
 
+const EVENT_TYPE_COLORS: Record<CalendarEvent["type"], string> = {
+  inspection: "#f59e0b",
+  delivery: "#8b5cf6",
+  work: "#3b82f6",
+  payment: "#22c55e",
+  deadline: "#ef4444",
+  other: "#f97316",
+};
+const ACCENT_GREEN = "#19E180";
+const EVENT_TYPE_FORM_ICONS: Record<CalendarEvent["type"], string> = {
+  inspection: "check-circle",
+  delivery: "package",
+  work: "tool",
+  payment: "credit-card",
+  deadline: "clock",
+  other: "file-text",
+};
+
+/** Fade a hex color for completed project events (opacity 0.45) */
+const fadeHexColor = (hex: string, opacity = 0.45): string => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+};
+
 type MasterCalendarViewProps = {
   activeProjects: any[];
   estimates: any[];
 };
 
+type MasterCalendarEvent = CalendarEvent & {
+  projectId: string;
+  projectName: string;
+  isCompletedProject?: boolean;
+  isUserCreated?: boolean;
+};
+
 const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects, estimates }) => {
   const { theme, darkMode } = useTheme();
   const Colors = React.useMemo(() => getColors(theme), [theme]);
-  const [allEvents, setAllEvents] = React.useState<Array<CalendarEvent & { projectId: string; projectName: string }>>([]);
+  const insets = useSafeAreaInsets();
+  const [allEvents, setAllEvents] = React.useState<MasterCalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
   const [showDateEventsModal, setShowDateEventsModal] = React.useState(false);
+  const [showEventModal, setShowEventModal] = React.useState(false);
+  const [editingEvent, setEditingEvent] = React.useState<MasterCalendarEvent | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null);
+  const [eventTitle, setEventTitle] = React.useState("");
+  const [eventDate, setEventDate] = React.useState("");
+  const [eventTime, setEventTime] = React.useState("");
+  const [eventType, setEventType] = React.useState<CalendarEvent["type"]>("work");
+  const [eventNotes, setEventNotes] = React.useState("");
+  const [eventSubcontractor, setEventSubcontractor] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [refreshTrigger, setRefreshTrigger] = React.useState(0);
 
   const includesAny = (value: string, keywords: readonly string[]) =>
     keywords.some((k) => value.includes(k));
@@ -381,15 +419,12 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     const loadAllEvents = async () => {
       setLoading(true);
       const nowIso = new Date().toISOString();
-      const result: Array<CalendarEvent & { projectId: string; projectName: string }> = [];
+      const result: Array<CalendarEvent & { projectId: string; projectName: string; isCompletedProject?: boolean }> = [];
       const seen = new Set<string>();
 
-      const pushUnique = (event: CalendarEvent & { projectId: string; projectName: string }) => {
+      const pushUnique = (event: CalendarEvent & { projectId: string; projectName: string; isCompletedProject?: boolean }) => {
         // Validate event has required fields
         if (!event.projectId || !event.date) {
-          if (__DEV__) {
-            console.warn(`📅 Master Calendar: Skipping invalid event - missing projectId or date:`, event);
-          }
           return;
         }
         
@@ -413,18 +448,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           if (name) {
             validProjectNames.add(name);
           }
-          if (__DEV__) {
-            console.log(`📅 Master Calendar: Valid project - ID: ${id}, Name: ${p.title || p.name || 'Untitled'}`);
-          }
         }
       });
       
-      if (__DEV__) {
-        console.log('📅 Master Calendar: Processing active projects only:', allProjects.length);
-        console.log('📅 Master Calendar: Valid active project IDs:', Array.from(validProjectIds));
-        console.log('📅 Master Calendar: activeProjects:', activeProjects.length);
-      }
-
       // Only process projects that are in the valid list
       const projectsToProcess = allProjects.filter(p => {
         if (!p?.id) return false;
@@ -432,20 +458,14 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         return validProjectIds.has(id);
       });
 
-      if (__DEV__) {
-        console.log(`📅 Master Calendar: Processing ${projectsToProcess.length} valid projects out of ${allProjects.length} total`);
-      }
-
       for (const project of projectsToProcess) {
         const projectId = String(project.id);
         const projectName = project.title || project.name || 'Untitled Project';
         const projectData = project.projectData || project;
+        const isCompletedProject = (project.status || '').toString().toLowerCase() === 'completed';
 
         // Double-check project is still valid before loading any data
         if (!validProjectIds.has(projectId)) {
-          if (__DEV__) {
-            console.warn(`📅 Master Calendar: Skipping project ${projectId} (${projectName}) - not in valid list`);
-          }
           continue;
         }
 
@@ -460,9 +480,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 // If event has a projectId, it must match the current projectId
                 const eventProjectId = String(event.projectId || '').trim();
                 if (eventProjectId && eventProjectId !== projectId) {
-                  if (__DEV__) {
-                    console.warn(`📅 Master Calendar: Skipping event with mismatched projectId. Event projectId: "${eventProjectId}", Current projectId: "${projectId}"`);
-                  }
                   return;
                 }
                 
@@ -482,7 +499,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   ...event, 
                   calendarCategory: category, 
                   projectId: projectId, // ALWAYS use current project ID
-                  projectName: projectName // ALWAYS use current project name
+                  projectName: projectName, // ALWAYS use current project name
+                  isCompletedProject,
+                  isUserCreated: true, // From calendar_events - editable
                 });
               });
             }
@@ -543,6 +562,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             updatedAt: nowIso,
             projectId,
             projectName,
+            isCompletedProject,
           });
         });
 
@@ -582,6 +602,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   updatedAt: item.updatedAt || nowIso,
                   projectId,
                   projectName,
+                  isCompletedProject,
                 });
               });
             }
@@ -607,6 +628,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               updatedAt: nowIso,
               projectId,
               projectName,
+              isCompletedProject,
             });
           });
         }
@@ -626,6 +648,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             updatedAt: nowIso,
             projectId,
             projectName,
+            isCompletedProject,
           });
         }
       }
@@ -640,15 +663,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         const isValidById = eventProjectId && validProjectIds.has(eventProjectId);
         
         if (!isValidById) {
-          if (__DEV__) {
-            console.warn(`📅 Master Calendar: FILTERING OUT event from deleted project:`);
-            console.warn(`  - ProjectId: "${eventProjectId}"`);
-            console.warn(`  - ProjectName: "${eventProjectName}"`);
-            console.warn(`  - Event Title: "${event.title}"`);
-            console.warn(`  - Event Date: "${event.date}"`);
-            console.warn(`  - Valid Project IDs:`, Array.from(validProjectIds).sort());
-            console.warn(`  - Valid Project Names:`, Array.from(validProjectNames).sort());
-          }
           return false;
         }
         
@@ -656,49 +670,119 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
       });
       
       const sortedEvents = validEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      if (__DEV__) {
-        console.log('📅 Master Calendar: Loaded events (before filter):', result.length);
-        console.log('📅 Master Calendar: Valid events (after filter):', sortedEvents.length);
-        if (sortedEvents.length > 0) {
-          console.log('📅 Master Calendar: Sample events:', sortedEvents.slice(0, 3).map(e => ({ date: e.date, title: e.title, projectId: e.projectId, projectName: e.projectName, category: e.calendarCategory })));
-        }
-        // Check for events from deleted projects
-        const deletedProjectEvents = result.filter(event => !validProjectIds.has(String(event.projectId)));
-        if (deletedProjectEvents.length > 0) {
-          console.warn('📅 Master Calendar: Found events from deleted projects:', deletedProjectEvents.map(e => ({ projectId: e.projectId, projectName: e.projectName, title: e.title })));
-        }
-      }
       setAllEvents(sortedEvents);
       setLoading(false);
     };
 
     loadAllEvents();
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, refreshTrigger]);
 
-  // Format events for GreyCalendar
+  // Format events for GreyCalendar — use faded colors for completed project events
   const calendarEvents = React.useMemo(() => {
-    const formatted = allEvents.map(event => ({
-      date: event.date,
-      type: event.calendarCategory
-        ? CALENDAR_CATEGORY_COLORS[event.calendarCategory]
-        : '#8b5cf6',
-      color: event.calendarCategory
-        ? CALENDAR_CATEGORY_COLORS[event.calendarCategory]
-        : '#8b5cf6',
-    }));
-    if (__DEV__) {
-      console.log('📅 Master Calendar: Formatted events for display:', formatted.length);
-      if (formatted.length > 0) {
-        console.log('📅 Master Calendar: Sample formatted events:', formatted.slice(0, 3));
-      }
-    }
-    return formatted;
+    const baseColor = (cat: string) => CALENDAR_CATEGORY_COLORS[cat as keyof typeof CALENDAR_CATEGORY_COLORS] || '#8b5cf6';
+    return allEvents.map(event => {
+      const hex = event.calendarCategory ? baseColor(event.calendarCategory) : '#8b5cf6';
+      const color = event.isCompletedProject ? fadeHexColor(hex) : hex;
+      return { date: event.date, type: color, color };
+    });
   }, [allEvents]);
 
   // Get events for a specific date
-  const getEventsForDate = React.useCallback((dateStr: string): Array<CalendarEvent & { projectId: string; projectName: string }> => {
+  const getEventsForDate = React.useCallback((dateStr: string): MasterCalendarEvent[] => {
     return allEvents.filter(event => event.date === dateStr);
   }, [allEvents]);
+
+  const resetForm = React.useCallback(() => {
+    setEventTitle("");
+    setEventTime("");
+    setEventType("work");
+    setEventNotes("");
+    setEventSubcontractor("");
+    setEditingEvent(null);
+    setSelectedProjectId(null);
+  }, []);
+
+  const toISODateForForm = (value: string): string => {
+    const parts = value.split("-");
+    if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 2) {
+      const [month, day, yy] = parts;
+      const year = `20${yy}`;
+      return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    }
+    return value;
+  };
+
+  const handleSaveEvent = React.useCallback(async () => {
+    const projectId = editingEvent?.projectId || selectedProjectId;
+    if (!eventTitle.trim() || !eventDate || !projectId) {
+      Alert.alert("Required Fields", editingEvent ? "Please enter a title and date" : "Please select a project and enter a title and date");
+      return;
+    }
+    let dateToSave = eventDate;
+    if (eventDate.includes("-") && eventDate.split("-")[0].length === 2) {
+      dateToSave = toISODateForForm(eventDate);
+    }
+    const now = new Date().toISOString();
+    const newEvent: CalendarEvent = {
+      id: editingEvent?.id || `event-${Date.now()}`,
+      title: eventTitle.trim(),
+      date: dateToSave,
+      time: eventTime || undefined,
+      type: eventType,
+      notes: eventNotes || undefined,
+      subcontractor: eventSubcontractor || undefined,
+      completed: editingEvent?.completed || false,
+      completedAt: editingEvent?.completedAt,
+      inspectionResult: editingEvent?.inspectionResult,
+      createdAt: editingEvent?.createdAt || now,
+      updatedAt: now,
+    };
+    try {
+      const key = `calendar_events_${projectId}`;
+      const saved = await AsyncStorage.getItem(key);
+      const existing: CalendarEvent[] = saved ? JSON.parse(saved) : [];
+      const updated = editingEvent
+        ? existing.map((e) => (e.id === editingEvent.id ? newEvent : e))
+        : [...existing, newEvent];
+      await AsyncStorage.setItem(key, JSON.stringify(updated));
+      setShowEventModal(false);
+      setSelectedDate(null);
+      resetForm();
+      setEditingEvent(null);
+      if (Platform.OS === "ios") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRefreshTrigger((t) => t + 1);
+    } catch (e) {
+      Alert.alert("Error", "Failed to save event");
+    }
+  }, [editingEvent, selectedProjectId, eventTitle, eventDate, eventTime, eventType, eventNotes, eventSubcontractor, activeProjects, resetForm]);
+
+  const handleDeleteEvent = React.useCallback(async () => {
+    const projectId = editingEvent?.projectId;
+    if (!editingEvent || !projectId) return;
+    Alert.alert("Delete Event", "Are you sure you want to delete this event?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const key = `calendar_events_${projectId}`;
+            const saved = await AsyncStorage.getItem(key);
+            const existing: CalendarEvent[] = saved ? JSON.parse(saved) : [];
+            const updated = existing.filter((e) => e.id !== editingEvent.id);
+            await AsyncStorage.setItem(key, JSON.stringify(updated));
+            setShowEventModal(false);
+            setSelectedDate(null);
+            resetForm();
+            setEditingEvent(null);
+            setRefreshTrigger((t) => t + 1);
+          } catch (e) {
+            Alert.alert("Error", "Failed to delete event");
+          }
+        },
+      },
+    ]);
+  }, [editingEvent, activeProjects, resetForm]);
 
   // Get event color and icon helpers
   const getEventColor = React.useCallback((event: CalendarEvent & { projectId: string; projectName: string }) => {
@@ -767,13 +851,19 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         <GreyCalendar
           onDayPress={({ dateString }) => {
             setSelectedDate(dateString);
+            setEventDate(dateString);
             const eventsOnDate = getEventsForDate(dateString);
             if (eventsOnDate.length > 0) {
               setShowDateEventsModal(true);
             } else {
-              setSelectedDate(null);
+              resetForm();
+              const first = activeProjects.find(
+                (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
+              );
+              if (first) setSelectedProjectId(String(first.id));
+              setShowEventModal(true);
             }
-            if (Platform.OS === 'ios') {
+            if (Platform.OS === "ios") {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             }
           }}
@@ -795,6 +885,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           flex: 1,
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
           justifyContent: 'flex-end',
+          overflow: 'hidden',
         }}>
           <View style={{
             borderTopLeftRadius: 24,
@@ -802,6 +893,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             maxHeight: '90%',
             paddingBottom: Platform.OS === 'ios' ? 34 : 20,
             backgroundColor: COLORS.surface,
+            overflow: 'hidden',
+            elevation: 0,
+            shadowColor: 'transparent',
+            shadowOpacity: 0,
+            shadowRadius: 0,
           }}>
             <View style={{
               flexDirection: 'row',
@@ -842,11 +938,33 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 const eventsOnDate = getEventsForDate(selectedDate);
                 if (eventsOnDate.length === 0) {
                   return (
-                    <View style={{ alignItems: 'center', paddingVertical: 48 }}>
+                    <View style={{ alignItems: "center", paddingVertical: 48 }}>
                       <Ionicons name="calendar-outline" size={48} color={COLORS.subtext} />
-                      <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, color: COLORS.text }}>
+                      <Text style={{ fontSize: 18, fontWeight: "600", marginTop: 16, color: COLORS.text }}>
                         No events on this date
                       </Text>
+                      <Pressable
+                        style={{
+                          marginTop: 20,
+                          paddingHorizontal: 24,
+                          paddingVertical: 12,
+                          borderRadius: 12,
+                          backgroundColor: ACCENT_GREEN,
+                        }}
+                        onPress={() => {
+                          setShowDateEventsModal(false);
+                          resetForm();
+                          setEventDate(selectedDate || "");
+                          const first = activeProjects.find(
+                            (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
+                          );
+                          if (first) setSelectedProjectId(String(first.id));
+                          setShowEventModal(true);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      >
+                        <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>Add Event</Text>
+                      </Pressable>
                     </View>
                   );
                 }
@@ -855,6 +973,21 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                     {eventsOnDate.map((event) => (
                       <Pressable
                         key={event.id}
+                        onPress={() => {
+                          if ((event as MasterCalendarEvent).isUserCreated) {
+                            setShowDateEventsModal(false);
+                            setEditingEvent(event as MasterCalendarEvent);
+                            setEventTitle(event.title);
+                            setEventDate(event.date);
+                            setEventTime(event.time || "");
+                            setEventType(event.type);
+                            setEventNotes(event.notes || "");
+                            setEventSubcontractor(event.subcontractor || "");
+                            setSelectedProjectId(event.projectId);
+                            setShowEventModal(true);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }
+                        }}
                         style={{
                           flexDirection: 'row',
                           borderRadius: 12,
@@ -899,6 +1032,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
                             <Text style={{ fontSize: 13, color: COLORS.subtext }}>
                               {event.projectName || 'Project'}
+                              {(event as any).isCompletedProject && (
+                                <Text style={{ opacity: 0.7 }}> (Completed)</Text>
+                              )}
                             </Text>
                           </View>
                           {event.time && (
@@ -958,18 +1094,18 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             </ScrollView>
 
             <View style={{
-              flexDirection: 'row',
+              flexDirection: "row",
               gap: 12,
               padding: 20,
               borderTopWidth: 1,
-              borderTopColor: 'rgba(255, 255, 255, 0.1)',
+              borderTopColor: "rgba(255, 255, 255, 0.1)",
             }}>
               <Pressable
                 style={{
                   flex: 1,
                   padding: 14,
                   borderRadius: 12,
-                  alignItems: 'center',
+                  alignItems: "center",
                   backgroundColor: COLORS.border,
                 }}
                 onPress={() => {
@@ -977,15 +1113,369 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   setSelectedDate(null);
                 }}
               >
-                <Text style={{
-                  color: '#fff',
-                  fontSize: 16,
-                  fontWeight: '700',
-                }}>Close</Text>
+                <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "700" }}>Close</Text>
+              </Pressable>
+              <Pressable
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  backgroundColor: ACCENT_GREEN,
+                }}
+                onPress={() => {
+                  setShowDateEventsModal(false);
+                  resetForm();
+                  setEventDate(selectedDate || "");
+                  const first = activeProjects.find(
+                    (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
+                  );
+                  if (first) setSelectedProjectId(String(first.id));
+                  setShowEventModal(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Add Event</Text>
               </Pressable>
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Event Modal - Full page (New/Edit) - same as ProjectCalendar */}
+      <Modal
+        visible={showEventModal}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowEventModal(false);
+          setSelectedDate(null);
+          resetForm();
+          setEditingEvent(null);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: darkMode ? "#0A0A0A" : "#F2F2F7" }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? -80 : 0}
+        >
+          <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) }}>
+            <View style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+            }}>
+              <TouchableOpacity
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowEventModal(false);
+                  setSelectedDate(null);
+                  resetForm();
+                  setEditingEvent(null);
+                }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                }}
+              >
+                <Ionicons name="close" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 17, fontWeight: "600", color: COLORS.text }}>
+                {editingEvent ? "Edit Event" : "New Event"}
+              </Text>
+              <View style={{ width: 32, height: 32 }} />
+            </View>
+
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              {/* Project picker - only for new events */}
+              {!editingEvent && (
+                <View style={{ marginBottom: 32 }}>
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: "600",
+                    letterSpacing: 0.3,
+                    marginBottom: 8,
+                    marginLeft: 4,
+                    opacity: 0.9,
+                    color: COLORS.subtext,
+                  }}>PROJECT</Text>
+                  <View style={{
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                  }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ padding: 12 }}>
+                      {activeProjects
+                        .filter((p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed")
+                        .map((p) => {
+                        const pid = String(p.id);
+                        const name = p.title || p.name || "Untitled Project";
+                        const isSelected = selectedProjectId === pid;
+                        return (
+                          <TouchableOpacity
+                            key={pid}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedProjectId(pid);
+                            }}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 14,
+                              paddingVertical: 10,
+                              borderRadius: 10,
+                              borderWidth: 1.5,
+                              marginRight: 8,
+                              backgroundColor: isSelected ? ACCENT_GREEN : "transparent",
+                              borderColor: isSelected ? ACCENT_GREEN : (darkMode ? "rgba(255,255,255,0.2)" : "rgba(60,60,67,0.2)"),
+                            }}
+                          >
+                            <Ionicons name="folder-outline" size={18} color={isSelected ? "#fff" : COLORS.text} />
+                            <Text style={{
+                              fontSize: 15,
+                              fontWeight: "600",
+                              color: isSelected ? "#fff" : COLORS.text,
+                            }} numberOfLines={1}>{name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+
+              {/* Event Details */}
+              <View style={{ marginBottom: 32 }}>
+                <Text style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  letterSpacing: 0.3,
+                  marginBottom: 8,
+                  marginLeft: 4,
+                  opacity: 0.9,
+                  color: COLORS.subtext,
+                }}>EVENT DETAILS</Text>
+                <View style={{
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                }}>
+                  <View style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    minHeight: 44,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
+                  }}>
+                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Title</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      value={eventTitle}
+                      onChangeText={setEventTitle}
+                      placeholder="e.g., Framing Inspection"
+                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                    />
+                  </View>
+                  <View style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    minHeight: 44,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
+                  }}>
+                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Date</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      value={eventDate ? (() => {
+                        const [year, month, day] = eventDate.split("-");
+                        if (year && month && day && year.length === 4) {
+                          return `${month}-${day}-${year.slice(-2)}`;
+                        }
+                        return eventDate;
+                      })() : ""}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^\d-]/g, "");
+                        let formatted = cleaned;
+                        if (cleaned.length > 2 && !cleaned.includes("-")) formatted = cleaned.slice(0, 2) + "-" + cleaned.slice(2);
+                        if (formatted.length > 5 && formatted.split("-").length === 2) formatted = formatted.slice(0, 5) + "-" + formatted.slice(5, 7);
+                        if (formatted.length > 8) formatted = formatted.slice(0, 8);
+                        setEventDate(formatted);
+                      }}
+                      placeholder="MM-DD-YY"
+                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                    />
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 44 }}>
+                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Time</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      value={eventTime}
+                      onChangeText={setEventTime}
+                      placeholder="09:00"
+                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* Type */}
+              <View style={{ marginBottom: 32 }}>
+                <Text style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  letterSpacing: 0.3,
+                  marginBottom: 8,
+                  marginLeft: 4,
+                  opacity: 0.9,
+                  color: COLORS.subtext,
+                }}>TYPE</Text>
+                <View style={{
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                  padding: 12,
+                }}>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    {(["inspection", "work", "delivery", "payment", "deadline", "other"] as const).map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setEventType(type);
+                        }}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          borderRadius: 10,
+                          borderWidth: 1.5,
+                          backgroundColor: eventType === type ? EVENT_TYPE_COLORS[type] : "transparent",
+                          borderColor: eventType === type ? EVENT_TYPE_COLORS[type] : (darkMode ? "rgba(255,255,255,0.2)" : "rgba(60,60,67,0.2)"),
+                        }}
+                      >
+                        <Feather
+                          name={EVENT_TYPE_FORM_ICONS[type] as any}
+                          size={18}
+                          color={eventType === type ? "#fff" : COLORS.text}
+                          strokeWidth={2}
+                        />
+                        <Text style={{ fontSize: 15, fontWeight: "600", color: eventType === type ? "#fff" : COLORS.text }}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              {/* Additional Info */}
+              <View style={{ marginBottom: 32 }}>
+                <Text style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  letterSpacing: 0.3,
+                  marginBottom: 8,
+                  marginLeft: 4,
+                  opacity: 0.9,
+                  color: COLORS.subtext,
+                }}>ADDITIONAL INFO</Text>
+                <View style={{
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  backgroundColor: darkMode ? "#1C1C1E" : "#FFFFFF",
+                }}>
+                  <View style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 16,
+                    minHeight: 44,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(60,60,67,0.12)",
+                  }}>
+                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, color: COLORS.text }}>Subcontractor</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, color: COLORS.text }}
+                      value={eventSubcontractor}
+                      onChangeText={setEventSubcontractor}
+                      placeholder="e.g., ABC Electric"
+                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                    />
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, minHeight: 100 }}>
+                    <Text style={{ fontSize: 17, fontWeight: "400", width: 110, paddingTop: 12, color: COLORS.text }}>Notes</Text>
+                    <TextInput
+                      style={{ flex: 1, fontSize: 17, paddingVertical: 12, paddingHorizontal: 0, minHeight: 80, color: COLORS.text }}
+                      value={eventNotes}
+                      onChangeText={setEventNotes}
+                      placeholder="Additional details..."
+                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={{ marginTop: 16, gap: 12 }}>
+                {editingEvent && (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={handleDeleteEvent}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 14,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: darkMode ? "rgba(255,59,48,0.5)" : "rgba(255,59,48,0.3)",
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                    <Text style={{ fontSize: 17, fontWeight: "600", color: "#ef4444" }}>Delete Event</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleSaveEvent}
+                  style={{
+                    paddingVertical: 16,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    backgroundColor: darkMode ? ACCENT_GREEN : COLORS.green,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 17, fontWeight: "600" }}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -1512,27 +2002,6 @@ const DashboardScreen: React.FC = () => {
     });
     const deduplicatedProjects = Array.from(allProjectsMap.values());
     
-    if (__DEV__) {
-      console.log(`[Dashboard] ========== METRICS CALCULATION START ==========`);
-      console.log(`[Dashboard] Input: ${activeProjects.length} activeProjects, ${estimates.length} estimates`);
-      console.log(`[Dashboard] After deduplication: ${deduplicatedProjects.length} projects`);
-      deduplicatedProjects.forEach((p) => {
-        const status = (p?.status || "").toString();
-        const statusLower = status.toLowerCase();
-        const revenue = getProjectRevenue(p);
-        console.log(`[Dashboard] Project: "${p?.title || p?.name || 'Unknown'}"`);
-        console.log(`[Dashboard]   - ID: ${p?.id}`);
-        console.log(`[Dashboard]   - Status (raw): "${status}"`);
-        console.log(`[Dashboard]   - Status (lower): "${statusLower}"`);
-        console.log(`[Dashboard]   - Revenue: $${revenue.toFixed(2)}`);
-        console.log(`[Dashboard]   - bidPrice: ${p?.bidPrice}`);
-        console.log(`[Dashboard]   - projectData?.bidPrice: ${p?.projectData?.bidPrice}`);
-        console.log(`[Dashboard]   - projectData?.totalBidPrice: ${p?.projectData?.totalBidPrice}`);
-        console.log(`[Dashboard]   - estimateData?.bidPrice: ${p?.estimateData?.bidPrice}`);
-        console.log(`[Dashboard]   - estimateData?.grandTotal: ${p?.estimateData?.grandTotal}`);
-      });
-    }
-    
     const pipelineTotals = computePipelineTotals(deduplicatedProjects);
     // Always use computed value - don't fallback to dashboardMetrics which may be stale
     // If totalBidValue is 0, it means there are no valid projects, so 0 is correct
@@ -1540,10 +2009,6 @@ const DashboardScreen: React.FC = () => {
     // activeProjectsValue should only include active projects (not submitted), so don't fallback to totalBids
     const activeProjectsValue = pipelineTotals.activeProjectsValue;
     
-    if (__DEV__) {
-      console.log(`[Dashboard] Final metrics: totalBids=$${totalBids.toFixed(2)}, activeProjects=$${activeProjectsValue.toFixed(2)}`);
-      console.log(`[Dashboard] ========== METRICS CALCULATION END ==========`);
-    }
     const avgMargin =
       projects.length > 0
         ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
@@ -1554,14 +2019,11 @@ const DashboardScreen: React.FC = () => {
       activeProjects: formatCurrencyExact(activeProjectsValue),
       avgMargin: `${avgMargin.toFixed(1)}%`,
       completedProfit: formatCurrencyExact(pipelineTotals.completedProfit),
+      rawCompletedProfit: pipelineTotals.completedProfit,
       // Include raw values for debugging
       _rawTotalBids: totalBids,
       _rawActiveProjects: activeProjectsValue,
     };
-    
-    if (__DEV__) {
-      console.log(`[Dashboard] Metrics result object:`, result);
-    }
     
     return result;
   }, [activeProjects, estimates, projects]);
@@ -1582,12 +2044,18 @@ const DashboardScreen: React.FC = () => {
     []
   );
 
-  // Get active/won projects count
-  const activeWonCount = useMemo(() => {
-    return projects.filter(
-      (p) => p.status === "Active" || p.status === "Completed"
-    ).length;
+  // Active projects = currently in progress (won, in_progress) — excludes completed
+  const activeCount = useMemo(() => {
+    return projects.filter((p) => p.status === "Active").length;
   }, [projects]);
+
+  // Completed projects count
+  const completedCount = useMemo(() => {
+    return projects.filter((p) => p.status === "Completed").length;
+  }, [projects]);
+
+  // Total projects (active + completed) for avg value when mixing
+  const activeWonCount = activeCount + completedCount;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -1730,7 +2198,9 @@ const DashboardScreen: React.FC = () => {
           <AnalyticsSection
             metrics={metrics}
             dashboardMetrics={dashboardMetrics}
+            activeCount={activeCount}
             activeWonCount={activeWonCount}
+            completedCount={completedCount}
             activeProjects={activeProjects}
             estimates={estimates}
           />
@@ -2398,7 +2868,9 @@ interface AnalyticsSectionProps {
     completedProfit: number;
   };
   dashboardMetrics: any;
+  activeCount: number;
   activeWonCount: number;
+  completedCount: number;
   activeProjects: any[];
   estimates: any[];
 }
@@ -2406,7 +2878,9 @@ interface AnalyticsSectionProps {
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   metrics,
   dashboardMetrics,
+  activeCount,
   activeWonCount,
+  completedCount,
   activeProjects,
   estimates,
 }) => {
@@ -2457,7 +2931,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
               <AnalyticsMetric label="Total Bids" value={metrics.totalBids} />
               <AnalyticsMetric
                 label="Active Projects"
-                value={activeWonCount.toString()}
+                value={activeCount.toString()}
               />
               <AnalyticsMetric
                 label="Avg Project Value"
@@ -2476,9 +2950,10 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
       {/* Deeper charts / profit analytics */}
       <View style={[styles.analyticsSection, styles.wideContainer]}>
         <ProfileAnalytics
-          activeWonCount={activeWonCount}
+          activeWonCount={activeCount}
+          completedCount={completedCount}
           projectTypeStats={dashboardMetrics?.projectTypeStats}
-          overviewProfit={metrics.completedProfit}
+          overviewProfit={metrics.rawCompletedProfit ?? 0}
           completedProjects={[...activeProjects, ...estimates].filter(
             (p) => (p.status || "").toString().toLowerCase() === "completed"
           )}

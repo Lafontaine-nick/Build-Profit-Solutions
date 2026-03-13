@@ -1421,6 +1421,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
   const modalStyles = useMemo(() => getModalStyles(Colors), [Colors]);
+  const prevVisibleRef = React.useRef(false);
   const [name, setName] = useState(item?.name || '');
   const [quantity, setQuantity] = useState(item?.quantity || 1);
   const [quantityText, setQuantityText] = useState(item?.quantity?.toString() || '');
@@ -1433,11 +1434,20 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
-  const [isInputFocused, setIsInputFocused] = useState(false);
-  
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
   const isLabor = title.includes('Labor');
   const isMaterial = title.includes('Material');
-  
+
+  // Hide footer on touch start (onPressIn) so it never appears above the keyboard.
+  // onPressIn fires before onFocus, avoiding the glitch where buttons flash then disappear.
+  const hideFooterForKeyboard = useCallback(() => setKeyboardVisible(true), []);
+  useEffect(() => {
+    if (!(isMaterial || isLabor)) return;
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { hideSub?.remove(); };
+  }, [isMaterial, isLabor]);
+
   useEffect(() => {
     if (item) {
       setName(item.name || '');
@@ -1452,8 +1462,27 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setCategory(item.category || 'General');
       setMode(item.mode || laborMode || 'hourly');
       setLaborType(item.laborType || 'inhouse');
+    } else if (visible && !prevVisibleRef.current) {
+      // Reset form only when opening for "Add" (item is null) — prevents clearing while user types
+      prevVisibleRef.current = true;
+      setName('');
+      setQuantity(1);
+      setQuantityText('');
+      setUnit('lot');
+      setUnitPrice(0);
+      setUnitPriceText('');
+      setHours('');
+      setRate('');
+      setVendor('Home Depot');
+      setCategory('General');
+      setMode(laborMode || 'hourly');
+      setLaborType('inhouse');
     }
-  }, [item, laborMode]);
+    if (!visible) {
+      prevVisibleRef.current = false;
+      setKeyboardVisible(false);
+    }
+  }, [item, laborMode, visible]);
   
   const handleSave = () => {
     const data = {
@@ -1575,11 +1604,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
+                          onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                           returnKeyType="next"
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
-                          onFocus={() => setIsInputFocused(true)}
-                          onBlur={() => setIsInputFocused(false)}
                         />
                       </View>
                     </View>
@@ -1714,14 +1743,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={String(hours)}
                             onChangeText={setHours}
+                            onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            onFocus={() => setIsInputFocused(true)}
-                            onBlur={() => setIsInputFocused(false)}
                           />
                         </View>
                       </View>
@@ -1740,14 +1769,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={String(rate)}
                             onChangeText={setRate}
+                            onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            onFocus={() => setIsInputFocused(true)}
-                            onBlur={() => setIsInputFocused(false)}
                           />
                         </View>
                       </View>
@@ -1791,11 +1820,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
+                            onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                             returnKeyType="next"
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            onFocus={() => setIsInputFocused(true)}
-                            onBlur={() => setIsInputFocused(false)}
                           />
                         </View>
                       </View>
@@ -1816,11 +1845,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor="rgba(255,255,255,0.4)"
                             value={vendor}
                             onChangeText={setVendor}
+                            onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                             returnKeyType="next"
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            onFocus={() => setIsInputFocused(true)}
-                            onBlur={() => setIsInputFocused(false)}
                           />
                         </View>
                       </View>
@@ -1848,14 +1877,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setUnitPriceText(cleanText);
                               setUnitPrice(parseFloat(cleanText) || 0);
                             }}
+                            onPressIn={hideFooterForKeyboard}
+                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            onFocus={() => setIsInputFocused(true)}
-                            onBlur={() => setIsInputFocused(false)}
                           />
                         </View>
                       </View>
@@ -1881,9 +1910,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 )}
               </ScrollView>
               
-              {/* Footer */}
-              {!isInputFocused && (
-                <View style={modalStyles.materialFooter}>
+              {/* Footer - hidden when keyboard is open so it doesn't sit above the keyboard */}
+              {!keyboardVisible && (
+                <View style={[modalStyles.materialFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
                   <TouchableOpacity onPress={onClose} style={modalStyles.materialCancelBtn}>
                     <Text style={modalStyles.materialCancelText}>Cancel</Text>
                   </TouchableOpacity>
@@ -6631,7 +6660,8 @@ export default function EstimateGeneratorScreen() {
         category: bid.category || PROJECT_CATEGORY_SLUGS[bid.projectType] || 'other',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        estimateData: bid,
+        // Store computed margin/profit on estimateData so Projects page can read them (estimateData.margin / .marginPercent)
+        estimateData: { ...bid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
       };
       
       console.log('🔍 Debug - estimate data to save:', estimateData);
@@ -6673,7 +6703,7 @@ export default function EstimateGeneratorScreen() {
               // Save the estimate first if it doesn't exist
               const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
               const estimatedCost = Number(calc?.subtotal || 0);
-              const bidPrice = Number(calc?.total || 0);
+              const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
               const markup = Number(bid.markupPct || 0);
               const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
               const profitRaw = calc?.profit ?? 0;
@@ -6704,11 +6734,11 @@ export default function EstimateGeneratorScreen() {
                 clientPhone: bid.customerPhone,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                estimateData: bid,
+                estimateData: { ...bid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
               };
               
               console.log('🔍 Debug - submitting bid with data:', estimateData);
-              addEstimate(estimateData);
+              await addEstimate(estimateData);
               
               // Update lead stage to "proposal" if this bid came from a qualified lead
               if (bid.leadId && bid.leadSource === 'qualified_lead') {
@@ -6786,10 +6816,12 @@ export default function EstimateGeneratorScreen() {
                 console.log('✅ First estimate submitted - hiding walkthrough cards');
               }
               
-              // Navigate to Projects → Submitted tab with fromSubmit flag
+              // Navigate to Projects → Submitted tab (AsyncStorage used because tab params can be empty with tab navigator)
+              await AsyncStorage.setItem('bps.pendingProjectsTab', 'submitted');
+              await AsyncStorage.setItem('bps.fromSubmitBid', 'true');
               console.log('🔄 Navigating to Projects → Submitted tab');
               setTimeout(() => {
-                router.push('/(tabs)/projects?tab=submitted&fromSubmit=true');
+                router.push('/(tabs)/projects');
               }, 300);
               
               // If this came from a lead, also update lead stage
@@ -6853,7 +6885,7 @@ export default function EstimateGeneratorScreen() {
           clientPhone: bid.customerPhone,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          estimateData: bid,
+          estimateData: { ...bid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
         };
         
         console.log(`💾 Saving bid as active project with status 'won':`, {

@@ -36,14 +36,14 @@ export function useRequireAuth() {
       }
       // Use Clerk's auth state - only redirect if loaded AND not signed in
       if (!clerkAuth.isSignedIn) {
-        console.log('useRequireAuth - Not authenticated with Clerk on mount, redirecting to auth');
+        if (__DEV__) console.log('useRequireAuth - Not authenticated with Clerk on mount, redirecting to auth');
         router.replace('/');
       }
     } else {
       // Use clerkAuthService
       const authState = clerkAuthService.getAuthState();
       if (!authState.isAuthenticated && !authState.loading) {
-        console.log('useRequireAuth - Not authenticated on mount, redirecting to auth');
+        if (__DEV__) console.log('useRequireAuth - Not authenticated on mount, redirecting to auth');
         router.replace('/');
       }
     }
@@ -61,25 +61,15 @@ export function useRequireAuth() {
           }
           // Use Clerk's auth state
           const isAuthenticated = clerkAuth.isSignedIn;
-          console.log('useRequireAuth - Checking Clerk auth state:', {
-            isAuthenticated,
-            isLoaded: clerkAuth.isLoaded,
-            isSignedIn: clerkAuth.isSignedIn,
-            userId: clerkAuth.userId,
-          });
           if (!isAuthenticated) {
-            console.log('useRequireAuth - Not authenticated with Clerk, redirecting to landing page');
+            if (__DEV__) console.log('useRequireAuth - Not authenticated with Clerk, redirecting to landing page');
             router.replace('/');
           }
         } else {
           // Use clerkAuthService
           const authState = clerkAuthService.getAuthState();
-          console.log('useRequireAuth - Checking auth state:', {
-            isAuthenticated: authState.isAuthenticated,
-            loading: authState.loading
-          });
           if (!authState.isAuthenticated && !authState.loading) {
-            console.log('useRequireAuth - Not authenticated, redirecting to auth');
+            if (__DEV__) console.log('useRequireAuth - Not authenticated, redirecting to auth');
             router.replace('/auth');
           }
         }
@@ -91,12 +81,8 @@ export function useRequireAuth() {
       // Listen for auth state changes (only if not using Clerk)
       if (!useClerk || !clerkAuth) {
         const unsubscribe = clerkAuthService.addListener((authState) => {
-          console.log('useRequireAuth - Auth state changed:', {
-            isAuthenticated: authState.isAuthenticated,
-            loading: authState.loading
-          });
           if (!authState.isAuthenticated && !authState.loading) {
-            console.log('useRequireAuth - Auth state changed to not authenticated, redirecting');
+            if (__DEV__) console.log('useRequireAuth - Auth state changed to not authenticated, redirecting');
             router.replace('/auth');
           }
         });

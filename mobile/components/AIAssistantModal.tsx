@@ -165,9 +165,15 @@ async function fetchWithFallback(urls: string[], options: RequestInit, timeout =
         return response;
       }
       
-      // If response is not ok, try next URL
-      console.warn(`⚠️ HTTP ${response.status} from ${url}`);
-      errors.push(new Error(`HTTP ${response.status} from ${url}`));
+      // If response is not ok, try to get the server's error message
+      let errMsg = `HTTP ${response.status} from ${url}`;
+      try {
+        const clone = response.clone();
+        const body = await clone.json().catch(() => ({}));
+        if (body?.message) errMsg = body.message;
+      } catch (_) {}
+      console.warn(`⚠️ ${errMsg}`);
+      errors.push(new Error(errMsg));
     } catch (error: any) {
       if (timeoutId) clearTimeout(timeoutId);
       const elapsed = Date.now() - startTime;
@@ -678,6 +684,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
                   const AI_API_BASE = resolveAIBaseUrl();
                   errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
+                } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
+                  errorMessage = error.message;
                 } else if (error?.message) {
                   errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
                 }
@@ -905,8 +913,6 @@ const AIAssistantModal: React.FC<Props> = ({
         parsedContext?.resolvedProjectId ||
         null);
 
-  const ALLOWED_PROJECT_NAMES = ['chris', 'nick', 'jason'];
-  const PROJECT_ORDER = ['chris', 'jason', 'nick']; // Fixed order: exactly 3 projects
   const projectSelectionOptions = useMemo(() => {
     const source = Array.isArray(parsedContext?.allProjects) && parsedContext.allProjects.length
       ? parsedContext.allProjects
@@ -918,28 +924,14 @@ const AIAssistantModal: React.FC<Props> = ({
         status: String(p?.status || ''),
         lastOpened: p?.lastOpened || p?.updatedAt || p?.createdAt || '',
       }))
-      .filter((p: any) => p.id)
-      .filter((p: any) => {
-        const t = p.title.toLowerCase().trim();
-        return ALLOWED_PROJECT_NAMES.some((name) => t === name || t.startsWith(name + ' ') || t.startsWith(name + '-') || t.startsWith(name + "'"));
-      });
-    const sorted = normalized.sort((a: any, b: any) => {
-      const aKey = a.title.toLowerCase().trim();
-      const bKey = b.title.toLowerCase().trim();
-      const aIdx = PROJECT_ORDER.findIndex((n) => aKey === n || aKey.startsWith(n));
-      const bIdx = PROJECT_ORDER.findIndex((n) => bKey === n || bKey.startsWith(n));
-      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-      if (aIdx >= 0) return -1;
-      if (bIdx >= 0) return 1;
-      return (a.lastOpened ? new Date(a.lastOpened).getTime() : 0) - (b.lastOpened ? new Date(b.lastOpened).getTime() : 0);
-    });
-    // Dedupe: only one project per name (Chris, Jason, Nick) — prefer exact match
+      .filter((p: any) => p.id && p.title);
+    const sorted = normalized.sort((a: any, b: any) =>
+      (b.lastOpened ? new Date(b.lastOpened).getTime() : 0) - (a.lastOpened ? new Date(a.lastOpened).getTime() : 0)
+    );
     const seen = new Set<string>();
     return sorted.filter((p: any) => {
-      const t = p.title.toLowerCase().trim();
-      const key = PROJECT_ORDER.find((n) => t === n || t.startsWith(n)) ?? t;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
       return true;
     });
   }, [parsedContext?.allProjects, activeProjects, estimates]);
@@ -1357,6 +1349,7 @@ const AIAssistantModal: React.FC<Props> = ({
             projectId: targetProjectId,
             resolvedProjectId: targetProjectId,
             estimateData: liveEstimate,
+            paymentSchedule: liveEstimate?.paymentSchedule ?? liveProject?.paymentSchedule ?? (liveProject?.projectData as any)?.paymentSchedule ?? ctxObj?.paymentSchedule,
             expenses: mergedExpenses,
             expensesCount: mergedExpenses.length,
             actualCost: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
@@ -1377,6 +1370,7 @@ const AIAssistantModal: React.FC<Props> = ({
             projectId: targetProjectId,
             resolvedProjectId: targetProjectId,
             estimateData: storageProject?.estimateData || ctxObj?.estimateData || null,
+            paymentSchedule: (storageProject?.estimateData || ctxObj?.estimateData)?.paymentSchedule ?? storageProject?.paymentSchedule ?? ctxObj?.paymentSchedule,
             expenses: mergedExpenses,
             expensesCount: mergedExpenses.length,
             actualCost: mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0),
@@ -2233,6 +2227,7 @@ const AIAssistantModal: React.FC<Props> = ({
               projectId: targetProjectId,
               resolvedProjectId: targetProjectId,
               estimateData: mergedEstimateData,
+              paymentSchedule: mergedEstimateData?.paymentSchedule ?? storageProject?.paymentSchedule ?? ctxObj?.paymentSchedule,
               expenses: mergedExpenses,
               expensesCount: mergedExpenses.length,
               milestones: mergedMilestones,
@@ -2746,6 +2741,8 @@ const AIAssistantModal: React.FC<Props> = ({
       } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
         const AI_API_BASE = resolveAIBaseUrl();
         errorMessage = `I can't connect to the AI backend server at ${AI_API_BASE}.\n\nPlease make sure:\n1. Backend is running on port 3001\n2. You're on the same network (for physical devices)\n\nTo start it:\ncd backend && npm start\n\nThen check: http://localhost:3001/health`;
+      } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
+        errorMessage = error.message;
       } else if (error?.message) {
         errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
       }

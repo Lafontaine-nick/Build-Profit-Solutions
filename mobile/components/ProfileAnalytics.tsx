@@ -13,6 +13,7 @@ interface ProjectTypeStat {
 
 interface ProfileAnalyticsProps {
   activeWonCount?: number;
+  completedCount?: number;
   projectTypeStats?: ProjectTypeStat[];
   overviewProfit?: number;
   completedProjects?: any[];
@@ -24,7 +25,8 @@ const defaultProjectTypes: ProjectTypeStat[] = [
 ];
 
 const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
-  activeWonCount = 3,
+  activeWonCount = 0,
+  completedCount,
   projectTypeStats = defaultProjectTypes,
   overviewProfit = 0,
   completedProjects = [],
@@ -212,7 +214,8 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
         <View style={styles.livePill}>
           <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
           <Text style={styles.livePillText}>
-            Live Data · {activeWonCount} Active/Won Projects
+            Live Data · {activeWonCount} Active
+            {completedCount != null && completedCount > 0 ? ` · ${completedCount} Completed` : ""}
         </Text>
         </View>
       </View>

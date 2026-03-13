@@ -85,16 +85,14 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const [aiSuggestedValue, setAiSuggestedValue] = useState(null);
 
   // Scenario controls - adjustments to base values
-  // Default to no adjustments (all zeros) on load
-  const [adj, setAdj] = useState(() => {
-    // Start with no adjustments selected
-    return { 
-      laborPct: 0, 
-      materialPct: 0, 
-      markupPct: 0,
-      overheadPct: 0 
-    };
-  });
+  // Default to Typical Friction preset when Step 6 loads (must match presets.typical below)
+  const [adj, setAdj] = useState(() => ({
+    laborPct: 4,
+    materialPct: 2,
+    markupPct: 0,
+    overheadPct: 1,
+    timelinePct: 0, // Typical = inefficiencies without schedule slip
+  }));
   
   // Animation values
   const totalBidAnim = useRef(new Animated.Value(0)).current;
@@ -224,10 +222,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   }, [calc, bid]);
 
   // Simulated/adjusted values
+  // Timeline: extended job = more labor hours + more overhead (equipment, admin); early finish = less
   const sim = useMemo(() => {
-    const labor = base.labor * (1 + adj.laborPct / 100);
+    const timelineFactor = 1 + (adj.timelinePct || 0) / 100;
+    const labor = base.labor * (1 + adj.laborPct / 100) * timelineFactor;
     const materials = base.materials * (1 + adj.materialPct / 100);
-    const overhead = base.overhead * (1 + adj.overheadPct / 100);
+    const overhead = base.overhead * (1 + adj.overheadPct / 100) * timelineFactor;
     const directCost = labor + materials;
     // Include permit costs so adjustedSubtotal matches base.subtotal when no adjustments
     // This ensures sim.netProfit matches base.profit - base.totalOverhead when all adjustments are 0
@@ -260,7 +260,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       totalBid = base.originalTotalBid; // Keep original contract price
       
       // Check if there are any cost adjustments active
-      const hasCostAdjustments = adj.laborPct !== 0 || adj.materialPct !== 0 || adj.overheadPct !== 0;
+      const hasCostAdjustments = adj.laborPct !== 0 || adj.materialPct !== 0 || adj.overheadPct !== 0 || (adj.timelinePct || 0) !== 0;
       
       if (hasCostAdjustments) {
         // When costs change: Profit = Bid - Adjusted Costs (profit decreases when costs increase)
@@ -275,11 +275,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     }
     
     // Calculate net profit (profit - totalOverhead) same way as step 6
-    const adjustedTotalOverhead = base.totalOverhead * (1 + adj.overheadPct / 100);
+    // Total overhead scales with timeline (equipment rental, admin time, etc.)
+    const adjustedTotalOverhead = base.totalOverhead * (1 + adj.overheadPct / 100) * timelineFactor;
     
     // When only bid adjustment is active (no cost adjustments), profit change should equal bid change
     let netProfit;
-    if (isMarkupManuallyAdjustedInline && adj.laborPct === 0 && adj.materialPct === 0 && adj.overheadPct === 0) {
+    if (isMarkupManuallyAdjustedInline && adj.laborPct === 0 && adj.materialPct === 0 && adj.overheadPct === 0 && (adj.timelinePct || 0) === 0) {
       // Pure bid adjustment: net profit change = bid change exactly
       // This ensures profitDelta matches bidDelta when only bid is adjusted
       const originalNetProfit = base.profit - base.totalOverhead;
@@ -323,6 +324,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       { label: "Labor", value: adj.laborPct, base: base.labor },
       { label: "Materials", value: adj.materialPct, base: base.materials },
       { label: "Overhead", value: adj.overheadPct, base: base.overhead },
+      { label: "Timeline", value: adj.timelinePct ?? 0, base: base.labor },
       { label: "Markup", value: adj.markupPct, base: base.markupPct },
     ].map((b) => ({
       ...b,
@@ -363,10 +365,15 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       color = palette.green;
     }
     
+    const originalNetProfitPct = base.originalTotalBid > 0
+      ? (originalNetProfit / base.originalTotalBid) * 100
+      : 0;
+
     return {
       text: suggestion,
       profitDelta: profitDelta, // Keep decimal precision
       originalProfit: originalNetProfit, // Keep decimal precision
+      originalNetProfitPct,
       bidDelta: bidDelta, // Bid change
       originalBid: base.originalTotalBid, // Original bid
       color: color,
@@ -467,36 +474,41 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       materialPct: 0,
       markupPct: 0,
       overheadPct: 0,
+      timelinePct: 0,
     });
   };
   
   // Check if any adjustments are active
   const hasChanges = useMemo(() => {
-    return adj.laborPct !== 0 || adj.materialPct !== 0 || adj.markupPct !== 0 || adj.overheadPct !== 0;
+    return adj.laborPct !== 0 || adj.materialPct !== 0 || adj.markupPct !== 0 || adj.overheadPct !== 0 || (adj.timelinePct || 0) !== 0;
   }, [adj]);
   
-  // Preset definitions
+  // Preset definitions (include timeline: extended = more labor/overhead, early = less)
+  // Softened values so presets feel realistic, not catastrophic. Names match severity.
   const presets = {
     typical: { 
       name: 'Typical Friction',
-      laborPct: 5, 
-      materialPct: 3, 
+      laborPct: 4, 
+      materialPct: 2, 
       markupPct: 0, 
-      overheadPct: 2 
+      overheadPct: 1,
+      timelinePct: 0, // Minor inefficiencies, job stays on schedule
     },
     bad: { 
-      name: 'Bad Remodel',
-      laborPct: 15, 
-      materialPct: 10, 
+      name: 'Rough Remodel',
+      laborPct: 10, 
+      materialPct: 6, 
       markupPct: 0, 
-      overheadPct: 5 
+      overheadPct: 3,
+      timelinePct: 12, // Job runs ~12% longer (delays, scope creep)
     },
     smooth: { 
-      name: 'Smooth Job',
-      laborPct: -5, 
-      materialPct: -3, 
+      name: 'Best-Case Execution',
+      laborPct: -3, 
+      materialPct: -2, 
       markupPct: 0, 
-      overheadPct: -2 
+      overheadPct: -1,
+      timelinePct: -5, // Job finishes ~5% early
     },
   };
   
@@ -505,17 +517,20 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const getActivePreset = useMemo(() => {
     if (adj.laborPct === presets.typical.laborPct && 
         adj.materialPct === presets.typical.materialPct && 
-        adj.overheadPct === presets.typical.overheadPct) {
+        adj.overheadPct === presets.typical.overheadPct &&
+        (adj.timelinePct ?? 0) === presets.typical.timelinePct) {
       return 'typical';
     }
     if (adj.laborPct === presets.bad.laborPct && 
         adj.materialPct === presets.bad.materialPct && 
-        adj.overheadPct === presets.bad.overheadPct) {
+        adj.overheadPct === presets.bad.overheadPct &&
+        (adj.timelinePct ?? 0) === presets.bad.timelinePct) {
       return 'bad';
     }
     if (adj.laborPct === presets.smooth.laborPct && 
         adj.materialPct === presets.smooth.materialPct && 
-        adj.overheadPct === presets.smooth.overheadPct) {
+        adj.overheadPct === presets.smooth.overheadPct &&
+        (adj.timelinePct ?? 0) === presets.smooth.timelinePct) {
       return 'smooth';
     }
     return null;
@@ -540,13 +555,16 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     if (preset.overheadPct !== 0) {
       parts.push(`Overhead ${preset.overheadPct > 0 ? '+' : ''}${preset.overheadPct}%`);
     }
+    if (preset.timelinePct !== 0) {
+      parts.push(`Timeline ${preset.timelinePct > 0 ? '+' : ''}${preset.timelinePct}%`);
+    }
     // Markup removed from presets - it doesn't affect preset calculations
     
-    // AI explanations for each scenario
+    // AI explanations for each scenario (include timeline impact)
     const aiExplanations = {
       typical: "Most projects experience small inefficiencies — minor rework, material overages, and admin drag. These don't break the job, but they quietly reduce margin if not planned for.",
-      bad: "Remodels often uncover hidden conditions and scope creep. Labor inefficiencies and rework compound quickly, which is why margins collapse on poorly scoped renovations.",
-      smooth: "Tight scope, experienced crews, and clean sequencing reduce waste and downtime. These gains protect margin — but require strong planning and execution."
+      bad: "Rough remodels uncover hidden conditions and scope creep. Labor inefficiencies, rework, and extended timelines compound — still hurts, but the numbers reflect a tough job, not instant catastrophe.",
+      smooth: "Tight scope, experienced crews, and clean sequencing reduce waste and downtime. Finishing ahead of schedule cuts labor and overhead — rewards good execution without feeling unrealistic."
     };
     
     return {
@@ -579,24 +597,24 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   }, [sim.totalBid]);
   
   useEffect(() => {
-    // Animate based on margin on revenue (not markup-style return on cost)
-    if (sim.netProfitMarginPct && prevMarginRef.current !== sim.netProfitMarginPct) {
-      const targetValue = sim.netProfitMarginPct < 5 ? 0 : sim.netProfitMarginPct < 8 ? 0.5 : sim.netProfitMarginPct < 15 ? 0.75 : 1;
+    // Green when profitable, red when not — low margin but still in profit = green
+    const targetValue = sim.netProfit >= 0 ? 1 : 0;
+    if (prevMarginRef.current !== targetValue) {
       Animated.timing(profitMarginColorAnim, {
         toValue: targetValue,
         duration: 200,
         useNativeDriver: false,
       }).start();
-      prevMarginRef.current = sim.netProfitMarginPct;
+      prevMarginRef.current = targetValue;
     }
-  }, [sim.netProfitMarginPct]);
+  }, [sim.netProfit]);
 
   // Adjustment quick buttons
   const QuickAdjust = ({ label, field, delta }) => (
     <TouchableOpacity
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setAdj((p) => ({ ...p, [field]: p[field] + delta }));
+        setAdj((p) => ({ ...p, [field]: (p[field] ?? 0) + delta }));
       }}
       style={styles.chip}
     >
@@ -641,12 +659,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 }}
                 style={[
                   styles.presetChip,
-                  getActivePreset === 'typical' && styles.presetChipActive
+                  getActivePreset === 'typical' && styles.presetChipActiveTypical
                 ]}
               >
                 <Text style={[
                   styles.presetChipText,
-                  getActivePreset === 'typical' && styles.presetChipTextActive
+                  getActivePreset === 'typical' && styles.presetChipTextActiveTypical
                 ]}>
                   Typical Friction
                 </Text>
@@ -659,14 +677,14 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 }}
                 style={[
                   styles.presetChip,
-                  getActivePreset === 'bad' && styles.presetChipActive
+                  getActivePreset === 'bad' && styles.presetChipActiveBad
                 ]}
               >
                 <Text style={[
                   styles.presetChipText,
-                  getActivePreset === 'bad' && styles.presetChipTextActive
+                  getActivePreset === 'bad' && styles.presetChipTextActiveBad
                 ]}>
-                  Bad Remodel
+                  Rough Remodel
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -684,7 +702,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                   styles.presetChipText,
                   getActivePreset === 'smooth' && styles.presetChipTextActive
                 ]}>
-                  Smooth Job
+                  Best-Case Execution
                 </Text>
               </TouchableOpacity>
             </View>
@@ -692,7 +710,17 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             {/* Preset Applied Indicator */}
             {getPresetDetails && (
               <View>
-                <View style={styles.presetAppliedIndicator}>
+                <View style={[
+                  styles.presetAppliedIndicator,
+                  getPresetDetails.name === 'Typical Friction' && {
+                    backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                    borderColor: 'rgba(234, 179, 8, 0.25)',
+                  },
+                  getPresetDetails.name === 'Rough Remodel' && {
+                    backgroundColor: 'rgba(249, 115, 22, 0.12)',
+                    borderColor: 'rgba(249, 115, 22, 0.25)',
+                  }
+                ]}>
                   <Text style={styles.presetAppliedText}>
                     <Text style={{ fontWeight: '700' }}>{getPresetDetails.name} applied:</Text> {getPresetDetails.details}
                   </Text>
@@ -731,6 +759,16 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <QuickAdjust label="↓ Overhead -10%" field="overheadPct" delta={-10} />
             </View>
 
+            {/* Timeline Section */}
+            <Text style={styles.sectionLabel}>Timeline</Text>
+            <Text style={[styles.sectionLabel, { fontSize: 11, marginTop: 0, marginBottom: 4, fontWeight: '400', opacity: 0.8 }]}>
+              Job runs longer or finishes early
+            </Text>
+            <View style={styles.chipRow}>
+              <QuickAdjust label="↑ +20% longer" field="timelinePct" delta={20} />
+              <QuickAdjust label="↓ -20% early" field="timelinePct" delta={-20} />
+            </View>
+
             {/* Pricing Strategy Section */}
             <Text style={styles.sectionLabel}>Bid Adjustment</Text>
             <Text style={[styles.sectionLabel, { fontSize: 11, marginTop: 0, marginBottom: 4, opacity: palette.mutedOpacity, fontWeight: '400' }]}>
@@ -751,9 +789,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             {/* Live Deltas */}
             <View style={styles.deltaRow}>
               {[
-                { label: "Labor", value: adj.laborPct, color: adj.laborPct > 0 ? palette.orange : adj.laborPct < 0 ? palette.green : palette.textDim },
-                { label: "Materials", value: adj.materialPct, color: adj.materialPct > 0 ? palette.yellow : adj.materialPct < 0 ? palette.green : palette.textDim },
-                { label: "Overhead", value: adj.overheadPct, color: adj.overheadPct > 0 ? palette.orange : adj.overheadPct < 0 ? palette.green : palette.textDim },
+                { label: "Labor", value: adj.laborPct, color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.laborPct < 0 ? palette.green : palette.textDim },
+                { label: "Materials", value: adj.materialPct, color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.materialPct < 0 ? palette.green : palette.textDim },
+                { label: "Overhead", value: adj.overheadPct, color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.overheadPct < 0 ? palette.green : palette.textDim },
+                { label: "Timeline", value: adj.timelinePct ?? 0, color: (adj.timelinePct ?? 0) > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : (adj.timelinePct ?? 0) < 0 ? palette.green : palette.textDim },
                 { label: "Bid", value: adj.markupPct, color: adj.markupPct > 0 ? palette.accent : adj.markupPct < 0 ? palette.red : palette.textDim },
               ].map((item) => (
                 <View key={item.label} style={styles.deltaItem}>
@@ -765,36 +804,42 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               ))}
             </View>
 
-            {/* Simulation Summary */}
-            <View style={styles.simSummary}>
+            {/* Simulation Summary - styled like Step 5 bid breakdown */}
+            <View style={[
+              styles.simSummary,
+              darkMode && {
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                borderColor: 'rgba(255, 255, 255, 0.15)',
+              },
+            ]}>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Labor:</Text>
+                <Text style={styles.simLabel}>Labor:</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.simValue, { opacity: palette.subtleOpacity }]}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.simValue}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.laborPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, opacity: palette.faintOpacity, color: adj.laborPct > 0 ? palette.orange : palette.green }]}>
+                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.laborPct > 0 ? '+' : ''}${(base.labor * (adj.laborPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
               </View>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Materials:</Text>
+                <Text style={styles.simLabel}>Materials:</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.simValue, { opacity: palette.subtleOpacity }]}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.simValue}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.materialPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, opacity: palette.faintOpacity, color: adj.materialPct > 0 ? palette.yellow : palette.green }]}>
+                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.materialPct > 0 ? '+' : ''}${(base.materials * (adj.materialPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
               </View>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Overhead:</Text>
+                <Text style={styles.simLabel}>Overhead:</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.simValue, { opacity: palette.subtleOpacity }]}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.simValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.overheadPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, opacity: palette.faintOpacity, color: adj.overheadPct > 0 ? palette.orange : palette.green }]}>
+                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.overheadPct > 0 ? '+' : ''}${(base.overhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -802,23 +847,24 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </View>
               {Math.abs(aiTip.bidDelta) > 0.01 && (
                 <View style={styles.simRow}>
-                  <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Total Bid Change:</Text>
-                  <Text style={[styles.simValue, { opacity: palette.subtleOpacity, color: aiTip.bidDelta >= 0 ? palette.green : palette.red }]}>
+                  <Text style={styles.simLabel}>Total Bid Change:</Text>
+                  <Text style={[styles.simValue, { color: aiTip.bidDelta >= 0 ? '#38d39f' : palette.red }]}>
                     {aiTip.bidDelta >= 0 ? '+' : ''}${aiTip.bidDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </View>
               )}
-              <View style={[styles.simRow, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }]}>
+              <View style={styles.simDivider} />
+              <View style={styles.simRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.simLabelBold}>
                     {sim.isExecutionMode ? 'Original Bid:' : 'Total Bid (Adjusted):'}
                   </Text>
                   {!sim.isExecutionMode && (
                     <View>
-                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, opacity: palette.subtleOpacity }]}>
+                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2 }]}>
                         Original: ${sim.originalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
-                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, opacity: palette.subtleOpacity, color: palette.accent }]}>
+                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: '#38d39f' }]}>
                         Change: {sim.totalBid > sim.originalBid ? '+' : ''}${(sim.totalBid - sim.originalBid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>
@@ -828,7 +874,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                   style={[
                     styles.simValueBoldLarge,
                     {
-                      color: !sim.isExecutionMode ? palette.accent : palette.text,
+                      color: '#22d3ee',
                       transform: [{
                         scale: totalBidAnim.interpolate({
                           inputRange: [0, 1],
@@ -842,10 +888,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </Animated.Text>
               </View>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.mutedOpacity }]}>Estimated Net Profit:</Text>
+                <Text style={styles.simLabel}>Estimated Net Profit:</Text>
                 <Text style={[styles.simValue, { 
-                  color: sim.netProfit >= 0 ? palette.green : palette.red,
-                  fontWeight: '700'
+                  color: sim.netProfit >= 0 ? '#38d39f' : palette.red,
+                  fontWeight: '800',
+                  fontSize: 18,
                 }]}>
                   ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -857,9 +904,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     styles.simValueBold, 
                     { 
                       fontWeight: '800',
+                      fontSize: 18,
                       color: profitMarginColorAnim.interpolate({
                         inputRange: [0, 0.5, 0.75, 1],
-                        outputRange: [palette.red, palette.yellow, palette.green, palette.green]
+                        outputRange: [palette.red, palette.yellow, palette.accent, palette.accent]
                       })
                     }
                   ]}
@@ -867,29 +915,29 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                   {sim.netProfitMarginPct.toFixed(1)}%
                 </Animated.Text>
               </View>
-              {/* Break-Even Model */}
-              <View style={[styles.simRow, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }]}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Break-even bid:</Text>
-                <Text style={[styles.simValue, { opacity: palette.subtleOpacity }]}>
+              <View style={styles.simDivider} />
+              <View style={styles.simRow}>
+                <Text style={styles.simLabel}>Break-even bid:</Text>
+                <Text style={styles.simValue}>
                   ${(sim.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Current bid:</Text>
-                <Text style={[styles.simValue, { fontWeight: '600' }]}>
+                <Text style={styles.simLabel}>Current bid:</Text>
+                <Text style={[styles.simValue, { fontWeight: '700' }]}>
                   ${(sim.totalBid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <View style={styles.simRow}>
-                <Text style={[styles.simLabel, { opacity: palette.subtleOpacity }]}>Cushion above break-even:</Text>
+                <Text style={styles.simLabel}>Cushion above break-even:</Text>
                 <Text style={[styles.simValue, { 
-                  color: (sim.totalBid - sim.subtotal) >= 0 ? palette.green : palette.red,
-                  fontWeight: '700'
+                  color: (sim.totalBid - sim.subtotal) >= 0 ? '#38d39f' : palette.red,
+                  fontWeight: '800',
+                  fontSize: 18,
                 }]}>
                   ${((sim.totalBid || 0) - (sim.subtotal || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
-              {/* Break-Even Line */}
               {sim.netProfitOnCostPct > 0 && (
                 <View style={styles.breakEvenRow}>
                   <Text style={styles.breakEvenText}>
@@ -899,19 +947,51 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               )}
             </View>
 
-          {/* AI Insight */}
-          <View style={styles.aiTipCard}>
-            <Text style={[styles.aiTipText, { color: aiTip.color || palette.text }]}>{aiTip.text}</Text>
+          {/* AI Insight - Scenario Outcome (styled like Step 5) */}
+          <View style={[
+            styles.aiTipCard,
+            darkMode && {
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              borderColor: 'rgba(255, 255, 255, 0.15)',
+            },
+          ]}>
             {(aiTip.profitDelta !== 0 || Math.abs(sim.netProfit - aiTip.originalProfit) > 0.01) && (
-              <View style={styles.aiTipDeltaContainer}>
-                <Text style={styles.aiTipDeltaLabel}>Estimated profit after scenario:{'\n'}</Text>
-                <Text style={styles.aiTipDeltaText}>
-                  Original: <Text style={{ color: aiTip.originalProfit >= 0 ? palette.green : palette.red }}>${aiTip.originalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text> • 
-                  Change: <Text style={{ color: aiTip.profitDelta >= 0 ? palette.green : palette.red }}>{aiTip.profitDelta >= 0 ? '+' : '-'}${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text> • 
-                  New: <Text style={{ color: sim.netProfit >= 0 ? palette.green : palette.red }}>${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-                </Text>
-              </View>
+              <>
+                <View style={styles.simRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.simLabel, { color: palette.text }]}>Original net profit:</Text>
+                    <Text style={[styles.simLabel, { fontSize: 12, marginTop: 2, color: '#38d39f' }]}>
+                      {aiTip.originalNetProfitPct.toFixed(1)}%
+                    </Text>
+                  </View>
+                  <Text style={[styles.simValue, { color: aiTip.originalProfit >= 0 ? '#22d3ee' : palette.red }]}>
+                    ${aiTip.originalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.simRow}>
+                  <Text style={styles.simLabel}>Change:</Text>
+                  <Text style={[styles.simValue, { color: aiTip.profitDelta >= 0 ? '#38d39f' : palette.red }]}>
+                    {aiTip.profitDelta >= 0 ? '+' : '-'}${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.simRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.simLabel}>Adjusted net profit:</Text>
+                    <Text style={[styles.simLabel, { fontSize: 12, marginTop: 2, color: '#38d39f' }]}>
+                      {sim.netProfitMarginPct.toFixed(1)}%
+                    </Text>
+                  </View>
+                  <Text style={[styles.simValue, { color: sim.netProfit >= 0 ? '#38d39f' : palette.red, fontWeight: '800', fontSize: 18 }]}>
+                    ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </>
             )}
+            <View style={[(aiTip.profitDelta !== 0 || Math.abs(sim.netProfit - aiTip.originalProfit) > 0.01) ? styles.breakEvenRow : { marginTop: 0 }]}>
+              <Text style={[styles.breakEvenText, { color: aiTip.color || palette.text }]}>
+                {aiTip.text}
+              </Text>
+            </View>
           </View>
         </ScrollView>
 
@@ -1246,6 +1326,26 @@ const getStyles = (palette) => StyleSheet.create({
     borderWidth: 2,
     borderColor: '#38d39f',
   },
+  presetChipActiveTypical: {
+    backgroundColor: 'rgba(234, 179, 8, 0.12)',
+    borderWidth: 2,
+    borderColor: '#eab308',
+  },
+  presetChipTextActiveTypical: {
+    color: '#eab308',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  presetChipActiveBad: {
+    backgroundColor: 'rgba(249, 115, 22, 0.12)',
+    borderWidth: 2,
+    borderColor: '#f97316',
+  },
+  presetChipTextActiveBad: {
+    color: '#f97316',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   presetChipText: {
     color: palette.text,
     fontWeight: '600',
@@ -1399,10 +1499,10 @@ const getStyles = (palette) => StyleSheet.create({
   },
   simSummary: {
     backgroundColor: palette.chip,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: palette.divider,
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 12,
+    padding: 16,
     marginTop: 24,
   },
   simRow: {
@@ -1412,28 +1512,33 @@ const getStyles = (palette) => StyleSheet.create({
     marginBottom: 4,
   },
   simLabel: {
-    color: palette.textDim,
-    fontSize: 14,
+    color: palette.text,
+    fontSize: 13,
   },
   simValue: {
     color: palette.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   simLabelBold: {
     color: palette.text,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
   },
   simValueBold: {
     color: palette.accent,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '600',
   },
   simValueBoldLarge: {
     color: palette.text,
-    fontSize: 24,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  simDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginVertical: 8,
   },
   breakEvenRow: {
     marginTop: 8,
@@ -1510,12 +1615,12 @@ const getStyles = (palette) => StyleSheet.create({
   },
 
   aiTipCard: {
-    marginTop: 4,
+    marginTop: 24,
     backgroundColor: palette.chip,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: palette.divider,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
   },
   aiTipText: {
     color: palette.text,

@@ -537,27 +537,82 @@ export default function BudgetTab({
   }
   const contractValue = baseBid != null && baseBid > 0 ? baseBid + coApproved : adjustedBudget;
   // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
+  // CRITICAL: Prefer cost from line items first — it's the source of truth from the estimate breakdown.
+  // Stored estimatedCost may be wrong (e.g. derived from 20% margin instead of actual 18.2%).
+  const costFromLineItems = (() => {
+    const bid = ed ?? (projectFromList as any) ?? (projectData as any);
+    const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+    const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+    const overhead =
+      Number(bid?.equipment || 0) +
+      Number(bid?.facilities || 0) +
+      Number(bid?.insuranceOverhead || 0) +
+      Number(bid?.otherOverhead || 0) +
+      Number(bid?.planCost || 0) +
+      Number(bid?.permitCost || 0);
+    if (materials + labor + overhead > 0) return materials + labor + overhead;
+    // Fallback: sum Labor + Materials + Overhead buckets
+    const buckets = (projectData as any)?.buckets || (projectFromList as any)?.buckets || [];
+    const costBuckets = buckets.filter((b: any) =>
+      (b?.name || '').toLowerCase().includes('labor') ||
+      (b?.name || '').toLowerCase().includes('material') ||
+      (b?.name || '').toLowerCase().includes('overhead')
+    );
+    const fromBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
+    if (fromBuckets > 0) return fromBuckets;
+    // Fallback: cost = bid - markup (Markup bucket = profit, so subtotal = bid - markup)
+    const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
+    const markupAmt = Number(markupBucket?.budget || 0);
+    if (baseBid != null && baseBid > 0 && markupAmt > 0 && markupAmt < baseBid) {
+      return baseBid - markupAmt;
+    }
+    return 0;
+  })();
   const estimateCostFromParts =
-    Number(ed?.materials || 0) +
-    Number(ed?.labor || 0) +
-    Number(ed?.equipment || 0) +
-    Number(ed?.facilities || 0) +
-    Number(ed?.insuranceOverhead || 0) +
-    Number(ed?.otherOverhead || 0) +
-    Number(ed?.planCost || 0) +
-    Number(ed?.permitCost || 0);
+    Number((ed?.materials ?? (projectFromList as any)?.materials ?? (projectData as any)?.materials) || 0) +
+    Number((ed?.labor ?? (projectFromList as any)?.labor ?? (projectData as any)?.labor) || 0) +
+    Number((ed?.equipment ?? (projectFromList as any)?.equipment ?? (projectData as any)?.equipment) || 0) +
+    Number((ed?.facilities ?? (projectFromList as any)?.facilities ?? (projectData as any)?.facilities) || 0) +
+    Number((ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead) || 0) +
+    Number((ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead) || 0) +
+    Number((ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost) || 0) +
+    Number((ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost) || 0);
+  // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
+  // Net profit = gross profit - overhead (estimate subtracts overhead from markup to get net)
+  const estimateNetProfit = Number((projectFromList as any)?.profit ?? (projectData as any)?.profit ?? ed?.profit ?? 0);
+  const overheadFromEstimate =
+    Number(ed?.equipment ?? (projectFromList as any)?.equipment ?? (projectData as any)?.equipment ?? 0) +
+    Number(ed?.facilities ?? (projectFromList as any)?.facilities ?? (projectData as any)?.facilities ?? 0) +
+    Number(ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead ?? 0) +
+    Number(ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead ?? 0) +
+    Number(ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost ?? 0) +
+    Number(ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost ?? 0);
+  const derivedNetProfit =
+    costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
+      ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
+      : 0;
+  const effectiveEstimateProfit = estimateNetProfit > 0 ? estimateNetProfit : (derivedNetProfit > 0 && derivedNetProfit < contractValue ? derivedNetProfit : 0);
+  // Use estimate's net-profit cost whenever we have it so margin stays at estimate (e.g. 15%) even after adding expenses.
+  const costFromEstimateProfit =
+    contractValue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < contractValue
+      ? contractValue - effectiveEstimateProfit
+      : 0;
   let costBase = Number(
+    (costFromEstimateProfit > 0 ? costFromEstimateProfit : null) ??
+    (costFromLineItems > 0 ? costFromLineItems : null) ??
+    (projectFromList as any)?.estimatedCost ??
+    (projectFromList as any)?.subtotal ??
+    (projectData as any)?.estimatedCost ??
+    (projectData as any)?.subtotal ??
     ed?.estimatedCost ??
     ed?.subtotal ??
     ed?.totalCost ??
     ed?.baseCost ??
     (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
-    (projectFromList as any)?.estimatedCost ??
-    (projectData as any)?.estimatedCost ??
     0
   );
   if (costBase <= 0 && baseBid != null && baseBid > 0) {
-    const marginPct = Number((projectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    const marginPct = Number((projectData as any)?.margin ?? (projectFromList as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
     if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
     else costBase = baseBid / 1.18; // Default 18% markup if no margin
   }

@@ -1582,22 +1582,76 @@ function ProjectDetailContent() {
     }
     const contractValue = baseBid != null && baseBid > 0 ? baseBid + approvedChangeOrdersTotal : adjustedBudget;
     // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
+    // CRITICAL: Prefer cost from line items first — source of truth from estimate breakdown.
+    // Stored estimatedCost may be wrong (e.g. derived from 20% margin instead of actual 18.2%).
+    const costFromLineItems = (() => {
+      const bid = ed ?? safeProjectData;
+      const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+      const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
+      const overhead =
+        Number(bid?.equipment || 0) +
+        Number(bid?.facilities || 0) +
+        Number(bid?.insuranceOverhead || 0) +
+        Number(bid?.otherOverhead || 0) +
+        Number(bid?.planCost || 0) +
+        Number(bid?.permitCost || 0);
+      if (materials + labor + overhead > 0) return materials + labor + overhead;
+      // Fallback: sum Labor + Materials/Equipment + Overhead buckets (exclude Markup)
+      const buckets = safeProjectData?.buckets || [];
+      const costBuckets = buckets.filter((b: any) =>
+        (b?.name || '').toLowerCase().includes('labor') ||
+        (b?.name || '').toLowerCase().includes('material') ||
+        (b?.name || '').toLowerCase().includes('overhead')
+      );
+      const fromCostBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
+      if (fromCostBuckets > 0) return fromCostBuckets;
+      // Fallback: cost = bid - markup (Markup bucket = profit, so subtotal = bid - markup)
+      const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
+      const markupAmt = Number(markupBucket?.budget || 0);
+      if (baseBid != null && baseBid > 0 && markupAmt > 0 && markupAmt < baseBid) {
+        return baseBid - markupAmt;
+      }
+      return 0;
+    })();
     const estimateCostFromParts =
-      Number(ed?.materials || 0) +
-      Number(ed?.labor || 0) +
+      Number((ed?.materials ?? (safeProjectData as any)?.materials) || 0) +
+      Number((ed?.labor ?? (safeProjectData as any)?.labor) || 0) +
       Number(ed?.equipment || 0) +
       Number(ed?.facilities || 0) +
       Number(ed?.insuranceOverhead || 0) +
       Number(ed?.otherOverhead || 0) +
       Number(ed?.planCost || 0) +
       Number(ed?.permitCost || 0);
+    // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
+    // Fallback: derive net profit when not stored (gross profit - overhead) so we don't show 20% from gross margin
+    const estimateNetProfit = Number((safeProjectData as any)?.profit ?? ed?.profit ?? 0);
+    const overheadFromEstimate =
+      Number(ed?.equipment ?? 0) +
+      Number(ed?.facilities ?? 0) +
+      Number(ed?.insuranceOverhead ?? 0) +
+      Number(ed?.otherOverhead ?? 0) +
+      Number(ed?.planCost ?? 0) +
+      Number(ed?.permitCost ?? 0);
+    const derivedNetProfit =
+      costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
+        ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
+        : 0;
+    const effectiveEstimateProfit = estimateNetProfit > 0 ? estimateNetProfit : (derivedNetProfit > 0 && derivedNetProfit < contractValue ? derivedNetProfit : 0);
+    // Use estimate's net-profit cost whenever we have it so margin stays at estimate (e.g. 15%) even after adding expenses.
+    const costFromEstimateProfit =
+      contractValue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < contractValue
+        ? contractValue - effectiveEstimateProfit
+        : 0;
     let costBase = Number(
+      (costFromEstimateProfit > 0 ? costFromEstimateProfit : null) ??
+      (costFromLineItems > 0 ? costFromLineItems : null) ??
+      (safeProjectData as any)?.estimatedCost ??
+      (safeProjectData as any)?.subtotal ??
       ed?.estimatedCost ??
       ed?.subtotal ??
       ed?.totalCost ??
       ed?.baseCost ??
       (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
-      (safeProjectData as any)?.estimatedCost ??
       0
     );
     if (costBase <= 0 && baseBid != null && baseBid > 0) {

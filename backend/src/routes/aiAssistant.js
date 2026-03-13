@@ -1085,10 +1085,8 @@ function runProjectsListIntelligence(parsedContext) {
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARE PROJECTS — deterministic fast path (no LLM) for "compare all projects"
 // Uses same logic as mobile Projects page (getProjectRevenue, actualCost, computeProfitForecast)
-// Only includes Chris, Nick, Jason to match Projects page display.
+// Includes all active projects (no hardcoded name filter).
 // ─────────────────────────────────────────────────────────────────────────────
-const ALLOWED_PROJECT_NAMES = ['chris', 'nick', 'jason'];
-const PROJECT_ORDER = ['chris', 'jason', 'nick']; // Fixed order to match Projects page
 
 function runCompareProjects(parsedContext) {
   // Prefer client-provided compareProjectsData (matches Projects page exactly — includes overrides & timeline)
@@ -1106,7 +1104,9 @@ function runCompareProjects(parsedContext) {
   if (precomputed.length > 0) {
     const data = precomputed;
     const totalRevenue = data.reduce((s, x) => s + Number(x.revenue || 0), 0);
-    const totalProfit = data.reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+    const isCompleted = (x) => (x.status || '').toLowerCase() === 'completed';
+    const projectedProfitActive = data.filter((x) => !isCompleted(x)).reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+    const netProfitCompleted = data.filter(isCompleted).reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
     const highestMargin = data.reduce((best, x) => (x.margin > (best?.margin ?? 0) ? x : best), null);
     const highestProfit = data.reduce((best, x) => (Number(x.projectedProfit || 0) > Number(best?.projectedProfit || 0) ? x : best), null);
     const needsAttention = data.filter((x) => x.missingReceipts > 0 || (Array.isArray(x.riskFlags) && x.riskFlags.length > 0));
@@ -1145,11 +1145,12 @@ function runCompareProjects(parsedContext) {
         riskParts.push(...x.riskFlags.filter((r) => r !== 'missing_receipts').map((r) => String(r).replace(/_/g, ' ')));
       }
       const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
+      const profitLabel = isCompleted(x) ? 'Net Profit' : 'Projected Profit';
       reply += `**${x.title}**\n`;
       reply += `• Margin: ${x.margin}%\n`;
       reply += `• Spent: $${fmt(x.spent || 0)}\n`;
       if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
-      reply += `• Projected Profit: $${fmt(x.projectedProfit || 0)}\n`;
+      reply += `• ${profitLabel}: $${fmt(x.projectedProfit || 0)}\n`;
       if (x.revenue != null && x.revenue > 0) reply += `• Revenue: $${fmt(x.revenue)}\n`;
       if (x.budgetUsedPct != null && x.budgetUsedPct > 0) reply += `• Budget used: ${x.budgetUsedPct}%\n`;
       if (x.progress != null) reply += `• Progress: ${Math.round(x.progress)}%\n`;
@@ -1157,9 +1158,14 @@ function runCompareProjects(parsedContext) {
       reply += `• ${riskStr}\n\n`;
     });
 
-    reply += `**Portfolio totals** — Revenue: $${fmt(totalRevenue)} | Projected profit: $${fmt(totalProfit)}\n\n`;
+    let portfolioLine = `**Portfolio totals** — Revenue: $${fmt(totalRevenue)}`;
+    if (projectedProfitActive > 0) portfolioLine += ` | Projected profit (active): $${fmt(projectedProfitActive)}`;
+    if (netProfitCompleted > 0) portfolioLine += ` | Net profit already made: $${fmt(netProfitCompleted)}`;
+    reply += portfolioLine + '\n\n';
     if (needsAttention.length > 0) {
-      const receiptProjects = needsAttention.filter((x) => x.missingReceipts > 0);
+      const receiptProjects = needsAttention
+        .filter((x) => x.missingReceipts > 0)
+        .filter((x) => (x.status || '').toLowerCase() !== 'completed');
       if (receiptProjects.length > 0) {
         reply += `**Focus on:** ${receiptProjects.map((x) => x.title).join(', ')} — upload missing receipts to reduce risk.\n`;
       }
@@ -1265,19 +1271,16 @@ function runCompareProjects(parsedContext) {
     return { projectedProfit, projectedMarginPct };
   }
 
-  // Filter to Chris, Nick, Jason only (same as Projects page)
   const filtered = allProjects.filter((p) => {
-    const t = String(p?.title || p?.name || '').toLowerCase().trim();
-    return ALLOWED_PROJECT_NAMES.some((n) => t === n || t.startsWith(n + ' ') || t.startsWith(n + '-') || t.startsWith(n + "'"));
+    const t = String(p?.title || p?.name || '').trim();
+    return t.length > 0;
   });
 
-  // Dedupe by name (prefer exact match)
   const seen = new Set();
   const deduped = filtered.filter((p) => {
-    const t = String(p?.title || p?.name || '').toLowerCase().trim();
-    const key = PROJECT_ORDER.find((n) => t === n || t.startsWith(n)) ?? t;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const id = String(p?.id ?? '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
     return true;
   });
 
@@ -1366,18 +1369,14 @@ function runCompareProjects(parsedContext) {
     };
   });
 
-  // Sort by fixed order: Chris, Jason, Nick
-  const sorted = [...analyzed].sort((a, b) => {
-    const aIdx = PROJECT_ORDER.findIndex((n) => (a.title || '').toLowerCase().startsWith(n));
-    const bIdx = PROJECT_ORDER.findIndex((n) => (b.title || '').toLowerCase().startsWith(n));
-    if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-    if (aIdx >= 0) return -1;
-    if (bIdx >= 0) return 1;
-    return 0;
-  });
+  const sorted = [...analyzed].sort((a, b) =>
+    (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
+  );
 
   const totalRevenue = sorted.reduce((s, x) => s + Number(x.revenue || 0), 0);
-  const totalProfit = sorted.reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+  const isCompletedFallback = (x) => (x.status || '').toLowerCase() === 'completed';
+  const projectedProfitActiveFallback = sorted.filter((x) => !isCompletedFallback(x)).reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
+  const netProfitCompletedFallback = sorted.filter(isCompletedFallback).reduce((s, x) => s + Number(x.projectedProfit || 0), 0);
   const highestMargin = sorted.reduce((best, x) => (x.margin > (best?.margin ?? 0) ? x : best), null);
   const highestProfit = sorted.reduce((best, x) => (Number(x.projectedProfit || 0) > Number(best?.projectedProfit || 0) ? x : best), null);
   const needsAttention = sorted.filter((x) => x.missingReceipts > 0 || (Array.isArray(x.riskFlags) && x.riskFlags.length > 0));
@@ -1416,11 +1415,12 @@ function runCompareProjects(parsedContext) {
       riskParts.push(...x.riskFlags.filter((r) => r !== 'missing_receipts').map((r) => String(r).replace(/_/g, ' ')));
     }
     const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
+    const profitLabelFallback = isCompletedFallback(x) ? 'Net Profit' : 'Projected Profit';
     reply += `**${x.title}**\n`;
     reply += `• Margin: ${x.margin}%\n`;
     reply += `• Spent: $${fmt(x.spent || 0)}\n`;
     if (x.committedPOs != null && x.committedPOs > 0) reply += `• Committed POs: $${fmt(x.committedPOs)}\n`;
-    reply += `• Projected Profit: $${fmt(x.projectedProfit || 0)}\n`;
+    reply += `• ${profitLabelFallback}: $${fmt(x.projectedProfit || 0)}\n`;
     if (x.revenue != null && x.revenue > 0) reply += `• Revenue: $${fmt(x.revenue)}\n`;
     if (x.budgetUsedPct != null && x.budgetUsedPct > 0) reply += `• Budget used: ${x.budgetUsedPct}%\n`;
     if (x.progress != null) reply += `• Progress: ${Math.round(x.progress)}%\n`;
@@ -1428,9 +1428,14 @@ function runCompareProjects(parsedContext) {
     reply += `• ${riskStr}\n\n`;
   });
 
-  reply += `**Portfolio totals** — Revenue: $${fmt(totalRevenue)} | Projected profit: $${fmt(totalProfit)}\n\n`;
+  let portfolioLineFallback = `**Portfolio totals** — Revenue: $${fmt(totalRevenue)}`;
+  if (projectedProfitActiveFallback > 0) portfolioLineFallback += ` | Projected profit (active): $${fmt(projectedProfitActiveFallback)}`;
+  if (netProfitCompletedFallback > 0) portfolioLineFallback += ` | Net profit already made: $${fmt(netProfitCompletedFallback)}`;
+  reply += portfolioLineFallback + '\n\n';
   if (needsAttention.length > 0) {
-    const receiptProjects = needsAttention.filter((x) => x.missingReceipts > 0);
+    const receiptProjects = needsAttention
+      .filter((x) => x.missingReceipts > 0)
+      .filter((x) => (x.status || '').toLowerCase() !== 'completed');
     if (receiptProjects.length > 0) {
       reply += `**Focus on:** ${receiptProjects.map((x) => x.title).join(', ')} — upload missing receipts to reduce risk.\n`;
     }
@@ -1781,14 +1786,80 @@ function runTodayBrief(parsedContext) {
   };
 }
 
+/** Normalize weekly payment items to have title/name for display (e.g. "Week 1 Payment"). */
+function normalizeWeeklyPaymentsForDisplay(weeklyPayments = [], scheduleType = 'weekly') {
+  if (!Array.isArray(weeklyPayments) || weeklyPayments.length === 0) return [];
+  return weeklyPayments.map((w, i) => {
+    const existingName = String(w?.title || w?.name || w?.description || '').trim();
+    const name = existingName && /week\s*\d+|payment\s*\d+/i.test(existingName)
+      ? existingName
+      : `Week ${i + 1} Payment`;
+    return {
+      ...w,
+      id: w?.id || `week-${i + 1}`,
+      title: name,
+      name,
+      amount: Number(w?.amount ?? w?.paymentAmount ?? 0),
+      status: w?.status || 'pending',
+      progressPct: Number(w?.progressPct ?? w?.progress ?? 0),
+    };
+  });
+}
+
 function getAllMilestonesFromContext(parsedContext = {}) {
+  const bidData = parsedContext?.bidData || {};
+  const estimateData = parsedContext?.estimateData || parsedContext?.currentProject?.estimateData || {};
+  let scheduleType =
+    parsedContext?.paymentSchedule ||
+    bidData?.paymentSchedule ||
+    estimateData?.paymentSchedule ||
+    parsedContext?.currentProject?.paymentSchedule ||
+    null;
+  // Infer weekly when we have weeklyPayments with week-like items but no explicit schedule
+  if (!scheduleType) {
+    const weekly = estimateData?.weeklyPayments || bidData?.weeklyPayments || parsedContext?.weeklyPayments || [];
+    const hasWeekLike = Array.isArray(weekly) && weekly.some(w =>
+      /week\s*\d+|payment\s*\d+/i.test(String(w?.title || w?.name || w?.description || '')) || (w?.weekNumber != null)
+    );
+    scheduleType = hasWeekLike ? 'weekly' : 'milestone-based';
+  }
+  scheduleType = scheduleType || 'milestone-based';
+
+  // Weekly payments: prefer estimateData (saved projects) or bidData (estimate phase), normalize to "Week N Payment"
+  const weeklySource = Array.isArray(estimateData?.weeklyPayments) && estimateData.weeklyPayments.length > 0
+    ? estimateData.weeklyPayments
+    : Array.isArray(bidData?.weeklyPayments) && bidData.weeklyPayments.length > 0
+      ? bidData.weeklyPayments
+      : [];
+  const fromWeekly = scheduleType === 'weekly' && weeklySource.length > 0
+    ? normalizeWeeklyPaymentsForDisplay(weeklySource, scheduleType)
+    : [];
+
+  // Milestone-based: use paymentMilestones from estimateData or bidData when schedule is milestone-based
+  const milestoneSource = Array.isArray(estimateData?.paymentMilestones) && estimateData.paymentMilestones.length > 0
+    ? estimateData.paymentMilestones
+    : Array.isArray(bidData?.paymentMilestones) && bidData.paymentMilestones.length > 0
+      ? bidData.paymentMilestones
+      : [];
+  const fromMilestones = (scheduleType === 'milestone-based' || scheduleType === 'hybrid') && milestoneSource.length > 0
+    ? milestoneSource.map((m, i) => ({
+        ...m,
+        title: m?.title || m?.name || `Milestone ${i + 1}`,
+        name: m?.name || m?.title || `Milestone ${i + 1}`,
+      }))
+    : [];
+
   return [
     ...(parsedContext?.milestones || []),
+    ...(parsedContext?.weeklyPayments || []),
     ...(parsedContext?.paymentMilestones || []),
     ...(parsedContext?.timelineItems || []),
     ...(parsedContext?.currentProject?.milestones || []),
+    ...(parsedContext?.currentProject?.weeklyPayments || []),
     ...(parsedContext?.currentProject?.paymentMilestones || []),
     ...(parsedContext?.currentProject?.timelineItems || []),
+    ...fromWeekly,
+    ...fromMilestones,
   ];
 }
 
@@ -1867,12 +1938,23 @@ function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
   if (!searchName) return null;
 
   // Exact title match
-  let match = pendingPayments.find((m) => String(m?.title || m?.name || '').toLowerCase() === searchName);
+  let match = pendingPayments.find((m) => String(m?.title || m?.name || m?.description || '').toLowerCase() === searchName);
   if (match) return match;
+
+  // "week 1" / "week 1 payment" → match "Week 1 Payment" or "Weekly Payment 1"
+  const weekNumMatch = searchName.match(/\bweek\s*(\d+)(?:\s*payment)?\b|(?:weekly\s+)?payment\s*(\d+)/i);
+  if (weekNumMatch) {
+    const num = weekNumMatch[1] || weekNumMatch[2];
+    match = pendingPayments.find((m) => {
+      const t = String(m?.title || m?.name || m?.description || '').toLowerCase();
+      return (t.includes(`week ${num}`) || t.includes(`week${num}`) || t.includes(`weekly payment ${num}`) || t.includes(`payment ${num}`));
+    });
+    if (match) return match;
+  }
 
   // Partial contains
   match = pendingPayments.find((m) => {
-    const t = String(m?.title || m?.name || '').toLowerCase();
+    const t = String(m?.title || m?.name || m?.description || '').toLowerCase();
     return t.includes(searchName) || searchName.includes(t);
   });
   if (match) return match;
@@ -1890,7 +1972,7 @@ function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
   if (!normalizedSearch) return null;
 
   return pendingPayments.find((m) => {
-    const normalizedTitle = normalize(m?.title || m?.name || '');
+    const normalizedTitle = normalize(m?.title || m?.name || m?.description || '');
     return normalizedTitle.includes(normalizedSearch) || normalizedSearch.includes(normalizedTitle);
   }) || null;
 }
@@ -3075,11 +3157,11 @@ router.post('/', async (req, res) => {
               },
               vendor: {
                 type: 'string',
-                description: 'For MATERIALS: the vendor/store (e.g., "Home Depot", "Lowe\'s"). REQUIRED - ask "Where was it purchased?" if missing. For LABOR: the sub/trade (e.g., "General Labor", "Framing", "Plumbing", "Electrical"). When user says "general labor", "it\'s general labor", or a trade name in response to vendor question, use that as vendor - do NOT ask again. The vendor field displays as "Sub/Trade" for labor.',
+                description: 'For MATERIALS: the vendor/store (e.g., "Home Depot", "Lowe\'s"). REQUIRED - ask "Where was it purchased?" if missing. For LABOR: the trade (e.g., "Tile work", "Framing", "General Labor"). NEVER ask "vendor" for labor — ask "What trade and what was the work?" Trade and description go in vendor + notes. When user says "Bathroom, for tile work", use trade="Tile work" or "Tile", notes="Bathroom, for tile work".',
               },
               notes: {
                 type: 'string',
-                description: 'Additional notes about the expense. For LABOR expenses, this is REQUIRED - ask "What was the labor expense for?" (e.g., "framing", "drywall installation", "painting") and put the answer in notes. For materials, this is optional.',
+                description: 'For LABOR: description of the work (e.g., "Bathroom tile installation", "Framing for addition"). Ask "What was the labor for?" or "Description of the work?" — NEVER ask for vendor or delivery date. For materials, optional.',
               },
               projectInfo: {
                 type: 'object',
@@ -4717,7 +4799,7 @@ router.post('/', async (req, res) => {
       // If this is clearly an expense logging request without type, return early
       if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
         console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning early');
-        const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
         return res.json({ reply: question, actions: [], projectUpdateData: null });
       }
     } else {
@@ -5066,7 +5148,7 @@ router.post('/', async (req, res) => {
         routerResult.domain = 'expenses';
         routerResult.proposed_tool = 'add_material_expense';
         routerResult.required_fields_missing = ['expense_type'];
-        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
         routerResult.confidence = 0.95;
         console.log('🛡️ Expense guard: overriding router to ask for expense type');
       }
@@ -5323,7 +5405,7 @@ router.post('/', async (req, res) => {
         routerResult.domain = 'expenses';
         routerResult.proposed_tool = 'add_material_expense';
         routerResult.required_fields_missing = ['expense_type'];
-        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, category (Labor), and what the labor was for.';
+        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
         routerResult.confidence = 0.95;
       }
     } else if (isDailyLogDomain) {
@@ -5481,6 +5563,12 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
                               routerResult.domain === 'change_order' ||
                               routerResult.proposed_tool === 'create_change_order' ||
                               toolCalls.some(tc => tc.function?.name === 'create_change_order');
+
+    // CRITICAL: Labor/expense flows NEVER need delivery date — that is for purchase orders only
+    const isExpenseFlow = routerResult.domain === 'expenses' ||
+                         routerResult.proposed_tool === 'add_material_expense' ||
+                         routerResult.proposed_tool === 'add_labor_expense' ||
+                         toolCalls.some(tc => ['add_material_expense', 'add_labor_expense'].includes(tc.function?.name));
     
     if (isChangeOrderFlow) {
       // ALWAYS strip delivery/received/pickup/generic date questions — change orders NEVER need dates
@@ -5499,6 +5587,16 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
       }
       
       console.log('🛡️ CO filter: cleaned reply:', reply.substring(0, 120));
+    } else if (isExpenseFlow) {
+      // Strip delivery/pickup date questions — expenses (labor or material) NEVER need delivery date
+      if (/expected delivery|delivery date|received date|pickup date|what.*(?:date|when)/i.test(reply)) {
+        reply = reply.replace(/[^.!?\n]*(?:expected delivery|delivery date|received date|pickup date|delivery or received|what.*(?:date|when))[^.!?\n]*[.!?]?/gi, '');
+        reply = reply.replace(/\n{2,}/g, '\n').trim();
+        if (/expected delivery|delivery date|received date|pickup date/i.test(reply)) {
+          reply = reply.split(/(?<=[.!?])\s+/).filter(s => !/delivery|received date|pickup date/i.test(s)).join(' ').trim();
+        }
+        console.log('🛡️ Expense filter: stripped delivery date question from reply');
+      }
     }
 
     // CRITICAL: Block add_timeline_payment if we're in a change order flow
@@ -6115,15 +6213,16 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           // "General labor", trade names go in vendor - do NOT ask again if user already provided
           const hasLaborTrade = (isLabor && ((functionArgs.notes && functionArgs.notes.trim()) || (functionArgs.vendor && functionArgs.vendor.trim())));
           if (isLabor && !hasLaborTrade) {
-            const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
-            const tradeMatch = lastUserMsg.match(/\b(general\s+labor|it'?s\s+general\s+labor|it'?s\s+labor|labor|framing|plumbing|electrical|drywall|tile|painting|concrete|roofing|hvac|carpentry|drywall\s+installation|tile\s+work)\b/i);
-            const rawTrade = tradeMatch ? tradeMatch[1].replace(/^it'?s\s+/i, '').trim() : null;
+            const lastUserMsg = (messages.filter(m => m.role === 'user').pop()?.content || '').trim();
+            const tradeMatch = lastUserMsg.match(/\b(general\s+labor|it'?s\s+general\s+labor|it'?s\s+labor|framing|plumbing|electrical|drywall|tile|painting|concrete|roofing|hvac|carpentry|drywall\s+installation|tile\s+work)\b/i);
+            const forMatch = lastUserMsg.match(/(?:,|for)\s+(.+)$/i);
+            const rawTrade = tradeMatch ? tradeMatch[1].replace(/^it'?s\s+/i, '').trim() : (forMatch ? forMatch[1].trim() : null);
             const inferredTrade = rawTrade ? rawTrade.replace(/\b\w/g, c => c.toUpperCase()) : null;
             if (inferredTrade) {
-              // User said "general labor" etc. - inject into functionArgs so executor has it
+              // User said "Bathroom, for tile work" or "general labor" etc. - use full msg as notes, trade as vendor
               functionArgs.vendor = functionArgs.vendor || inferredTrade;
-              functionArgs.notes = functionArgs.notes || inferredTrade;
-              console.log('✅ PRE-VALIDATION: Injected labor trade from user message:', inferredTrade);
+              functionArgs.notes = functionArgs.notes || lastUserMsg;
+              console.log('✅ PRE-VALIDATION: Injected labor trade/notes from user message:', { trade: functionArgs.vendor, notes: functionArgs.notes });
             } else {
               console.error('🚫 PRE-VALIDATION: No notes/vendor (trade) provided for labor expense - blocking function call');
               messages.push({
@@ -6132,9 +6231,9 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
                 content: JSON.stringify({
                   success: false,
                   status: 'error',
-                  error: `For labor, you need the trade/sub (e.g., "general labor", "framing", "painting"). When user says "general labor" or a trade name, use it as vendor - do NOT ask again.`,
+                  error: `For labor, you need the trade and description. Ask "What trade and what was the work?" Do NOT ask for vendor or delivery date.`,
                   requiresNotes: true,
-                  message: `I need to know what the labor was for. What trade or sub? (e.g., general labor, framing, painting)`
+                  message: `Please provide the trade and description of the work (e.g., "Tile work", "Bathroom, for tile work").`
                 })
               });
               continue; // Skip executing this function call
@@ -6445,7 +6544,7 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
               functionResult = {
                 success: false,
                 status: 'error',
-                error: `For labor expenses, you need to know what the labor was for. Please ask the user "What was the labor expense for?" or "What trade/sub?" (e.g., "general labor", "framing", "drywall installation", "painting") and then call add_material_expense with notes or vendor. The trade will be stored in the vendor field (Sub/Trade). When user says "general labor" or a trade name, use it - do NOT ask again.`,
+                error: `For labor expenses, you need the trade and description. Ask "What trade and what was the work?" (e.g., "Tile work", "Bathroom, for tile work"). Do NOT ask for vendor or delivery date.`,
                 requiresNotes: true
               };
             } else {
@@ -7575,6 +7674,7 @@ RULES:
                           responseData.actions?.some(a => a.type === 'create_change_order');
     
     if (!isCOFlowFinal && 
+        !isExpenseFlow && // NEVER inject delivery date when user is logging labor/material expense
         (reply?.toLowerCase().includes('purchase order') || reply?.toLowerCase().includes('po')) && 
         (reply?.toLowerCase().includes('recorded') || reply?.toLowerCase().includes('created')) &&
         actions.length === 0 &&
@@ -7615,6 +7715,22 @@ RULES:
       return res.status(504).json({
         error: 'AI request timeout',
         message: err.message || 'AI request timed out',
+      });
+    }
+
+    // Handle OpenAI connection/network errors (ENOTFOUND, ECONNREFUSED, etc.)
+    const cause = err?.cause || err;
+    const isNetworkError =
+      err?.name === 'APIConnectionError' ||
+      cause?.code === 'ENOTFOUND' ||
+      cause?.code === 'ECONNREFUSED' ||
+      cause?.code === 'ETIMEDOUT' ||
+      cause?.code === 'ENETUNREACH' ||
+      /getaddrinfo|connection|network|fetch failed/i.test(String(err?.message || cause?.message || ''));
+    if (isNetworkError) {
+      return res.status(503).json({
+        error: 'AI service unreachable',
+        message: "Can't reach OpenAI. Check your internet connection and that api.openai.com is accessible. If you're on a VPN or restricted network, try disconnecting or using a different network.",
       });
     }
 
