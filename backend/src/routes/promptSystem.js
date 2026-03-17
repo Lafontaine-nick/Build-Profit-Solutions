@@ -21,6 +21,7 @@
  * @param {number} opts.laborSpent
  * @param {number} opts.laborRemaining
  * @param {number} opts.progress
+ * @param {number} [opts.bidMarginPct] - original margin from estimate (what they accounted for)
  * @param {boolean} opts.aiPmMode
  * @param {string[]} opts.pmAlerts  - from runProactiveIntelligence()
  * @param {string} opts.screen      - "project_detail" | "assistant_tab" | "estimate"
@@ -30,6 +31,7 @@ function buildSystemPrompt(opts = {}) {
     projectName, projectId, status = 'estimate',
     bidTotal = 0, estimatedCost = 0, actualCost = 0,
     contractValue = 0, approvedChangeOrdersTotal = 0,
+    bidMarginPct,
     materialBudget = 0, materialSpent = 0, materialRemaining = 0,
     laborBudget = 0, laborSpent = 0, laborRemaining = 0,
     progress = 0, aiPmMode = false, pmAlerts = [], screen = 'assistant_tab',
@@ -87,6 +89,12 @@ MOBILE-FIRST RESPONSES:
 - Format money as $X,XXX and percentages as X%
 - End with one clear next step when relevant
 
+MARGIN = PROFIT MARGIN:
+- "Margin", "profit margin", and "profit" (when asking about a project's profitability) mean the same thing. Use the SAME response format for all of them.
+- SOURCE PRIORITY: live project actuals > forecast > estimate baseline. If the job has live actuals (actualCost > 0), NEVER answer with estimate margin by default.
+- "Current margin" (ambiguous): PRIMARY = spend-to-date margin. SECONDARY = projected margin (mention both — users often mean forecasted final). Only use original estimate margin when user explicitly asks "estimate margin", "original bid margin", "margin at bid time".
+- Format for ambiguous "current margin": "Your spend-to-date margin is X%, and your projected margin at completion is Y%. Your original estimated margin was Z%."
+
 EXTRACTION RULES:
 - For EXPENSES: any number in the message IS the amount (e.g. "add 500 material" → amount=500)
 - For PURCHASE ORDERS: only extract amount with explicit $ or "dollars" — otherwise ask
@@ -98,6 +106,7 @@ CURRENT PROJECT:
 ${projectRef}
 ${status ? `Status: ${status}` : ''}
 ${bidTotal > 0 ? `Original Bid: $${bidTotal.toLocaleString()}` : ''}
+${typeof bidMarginPct === 'number' && !Number.isNaN(bidMarginPct) ? `Original (bid) margin from estimate: ${bidMarginPct}% (what you accounted for)` : ''}
 ${contractValue > 0 && contractValue !== bidTotal ? `Contract Value (Bid + Approved Change Orders): $${contractValue.toLocaleString()}` : ''}
 ${estimatedCost > 0 ? `Estimated Cost (your cost to complete): $${estimatedCost.toLocaleString()}` : ''}
 ${actualCost > 0 ? `Actual Spent: $${actualCost.toLocaleString()}` : ''}
@@ -238,6 +247,7 @@ When the user asks to "compare all projects", "compare my projects", "profitabil
 → If the tool returns Chris, Nick, and Jason, your response MUST include Chris, Nick, AND Jason with their key metrics.
 → Do NOT focus on only one project. List each project with margin, spend, and risks.
 → Each project has marginLabel and profitLabel — use them exactly. For completed projects: say "Margin X%" and "Net Profit $X"; for active projects: say "Current margin X%" and "Projected Profit $X". Never swap these terms.
+→ When get_project_health returns isCompleted: true (or status=completed), the project is DONE. Use the tool's marginLabel and profitLabel. Do NOT suggest "next steps," "what to do next," or "forecast" — there is nothing to do next. You may mention missing receipts only as optional housekeeping for records.
 → When comparing projects: NEVER mix active and completed. If comparing Bob (active) and Nick (completed), clarify they are in different phases — compare active vs active, or completed vs completed. Suggested comparisons should only pair projects with the same status.
 → Format as: "Chris: [metrics]. Nick: [metrics]. Jason: [metrics]." or a numbered list.
 
@@ -250,7 +260,7 @@ Answer financial questions with specific numbers, not vague summaries:
 → "What is my total profit from my jobs?" / "Profit from my completed projects?" → filter to status=completed, sum (revenue - actual cost) for each, then add them. Do NOT ask which project.
 → "What is my average margin?" → compute weighted average margin across portfolio
 → "Which job has the lowest margin?" → rank by margin, show top 3
-→ "Where am I losing money?" → identify projects with margin erosion, category overruns, or spend ahead of progress
+→ "Where am I losing money?" / "Profit leaks across my active projects" → call compare_projects (activeOnly). Use the returned data for ALL active projects. Never ask "which project?" — you have the full list; list each project with margin, over-budget areas, and profit leaks.
 
 Financial analysis approach:
 - Margin = (Revenue - Estimated Cost) / Revenue × 100
@@ -360,7 +370,8 @@ Interpret intent — don't require exact wording:
 - "What should I do next?" / "Recommendations for Chris" → get_project_health (risks + next steps)
 - "Schedule for Chris" / "When is Chris due?" / "Milestones on Nick" → get_timeline_items
 - "Summarize my projects" / "Project status" → compare_projects
-- "How can I improve margin on Nick?" → get_project_health + cost drivers` : '';
+- "How can I improve margin on Nick?" → get_project_health + cost drivers
+- "Update on Chris" / "Give me a review of Chris" / "Review of Chris" / "Review Chris job" / "Review Chris" / "How is Chris doing?" → get_project_health with projectName = Chris. The name (Chris, Nick, Bob, etc.) is the PROJECT name, not a team member. Do NOT ask "what would you like to say to Chris" — that is for messaging. For review/update/status, call get_project_health(projectName).` : '';
 
   // Estimate domain
   const estimateBlock = aiPmMode ? `
@@ -587,7 +598,8 @@ Intent rules:
 - "portfolio": portfolio-level analysis, comparisons, profitability, health checks, risk scans, margin analysis, focus today, which project is best/worst, how are my projects. Keywords: "compare", "projects", "portfolio", "profitability", "margin", "most profitable", "over budget", "behind schedule", "how are things", "what needs attention", "focus today", "am I making money", "where am I losing", "lowest margin", "highest risk", "which job", "project health", "give me the rundown", "any risks", "forecast", "expenses", "spending", "cash flow", "when am I getting paid", "payments coming in", "unpaid milestones", "cost breakdown", "material vs labor", "recommendations", "what should I do next", "summarize", "project status", "total profit", "profit from my jobs", "completed projects", "my completed projects", "profit from completed"
   * If user asks a comparison or ranking question → proposed_tool = "compare_projects", sortBy = inferred from intent (margin, overBudget, progress, risk)
   * If user asks about a specific project health/status → proposed_tool = "get_project_health"
-  * If user asks "how is [project] doing?" → proposed_tool = "get_project_health"
+  * If user asks "how is [project] doing?" / "update on [name]" / "review of [name]" / "review [name] job" / "review [name]" / "give me a review of [name]" → proposed_tool = "get_project_health", tool_args_draft.projectName = the name (e.g. Chris, Nick, Bob). That name is the PROJECT name. Do NOT use message_team_member.
+  * CRITICAL: "Review Chris", "update on Chris", "how is Chris doing" = project health for project named Chris. Only use message_team_member when user explicitly says "message [name]", "text [name]", "send a message to [name]", "contact [name]".
   * If user asks "how are things" / "what needs attention" / "focus today" / "top priorities" → proposed_tool = "compare_projects", tool_args_draft = { activeOnly: true }
   * If user asks about profit forecast / projected profit → proposed_tool = "forecast_profit"
   * If user asks about expenses / spending breakdown / where am I spending / cost breakdown / material vs labor / biggest expenses / who am I paying → proposed_tool = "analyze_expenses", groupBy = category|vendor|month as appropriate
@@ -630,6 +642,8 @@ Required-field rules:
 - generate_estimate: projectType, description (sqft is highly recommended)
 - mark_timeline_item_complete: itemName (if user gives a %, set progressPct in tool_args_draft)
 - message_team_member: teamMemberName (required), messageContent (required if assistant asked for it)
+  * Use message_team_member ONLY when user explicitly wants to send a message/text to a person (e.g. "message Chris", "text Nick", "send a message to Bob", "what would you like to say to [name]").
+  * If user says "review [name]", "update on [name]", "review of [name] job", "how is [name] doing", "status of [name]" → that is a PROJECT request. Use get_project_health(projectName: name). Do NOT use message_team_member.
   * CRITICAL: If assistant just asked "Please provide the name of the team member" and user responds with just a name (e.g., "Nicholas"), set domain = "team", proposed_tool = "message_team_member", teamMemberName = the name provided, required_fields_missing = ["messageContent"], clarification_question = "What would you like to say to [name]?"
   * If assistant asked for both name and message, and user provides just a name, ask for the message content
   * CRITICAL: Messaging team members does NOT require dollar amounts, task assignments, or expenses. The messageContent can be any text (e.g., "Manage inspection", "Check on the site", "Call me when done"). NEVER ask for dollar amounts when the user provides message content.

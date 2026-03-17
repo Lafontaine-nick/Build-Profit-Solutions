@@ -158,12 +158,44 @@ export function requiresProjectContext(query: string): boolean {
  * Resolves project context from user query, UI state, and recent projects
  * Implements smart defaults and clarifying question rules
  */
+/** Phrases that mean "all active projects" / compare scope — never ask "which project?"; send to backend so it can say "You have no active projects" if needed. */
+const PORTFOLIO_ACTIVE_PROJECTS_PATTERN = /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|across my active projects|across all active projects|compare (all )?my active projects)\b/i;
+/** Phrases that mean "completed projects" / compare scope — never ask "which project?"; backend will list completed and where they lost/could have made more. */
+const PORTFOLIO_COMPLETED_PROJECTS_PATTERN = /\b(yes\s+)?(completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|profit\s+(on\s+)?completed)\b/i;
+/** Phrases that mean "which projects are over budget" — never ask "which project?"; backend will list active + completed over budget and by how much. */
+const PORTFOLIO_OVER_BUDGET_PATTERN = /\b(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|(show\s+)?projects?\s+over\s+budget|over\s+budget\s+(and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks\b/i;
+
 export function resolveProjectContext(
   userQuery: string,
   uiState: UIState,
   recentProjects: RecentProject[]
 ): ProjectContext {
   const lowerQuery = userQuery.toLowerCase().trim();
+  
+  // Portfolio/compare scope: user asked about active projects as a set. Do NOT ask "which project?" — send to backend.
+  if (PORTFOLIO_ACTIVE_PROJECTS_PATTERN.test(userQuery)) {
+    return {
+      projectId: null,
+      needsClarification: false,
+      reason: 'Portfolio/compare scope (active projects, profit leaks) — no single project; backend will answer or say no active projects',
+    };
+  }
+  // Portfolio/compare scope: user asked about completed projects. Do NOT ask "which project?" — backend will list completed and profit/loss.
+  if (PORTFOLIO_COMPLETED_PROJECTS_PATTERN.test(userQuery)) {
+    return {
+      projectId: null,
+      needsClarification: false,
+      reason: 'Portfolio/compare scope (completed projects) — backend will list completed projects and where they lost/could have made more',
+    };
+  }
+  // Portfolio/compare scope: user asked which projects are over budget. Do NOT ask "which project?" — backend will list active + completed over budget.
+  if (PORTFOLIO_OVER_BUDGET_PATTERN.test(userQuery)) {
+    return {
+      projectId: null,
+      needsClarification: false,
+      reason: 'Portfolio/compare scope (over budget) — backend will list which projects are over budget and by how much',
+    };
+  }
   
   // Smart Default Rule 1: If user is on Project Detail or Estimate Generator screen, ALWAYS use the active project
   // This means when "Ask PM" is used from a project page, all questions default to that project

@@ -692,6 +692,29 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return allEvents.filter(event => event.date === dateStr);
   }, [allEvents]);
 
+  // Upcoming events (next 7 days) — same as ProjectCalendar
+  const upcomingEvents = React.useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return allEvents
+      .filter((e) => {
+        if (e.completed) return false;
+        const eventDate = new Date(e.date);
+        eventDate.setHours(0, 0, 0, 0);
+        return eventDate >= today && eventDate <= nextWeek;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        if (a.time && b.time) return a.time.localeCompare(b.time);
+        return a.time ? -1 : b.time ? 1 : 0;
+      })
+      .slice(0, 5);
+  }, [allEvents]);
+
   const resetForm = React.useCallback(() => {
     setEventTitle("");
     setEventTime("");
@@ -870,6 +893,106 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           events={calendarEvents}
         />
       </View>
+
+      {/* Upcoming (Next 7 Days) */}
+      {upcomingEvents.length > 0 && (
+        <View style={{ paddingHorizontal: 0, marginBottom: 24 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Ionicons name="time-outline" size={20} color={COLORS.green} />
+            <Text style={{ fontSize: 18, fontWeight: '600', color: COLORS.text }}>Upcoming (Next 7 Days)</Text>
+          </View>
+          {upcomingEvents.map((event) => (
+            <View
+              key={event.id}
+              style={{
+                flexDirection: 'column',
+                borderRadius: 12,
+                marginBottom: 12,
+                borderWidth: 1,
+                overflow: 'hidden',
+                backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5',
+                borderColor: darkMode ? '#4f4f4f' : '#d0d0d0',
+              }}
+            >
+              <Pressable
+                style={{ flexDirection: 'row', flex: 1, padding: 12 }}
+                onPress={() => {
+                  if ((event as MasterCalendarEvent).isUserCreated) {
+                    setEditingEvent(event as MasterCalendarEvent);
+                    setEventTitle(event.title);
+                    setEventDate(event.date);
+                    setEventTime(event.time || "");
+                    setEventType(event.type);
+                    setEventNotes(event.notes || "");
+                    setEventSubcontractor(event.subcontractor || "");
+                    setSelectedProjectId(event.projectId);
+                    setShowEventModal(true);
+                  } else {
+                    setSelectedDate(event.date);
+                    setShowDateEventsModal(true);
+                  }
+                  if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <View style={{
+                  width: 4,
+                  borderRadius: 2,
+                  marginRight: 12,
+                  backgroundColor: getEventColor(event),
+                }} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', flex: 1, color: COLORS.text }}>{event.title}</Text>
+                    <MaterialIcons name={getEventIcon(event) as any} size={16} color={getEventColor(event)} />
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Ionicons name="calendar-outline" size={14} color={COLORS.subtext} />
+                    <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                      {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {event.time && ` at ${event.time}`}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
+                    <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                      {event.projectName || 'Project'}
+                      {(event as MasterCalendarEvent).isCompletedProject && (
+                        <Text style={{ opacity: 0.7 }}> (Completed)</Text>
+                      )}
+                    </Text>
+                  </View>
+                  {event.notes && (
+                    <Text style={{ fontSize: 12, marginTop: 6, color: COLORS.subtext }} numberOfLines={2}>
+                      {event.notes}
+                    </Text>
+                  )}
+                  {event.calendarCategory && (
+                    <View style={{ marginTop: 4 }}>
+                      <View style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                        alignSelf: 'flex-start',
+                        backgroundColor: `${getEventColor(event)}20`,
+                      }}>
+                        <Text style={{
+                          fontSize: 11,
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          color: getEventColor(event),
+                        }}>
+                          {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Date Events Modal */}
       <Modal

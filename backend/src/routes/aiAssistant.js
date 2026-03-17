@@ -4,6 +4,50 @@ const axios = require('axios');
 const OpenAI = require('openai');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 
+/**
+ * Current margin % for display — matches Projects page (profitForecast.projectedMarginPct or estimate margin).
+ * When no/little spend: use bid margin (estimate). Otherwise: projected margin = (contract - forecastCost) / contract.
+ */
+function getDisplayMarginPct(project) {
+  const contract = Number(project.contractValue || project.bidPrice || project.bidTotal || 0);
+  const spent = Number(project.totalSpent || project.actualCost || 0);
+  const estCost = Number(project.estimatedCost || 0);
+  const progressPct = Math.max(0, Math.min(100, Number(project.progress ?? project.overallProgressPct ?? 0)));
+  const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
+
+  if (!contract || contract <= 0) return null;
+
+  // No/little real spend → use bid (estimate) margin so we match Projects card
+  const hasNoRealSpend = spent === 0 || (contract > 0 && spent < 0.01 * contract);
+  let bidMarginPct = project.bidMarginPct;
+  if (bidMarginPct == null && project.estimateData) {
+    const ed = project.estimateData;
+    const stored = ed.marginPercent ?? ed.margin ?? ed.marginPct;
+    if (typeof stored === 'number' && Number.isFinite(stored)) {
+      const pct = stored > 1 ? stored : stored * 100;
+      if (pct >= 0 && pct <= 100) bidMarginPct = pct;
+    }
+    if (bidMarginPct == null && ed.subtotal > 0 && ed.profit >= 0) bidMarginPct = Math.round((ed.profit / (ed.subtotal + ed.profit)) * 1000) / 10;
+    if (bidMarginPct == null && Number(ed.markupPct || ed.markup || 0) > 0) bidMarginPct = Math.round((Number(ed.markupPct || ed.markup) / (100 + Number(ed.markupPct || ed.markup))) * 1000) / 10;
+  }
+  if (hasNoRealSpend && bidMarginPct != null) return Math.round(Number(bidMarginPct) * 10) / 10;
+
+  // Projected margin (run-rate): forecastFinalCost = spent / progressRatio when progress > 1%, else estimated cost
+  const adjustedBudget = estCost > 0 ? estCost : contract;
+  let forecastFinalCost = adjustedBudget;
+  if (progressRatio >= 1) {
+    forecastFinalCost = spent;
+  } else if (progressRatio > 0.01 && spent > 0) {
+    const cpiForecast = spent / progressRatio;
+    forecastFinalCost = Math.max(spent, cpiForecast);
+  } else if (estCost > 0) {
+    forecastFinalCost = estCost;
+  }
+  const projectedProfit = contract - forecastFinalCost;
+  const projectedMarginPct = (projectedProfit / contract) * 100;
+  return Math.round(projectedMarginPct * 10) / 10;
+}
+
 // Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -939,9 +983,101 @@ ${lines.join('\n')}
 RULES:
 → This status comes from the current app context. Users can delete projects or change status (e.g. submitted → active).
 → Always use this list — never assume a project exists or has a status from prior conversation.
-→ For "focus today" / "what needs attention" — only list ACTIVE projects. Exclude completed.
+→ For "focus today" / "what needs attention" — only list ACTIVE projects. Exclude completed. Also include calendar/schedule: payments due, inspections, deliveries from the UPCOMING EVENTS block when present.
 → Do not reference deleted projects. If a project is not in this list, it no longer exists.
 → CRITICAL: If "Active (need attention)" lists project names (e.g. Bob), you MUST mention them. NEVER say "no active projects" or "no projects need attention" when the Active list has names.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARGIN ANSWER HINT — inject exact numbers so AI uses live project metrics first
+// Source priority: live actuals > forecast > estimate baseline
+// ─────────────────────────────────────────────────────────────────────────────
+function buildMarginAnswerHint(normalizedMessage, allProjects, projectName, projectId, currentProjectData, parsedContext) {
+  const msgLower = (normalizedMessage || '').toLowerCase();
+  const isMarginQuestion = /\b(margin|profit\s+margin|expected\s+margin)\b/.test(msgLower);
+  if (!isMarginQuestion || !Array.isArray(allProjects) || allProjects.length === 0) return null;
+
+  // Explicit request for estimate/bid margin only — answer with that
+  const wantsEstimateOnly = /\b(estimate|original|bid|at bid time)\s+margin\b/i.test(msgLower) ||
+    /\bmargin\s+(?:from|of)\s+(?:your\s+)?(?:estimate|bid)\b/i.test(msgLower);
+
+  // Resolve project: by name in message (e.g. "for Jerry") or current project
+  let project = currentProjectData || null;
+  if (projectId && !project) {
+    project = allProjects.find(p => String(p?.id) === String(projectId));
+  }
+  if (!project && projectName) {
+    project = allProjects.find(p => {
+      const name = (p?.title || p?.name || '').toLowerCase();
+      const search = (projectName || '').toLowerCase();
+      return name && (name.includes(search) || search.includes(name));
+    });
+  }
+  // Match project name mentioned in message (e.g. "margin for Jerry", "Jerry's margin")
+  if (!project) {
+    const names = allProjects.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+    for (const name of names) {
+      if (name.length < 2) continue;
+      if (msgLower.includes(name.toLowerCase())) {
+        project = allProjects.find(p => (p?.title || p?.name || '').trim() === name);
+        if (project) break;
+      }
+    }
+  }
+  if (!project) return null;
+
+  let bidMarginPct = project.bidMarginPct != null && !Number.isNaN(Number(project.bidMarginPct))
+    ? Number(project.bidMarginPct)
+    : null;
+  if (bidMarginPct == null && project.estimateData) {
+    const ed = project.estimateData;
+    const stored = ed.marginPercent ?? ed.margin ?? ed.marginPct;
+    if (typeof stored === 'number' && Number.isFinite(stored)) {
+      const pct = stored > 1 ? stored : stored * 100;
+      if (pct >= 0 && pct <= 100) bidMarginPct = pct;
+    }
+    if (bidMarginPct == null) {
+      const bidPrice = Number(project.bidPrice || project.bidTotal || ed?.totalBid || 0);
+      if (bidPrice > 0) {
+        if (ed.subtotal > 0 && ed.profit >= 0) {
+          const total = ed.subtotal + ed.profit;
+          if (total > 0) bidMarginPct = Math.round((ed.profit / total) * 1000) / 10;
+        } else if (Number(ed.markupPct || ed.markup || 0) > 0) {
+          const m = Number(ed.markupPct || ed.markup);
+          bidMarginPct = Math.round((m / (100 + m)) * 1000) / 10;
+        }
+      }
+    }
+  }
+
+  const isCurrent = parsedContext && (String(project?.id) === String(parsedContext.projectId) || (project?.title || project?.name || '').toLowerCase().includes((parsedContext.currentProject || parsedContext.projectName || '').toLowerCase()));
+  const contract = Number(project.contractValue || project.bidPrice || project.bidTotal || parsedContext?.contractValue || parsedContext?.bidTotal || 0);
+  const spent = Number(isCurrent ? (parsedContext?.actualCost ?? parsedContext?.totalSpent ?? project.totalSpent ?? project.actualCost ?? 0) : (project.totalSpent || project.actualCost || 0));
+  const hasLiveActuals = spent > 0 || (project.expensesCount > 0 || (Array.isArray(project.expenses) && project.expenses.length > 0));
+
+  // Spend-to-date = (contract − spent) / contract — NEVER use estimate margin when hasLiveActuals
+  const spendToDatePct = (isCurrent && typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct))
+    ? parsedContext.spendToDateMarginPct
+    : (contract > 0 && spent >= 0 ? Math.round(((contract - spent) / contract) * 1000) / 10 : (project.spendToDateMarginPct ?? project.currentMarginPct));
+  const projectedPct = (isCurrent && typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
+    ? parsedContext.projectedMarginPct
+    : (project.projectedMarginPct ?? null);
+  const name = project.title || project.name || 'This project';
+
+  const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
+  const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : '—';
+  const bidStr = bidMarginPct != null ? Number(bidMarginPct).toFixed(1) + '%' : '—';
+
+  if (wantsEstimateOnly) {
+    return `CRITICAL — User asked for ESTIMATE/ORIGINAL margin only. For "${name}": Original estimated margin: ${bidStr}. Do NOT state spend-to-date or projected.`;
+  }
+
+  let hint = `CRITICAL — For "${name}" margin questions, SOURCE PRIORITY: live project actuals > forecast > estimate.\n`;
+  hint += `- **Spend-to-date margin**: ${spendToDateStr} — (contract − spent) / contract. PRIMARY for "current margin".\n`;
+  hint += `- **Projected margin (at completion)**: ${projectedStr} — expected if spending continues at current rate. Mention when user asks "current margin" (users often mean both).\n`;
+  hint += `- **Original estimated margin**: ${bidStr} — from bid/estimate. ONLY use when user explicitly asks "estimate margin", "original bid margin", "margin at bid time".\n`;
+  hint += `When user asks "what is my current margin", "what is the margin", or "current margin": Answer with spend-to-date (${spendToDateStr}) FIRST, then projected (${projectedStr}), then original (${bidStr}) last. CRITICAL: NEVER use original/bid margin (${bidStr}) as the answer for "current margin" when the job has live actuals (spent > 0). "Current margin" = spend-to-date ONLY.`;
+  return hint;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -959,18 +1095,35 @@ function buildProjectDataSnapshot(parsedContext) {
     return Number.isFinite(n) ? n : 0;
   };
 
+  const projectId = parsedContext?.projectId;
+  const hasOverview = parsedContext && (typeof parsedContext.spendToDateMarginPct === 'number' || typeof parsedContext.projectedMarginPct === 'number');
+  const isCurrentProjectMatch = (p) => projectId != null && String(p?.id) === String(projectId);
+
   const lines = allProjects.map((p) => {
     const title = p?.title || p?.name || 'Untitled';
     const status = (p?.status || 'unknown').replace(/_/g, ' ');
-    const contract = fmt(p?.contractValue || p?.bidPrice);
-    const spent = fmt(p?.totalSpent || p?.actualCost);
+    const isCurrent = isCurrentProjectMatch(p);
+    const contract = fmt(p?.contractValue || p?.bidPrice || (isCurrent ? parsedContext?.contractValue : null) || (isCurrent ? parsedContext?.bidTotal : null));
+    const spent = fmt(isCurrent ? (parsedContext?.actualCost ?? parsedContext?.totalSpent ?? p?.totalSpent ?? p?.actualCost) : (p?.totalSpent || p?.actualCost));
     const estimated = fmt(p?.estimatedCost);
     const profit = contract > 0 ? contract - (estimated || spent) : 0;
-    const marginPct = contract > 0 ? ((profit / contract) * 100).toFixed(1) : '0.0';
+    const currentMarginPct = (hasOverview && isCurrent && typeof parsedContext.spendToDateMarginPct === 'number')
+      ? parsedContext.spendToDateMarginPct.toFixed(1)
+      : (contract > 0 ? ((contract - spent) / contract * 100).toFixed(1) : '0.0');
+    const projectedMarginPct = (hasOverview && isCurrent && typeof parsedContext.projectedMarginPct === 'number')
+      ? parsedContext.projectedMarginPct.toFixed(1)
+      : null;
     const progress = fmt(p?.progress);
+    const bidMarginVal = p?.bidMarginPct;
+    const bidMargin = bidMarginVal != null && !Number.isNaN(Number(bidMarginVal)) ? `${Number(bidMarginVal)}%` : null;
 
     let parts = [`**${title}** (${status}) | Progress: ${progress}%`];
-    if (contract > 0) parts.push(`Contract: $${contract.toLocaleString()} | Spent: $${spent.toLocaleString()} | Est. Cost: $${estimated.toLocaleString()} | Profit: $${profit.toLocaleString()} (${marginPct}%)`);
+    if (bidMargin) parts.push(`Bid margin (from estimate): ${bidMargin}`);
+    if (contract > 0) {
+      parts.push(`Contract: $${contract.toLocaleString()} | Spent: $${spent.toLocaleString()} | Est. Cost: $${estimated.toLocaleString()} | Profit: $${profit.toLocaleString()}`);
+      parts.push(`Current margin (spend-to-date): ${currentMarginPct}%`);
+      if (projectedMarginPct) parts.push(`Projected margin (at completion): ${projectedMarginPct}%`);
+    }
 
     // Milestones / payments
     const milestones = Array.isArray(p?.milestones) ? p.milestones : [];
@@ -1070,7 +1223,8 @@ RULES:
 → When the user asks about payments, expenses, vendors, inspections, profit, or budget — answer DIRECTLY from this snapshot.
 → Do NOT say "I don't have that information" or "let me check" when the answer is clearly in this snapshot.
 → If the user asks about a specific vendor (e.g. "Home Depot"), search the Vendors line for that name.
-→ If the user asks about upcoming payments, look at the "Upcoming" line for UNPAID milestones.
+→ If the user asks about upcoming payments or "when am I getting paid next", look at the "Upcoming" line (TIMELINE data). Answer in this format: "Your next payment is the [payment name] for the [project title] project, amounting to $[amount], due on [date]." If some show "due no date", list them (name, amount) and say they can set dates in the Timeline; do NOT say "no upcoming payments".
+→ If the user asks about "upcoming events on the calendar" or "what's on the calendar", use the dashboard calendar: (1) the "Events" line per project (inspections, deliveries, deadlines) and (2) the "Upcoming" line (payments). List across ALL projects — do NOT limit to one project.
 → If the user asks about inspections or events, check the "Events" line.
 → For profit/margin questions, use the Contract, Spent, and Profit numbers directly.
 → Only use tools (compare_projects, get_project_health, etc.) for deeper analysis or actions — not for basic data lookups.`;
@@ -2361,6 +2515,8 @@ router.post('/stream', async (req, res) => {
 
     const { message, context, history = [], user_settings = {}, sessionId } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
+    // Normalize so "profit margin" and "margin" are answered the same way
+    const normalizedMessage = String(message).replace(/\bprofit\s+margin\b/gi, 'margin');
 
     let parsedContext = {};
     try {
@@ -2375,7 +2531,304 @@ router.post('/stream', async (req, res) => {
     const screenLower = screen.toLowerCase();
     const isCommandCenter = screenLower === 'projects' || screenLower === 'ai assistant tab';
 
+    // MARGIN AT X% COMPLETE: "margin at 50% complete" / "50% timeline left"
+    const msgForProgressStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const progressMatch = msgForProgressStream.match(/\b(?:margin|profit)\s+(?:at|with)\s+(\d+)\s*%?\s*(?:percent\s+)?(?:complete|timeline\s+left)\b/i) ||
+      msgForProgressStream.match(/\b(\d+)\s*%?\s*(?:percent\s+)?(?:timeline\s+)?left\s+to\s+complete\b/i) ||
+      msgForProgressStream.match(/\b(?:figure\s+out|figure)\s+.*?(\d+)\s*%?\s*(?:percent\s+)?(?:timeline\s+)?left\b/i);
+    const targetProgressStream = progressMatch ? Math.min(99, Math.max(1, parseInt(progressMatch[1], 10))) : null;
+    if (targetProgressStream != null && (msgForProgressStream.includes('margin') || msgForProgressStream.includes('profit'))) {
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream && parsedContext.currentProject) targetStream = streamProjects.find(p => ((p?.title || p?.name || '').toLowerCase().includes((parsedContext.currentProject || '').toLowerCase())));
+      for (const name of (streamProjects.map(p => (p?.title || p?.name || '').trim()).filter(Boolean))) {
+        if (name.length >= 2 && msgForProgressStream.includes(name.toLowerCase())) {
+          targetStream = streamProjects.find(p => (p?.title || p?.name || '').trim() === name);
+          if (targetStream) break;
+        }
+      }
+      if (targetStream) {
+        const contract = Number(targetStream.contractValue || targetStream.bidPrice || targetStream.bidTotal || 0);
+        const spent = Number(targetStream.totalSpent || targetStream.actualCost || 0);
+        const progressPct = Math.max(0.1, Math.min(99, Number(targetStream.progress || targetStream.overallProgressPct || 0)));
+        const estCost = Number(targetStream.estimatedCost || 0);
+        const spendAtTarget = progressPct > 0 ? spent * (targetProgressStream / progressPct) : (estCost * (targetProgressStream / 100));
+        const profitAtTarget = contract - spendAtTarget;
+        const marginAtTarget = contract > 0 ? (profitAtTarget / contract) * 100 : 0;
+        const projectedFinalCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        const marginAtCompletion = contract > 0 ? ((contract - projectedFinalCost) / contract) * 100 : 0;
+        let r = `At **${targetProgressStream}% complete** (${100 - targetProgressStream}% timeline left), your **margin** would be approximately **${Number(marginAtTarget).toFixed(1)}%** (profit: $${Math.round(profitAtTarget).toLocaleString()}). `;
+        r += `This assumes spend scales linearly with progress. Your current projection at completion is ${Number(marginAtCompletion).toFixed(1)}% margin. `;
+        r += `Want me to run a what-if scenario to pressure-test this?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    // DELAY SCENARIO: "projected profit if job goes longer than expected" — two-layer model
+    const msgForDelayStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const delayWeeksMatch = msgForDelayStream.match(/(\d+)\s*weeks?/i);
+    const extraWeeksStream = delayWeeksMatch ? Math.min(52, Math.max(1, parseInt(delayWeeksMatch[1], 10))) : 2;
+    const isDelayScenarioStream = (msgForDelayStream.includes('goes longer') || msgForDelayStream.includes('longer than expected') || msgForDelayStream.includes('goes long') || msgForDelayStream.includes('goes too long')) &&
+      (msgForDelayStream.includes('profit') || msgForDelayStream.includes('margin'));
+    if (isDelayScenarioStream) {
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream && parsedContext.currentProject) targetStream = streamProjects.find(p => ((p?.title || p?.name || '').toLowerCase().includes((parsedContext.currentProject || '').toLowerCase())));
+      if (targetStream) {
+        const contractVal = Number(targetStream.contractValue || targetStream.bidPrice || targetStream.bidTotal || 0);
+        const actual = Number(targetStream.totalSpent || targetStream.actualCost || 0);
+        const committedPOs = Number(parsedContext?.committedPOs ?? targetStream.committedPOs ?? 0) ||
+          (Array.isArray(targetStream.purchaseOrders) ? targetStream.purchaseOrders.filter(po => (po?.status || '').toLowerCase() === 'pending').reduce((s, po) => s + Number(po?.amount || 0), 0) : 0);
+        const progressPct = Math.max(0, Math.min(100, Number(targetStream.progress || targetStream.overallProgressPct || 0)));
+        const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
+        const runRateCost = progressRatio > 0.01 && actual > 0 ? actual / progressRatio : 0;
+        const estCost = Number(targetStream.estimatedCost || 0);
+        const baseForecastFinalCost = Math.max(actual + committedPOs, runRateCost > 0 ? runRateCost : (estCost || actual));
+        const ed = targetStream.estimateData || parsedContext.estimateData || {};
+        const buckets = parsedContext.buckets || targetStream.buckets || [];
+        const laborBudget = Number(ed?.laborTotal ?? targetStream.laborTotal ?? 0) || buckets.filter(b => (b.name || '').toLowerCase().includes('labor')).reduce((s, b) => s + (Number(b.budget || b.bidBudget) || 0), 0);
+        const materialBudget = Number(ed?.materialTotal ?? targetStream.materialTotal ?? 0) || buckets.filter(b => { const n = (b.name || '').toLowerCase(); return n.includes('material') || n.includes('equipment'); }).reduce((s, b) => s + (Number(b.budget || b.bidBudget) || 0), 0);
+        const overheadBudget = Number(parsedContext?.overhead ?? ed?.overheadTotal ?? 0);
+        const estimatedWeeks = 12;
+        const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+        const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
+        const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+        const addedLaborCost = Math.round(weeklyLabor * extraWeeksStream);
+        const addedMaterialCost = Math.round(weeklyMaterial * extraWeeksStream);
+        const addedOverheadCost = Math.round(weeklyOverhead * extraWeeksStream);
+        const addedDelayCosts = addedLaborCost + addedMaterialCost + addedOverheadCost || Math.round((laborBudget / 12 || baseForecastFinalCost * 0.4 / 12) * extraWeeksStream);
+        const scenarioForecastFinalCost = Math.round(baseForecastFinalCost + addedDelayCosts);
+        const projectedProfit = Math.round(contractVal - scenarioForecastFinalCost);
+        const projectedMargin = contractVal > 0 ? (projectedProfit / contractVal) * 100 : 0;
+        const name = targetStream.title || targetStream.name || 'This project';
+        let r = `If this job goes **${extraWeeksStream} weeks too long**, your projected profit would be approximately **$${projectedProfit.toLocaleString()}** (${Number(projectedMargin).toFixed(1)}% margin). `;
+        r += `Baseline forecast cost: $${Math.round(baseForecastFinalCost).toLocaleString()}. Added delay cost (labor + materials + overhead for ${extraWeeksStream} weeks): ~$${addedDelayCosts.toLocaleString()}. `;
+        r += `Want me to run a detailed breakdown or a what-if scenario?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    // SIMPLE PROJECTED PROFIT: "projected profit for this job" / "expected profit" — use Overview's numbers (NOT delay scenario)
+    const msgForProfitStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const isSimpleProfitStream = !msgForProfitStream.includes('forecast') && !isDelayScenarioStream && (
+      /\b(projected|expected|estimated)\s+profit\b/i.test(msgForProfitStream) ||
+      /\bprofit\s+(?:for|on)\s+(?:this\s+)?job\b/i.test(msgForProfitStream)
+    );
+    if (isSimpleProfitStream) {
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream && parsedContext.currentProject) targetStream = streamProjects.find(p => ((p?.title || p?.name || '').toLowerCase().includes((parsedContext.currentProject || '').toLowerCase())));
+      for (const name of (streamProjects.map(p => (p?.title || p?.name || '').trim()).filter(Boolean))) {
+        if (name.length >= 2 && msgForProfitStream.includes(name.toLowerCase())) {
+          targetStream = streamProjects.find(p => (p?.title || p?.name || '').trim() === name);
+          if (targetStream) break;
+        }
+      }
+      if (!targetStream) {
+        const forMatch = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forMatch ? forMatch[1].trim() : null;
+        if (nameFromMsg) targetStream = streamProjects.find(p => (p?.title || p?.name || '').toLowerCase().includes(nameFromMsg.toLowerCase()));
+      }
+      if (targetStream) {
+        const contract = Number(targetStream.contractValue || targetStream.bidPrice || targetStream.bidTotal || 0);
+        const spent = Number(targetStream.totalSpent || targetStream.actualCost || 0);
+        const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct);
+        const marginPct = fromOverview ? parsedContext.projectedMarginPct : getDisplayMarginPct(targetStream);
+        const progressPct = Math.max(0, Math.min(100, Number(targetStream.progress || targetStream.overallProgressPct || 0)));
+        const estCost = Number(targetStream.estimatedCost || 0);
+        const projectedCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        let projectedProfit = contract > 0 && projectedCost > 0 ? Math.round(contract - projectedCost) : null;
+        if (fromOverview && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
+          projectedProfit = Math.round(parsedContext.projectedProfit);
+        }
+        const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
+        const marginStr = marginPct != null ? Number(marginPct).toFixed(1) + '%' : '—';
+        const name = targetStream.title || targetStream.name || 'This project';
+        let r = `The projected profit for the "${name}" project is ${projProfitStr}`;
+        if (marginStr !== '—') r += `, with a ${marginStr} margin`;
+        r += `. `;
+        if (projectedProfit != null && projectedProfit >= 0) r += `The project is on track, with no profit at risk. `;
+        r += `Want me to check your PO commitments or run a what-if scenario if the job runs longer?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    // SIMPLE MARGIN/PROFIT: return short response immediately (same as main POST) so stream never gives long forecast
+    const msgForSimpleMarginStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const isSimpleMarginStream = (msgForSimpleMarginStream.includes('margin') && !msgForSimpleMarginStream.includes('forecast') &&
+      (msgForSimpleMarginStream.includes('profit') || msgForSimpleMarginStream.includes('expected') ||
+       /\b(what is my|what'?s my|what is the|how is my|how'?s my)\b/i.test(msgForSimpleMarginStream))) ||
+      /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForSimpleMarginStream) ||
+      /\b(what is my|what'?s my|what is the)\s+current\s+margin\b/i.test(msgForSimpleMarginStream) ||
+      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForSimpleMarginStream) ||
+      /\bmargin\s+for\s+\w+/i.test(msgForSimpleMarginStream) ||
+      /\bprofit\s+margin\s+for\s+\w+/i.test(msgForSimpleMarginStream);
+    if (isSimpleMarginStream) {
+      // EARLY-EXIT: When we have projectId + contract, always answer from context — never let stream fall through to LLM
+      const streamCtxContract = Number(parsedContext.contractValue || parsedContext.bidTotal || 0);
+      const streamCtxSpent = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      if (parsedContext.projectId && streamCtxContract > 0) {
+        const streamSpendToDate = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
+          ? parsedContext.spendToDateMarginPct
+          : Math.round(((streamCtxContract - streamCtxSpent) / streamCtxContract) * 1000) / 10;
+        const streamProjPct = typeof parsedContext.projectedMarginPct === 'number' ? Number(parsedContext.projectedMarginPct).toFixed(1) + '%' : null;
+        const streamBidVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
+        const streamBidStr = typeof streamBidVal === 'number' && Number.isFinite(streamBidVal) ? Number(streamBidVal).toFixed(1) + '%' : null;
+        const streamName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+        const streamProjProfit = typeof parsedContext.projectedProfit === 'number' ? `$${Math.round(parsedContext.projectedProfit).toLocaleString()}` : '—';
+        let streamR = `Your spend-to-date margin is ${Number(streamSpendToDate).toFixed(1)}%`;
+        if (streamProjPct) streamR += `, and your projected margin at completion is ${streamProjPct}`;
+        streamR += `. `;
+        if (streamBidStr) streamR += `Your original estimated margin was ${streamBidStr}. `;
+        streamR += `Projected profit: ${streamProjProfit}.\n\n➡️ Want me to check your PO commitments or anything else?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: streamR })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      const projectNamesStream = streamProjects.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream && parsedContext.currentProject) targetStream = streamProjects.find(p => ((p?.title || p?.name || '').toLowerCase().includes((parsedContext.currentProject || '').toLowerCase())));
+      for (const name of projectNamesStream) {
+        if (name.length >= 2 && msgForSimpleMarginStream.includes(name.toLowerCase())) {
+          targetStream = streamProjects.find(p => (p?.title || p?.name || '').trim() === name);
+          if (targetStream) break;
+        }
+      }
+      if (!targetStream) {
+        const forMatch = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forMatch ? forMatch[1].trim() : null;
+        if (nameFromMsg) targetStream = streamProjects.find(p => (p?.title || p?.name || '').toLowerCase().includes(nameFromMsg.toLowerCase()));
+      }
+      const streamReply = targetStream
+        ? (() => {
+            const contract = Number(targetStream.contractValue || targetStream.bidPrice || targetStream.bidTotal || parsedContext.contractValue || parsedContext.bidTotal || 0);
+            const spent = Number(
+              (parsedContext.projectId && String(targetStream?.id) === String(parsedContext.projectId))
+                ? (parsedContext.actualCost ?? parsedContext.totalSpent ?? targetStream.totalSpent ?? targetStream.actualCost ?? 0)
+                : (targetStream.totalSpent || targetStream.actualCost || 0)
+            );
+            const isCurrentProject = String(targetStream?.id) === String(parsedContext.projectId) || (targetStream?.title || targetStream?.name || '').toLowerCase().includes((parsedContext.currentProject || parsedContext.projectName || '').toLowerCase());
+            const spendToDatePct = (isCurrentProject && typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct))
+              ? parsedContext.spendToDateMarginPct
+              : (contract > 0 && spent >= 0 ? Math.round(((contract - spent) / contract) * 1000) / 10 : null);
+            const progressPct = Math.max(0, Math.min(100, Number(targetStream.progress || targetStream.overallProgressPct || 0)));
+            const estCost = Number(targetStream.estimatedCost || 0);
+            const projectedCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+            let projectedProfit = contract > 0 && projectedCost > 0 ? Math.round(contract - projectedCost) : null;
+            if (isCurrentProject && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
+              projectedProfit = Math.round(parsedContext.projectedProfit);
+            }
+            const projectedPct = (isCurrentProject && typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
+              ? parsedContext.projectedMarginPct
+              : (contract > 0 && projectedCost > 0 ? Math.round(((contract - projectedCost) / contract) * 1000) / 10 : null);
+            const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
+            const name = targetStream.title || targetStream.name || 'This project';
+            let bidPct = targetStream.bidMarginPct;
+            if (bidPct == null && targetStream.estimateData) {
+              const ed = targetStream.estimateData;
+              const stored = ed.marginPercent ?? ed.margin ?? ed.marginPct;
+              if (typeof stored === 'number' && Number.isFinite(stored)) {
+                const pct = stored > 1 ? stored : stored * 100;
+                if (pct >= 0 && pct <= 100) bidPct = pct;
+              }
+              if (bidPct == null) bidPct = targetStream.estimateData?.marginPct;
+            }
+            const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
+            const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
+            let r = `Your spend-to-date margin is ${spendToDateStr}`;
+            if (projectedStr) r += `, and your projected margin at completion is ${projectedStr}`;
+            r += `. `;
+            if (bidPct != null) r += `Your original estimated margin was ${Number(bidPct).toFixed(1)}%. `;
+            r += `Projected profit: ${projProfitStr}.\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
+            return r;
+          })()
+        : (() => { const nameHint = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim() || 'this project'; return `I don't have ${nameHint}'s data in this view. Open the project and ask again, or ask from the project screen.`; })();
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: streamReply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // SIMPLE PAYMENTS: "when am I getting paid", "next payment", "upcoming payments" — deterministic from timeline
+    const msgForPaymentsStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const isPaymentQuestionStream = /\b(when am I getting paid|next payment|upcoming payment|payments due|when.*getting paid|my next payment|what payments? (?:are )?due|payments? (?:due|coming))\b/i.test(msgForPaymentsStream);
+    if (isPaymentQuestionStream) {
+      const now = new Date();
+      const normAmt = (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0;
+      const getDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
+      const isCollected = (m) => m?.collected === true || m?.isPaid === true || (Number(m?.progressPct ?? m?.progress ?? 0) >= 100);
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      const allUp = []; const allOver = [];
+      streamProjects.forEach((p) => {
+        const ms = p?.milestones || p?.timelineItems || p?.projectData?.milestones || [];
+        const unpaid = (Array.isArray(ms) ? ms : []).filter((m) => !isCollected(m));
+        unpaid.forEach((m) => {
+          const dt = getDate(m); const dateMs = dt ? new Date(dt).getTime() : NaN;
+          const item = { projectTitle: p?.title || p?.name || 'Project', name: m?.title || m?.name || 'Payment', amount: normAmt(m?.amount ?? m?.paymentAmount ?? 0), dateMs };
+          if (Number.isFinite(dateMs)) { if (dateMs < now.getTime()) allOver.push(item); else allUp.push(item); }
+        });
+      });
+      allUp.sort((a, b) => (a.dateMs || 0) - (b.dateMs || 0));
+      let streamPayReply;
+      if (allUp.length > 0) {
+        const first = allUp[0];
+        const dateStr = first.dateMs ? new Date(first.dateMs).toLocaleDateString() : 'no date set';
+        streamPayReply = `Your next payment is the **${first.name}** for the **${first.projectTitle}** project, amounting to **$${Math.round(first.amount).toLocaleString()}**, due on ${dateStr}.`;
+        if (allUp.length > 1) streamPayReply += ` Other upcoming: ${allUp.slice(1, 3).map((p) => `${p.name} (${p.projectTitle}) $${Math.round(p.amount).toLocaleString()}`).join('; ')}.`;
+        if (allOver.length > 0) streamPayReply += ` ${allOver.length} overdue.`;
+      } else if (allOver.length > 0) {
+        const first = allOver[0];
+        streamPayReply = `You have overdue payments. Next was **${first.name}** for **${first.projectTitle}** ($${Math.round(first.amount).toLocaleString()}).`;
+      } else {
+        streamPayReply = `Payments are set in the Timeline tab. Open each project → Timeline to add or edit payment milestones and due dates.`;
+      }
+      streamPayReply += `\n\n➡️ Want me to check margin or PO commitments?`;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: streamPayReply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // SIMPLE OVER BUDGET: "am I over budget", "over budget", "budget status" — deterministic
+    const msgForBudgetStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const isOverBudgetStream = /\b(am I |are we |is (?:this |the )?project )?over budget\b|\bover budget\b|\bbudget status\b|\b(?:within|under|over) budget\b/i.test(msgForBudgetStream);
+    if (isOverBudgetStream) {
+      const streamBudget = Number(parsedContext.estimatedCost || parsedContext.contractValue || parsedContext.bidTotal || 0);
+      const streamSpent = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const streamProjName = parsedContext.currentProject || parsedContext.projectName || 'This project';
+      if (streamBudget > 0) {
+        const overBy = streamSpent - streamBudget;
+        const streamBudgetReply = overBy > 0
+          ? `Yes — **${streamProjName}** is **$${Math.round(overBy).toLocaleString()} over budget** (spent $${Math.round(streamSpent).toLocaleString()} of $${Math.round(streamBudget).toLocaleString()}).`
+          : `No — you're within budget for **${streamProjName}** (spent $${Math.round(streamSpent).toLocaleString()} of $${Math.round(streamBudget).toLocaleString()}, **$${Math.round(streamBudget - streamSpent).toLocaleString()}** remaining).`;
+        const fullReply = streamBudgetReply + `\n\n➡️ Want me to check margin or PO commitments?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: fullReply })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
     // Build a simplified system prompt for streaming (portfolio mode only)
+    const streamBidMarginPct = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
     let streamSystemPrompt = buildSystemPrompt({
       projectName: parsedContext.currentProject || parsedContext.projectName,
       projectId: parsedContext.projectId,
@@ -2384,6 +2837,7 @@ router.post('/stream', async (req, res) => {
       estimatedCost: Number(parsedContext.estimatedCost || 0),
       actualCost: Number(parsedContext.actualCost || 0),
       progress: Number(parsedContext.progress || 0),
+      bidMarginPct: typeof streamBidMarginPct === 'number' ? streamBidMarginPct : undefined,
       aiPmMode, pmAlerts: [],
       screen,
     });
@@ -2391,6 +2845,9 @@ router.post('/stream', async (req, res) => {
     if (isCommandCenter) {
       const projectStatusBlock = buildProjectStatusBlock(parsedContext);
       if (projectStatusBlock) streamSystemPrompt += projectStatusBlock;
+
+      const dataSnapshot = buildProjectDataSnapshot(parsedContext);
+      if (dataSnapshot) streamSystemPrompt += `\n\n📊 PROJECT DATA (use for margin questions — each project has "Bid margin (from estimate)" and current margin):\n${dataSnapshot}`;
 
       const listAlerts = runProjectsListIntelligence(parsedContext);
       if (listAlerts.length > 0) {
@@ -2401,10 +2858,21 @@ router.post('/stream', async (req, res) => {
     const memoryBlock = buildMemoryContext(session);
     if (memoryBlock) streamSystemPrompt += memoryBlock;
 
+    // When user asks about margin, inject exact original + current margin so AI always states both
+    const streamMarginHint = buildMarginAnswerHint(
+      normalizedMessage,
+      allProjects,
+      parsedContext.currentProject || parsedContext.projectName,
+      parsedContext.projectId,
+      null,
+      parsedContext
+    );
+    if (streamMarginHint) streamSystemPrompt += `\n\n${streamMarginHint}`;
+
     const messages = [
       { role: 'system', content: streamSystemPrompt },
       ...history.filter(m => m.role && m.content),
-      { role: 'user', content: message },
+      { role: 'user', content: normalizedMessage },
     ];
 
     // Set up SSE headers
@@ -2487,6 +2955,8 @@ router.post('/', async (req, res) => {
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
+    // Normalize so "profit margin" and "margin" are answered the same way
+    const normalizedMessage = String(message).replace(/\bprofit\s+margin\b/gi, 'margin');
 
     // Conversation memory: get or create session
     const session = getOrCreateSession(sessionId || `auto-${Date.now()}`);
@@ -2563,7 +3033,267 @@ router.post('/', async (req, res) => {
       currentProjectData = allProjects.find(p => String(p.id) === String(projectId));
       console.log('✅ AI Assistant: Found currentProjectData from allProjects for projectId:', projectId);
     }
-    
+
+    // ── FIRST-PRIORITY: "profit margin" / "margin" question → short response only (before ANY other handler)
+    const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
+    const isMarginQuestion = rawBodyMsg.includes('margin') && !rawBodyMsg.includes('forecast') &&
+      (rawBodyMsg.includes('profit') || rawBodyMsg.includes('expected') ||
+       /\b(what is my|what'?s my|what is the|how is my|how'?s my)\b/i.test(rawBodyMsg) ||
+       /\bcurrent\s+margin\b/i.test(rawBodyMsg));
+    if (isMarginQuestion) {
+      // ALWAYS answer margin from context when we have projectId + contract — never let LLM answer (avoids 0% / wrong bid margin)
+      const fpContract = Number(parsedContext.contractValue || parsedContext.bidTotal || 0);
+      const fpSpent = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const fpHasAnySpendData = parsedContext.hasLiveProjectContext === true ||
+        (typeof parsedContext.actualCost === 'number' && Number.isFinite(parsedContext.actualCost)) ||
+        (typeof parsedContext.totalSpent === 'number' && Number.isFinite(parsedContext.totalSpent)) ||
+        (typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct));
+      if (parsedContext.projectId && fpContract > 0) {
+        const fpSpendToDate = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
+          ? parsedContext.spendToDateMarginPct
+          : Math.round(((fpContract - fpSpent) / fpContract) * 1000) / 10;
+        const fpProjPct = typeof parsedContext.projectedMarginPct === 'number' ? Number(parsedContext.projectedMarginPct).toFixed(1) + '%' : null;
+        const fpBidVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
+        const fpBidStr = typeof fpBidVal === 'number' && Number.isFinite(fpBidVal) ? Number(fpBidVal).toFixed(1) + '%' : null;
+        const fpName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+        const fpProjProfit = typeof parsedContext.projectedProfit === 'number' ? `$${Math.round(parsedContext.projectedProfit).toLocaleString()}` : '—';
+        let fpReply = `Your spend-to-date margin is ${Number(fpSpendToDate).toFixed(1)}%`;
+        if (fpProjPct) fpReply += `, and your projected margin at completion is ${fpProjPct}`;
+        fpReply += `. `;
+        if (fpBidStr) fpReply += `Your original estimated margin was ${fpBidStr}. `;
+        fpReply += `Projected profit: ${fpProjProfit}.\n\n➡️ Want me to check your PO commitments or anything else?`;
+        console.log('✅ FIRST-PRIORITY MARGIN: Using context for', fpName, 'spend-to-date', fpSpendToDate + '%', fpHasAnySpendData ? '(live)' : '(from contract/spent)');
+        return res.json({ reply: fpReply, actions: [] });
+      }
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
+      let proj = currentProjectData || (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) || (projectName ? projectsList.find(p => ((p?.title || p?.name || '').toLowerCase().includes((projectName || '').toLowerCase()))) : null);
+      const names = projectsList.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+      if (!proj) {
+        for (const n of names) {
+          if (n.length >= 2 && rawBodyMsg.includes(n.toLowerCase())) { proj = projectsList.find(p => (p?.title || p?.name || '').trim() === n); if (proj) break; }
+        }
+      }
+      if (!proj) {
+        const forM = (req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forM ? forM[1].trim() : null;
+        if (nameFromMsg) proj = projectsList.find(p => (p?.title || p?.name || '').toLowerCase().includes(nameFromMsg.toLowerCase()));
+      }
+      const name = proj ? (proj.title || proj.name || 'This project') : ((req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim()) || 'this project';
+      if (proj) {
+        const isCurrent = String(proj?.id) === String(parsedContext.projectId) || (proj?.title || proj?.name || '').toLowerCase().includes((parsedContext.currentProject || parsedContext.projectName || '').toLowerCase());
+        const contract = Number(proj.contractValue || proj.bidPrice || proj.bidTotal || parsedContext.contractValue || parsedContext.bidTotal || 0);
+        const spent = Number(isCurrent ? (parsedContext.actualCost ?? parsedContext.totalSpent ?? proj.totalSpent ?? proj.actualCost ?? 0) : (proj.totalSpent || proj.actualCost || 0));
+        const spendToDatePct = (isCurrent && typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct))
+          ? parsedContext.spendToDateMarginPct
+          : (contract > 0 && spent >= 0 ? Math.round(((contract - spent) / contract) * 1000) / 10 : null);
+        const progressPct = Math.max(0, Math.min(100, Number(proj.progress || proj.overallProgressPct || 0)));
+        const estCost = Number(proj.estimatedCost || 0);
+        const projectedCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        let projectedProfit = contract > 0 && projectedCost > 0 ? Math.round(contract - projectedCost) : null;
+        if (isCurrent && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
+          projectedProfit = Math.round(parsedContext.projectedProfit);
+        }
+        const projectedPct = (isCurrent && typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
+          ? parsedContext.projectedMarginPct
+          : (contract > 0 && projectedCost > 0 ? Math.round(((contract - projectedCost) / contract) * 1000) / 10 : null);
+        const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
+        let bidPct = proj.bidMarginPct;
+        if (bidPct == null && proj.estimateData) {
+          const ed = proj.estimateData;
+          const stored = ed.marginPercent ?? ed.margin ?? ed.marginPct;
+          if (typeof stored === 'number' && Number.isFinite(stored)) {
+            const pct = stored > 1 ? stored : stored * 100;
+            if (pct >= 0 && pct <= 100) bidPct = pct;
+          }
+          if (bidPct == null && ed.subtotal > 0 && ed.profit >= 0) bidPct = Math.round((ed.profit / (ed.subtotal + ed.profit)) * 1000) / 10;
+          if (bidPct == null && Number(ed.markupPct || ed.markup || 0) > 0) bidPct = Math.round((Number(ed.markupPct || ed.markup) / (100 + Number(ed.markupPct || ed.markup))) * 1000) / 10;
+        }
+        const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
+        const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
+        let reply = `Your spend-to-date margin is ${spendToDateStr}`;
+        if (projectedStr) reply += `, and your projected margin at completion is ${projectedStr}`;
+        reply += `. `;
+        if (bidPct != null) reply += `Your original estimated margin was ${Number(bidPct).toFixed(1)}%. `;
+        reply += `Projected profit: ${projProfitStr}.`;
+        reply += `\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
+        console.log('✅ SIMPLE MARGIN (first-priority): short response for', name, 'spend-to-date', spendToDateStr);
+        return res.json({ reply, actions: [] });
+      }
+      const fallback = `I don't have ${name}'s data in this view. Open the project and ask again, or ask from the project screen.`;
+      console.log('🛡️ SIMPLE MARGIN (first-priority): no project, returning fallback');
+      return res.json({ reply: fallback, actions: [] });
+    }
+
+    // ── FIRST-PRIORITY: "projected profit" / "expected profit" question → use Overview's numbers (matches badge)
+    const isProjectedProfitQ = /\b(projected|expected|estimated)\s+profit\b/i.test(rawBodyMsg) ||
+      /\bwhat is my\s+profit\b/i.test(rawBodyMsg) || /\bwhat'?s my\s+profit\b/i.test(rawBodyMsg) ||
+      /\bprofit\s+(?:for|on)\s+(?:this\s+)?job\b/i.test(rawBodyMsg);
+    if (isProjectedProfitQ && !rawBodyMsg.includes('forecast')) {
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
+      let proj = currentProjectData || (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) || (projectName ? projectsList.find(p => ((p?.title || p?.name || '').toLowerCase().includes((projectName || '').toLowerCase()))) : null);
+      const names = projectsList.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+      if (!proj) {
+        for (const n of names) {
+          if (n.length >= 2 && rawBodyMsg.includes(n.toLowerCase())) { proj = projectsList.find(p => (p?.title || p?.name || '').trim() === n); if (proj) break; }
+        }
+      }
+      if (!proj) {
+        const forM = (req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forM ? forM[1].trim() : null;
+        if (nameFromMsg) proj = projectsList.find(p => (p?.title || p?.name || '').toLowerCase().includes(nameFromMsg.toLowerCase()));
+      }
+      const name = proj ? (proj.title || proj.name || 'This project') : 'this project';
+      if (proj) {
+        const contract = Number(proj.contractValue || proj.bidPrice || proj.bidTotal || 0);
+        const spent = Number(proj.totalSpent || proj.actualCost || 0);
+        const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct);
+        const marginPct = fromOverview ? parsedContext.projectedMarginPct : getDisplayMarginPct(proj);
+        const progressPct = Math.max(0, Math.min(100, Number(proj.progress || proj.overallProgressPct || 0)));
+        const estCost = Number(proj.estimatedCost || 0);
+        const projectedCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        let projectedProfit = contract > 0 && projectedCost > 0 ? Math.round(contract - projectedCost) : null;
+        if (fromOverview && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
+          projectedProfit = Math.round(parsedContext.projectedProfit);
+        }
+        const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
+        const marginStr = marginPct != null ? Number(marginPct).toFixed(1) + '%' : '—';
+        let reply = `The projected profit for the "${name}" project is ${projProfitStr}`;
+        if (marginStr !== '—') reply += `, with a ${marginStr} margin`;
+        reply += `. `;
+        if (projectedProfit != null && projectedProfit >= 0) reply += `The project is on track, with no profit at risk. `;
+        reply += `Want me to check your PO commitments or run a what-if scenario if the job runs longer?`;
+        console.log('✅ SIMPLE PROJECTED PROFIT (first-priority): short response for', name);
+        return res.json({ reply, actions: [] });
+      }
+    }
+
+    // ── "Margin at X% complete" / "50% timeline left" — scenario: what would margin be at that progress point?
+    const marginAtProgressMatch = rawBodyMsg.match(/\b(?:margin|profit)\s+(?:at|with)\s+(\d+)\s*%?\s*(?:percent\s+)?(?:complete|timeline\s+left|through|done)\b/i) ||
+      rawBodyMsg.match(/\b(?:at|with)\s+(\d+)\s*%?\s*(?:percent\s+)?(?:complete|timeline\s+left|through)\s*(?:what|would|is)\s*(?:my\s+)?(?:margin|profit)\b/i) ||
+      rawBodyMsg.match(/\b(\d+)\s*%?\s*(?:percent\s+)?(?:timeline\s+)?left\s+to\s+complete\b/i) ||
+      rawBodyMsg.match(/\b(?:what|how)\s+(?:would|is)\s+my\s+(?:projected\s+)?(?:profit\s+)?margin\s+(?:at|with)\s+(\d+)\s*%?\s*(?:percent\s+)?(?:complete|left)\b/i) ||
+      rawBodyMsg.match(/\b(?:figure\s+out|figure)\s+.*?(?:margin|profit)\s+.*?(\d+)\s*%?\s*(?:percent\s+)?(?:timeline\s+)?left\b/i);
+    const targetProgressPct = marginAtProgressMatch ? Math.min(99, Math.max(1, parseInt(marginAtProgressMatch[1], 10))) : null;
+    if (targetProgressPct != null && (rawBodyMsg.includes('margin') || rawBodyMsg.includes('profit'))) {
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
+      let proj = currentProjectData || (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) || (projectName ? projectsList.find(p => ((p?.title || p?.name || '').toLowerCase().includes((projectName || '').toLowerCase()))) : null);
+      const names = projectsList.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+      if (!proj) {
+        for (const n of names) {
+          if (n.length >= 2 && rawBodyMsg.includes(n.toLowerCase())) { proj = projectsList.find(p => (p?.title || p?.name || '').trim() === n); if (proj) break; }
+        }
+      }
+      if (!proj) {
+        const forM = (req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forM ? forM[1].trim() : null;
+        if (nameFromMsg) proj = projectsList.find(p => (p?.title || p?.name || '').toLowerCase().includes(nameFromMsg.toLowerCase()));
+      }
+      const name = proj ? (proj.title || proj.name || 'This project') : 'this project';
+      if (proj) {
+        const contract = Number(proj.contractValue || proj.bidPrice || proj.bidTotal || 0);
+        const spent = Number(proj.totalSpent || proj.actualCost || 0);
+        const progressPct = Math.max(0.1, Math.min(99, Number(proj.progress || proj.overallProgressPct || 0)));
+        const estCost = Number(proj.estimatedCost || 0);
+        // At targetProgressPct complete: simulate spend assuming linear burn (spend scales with progress)
+        const spendAtTarget = progressPct > 0 ? spent * (targetProgressPct / progressPct) : (estCost * (targetProgressPct / 100));
+        const profitAtTarget = contract - spendAtTarget;
+        const marginAtTarget = contract > 0 ? (profitAtTarget / contract) * 100 : 0;
+        const projectedFinalCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        const marginAtCompletion = contract > 0 ? ((contract - projectedFinalCost) / contract) * 100 : 0;
+        let reply = `At **${targetProgressPct}% complete** (${100 - targetProgressPct}% timeline left), your **margin** would be approximately **${Number(marginAtTarget).toFixed(1)}%** (profit: $${Math.round(profitAtTarget).toLocaleString()}). `;
+        reply += `This assumes spend scales linearly with progress. Your current projection at completion is ${Number(marginAtCompletion).toFixed(1)}% margin. `;
+        reply += `Want me to run a what-if scenario (materials +10%, labor +10%, or job runs long) to pressure-test this?`;
+        console.log('✅ MARGIN AT PROGRESS: short response for', name, 'at', targetProgressPct, '%');
+        return res.json({ reply, actions: [] });
+      }
+    }
+
+    // ── FIRST-PRIORITY: "next payment" / "when am I getting paid" / "upcoming payments" → deterministic from timeline (never LLM)
+    const isPaymentQuestion = /\b(when am I getting paid|next payment|upcoming payment|payments due|when.*getting paid|my next payment|what payments? (?:are )?due|payments? (?:due|coming)\b)/i.test(rawBodyMsg);
+    if (isPaymentQuestion) {
+      const now = new Date();
+      const normalizeAmt = (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0;
+      const getMilestoneDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
+      const isPaymentCollected = (m) => {
+        if (m?.collected === true || m?.isPaid === true) return true;
+        const pct = Number(m?.progressPct ?? m?.progress ?? 0);
+        return Number.isFinite(pct) && pct >= 100;
+      };
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : Array.isArray(parsedContext.projects) ? parsedContext.projects : [];
+      const allUpcoming = [];
+      const allOverdue = [];
+      const projectTitleById = {};
+      const addPaymentsFromProject = (p, milestonesList) => {
+        const title = p?.title || p?.name || 'Project';
+        projectTitleById[String(p?.id)] = title;
+        const raw = Array.isArray(milestonesList) ? milestonesList : [];
+        const unpaid = raw.filter((m) => !isPaymentCollected(m));
+        unpaid.forEach((m) => {
+          const dt = getMilestoneDate(m);
+          const dateMs = dt ? new Date(dt).getTime() : NaN;
+          const name = m?.title || m?.name || 'Payment';
+          const amount = normalizeAmt(m?.amount ?? m?.paymentAmount ?? 0);
+          const item = { projectId: p?.id, projectTitle: title, name, amount, date: dt, dateMs };
+          if (Number.isFinite(dateMs)) {
+            if (dateMs < now.getTime()) allOverdue.push(item);
+            else allUpcoming.push(item);
+          }
+        });
+      };
+      const projForPayments = currentProjectData || (projectId && projectsList.length ? projectsList.find(p => String(p?.id) === String(projectId)) : null);
+      const milestonesForCurrent = parsedContext.milestones || currentProjectData?.milestones || currentProjectData?.timelineItems || projForPayments?.milestones || projForPayments?.timelineItems || [];
+      if (projForPayments) addPaymentsFromProject(projForPayments, milestonesForCurrent);
+      projectsList.forEach((p) => {
+        if (p && p !== projForPayments) {
+          const ms = p.milestones || p.timelineItems || p.projectData?.milestones || p.estimateData?.milestones || [];
+          addPaymentsFromProject(p, ms);
+        }
+      });
+      allUpcoming.sort((a, b) => (a.dateMs || 0) - (b.dateMs || 0));
+      if (allUpcoming.length > 0) {
+        const first = allUpcoming[0];
+        const dateStr = first.date ? (typeof first.date === 'string' ? first.date : new Date(first.date).toLocaleDateString()) : 'no date set';
+        let reply = `Your next payment is the **${first.name}** for the **${first.projectTitle}** project, amounting to **$${Math.round(first.amount).toLocaleString()}**, due on ${dateStr}.`;
+        if (allUpcoming.length > 1) {
+          reply += `\n\nOther upcoming: ` + allUpcoming.slice(1, 4).map((p) => `${p.name} (${p.projectTitle}) $${Math.round(p.amount).toLocaleString()}${p.date ? ` due ${typeof p.date === 'string' ? p.date : new Date(p.date).toLocaleDateString()}` : ''}`).join('; ');
+        }
+        if (allOverdue.length > 0) reply += `\n\n⚠️ ${allOverdue.length} overdue: ${allOverdue.slice(0, 3).map((p) => `${p.name} (${p.projectTitle})`).join(', ')}.`;
+        reply += `\n\n➡️ Want me to check margin or PO commitments?`;
+        console.log('✅ FIRST-PRIORITY PAYMENTS: deterministic reply from timeline, next:', first.name, first.projectTitle);
+        return res.json({ reply, actions: [] });
+      }
+      if (allOverdue.length > 0) {
+        const first = allOverdue[0];
+        const dateStr = first.date ? (typeof first.date === 'string' ? first.date : new Date(first.date).toLocaleDateString()) : '';
+        let reply = `You have overdue payments. Next one due was **${first.name}** for **${first.projectTitle}** ($${Math.round(first.amount).toLocaleString()}${dateStr ? `, was due ${dateStr}` : ''}).`;
+        if (allOverdue.length > 1) reply += ` Plus ${allOverdue.length - 1} more overdue.`;
+        reply += `\n\n➡️ Want me to list all overdue or check margin?`;
+        console.log('✅ FIRST-PRIORITY PAYMENTS: deterministic reply (overdue only)');
+        return res.json({ reply, actions: [] });
+      }
+      const unscheduled = [];
+      (projForPayments ? [projForPayments] : projectsList).forEach((p) => {
+        const ms = parsedContext.milestones || p?.milestones || p?.timelineItems || [];
+        const unpaid = Array.isArray(ms) ? ms.filter((m) => !isPaymentCollected(m)) : [];
+        unpaid.forEach((m) => {
+          const dt = getMilestoneDate(m);
+          if (!dt || !Number.isFinite(new Date(dt).getTime())) {
+            unscheduled.push({ name: m?.title || m?.name || 'Payment', amount: normalizeAmt(m?.amount ?? m?.paymentAmount ?? 0), projectTitle: p?.title || p?.name || 'Project' });
+          }
+        });
+      });
+      if (unscheduled.length > 0) {
+        let reply = `No dated payments coming up. You have **${unscheduled.length}** unscheduled payment(s): ` + unscheduled.slice(0, 3).map((u) => `${u.name} $${Math.round(u.amount).toLocaleString()}`).join(', ');
+        reply += `. Set dates in the Timeline tab for each project.`;
+        console.log('✅ FIRST-PRIORITY PAYMENTS: unscheduled only');
+        return res.json({ reply, actions: [] });
+      }
+      const projName = parsedContext.currentProject || parsedContext.projectName || 'your project';
+      const fallback = `Payments are managed in the Timeline tab (${projName}). Open the project → Timeline to add or edit payment milestones and due dates.`;
+      console.log('✅ FIRST-PRIORITY PAYMENTS: no timeline data, fallback');
+      return res.json({ reply: fallback, actions: [] });
+    }
+
     // Extract other context
     const status = parsedContext.status || currentProjectData?.status || 'estimate';
     const location = parsedContext.location || currentProjectData?.location || '';
@@ -2594,6 +3324,27 @@ router.post('/', async (req, res) => {
     const overhead = parsedContext.overhead || parsedContext.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0;
     const progress = parsedContext.progress || currentProjectData?.progress || currentProjectData?.overallProgressPct || 0;
     const activeTab = parsedContext.activeTab || '';
+
+    // ── FIRST-PRIORITY: "am I over budget?" / "over budget?" / "budget status" → deterministic (never LLM)
+    const isOverBudgetQuestion = /\b(am I |are we |is (?:this |the )?project )?over budget\b|\bover budget\b|\bbudget status\b|\b(?:within|under|over) budget\b|\bspent over (?:my )?budget\b/i.test(rawBodyMsg);
+    if (isOverBudgetQuestion && (projectId || currentProjectData || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0))) {
+      const budget = Number(estimatedCost || contractValue || 0);
+      const spent = Number(actualCost || 0);
+      const projName = parsedContext.currentProject || parsedContext.projectName || currentProjectData?.title || currentProjectData?.name || 'This project';
+      if (budget > 0) {
+        const overBy = spent - budget;
+        let reply;
+        if (overBy > 0) {
+          reply = `Yes — **${projName}** is **$${Math.round(overBy).toLocaleString()} over budget** (spent $${Math.round(spent).toLocaleString()} of $${Math.round(budget).toLocaleString()} budget).`;
+        } else {
+          const remaining = budget - spent;
+          reply = `No — you're within budget for **${projName}** (spent $${Math.round(spent).toLocaleString()} of $${Math.round(budget).toLocaleString()}, **$${Math.round(remaining).toLocaleString()}** remaining).`;
+        }
+        reply += `\n\n➡️ Want me to check margin or PO commitments?`;
+        console.log('✅ FIRST-PRIORITY OVER BUDGET: deterministic reply for', projName, overBy > 0 ? 'over' : 'within');
+        return res.json({ reply, actions: [] });
+      }
+    }
 
     // ── EARLY: Missing cost scan (run BEFORE budget block to guarantee it always wins) ──
     const msgLowerEarly = (message || '').toLowerCase();
@@ -2665,24 +3416,36 @@ router.post('/', async (req, res) => {
       msgLowerEarly.includes('beyond') || msgLowerEarly.includes('extends') || msgLowerEarly.includes('overrun') ||
       msgLowerEarly.includes('profit') || msgLowerEarly.includes('timeline') || msgLowerEarly.includes('schedule')
     )) || (delayContextActive && (msgLowerEarly.includes('week') || continuationReply));
-    const isWeeksOverrunRequest = extraWeeks > 0 && hasWeeksOverrunIntent;
+    // "Goes longer than expected" / "projected profit if job goes long" — use default 2 weeks when no specific weeks given
+    const hasDelayIntentNoWeeks = (msgLowerEarly.includes('goes longer') || msgLowerEarly.includes('longer than expected') || msgLowerEarly.includes('goes long') || msgLowerEarly.includes('goes too long')) &&
+      (msgLowerEarly.includes('profit') || msgLowerEarly.includes('margin'));
+    if (hasDelayIntentNoWeeks && extraWeeks === 0) extraWeeks = 2;
+    const isWeeksOverrunRequest = extraWeeks > 0 && (hasWeeksOverrunIntent || hasDelayIntentNoWeeks);
 
     if (isWeeksOverrunRequest && extraWeeks > 0) {
       const contractVal = Number(contractValue || 0) || (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
       const actual = Number(actualCost || 0);
+      const committedPOs = Number(parsedContext?.committedPOs ?? currentProjectData?.committedPOs ?? 0) ||
+        (Array.isArray(currentProjectData?.purchaseOrders) ? currentProjectData.purchaseOrders
+          .filter(po => (po?.status || '').toLowerCase() === 'pending')
+          .reduce((s, po) => s + Number(po?.amount || 0), 0) : 0);
       const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
       const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
-      let baseCost = 0;
-      if (progressRatio > 0.01 && actual > 0) {
-        baseCost = actual / progressRatio;
-      } else {
-        baseCost = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
-        if (baseCost >= contractVal * 0.95) baseCost = 0;
-        if (baseCost <= 0) baseCost = actual;
-      }
+
+      // Layer 1: Baseline forecast (progress-ratio for trend; NOT for delay scenario)
+      const runRateCost = progressRatio > 0.01 && actual > 0 ? actual / progressRatio : 0;
+      const baseForecastFinalCost = Math.max(actual + committedPOs, runRateCost > 0 ? runRateCost : (Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0) || actual));
+
+      // Layer 2: Delay scenario — explicit cost additions (labor, materials, overhead, equipment)
       const laborBudget = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0) ||
         (parsedContext.buckets || currentProjectData?.buckets || []).reduce((s, b) => {
           if ((b.name || '').toLowerCase().includes('labor')) return s + (Number(b.budget || b.bidBudget) || 0);
+          return s;
+        }, 0);
+      const materialBudget = Number(estimateData?.materialTotal || parsedContext?.materialTotal || currentProjectData?.materialTotal || 0) ||
+        (parsedContext.buckets || currentProjectData?.buckets || []).reduce((s, b) => {
+          const n = (b.name || '').toLowerCase();
+          if (n.includes('material') || n.includes('equipment') || (n.includes('materials') && !n.includes('labor'))) return s + (Number(b.budget || b.bidBudget) || 0);
           return s;
         }, 0);
       const overheadBudget = Number(parsedContext?.overhead || parsedContext?.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0);
@@ -2697,43 +3460,47 @@ router.post('/', async (req, res) => {
         }
       }
       const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+      const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
       const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
-      const weeklyDelayCost = weeklyLabor + weeklyOverhead;
-      const extraCostForWeeks = Math.round((weeklyDelayCost > 0 ? weeklyDelayCost : (laborBudget > 0 ? laborBudget / 12 : baseCost * 0.4 / 12)) * extraWeeks);
-      const projectedCostWithOverrun = Math.round(baseCost + extraCostForWeeks);
-      const projectedProfit = Math.round(contractVal - projectedCostWithOverrun);
-      const marginPct = contractVal > 0 ? ((projectedProfit / contractVal) * 100).toFixed(1) : 0;
-      const baselineProfit = Math.round(contractVal - baseCost);
-      const costPerWeekOfDelay = weeklyDelayCost > 0 ? Math.round(weeklyDelayCost) : Math.round(laborBudget / Math.max(estimatedWeeks, 4));
+      const addedLaborCost = Math.round(weeklyLabor * extraWeeks);
+      const addedMaterialCost = Math.round(weeklyMaterial * extraWeeks);
+      const addedOverheadCost = Math.round(weeklyOverhead * extraWeeks);
+      const addedDelayCosts = addedLaborCost + addedMaterialCost + addedOverheadCost ||
+        Math.round((laborBudget > 0 ? laborBudget / Math.max(estimatedWeeks, 4) : baseForecastFinalCost * 0.4 / 12) * extraWeeks);
+      const scenarioForecastFinalCost = Math.round(baseForecastFinalCost + addedDelayCosts);
+      const projectedProfit = Math.round(contractVal - scenarioForecastFinalCost);
+      const projectedMargin = contractVal > 0 ? (projectedProfit / contractVal) * 100 : 0;
+      const baselineProfit = Math.round(contractVal - baseForecastFinalCost);
+      const weeklyDelayCost = weeklyLabor + weeklyMaterial + weeklyOverhead || (laborBudget / Math.max(estimatedWeeks, 4));
+      const costPerWeekOfDelay = Math.round(weeklyDelayCost > 0 ? weeklyDelayCost : laborBudget / Math.max(estimatedWeeks, 4));
       const breakEvenDelayWeeks = costPerWeekOfDelay > 0 && baselineProfit > 0 ? (baselineProfit / costPerWeekOfDelay).toFixed(1) : null;
 
-      let reply = `If this job goes **${extraWeeks} weeks too long**, your projected profit would be approximately **$${projectedProfit.toLocaleString()}** (${marginPct}% margin).\n\n`;
-      reply += `**Calculation:**\n`;
+      let reply = `If this job goes **${extraWeeks} weeks too long**, your projected profit would be approximately **$${projectedProfit.toLocaleString()}** (${Number(projectedMargin).toFixed(1)}% margin).\n\n`;
+      reply += `**Calculation (delay scenario — explicit cost additions):**\n`;
       if (startISO && endISO) {
         reply += `- Project duration: ~${estimatedWeeks} weeks (from schedule)\n`;
       }
       reply += `- Revenue (Contract Value): $${contractVal.toLocaleString()}\n`;
-      reply += `- Base projected cost (at current pace): $${Math.round(baseCost).toLocaleString()}\n`;
+      reply += `- Baseline forecast cost (spend vs completion progress): $${Math.round(baseForecastFinalCost).toLocaleString()}\n`;
       reply += `- Baseline profit: $${baselineProfit.toLocaleString()}\n`;
-      const laborPortion = Math.round(weeklyLabor * extraWeeks);
-      const overheadPortion = Math.round(weeklyOverhead * extraWeeks);
-      if (laborPortion > 0) reply += `- Extra labor for ${extraWeeks} weeks: ~$${laborPortion.toLocaleString()}\n`;
-      if (overheadPortion > 0) reply += `- Extra overhead for ${extraWeeks} weeks: ~$${overheadPortion.toLocaleString()}\n`;
-      reply += `- **Total extra cost** (labor + overhead only; materials don't burn during delay): ~$${extraCostForWeeks.toLocaleString()}\n`;
-      reply += `- **Total projected cost:** $${projectedCostWithOverrun.toLocaleString()}\n`;
-      reply += `- **Projected profit:** $${contractVal.toLocaleString()} − $${projectedCostWithOverrun.toLocaleString()} = **$${projectedProfit.toLocaleString()}**\n\n`;
+      if (addedLaborCost > 0) reply += `- Extra labor for ${extraWeeks} weeks: ~$${addedLaborCost.toLocaleString()}\n`;
+      if (addedMaterialCost > 0) reply += `- Extra materials for ${extraWeeks} weeks: ~$${addedMaterialCost.toLocaleString()}\n`;
+      if (addedOverheadCost > 0) reply += `- Extra overhead for ${extraWeeks} weeks: ~$${addedOverheadCost.toLocaleString()}\n`;
+      reply += `- **Total added delay cost:** ~$${addedDelayCosts.toLocaleString()}\n`;
+      reply += `- **Scenario forecast cost:** $${Math.round(baseForecastFinalCost).toLocaleString()} + $${addedDelayCosts.toLocaleString()} = **$${scenarioForecastFinalCost.toLocaleString()}**\n`;
+      reply += `- **Projected profit:** $${contractVal.toLocaleString()} − $${scenarioForecastFinalCost.toLocaleString()} = **$${projectedProfit.toLocaleString()}**\n\n`;
       if (costPerWeekOfDelay > 0) {
-        reply += `**Profit decay:** Each additional week of delay costs approximately **$${costPerWeekOfDelay.toLocaleString()}** in labor + overhead, reducing profit by the same amount.\n`;
+        reply += `**Profit decay:** Each additional week of delay costs approximately **$${costPerWeekOfDelay.toLocaleString()}** (labor + materials + overhead), reducing profit by the same amount.\n`;
         if (breakEvenDelayWeeks && parseFloat(breakEvenDelayWeeks) > 0) {
           reply += `Break-even delay: **${breakEvenDelayWeeks} weeks** — after that you start losing money.\n\n`;
         } else {
           reply += `\n`;
         }
       }
-      reply += `[DISCLAIMER]Materials are excluded from delay cost—they don't burn weekly. Only labor and overhead continue during extended weeks.[/DISCLAIMER]\n\n`;
+      reply += `[DISCLAIMER]Delay scenario uses explicit cost additions (labor, materials, overhead) — not progress-ratio forecasting. Schedule delays are modeled as additional expected cost.[/DISCLAIMER]\n\n`;
       reply += `➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this?`;
 
-      console.log('✅ EARLY weeks-overrun profit projection — returning immediately');
+      console.log('✅ EARLY delay-scenario profit projection (two-layer model) — returning immediately');
       return res.json({ reply, actions: [] });
     }
 
@@ -2976,21 +3743,168 @@ router.post('/', async (req, res) => {
       return res.json({ reply, actions: [] });
     }
 
+    // ── DETERMINISTIC: Simple margin/profit question → ALWAYS return short format (before profit block / router / LLM)
+    const rawMsg = String(message ?? req?.body?.message ?? req?.body?.content ?? '').replace(/[\u2018\u2019]/g, "'");
+    const msgForSimpleMargin = (normalizedMessage || rawMsg || '').toLowerCase();
+    const hasProfitAndMargin = msgForSimpleMargin.includes('profit') && msgForSimpleMargin.includes('margin') && !msgForSimpleMargin.includes('forecast');
+    const isSimpleMarginOrProfitQ = hasProfitAndMargin ||
+      /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForSimpleMargin) ||
+      /\b(what is my|what'?s my|what is the)\s+current\s+margin\b/i.test(msgForSimpleMargin) ||
+      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForSimpleMargin) ||
+      /\bmargin\s+for\s+\w+/i.test(msgForSimpleMargin) ||
+      /\bprofit\s+margin\s+for\s+\w+/i.test(msgForSimpleMargin);
+    if (isSimpleMarginOrProfitQ) {
+      // EARLY: When from Project Detail, use context's actualCost/contractValue directly — source of truth from Overview
+      const ctxContract = Number(parsedContext.contractValue || parsedContext.bidTotal || 0);
+      const ctxSpent = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const ctxSpendToDate = ctxContract > 0 ? Math.round(((ctxContract - ctxSpent) / ctxContract) * 1000) / 10 : null;
+      // Also use allProjects when from Estimate Generator — get actualCost from matching project
+      const projectsForEarly = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+      const matchForEarly = projectsForEarly.find(p => String(p?.id) === String(parsedContext.projectId));
+      // Prefer top-level actualCost (injected when viewing existing project with live actuals) over allProjects
+      const hasTopLevelActuals = parsedContext.hasLiveProjectContext === true ||
+        (typeof parsedContext.actualCost === 'number' || typeof parsedContext.totalSpent === 'number');
+      const earlySpent = parsedContext.screen === 'Project Detail'
+        ? ctxSpent
+        : (hasTopLevelActuals ? ctxSpent : (matchForEarly ? Number(matchForEarly.actualCost ?? matchForEarly.totalSpent ?? 0) : ctxSpent));
+      const earlySpendToDate = ctxContract > 0 ? Math.round(((ctxContract - earlySpent) / ctxContract) * 1000) / 10 : null;
+      const hasEarlyData = parsedContext.projectId && ctxContract > 0 && (
+        parsedContext.screen === 'Project Detail' ||
+        (parsedContext.screen === 'Estimate Generator' && (parsedContext.hasLiveProjectContext === true || earlySpent > 0))
+      );
+      if (hasEarlyData && earlySpendToDate != null) {
+        const name = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+        let projProfit = (typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit))
+          ? Math.round(parsedContext.projectedProfit)
+          : (typeof matchForEarly?.projectedProfit === 'number' ? Math.round(matchForEarly.projectedProfit) : null);
+        if (projProfit == null && matchForEarly) {
+          const prog = Math.max(0, Math.min(100, Number(matchForEarly.progress ?? matchForEarly.overallProgressPct ?? 0)));
+          const estCost = Number(matchForEarly.estimatedCost || 0);
+          const projCost = prog > 5 && earlySpent > 0 ? earlySpent / (prog / 100) : estCost;
+          projProfit = ctxContract > 0 && projCost > 0 ? Math.round(ctxContract - projCost) : null;
+        }
+        if (projProfit == null) projProfit = ctxContract > 0 ? Math.round(ctxContract - earlySpent) : null;
+        const projProfitStr = projProfit != null ? `$${projProfit.toLocaleString()}` : '—';
+        let projPctVal = parsedContext.projectedMarginPct ?? matchForEarly?.projectedMarginPct;
+        if (projPctVal == null && matchForEarly) {
+          const prog = Math.max(0, Math.min(100, Number(matchForEarly.progress ?? matchForEarly.overallProgressPct ?? 0)));
+          if (prog > 5 && earlySpent > 0) {
+            const projCost = earlySpent / (prog / 100);
+            projPctVal = ctxContract > 0 ? Math.round(((ctxContract - projCost) / ctxContract) * 1000) / 10 : null;
+          }
+        }
+        const projPct = typeof projPctVal === 'number' && Number.isFinite(projPctVal) ? Number(projPctVal).toFixed(1) + '%' : null;
+        const bidPctVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? matchForEarly?.bidMarginPct;
+        const bidPct = typeof bidPctVal === 'number' && Number.isFinite(bidPctVal) ? Number(bidPctVal).toFixed(1) + '%' : null;
+        let reply = `Your spend-to-date margin is ${earlySpendToDate.toFixed(1)}%`;
+        if (projPct) reply += `, and your projected margin at completion is ${projPct}`;
+        reply += `. `;
+        if (bidPct) reply += `Your original estimated margin was ${bidPct}. `;
+        reply += `Projected profit: ${projProfitStr}.`;
+        reply += `\n\n➡️ Want me to check your PO commitments or anything else?`;
+        console.log('✅ SIMPLE MARGIN: Using context/allProjects for', name, 'spend-to-date', earlySpendToDate + '%');
+        return res.json({ reply, actions: [] });
+      }
+
+      const projects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects
+        : Array.isArray(parsedContext.projects) ? parsedContext.projects
+        : Array.isArray(parsedContext.activeProjects) ? parsedContext.activeProjects
+        : [];
+      if (projects.length === 0) {
+        console.log('🛡️ SIMPLE MARGIN: is margin Q but no projects in context; keys:', Object.keys(parsedContext).filter(k => /project|all/i.test(k)));
+      }
+      let targetProject = currentProjectData || null;
+      if (!targetProject && projectId) targetProject = projects.find(p => String(p?.id) === String(projectId));
+      if (!targetProject && projectName) targetProject = projects.find(p => ((p?.title || p?.name || '').toLowerCase().includes((projectName || '').toLowerCase())));
+      const projectNames = projects.map(p => (p?.title || p?.name || '').trim()).filter(Boolean);
+      for (const name of projectNames) {
+        if (name.length >= 2 && msgForSimpleMargin.includes(name.toLowerCase())) {
+          targetProject = projects.find(p => (p?.title || p?.name || '').trim() === name);
+          if (targetProject) break;
+        }
+      }
+      if (!targetProject) {
+        const forMatch = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+        const nameFromMsg = forMatch ? forMatch[1].trim() : null;
+        if (nameFromMsg && nameFromMsg.length >= 2) {
+          targetProject = projects.find(p => {
+            const t = (p?.title || p?.name || '').toLowerCase();
+            const n = nameFromMsg.toLowerCase();
+            return t.includes(n) || n.includes(t);
+          });
+        }
+      }
+      if (targetProject) {
+        const isCurrent = String(targetProject?.id) === String(parsedContext.projectId) || (targetProject?.title || targetProject?.name || '').toLowerCase().includes((parsedContext.currentProject || parsedContext.projectName || '').toLowerCase());
+        const contract = Number(targetProject.contractValue || targetProject.bidPrice || targetProject.bidTotal || parsedContext.contractValue || parsedContext.bidTotal || 0);
+        const spent = Number(isCurrent ? (parsedContext.actualCost ?? parsedContext.totalSpent ?? targetProject.totalSpent ?? targetProject.actualCost ?? 0) : (targetProject.totalSpent || targetProject.actualCost || 0));
+        // Spend-to-date = (contract − spent) / contract — NEVER use estimate margin when has live actuals
+        const spendToDatePct = (isCurrent && typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct))
+          ? parsedContext.spendToDateMarginPct
+          : (contract > 0 && spent >= 0 ? Math.round(((contract - spent) / contract) * 1000) / 10 : null);
+        const estCost = Number(targetProject.estimatedCost || 0);
+        const progressPct = Math.max(0, Math.min(100, Number(targetProject.progress || targetProject.overallProgressPct || 0)));
+        const projectedCost = progressPct > 5 && spent > 0 ? spent / (progressPct / 100) : estCost;
+        let projectedProfit = contract > 0 && projectedCost > 0 ? Math.round(contract - projectedCost) : null;
+        const hasOverviewProfit = typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit);
+        if (isCurrent && hasOverviewProfit) projectedProfit = Math.round(parsedContext.projectedProfit);
+        const projectedPct = (isCurrent && typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
+          ? parsedContext.projectedMarginPct
+          : (contract > 0 && projectedCost > 0 ? Math.round(((contract - projectedCost) / contract) * 1000) / 10 : null);
+        const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
+        const name = targetProject.title || targetProject.name || 'This project';
+        let bidMarginPct = targetProject.bidMarginPct;
+        if (bidMarginPct == null && targetProject.estimateData) {
+          const ed = targetProject.estimateData;
+          const stored = ed.marginPercent ?? ed.margin ?? ed.marginPct;
+          if (typeof stored === 'number' && Number.isFinite(stored)) {
+            const pct = stored > 1 ? stored : stored * 100;
+            if (pct >= 0 && pct <= 100) bidMarginPct = pct;
+          }
+          if (bidMarginPct == null && ed.subtotal > 0 && ed.profit >= 0) bidMarginPct = Math.round((ed.profit / (ed.subtotal + ed.profit)) * 1000) / 10;
+          if (bidMarginPct == null && Number(ed.markupPct || ed.markup || 0) > 0) bidMarginPct = Math.round((Number(ed.markupPct || ed.markup) / (100 + Number(ed.markupPct || ed.markup))) * 1000) / 10;
+        }
+        const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
+        const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
+        let reply = `Your spend-to-date margin is ${spendToDateStr}`;
+        if (projectedStr) reply += `, and your projected margin at completion is ${projectedStr}`;
+        reply += `. `;
+        if (bidMarginPct != null) reply += `Your original estimated margin was ${Number(bidMarginPct).toFixed(1)}%. `;
+        reply += `Projected profit: ${projProfitStr}.`;
+        reply += `\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
+        console.log('✅ SIMPLE MARGIN: Returning deterministic short response for', name, 'spend-to-date', spendToDateStr);
+        return res.json({ reply, actions: [] });
+      }
+      if (projects.length > 0) {
+        console.log('🛡️ SIMPLE MARGIN: no project matched; names in context:', projectNames.slice(0, 10));
+      }
+      // CRITICAL: Never fall through for simple margin/profit questions — return short reply so long format never appears
+      const nameHint = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim() || 'this project';
+      const shortFallback = `I don't have ${nameHint}'s data in this view. Open the project and ask again, or ask from the project screen.`;
+      console.log('🛡️ SIMPLE MARGIN: no project found — returning short fallback (never long response)');
+      return res.json({ reply: shortFallback, actions: [] });
+    }
+
     // ── DETERMINISTIC: Profit / Forecast (bypass LLM variability, use progress-adjusted logic) ─────────
-    const isProfitOrForecastRequest =
-      msgLower.includes('forecast final profit') ||
-      msgLower.includes('forecast profit') ||
-      msgLower.includes('final profit') ||
-      msgLower.includes('forecast final cost') ||
-      (msgLower.includes('forecast') && msgLower.includes('profit')) ||
-      (msgLower.includes('forecast') && msgLower.includes('cost')) ||
-      msgLower.includes('estimated profit') ||
-      msgLower.includes('projected profit') ||
-      msgLower.includes('expected profit') ||
-      msgLower.includes('what is my profit') ||
-      msgLower.includes('what\'s my profit') ||
-      msgLower.includes('my profit on this job') ||
-      (msgLower.includes('profit') && msgLower.includes('this job'));
+    // Use normalized message so "profit margin" → "margin" — both get same treatment.
+    // Only trigger detailed forecast for EXPLICIT forecast requests. Simple margin/profit questions
+    // ("what is my margin", "what is my profit margin", "what is my profit") go to normal flow → simple answer.
+    const msgForProfitCheck = (normalizedMessage || message || '').toLowerCase();
+    const isExplicitForecastRequest =
+      msgForProfitCheck.includes('forecast final profit') ||
+      msgForProfitCheck.includes('forecast profit') ||
+      msgForProfitCheck.includes('final profit') ||
+      msgForProfitCheck.includes('forecast final cost') ||
+      (msgForProfitCheck.includes('forecast') && msgForProfitCheck.includes('profit')) ||
+      (msgForProfitCheck.includes('forecast') && msgForProfitCheck.includes('cost')) ||
+      msgForProfitCheck.includes('forecast my') ||
+      msgForProfitCheck.includes('run a forecast') ||
+      msgForProfitCheck.includes('forecast for');
+    const isSimpleMarginQ = (msgForProfitCheck.includes('profit') && msgForProfitCheck.includes('margin') && !msgForProfitCheck.includes('forecast')) ||
+      /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(msgForProfitCheck) ||
+      /\b(what is my|what'?s my)\s+profit\b/i.test(msgForProfitCheck) ||
+      /\bmargin\s+for\s+\w+/i.test(msgForProfitCheck);
+    const isProfitOrForecastRequest = isExplicitForecastRequest && !isSimpleMarginQ;
 
     if (isProfitOrForecastRequest) {
       // Contract value = bid + approved COs (revenue we get paid)
@@ -3146,10 +4060,12 @@ router.post('/', async (req, res) => {
     const teamStats = parsedContext.teamStats || { total: 0, active: 0, offDuty: 0 };
     const calendarEvents = parsedContext.calendarEvents || [];
     const upcomingCalendarEvents = parsedContext.upcomingCalendarEvents || [];
+    const bidMarginPctForPrompt = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? (projectId && allProjects?.length ? (() => { const p = allProjects.find(pr => String(pr?.id) === String(projectId)); return p?.bidMarginPct; })() : undefined);
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
       contractValue, approvedChangeOrdersTotal,
+      bidMarginPct: typeof bidMarginPctForPrompt === 'number' ? bidMarginPctForPrompt : undefined,
       materialBudget, materialSpent, materialRemaining,
       laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
       progress, aiPmMode, pmAlerts,
@@ -3200,7 +4116,9 @@ router.post('/', async (req, res) => {
           const dayLabel = ev.daysUntil === 0 ? 'Today' : ev.daysUntil === 1 ? 'Tomorrow' : `${ev.daysUntil} days`;
           return `${i + 1}. ${ev.title || ev.type || 'Event'} (${ev.projectName}) — ${dateStr}${timeStr} (${dayLabel})`;
         }).join('\n');
-        systemPrompt += `\n\n📅 UPCOMING EVENTS (across all projects):\n${calItems}\n→ Mention relevant events when they relate to the user's question or project`;
+        systemPrompt += `\n\n📅 UPCOMING EVENTS (dashboard calendar — across ALL projects: inspections, deliveries, deadlines):\n${calItems}\n→ When user asks "upcoming events on the calendar" or "what's on the calendar": list THESE events (they are the dashboard calendar). Also include upcoming payments from compare_projects. Do NOT limit to one project.`;
+      } else {
+        systemPrompt += `\n\n📅 UPCOMING EVENTS: No calendar events in the next 7 days from project calendars (dashboard). When user asks "upcoming events on the calendar" or "what's on the calendar", use compare_projects to list upcoming PAYMENTS and deadlines across ALL projects — those are part of the calendar. Do NOT say "no events for [one project]". Do NOT limit to one project. List what you have from compare_projects (upcomingPayments per project).`;
       }
     } else {
       // Non-command-center screen (project detail, estimate, etc.) — still inject data snapshot
@@ -3217,8 +4135,14 @@ router.post('/', async (req, res) => {
     const messages = [
       { role: 'system', content: systemPrompt },
       ...history.filter(m => m.role && m.content),
-      { role: 'user', content: message },
+      { role: 'user', content: normalizedMessage },
     ];
+
+    // When user asks about margin, inject exact original + current margin so AI always states both
+    const marginHint = buildMarginAnswerHint(normalizedMessage, allProjects, projectName, projectId, currentProjectData, parsedContext);
+    if (marginHint) {
+      messages.splice(messages.length - 1, 0, { role: 'system', content: marginHint });
+    }
 
     // ── Tool allowlist: PM OFF = 4 core tools, PM ON = 4 core + timeline + estimates ──
     const coreTools = [
@@ -3278,7 +4202,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'get_project_health',
-          description: 'Get a comprehensive health check for a specific project. Returns budget status, margin, risks, expense breakdown, overdue/upcoming payments, and recommendations. Use when user asks "how is [project] doing?", "health check on [project]", "status of [project]", "review [project]", "when am I getting paid on [project]", "what should I do next for [project]", or "recommendations for [project]". Use financials.currentMarginPct for "current margin" (matches Projects page).',
+          description: 'Get a comprehensive health check for a specific project. Returns budget status, margin, risks, expense breakdown, overdue/upcoming payments, and recommendations. Use when user asks "how is [project] doing?", "health check on [project]", "status of [project]", "review [project]", "when am I getting paid on [project]", "what should I do next for [project]", "recommendations for [project]", or when user says "yes" to "Want a detailed breakdown of your margin" or asks for a "detailed breakdown" of margin. When presenting a DETAILED BREAKDOWN, you MUST include the three sections from detailedMarginBreakdown: (1) Margin breakdown — original vs current margin and how they are calculated, (2) Projected when job is completed — projected final cost, profit, and margin at completion, (3) How your margin can go down — list risks (cost overruns, missing receipts, budget burn rate, etc.). Prefer including the full detailedMarginBreakdown text from the tool result so the user gets margin detail, completion projection, and margin-down risks. Use financials.currentMarginPct for "current margin" (matches Projects page).',
           parameters: {
             type: 'object',
             properties: {
@@ -3295,7 +4219,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'forecast_profit',
-          description: 'Forecast final cost, profit, and margin for one or all projects based on current spending rate. Use when user asks "forecast profit", "projected profit", "how much will I make", "what will the final cost be", "am I on track to make money".',
+          description: 'Forecast final cost, profit, and margin for one or all projects based on current spending rate. Use ONLY for explicit forecast requests: "forecast profit", "forecast final cost", "run a forecast", "what will the final cost be". Do NOT use for simple "what is my margin", "what is my profit margin", or "what is my profit" — those are answered directly from context.',
           parameters: {
             type: 'object',
             properties: {
@@ -4018,12 +4942,12 @@ router.post('/', async (req, res) => {
             const dt = new Date(getMilestoneDate(m) || 0);
             return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
           });
-          const upcomingPayments = milestones.filter((m) => {
-            if (isPaymentCollected(m)) return false;
+          const unpaidMilestones = milestones.filter((m) => !isPaymentCollected(m));
+          const upcomingPayments = unpaidMilestones.filter((m) => {
             const dt = new Date(getMilestoneDate(m) || 0);
             if (!Number.isFinite(dt.getTime())) return false;
             const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            return days >= 0; // all future payments (no upper limit — "when am I getting paid next" should show next payment regardless of how far out)
+            return days >= 0; // all future payments (no upper limit)
           }).sort((a, b) => {
             const da = new Date(getMilestoneDate(a) || 0).getTime();
             const db = new Date(getMilestoneDate(b) || 0).getTime();
@@ -4032,6 +4956,15 @@ router.post('/', async (req, res) => {
             name: m?.title || m?.name || 'Payment',
             amount: normalize(m?.amount ?? m?.paymentAmount ?? 0),
             date: getMilestoneDate(m),
+          }));
+          // Unpaid milestones with no date (e.g. deposit, weekly payments not yet scheduled) — so AI doesn't say "no upcoming payments"
+          const unscheduledPayments = unpaidMilestones.filter((m) => {
+            const dt = new Date(getMilestoneDate(m) || 0);
+            return !Number.isFinite(dt.getTime()) || isNaN(dt.getTime());
+          }).map((m) => ({
+            name: m?.title || m?.name || 'Payment',
+            amount: normalize(m?.amount ?? m?.paymentAmount ?? 0),
+            date: null,
           }));
           const overBudgetPct = budget > 0 ? ((spent - budget) / budget) * 100 : 0;
 
@@ -4081,6 +5014,7 @@ router.post('/', async (req, res) => {
             overdueItems: overdueItems.length,
             overduePayments: overdueItems.map((m) => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? 0), date: m?.plannedDate || m?.scheduledDate || m?.dueDate })),
             upcomingPayments,
+            unscheduledPayments,
             projectedFinalCost: Math.round(projectedFinalCost),
             estimatedProfit: Math.round(estimatedProfit),
             projectedProfit: Math.round(projectedProfit),
@@ -4152,8 +5086,8 @@ router.post('/', async (req, res) => {
                 const dt = new Date(getDate(m) || 0);
                 return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
               });
-              const upcomingPayments = milestones.filter((m) => {
-                if (isCollected(m)) return false;
+              const unpaidM = milestones.filter((m) => !isCollected(m));
+              const upcomingPayments = unpaidM.filter((m) => {
                 const dt = new Date(getDate(m) || 0);
                 if (!Number.isFinite(dt.getTime())) return false;
                 const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -4163,6 +5097,10 @@ router.post('/', async (req, res) => {
                 amount: normalize(m?.amount ?? m?.paymentAmount ?? 0),
                 date: getDate(m),
               }));
+              const unscheduledPayments = unpaidM.filter((m) => {
+                const dt = new Date(getDate(m) || 0);
+                return !Number.isFinite(dt.getTime()) || isNaN(dt.getTime());
+              }).map((m) => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? m?.paymentAmount ?? 0), date: null }));
               const rev = Number(c?.revenue ?? 0);
               const projProfit = Number(c?.projectedProfit ?? 0);
               const marginVal = rev > 0 && projProfit != null ? (projProfit / rev * 100) : (c?.margin ?? 0);
@@ -4185,6 +5123,7 @@ router.post('/', async (req, res) => {
                 overdueItems: overdueItems.length,
                 overduePayments: overdueItems.map((m) => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? m?.paymentAmount ?? 0), date: getDate(m) })),
                 upcomingPayments,
+                unscheduledPayments,
                 projectedFinalCost: 0,
                 estimatedProfit: 0,
                 projectedProfit: c?.projectedProfit ?? 0,
@@ -4225,7 +5164,7 @@ router.post('/', async (req, res) => {
             averageMargin: Math.round(avgMargin * 10) / 10,
           },
           message: sorted.length
-            ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT: Each project has marginLabel, profitLabel, upcomingPayments (array of {name, amount, date}), and overduePayments. When user asks "when am I getting paid" or "next payment", list the soonest upcoming payment(s) from upcomingPayments across projects — include project name, payment name, amount, and date. For completed projects use "Margin" and "Net Profit"; for active use "Current margin" and "Projected Profit". Present metrics for ALL ${sorted.length} projects when comparing — for payment questions, lead with the next payment(s).`
+            ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT — PAYMENT QUESTIONS (e.g. "when am I getting paid next", "payments", "next payment"): Always answer from the TIMELINE data (upcomingPayments and overduePayments per project). Format: "Your next payment is the [payment name] for the [project title] project, amounting to $[amount], due on [date]." If multiple upcoming payments across projects, list the soonest first, then others. Use the exact project title and payment name/amount/date from upcomingPayments. You may end with: "Want me to check on any other upcoming payments or project details?" If upcomingPayments is empty but unscheduledPayments has items, list those (name, amount) and say they can set dates in the Timeline. If both empty, say payments are set in the Timeline tab (Projects → [Project] → Timeline) and suggest opening that project's Timeline to sync. Never say "no upcoming payments" without that guidance. Each project also has marginLabel, profitLabel; for completed use "Margin"/"Net Profit", for active use "Current margin"/"Projected Profit".`
             : 'No projects matched the requested filters.',
         };
       } catch (error) {
@@ -4296,7 +5235,7 @@ router.post('/', async (req, res) => {
         const laborSpent = sumExpensesByCategory(expenses, 'labor', normalize);
 
         const adjustedBudget = estCost > 0 ? estCost + approvedCOs : revenue;
-        const rawEstMargin = ed?.marginPct ?? ed?.margin ?? ed?.marginPercent ?? match?.margin ?? match?.marginPct;
+        const rawEstMargin = ed?.marginPercent ?? ed?.margin ?? ed?.marginPct ?? match?.margin ?? match?.marginPct;
         let marginPct = 0;
         if (typeof rawEstMargin === 'number' && Number.isFinite(rawEstMargin) && rawEstMargin >= 0) {
           marginPct = rawEstMargin <= 1 ? rawEstMargin * 100 : rawEstMargin;
@@ -4324,18 +5263,21 @@ router.post('/', async (req, res) => {
           return false;
         };
         const getMilestoneDate = (m) => m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
-        const overdueItems = milestones.filter(m => {
-          if (isPaymentCollected(m)) return false;
+        const unpaidMilestones = milestones.filter(m => !isPaymentCollected(m));
+        const overdueItems = unpaidMilestones.filter(m => {
           const dt = new Date(getMilestoneDate(m) || 0);
           return Number.isFinite(dt.getTime()) && dt.getTime() < now.getTime();
         });
-        const upcomingPayments = milestones.filter(m => {
-          if (isPaymentCollected(m)) return false;
+        const upcomingPayments = unpaidMilestones.filter(m => {
           const dt = new Date(getMilestoneDate(m) || 0);
           if (!Number.isFinite(dt.getTime())) return false;
           const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          return days >= 0; // all future payments — "when am I getting paid next" should show next regardless of how far out
+          return days >= 0;
         });
+        const unscheduledPayments = unpaidMilestones.filter(m => {
+          const dt = new Date(getMilestoneDate(m) || 0);
+          return !Number.isFinite(dt.getTime()) || isNaN(dt.getTime());
+        }).map(m => ({ name: m?.title || m?.name || 'Payment', amount: normalize(m?.amount ?? m?.paymentAmount ?? 0) }));
 
         const expByCategory = {};
         expenses.forEach(e => {
@@ -4346,18 +5288,61 @@ router.post('/', async (req, res) => {
           .map(([cat, amt]) => ({ category: cat, amount: Math.round(amt), percentage: spent > 0 ? Math.round(amt / spent * 100) : 0 }));
 
         const risks = [];
-        if (budgetUsedPct > progress + 20) risks.push(`Spending ${Math.round(budgetUsedPct)}% of budget but only ${Math.round(progress)}% complete`);
-        if (marginPct > 0 && projectedMarginPct < marginPct - 5) risks.push(`Margin eroding: estimated ${Math.round(marginPct)}% → projected ${Math.round(projectedMarginPct)}%`);
-        if (materialBudget > 0 && materialSpent > materialBudget) risks.push(`Material costs ${Math.round((materialSpent - materialBudget) / materialBudget * 100)}% over budget`);
-        if (laborBudget > 0 && laborSpent > laborBudget) risks.push(`Labor costs ${Math.round((laborSpent - laborBudget) / laborBudget * 100)}% over budget`);
-        if (overdueItems.length > 0) risks.push(`${overdueItems.length} overdue payment(s)`);
+        if (!projectIsCompleted) {
+          if (budgetUsedPct > progress + 20) risks.push(`Spending ${Math.round(budgetUsedPct)}% of budget but only ${Math.round(progress)}% complete`);
+          if (marginPct > 0 && projectedMarginPct < marginPct - 5) risks.push(`Margin eroding: estimated ${Math.round(marginPct)}% → projected ${Math.round(projectedMarginPct)}%`);
+          if (materialBudget > 0 && materialSpent > materialBudget) risks.push(`Material costs ${Math.round((materialSpent - materialBudget) / materialBudget * 100)}% over budget`);
+          if (laborBudget > 0 && laborSpent > laborBudget) risks.push(`Labor costs ${Math.round((laborSpent - laborBudget) / laborBudget * 100)}% over budget`);
+          if (overdueItems.length > 0) risks.push(`${overdueItems.length} overdue payment(s)`);
+        }
         if (missingReceipts >= 3) risks.push(`${missingReceipts} expenses missing receipts`);
+        if (projectIsCompleted && missingReceipts > 0 && missingReceipts < 3) risks.push(`${missingReceipts} expense(s) missing receipts (optional housekeeping)`);
+
+        const marginLabel = projectIsCompleted ? 'Margin' : 'Current margin';
+        const profitLabel = projectIsCompleted ? 'Net Profit' : 'Projected Profit';
+        const finalProfit = projectIsCompleted ? (revenue - spent) : Math.round(projectedProfit);
+        const finalMargin = projectIsCompleted ? (revenue > 0 ? ((revenue - spent) / revenue * 100) : currentMarginPct) : currentMarginPct;
+        const healthMessage = projectIsCompleted
+          ? `Health check for ${title}. **Completed.** ${marginLabel}: ${Math.round(finalMargin * 10) / 10}%, ${profitLabel}: $${Math.round(finalProfit).toLocaleString()}. Do NOT suggest next steps or forecast — job is done. You may mention missing receipts as optional housekeeping only.`
+          : `Health check for ${title}. ${marginLabel}: ${Math.round(currentMarginPct * 10) / 10}% (matches Projects page). PAYMENT QUESTIONS ("when am I getting paid next", "payments", "next payment"): Answer from TIMELINE data — upcomingPayments, overduePayments, unscheduledPayments. Format: "Your next payment is the [payment name] for the ${title} project, amounting to $[amount], due on [date]." Use exact name, amount, date from the data. You may end with: "Want me to check on any other upcoming payments or project details?" If no dated payments but unscheduledPayments has items, list them and say they can set dates in the Timeline. If all empty, say payments are set in the Timeline tab (Projects → ${title} → Timeline) and suggest opening it to sync. Never say "no upcoming payments" without that guidance.`;
+
+        // Structured detailed margin breakdown for "yes" / "detailed breakdown" follow-up (margin, projected at completion, how margin can go down)
+        const marginDetailNote = progress > 5 && spent > 0
+          ? `Current margin is based on run-rate: projected final cost = $${Math.round(projectedFinalCost).toLocaleString()} (spent $${Math.round(spent).toLocaleString()} at ${Math.round(progress)}% progress), so margin at completion would be ${Math.round(projectedMarginPct * 10) / 10}% if spending continues at this rate.`
+          : `Current margin matches your bid margin (${Math.round(marginPct * 10) / 10}%) because there's little spend so far ($${Math.round(spent).toLocaleString()} of $${Math.round(estCost || revenue).toLocaleString()} budget).`;
+        let detailedMarginBreakdown = `**Detailed margin breakdown for ${title}**\n\n` +
+          `**1. Margin breakdown**\n` +
+          `• Original (bid) margin from your estimate: ${Math.round(marginPct * 10) / 10}%\n` +
+          `• Current margin: ${Math.round(currentMarginPct * 10) / 10}% (matches Projects page)\n` +
+          `• ${marginDetailNote}\n` +
+          `• Revenue: $${Math.round(revenue).toLocaleString()} | Spent: $${Math.round(spent).toLocaleString()} of $${Math.round(estCost || adjustedBudget).toLocaleString()} budget | Progress: ${Math.round(progress)}%\n\n` +
+          `**2. Projected when job is completed**\n` +
+          `• Projected final cost: $${Math.round(projectedFinalCost).toLocaleString()}\n` +
+          `• Projected profit at completion: $${Math.round(projectedProfit).toLocaleString()}\n` +
+          `• Projected margin at completion: ${Math.round(projectedMarginPct * 10) / 10}%\n\n` +
+          `**3. How your margin can go down**\n`;
+        if (risks.length > 0) {
+          detailedMarginBreakdown += risks.map(r => `• ${r}`).join('\n');
+        } else {
+          detailedMarginBreakdown += `• Cost overruns (spending more than budget before job completes) would reduce profit and margin.\n` +
+            `• Missing or late receipts make it harder to track actual costs and can affect reported margin.\n` +
+            (missingReceipts > 0 ? `• You have ${missingReceipts} expense(s) missing receipts — attaching them keeps your records accurate.\n` : '');
+        }
+        if (upcomingPayments.length > 0) {
+          detailedMarginBreakdown += `\n\n**Upcoming payments**\n` +
+            upcomingPayments.slice(0, 5).map((p, i) => `${i + 1}. ${p.name}: $${Math.round(p.amount || 0).toLocaleString()}${p.date ? ` due ${typeof p.date === 'string' ? p.date : new Date(p.date).toLocaleDateString()}` : ''}`).join('\n');
+        }
 
         return {
           success: true,
           project: title,
           status: match.status || 'unknown',
-          message: `Health check for ${title}. Current margin: ${Math.round(currentMarginPct * 10) / 10}% (matches Projects page).`,
+          isCompleted: projectIsCompleted,
+          marginLabel,
+          profitLabel,
+          netProfit: projectIsCompleted ? Math.round(revenue - spent) : null,
+          message: healthMessage,
+          detailedMarginBreakdown,
           financials: {
             revenue, estimatedCost: estCost, actualSpent: spent,
             adjustedBudget: Math.round(adjustedBudget),
@@ -4377,6 +5362,7 @@ router.post('/', async (req, res) => {
           topCostDrivers: topCosts,
           overdueItems: overdueItems.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? 0) })),
           upcomingPayments: upcomingPayments.map(m => ({ name: m.title || m.name || 'Payment', amount: normalize(m.amount ?? m.paymentAmount ?? 0), date: getMilestoneDate(m) })),
+          unscheduledPayments,
           missingReceipts,
           changeOrdersCount: changeOrders.length,
           risks,
@@ -5584,29 +6570,164 @@ router.post('/', async (req, res) => {
       combinedMessage: combinedMessageForExpense.substring(0, 80)
     });
 
-    const routerResult = await withTimeout(runRouter(
-      message,
-      history,
-      {
-        projectName,
-        projectId,
-        activeTab,
-        pmMode: aiPmMode,
-        inDailyLogFlow: inDailyLogContextForExpense, // Pass daily log context to router
-        poFlow: {
-          hasAmount: !!poFlowContext.amount,
-          hasVendor: !!poFlowContext.vendor,
-          hasCategory: !!poFlowContext.category,
-          hasExpectedDelivery: !!poFlowContext.expectedDelivery,
-        },
-        coFlow: {
-          hasDescription: !!coFlowContext.description,
-          hasAmount: !!coFlowContext.amount,
-          hasVendor: !!coFlowContext.vendor,
-        },
+    // PRE-ROUTER: "Where am I losing money" / "profit leaks" → never call router, force compare_projects so we never get "which project?"
+    const losingMoneyPreCheck = /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak)\b/i.test(messageLower);
+    // PRE-ROUTER: "Completed projects" / "yes completed projects" / "review completed" → force compare_projects(status: completed); AI already knows completed list
+    const completedProjectsPreCheck = /\b(yes\s+)?(completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|(where|how)\s+(did\s+I\s+)?(lose|make)\s+(money\s+)?(on\s+)?completed|profit\s+(on\s+)?completed|compare\s+(my\s+)?completed)\b/i.test(messageLower);
+    // PRE-ROUTER: "Over budget" → compare active + completed, list which are over budget and by how much; AI already knows projects
+    const overBudgetPreCheck = /\b(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|(show\s+)?projects?\s+over\s+budget|over\s+budget\s+(and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks\b/i.test(messageLower);
+    let routerResult;
+    if (losingMoneyPreCheck) {
+      console.log('🛡️ PRE-ROUTER: Losing money / profit leak intent → skipping router, forcing compare_projects (activeOnly)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: { activeOnly: true },
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _losingMoneyIntent: true,
+      };
+    } else if (completedProjectsPreCheck) {
+      console.log('🛡️ PRE-ROUTER: Completed projects intent → skipping router, forcing compare_projects (status: completed)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: { status: 'completed' },
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _completedProjectsIntent: true,
+      };
+    } else if (overBudgetPreCheck) {
+      console.log('🛡️ PRE-ROUTER: Over budget intent → skipping router, forcing compare_projects (active + completed, sortBy overBudget)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: { sortBy: 'overBudget' },
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _overBudgetIntent: true,
+      };
+    } else if (/\b(upcoming\s+events?\s+on\s+the\s+calendar|events?\s+on\s+the\s+calendar|what'?s\s+on\s+the\s+calendar|calendar\s+events?|upcoming\s+calendar)\b/i.test(messageLower)) {
+      console.log('🛡️ PRE-ROUTER: Calendar / upcoming events intent → forcing compare_projects (dashboard calendar = inspections, deadlines, payments)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: {},
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _calendarEventsIntent: true,
+      };
+    } else {
+      routerResult = await withTimeout(runRouter(
+        normalizedMessage,
+        history,
+        {
+          projectName,
+          projectId,
+          activeTab,
+          pmMode: aiPmMode,
+          inDailyLogFlow: inDailyLogContextForExpense,
+          poFlow: {
+            hasAmount: !!poFlowContext.amount,
+            hasVendor: !!poFlowContext.vendor,
+            hasCategory: !!poFlowContext.category,
+            hasExpectedDelivery: !!poFlowContext.expectedDelivery,
+          },
+          coFlow: {
+            hasDescription: !!coFlowContext.description,
+            hasAmount: !!coFlowContext.amount,
+            hasVendor: !!coFlowContext.vendor,
+          },
+        }
+      ), 12000, 'router_stage');
+    }
+
+    // ── CRITICAL: "MY COMPLETED PROJECTS" SCOPE OVERRIDE ─────────────────────
+    // When assistant asked "which project?" and user says "my completed projects" — they mean SCOPE (aggregate), not a project name
+    const assistantAskedWhichProject = /(?:which project|what project|which one|which job).*(?:mean|referring|talking about)/i.test(lastAssistantMsg) ||
+      /(?:which|what) project\s*(?:do you|do they)?\s*mean/i.test(lastAssistantMsg);
+    const userSaidScopeClarification = /\b(my completed projects|completed projects|completed jobs|all my jobs|all of them|all completed|from my completed|the completed ones|all projects)\b/i.test(messageLower);
+    if (assistantAskedWhichProject && userSaidScopeClarification) {
+      const wantCompletedOnly = /\b(completed|done|finished)\b/i.test(messageLower);
+      console.log('🛡️ SCOPE OVERRIDE: User clarified scope → forcing compare_projects', wantCompletedOnly ? '(status=completed)' : '(all projects)');
+      routerResult.domain = 'portfolio';
+      routerResult.proposed_tool = 'compare_projects';
+      routerResult.tool_args_draft = { ...(routerResult.tool_args_draft || {}), ...(wantCompletedOnly ? { status: 'completed' } : {}) };
+      routerResult.required_fields_missing = [];
+      routerResult.clarification_question = null;
+      routerResult.confidence = 0.99;
+    }
+
+    // ── CRITICAL: "WHERE AM I LOSING MONEY" / "PROFIT LEAKS" = PORTFOLIO, NEVER ASK WHICH PROJECT ───
+    const losingMoneyIntent = /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak)\b/i.test(messageLower);
+    if (losingMoneyIntent) {
+      console.log('🛡️ LOSING MONEY OVERRIDE: User asked portfolio question → forcing compare_projects (activeOnly for active projects)');
+      routerResult.domain = 'portfolio';
+      routerResult.proposed_tool = 'compare_projects';
+      routerResult.tool_args_draft = { ...(routerResult.tool_args_draft || {}), activeOnly: true };
+      routerResult.required_fields_missing = [];
+      routerResult.clarification_question = null;
+      routerResult.confidence = 0.99;
+    }
+
+    // ── CRITICAL: "REVIEW / UPDATE ON [NAME]" = PROJECT HEALTH, NOT MESSAGE ───
+    // "Give me update on Chris", "review of Chris", "review Chris job" = get_project_health(Chris), not message_team_member
+    const reviewUpdateMatch = messageLower.match(/(?:update on|review of|review on|give me (?:a )?review of|review)\s+([a-z]+)(?:\s+job)?/i) ||
+      messageLower.match(/(?:how is|how'?s|status of)\s+([a-z]+)\s*(?:doing|going)?/i);
+    const projectNameForReview = reviewUpdateMatch ? reviewUpdateMatch[1].trim() : null;
+    const isReviewUpdateIntent = projectNameForReview && projectNameForReview.length >= 2 &&
+      (/\b(?:update on|review of|review on|give me (?:a )?review of|review|how is|how'?s|status of)\s+[a-z]+/i.test(messageLower));
+    if (isReviewUpdateIntent && (routerResult.proposed_tool === 'message_team_member' || routerResult.domain === 'team')) {
+      console.log('🛡️ REVIEW/UPDATE OVERRIDE: User asked for project review/update on', projectNameForReview, '→ forcing get_project_health');
+      routerResult.domain = 'portfolio';
+      routerResult.proposed_tool = 'get_project_health';
+      routerResult.tool_args_draft = { ...(routerResult.tool_args_draft || {}), projectName: projectNameForReview };
+      routerResult.required_fields_missing = [];
+      routerResult.clarification_question = null;
+      routerResult.confidence = 0.99;
+    }
+
+    // When user says "yes" (or similar) after assistant offered "Want a detailed breakdown of your margin", run get_project_health for the project from the prior message (e.g. Jerry)
+    const messageTrimmed = (message || '').trim();
+    const assistantOfferedDetailedBreakdown = lastAssistantMsg.includes('detailed breakdown') && (lastAssistantMsg.includes('want') || lastAssistantMsg.includes('margin'));
+    const userSaidYesToBreakdown = /^\s*(yes|yeah|yep|sure|please|ok|okay|detailed breakdown|give me (?:the )?detailed breakdown)\s*$/i.test(messageTrimmed);
+    if (assistantOfferedDetailedBreakdown && userSaidYesToBreakdown && Array.isArray(allUserMessages) && allUserMessages.length >= 1) {
+      // Previous user message (before "yes") was the margin question, e.g. "What is my profit margin for Jerry?"
+      const lastUserContent = (allUserMessages[allUserMessages.length - 1]?.content ?? allUserMessages[allUserMessages.length - 1]) || '';
+      const prevUserMsg = String(allUserMessages.length >= 2 ? (allUserMessages[allUserMessages.length - 2]?.content ?? allUserMessages[allUserMessages.length - 2]) : lastUserContent).trim();
+      const forMatch = prevUserMsg.match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+      const projectFromPrev = forMatch ? forMatch[1].trim() : null;
+      if (projectFromPrev && projectFromPrev.length >= 2) {
+        console.log('🛡️ DETAILED BREAKDOWN YES: User said yes to detailed breakdown → get_project_health for', projectFromPrev);
+        routerResult.domain = 'portfolio';
+        routerResult.proposed_tool = 'get_project_health';
+        routerResult.tool_args_draft = { ...(routerResult.tool_args_draft || {}), projectName: projectFromPrev };
+        routerResult.required_fields_missing = [];
+        routerResult.clarification_question = null;
+        routerResult.confidence = 0.99;
       }
-    ), 12000, 'router_stage');
-    
+    }
+
+    // When user says only "Chris" (or similar) and assistant had asked "which project?" after a review request, treat as project name for get_project_health
+    const lastUserMsgBeforeThis = allUserMessages[allUserMessages.length - 2];
+    const priorUserHadReviewIntent = lastUserMsgBeforeThis && /\b(?:review|update|see the review)\b/i.test(String(lastUserMsgBeforeThis));
+    if (priorUserHadReviewIntent && assistantAskedWhichProject && messageTrimmed.length >= 2 && messageTrimmed.length <= 20 && !/\b(?:message|text|say to|send to)\b/i.test(messageTrimmed)) {
+      const possibleProjectName = messageTrimmed.replace(/\s+job\s*$/i, '').trim();
+      if (possibleProjectName && !/^\d+$/.test(possibleProjectName)) {
+        console.log('🛡️ REVIEW FOLLOW-UP OVERRIDE: User specified project name after "which project?" → get_project_health', possibleProjectName);
+        routerResult.domain = 'portfolio';
+        routerResult.proposed_tool = 'get_project_health';
+        routerResult.tool_args_draft = { ...(routerResult.tool_args_draft || {}), projectName: possibleProjectName };
+        routerResult.required_fields_missing = [];
+        routerResult.clarification_question = null;
+        routerResult.confidence = 0.99;
+      }
+    }
+
     // ── CRITICAL: DAILY LOG PROTECTION ───────────────────────────────────────
     // NEVER let expense guards override daily_log domain - daily logs are NOT expenses
     // If we KNOW we're in a daily log context (assistant asked about notes), FORCE the router
@@ -5921,6 +7042,18 @@ router.post('/', async (req, res) => {
 
     logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
     console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
+
+    // SIMPLE MARGIN/PROFIT OVERRIDE: "what is my margin", "what is my profit margin", "what is my profit" → answer from context, NOT forecast_profit
+    const msgForMarginCheck = (normalizedMessage || message || '').toLowerCase();
+    const isSimpleMarginOrProfitQuestion = /\b(what is my|what's my|what is the)\s+(profit\s+)?margin\b/i.test(msgForMarginCheck) ||
+      /\b(what is my|what's my)\s+profit\b/i.test(msgForMarginCheck) ||
+      /\bmargin\s+for\s+\w+/i.test(msgForMarginCheck) ||
+      /\bprofit\s+margin\s+for\s+\w+/i.test(msgForMarginCheck);
+    if (isSimpleMarginOrProfitQuestion && routerResult.proposed_tool === 'forecast_profit') {
+      console.log('🛡️ SIMPLE MARGIN OVERRIDE: Blocking forecast_profit — answer from context with simple format');
+      routerResult.domain = 'general';
+      routerResult.proposed_tool = null;
+    }
 
     // CRITICAL: If router says daily_log, manage noteText carefully.
     // On INITIAL requests like "Add a daily job log", we must ASK for notes first.
@@ -6771,6 +7904,7 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           // Focus-today / what needs attention: only list ACTIVE projects (exclude completed)
           const lastUserMsg = (messages.filter((m) => m.role === 'user').pop()?.content || '').toLowerCase();
           const focusTodayIntent = /\b(focus on today|top priorities|what needs attention|what should i focus|needs my attention|urgent)\b/.test(lastUserMsg);
+          if (focusTodayIntent) routerResult._focusTodayIntent = true;
           const routerSaysActiveOnly = routerResult?.tool_args_draft?.activeOnly === true;
           if ((focusTodayIntent || routerSaysActiveOnly) && !functionArgs.activeOnly) {
             functionArgs.activeOnly = true;
@@ -7858,13 +8992,17 @@ RULES:
         if (result) {
           try {
             const parsed = JSON.parse(result.content);
-            return {
+            const entry = {
               functionName: tc.function.name,
               success: parsed.success,
               status: parsed.status,
               message: parsed.message,
               error: parsed.error
             };
+            if (tc.function.name === 'compare_projects' && parsed.success) {
+              entry.comparedCount = parsed.comparedCount ?? (Array.isArray(parsed.projects) ? parsed.projects.length : 0);
+            }
+            return entry;
           } catch (e) {
             return { functionName: tc.function.name, error: 'Could not parse result' };
           }
@@ -7892,9 +9030,37 @@ RULES:
             ? ' CRITICAL: If message_team_member or notify_team succeeded, you MUST confirm the message was sent. Use the message from the function result. DO NOT show budget overview or other project info - just confirm the message was sent successfully.'
             : '';
           
+          const hasCompareProjects = functionResultsSummary.some(r => r.functionName === 'compare_projects');
+          const compareResult = functionResultsSummary.find(r => r.functionName === 'compare_projects');
+          const compareCount = compareResult?.comparedCount ?? 0;
+          const losingMoneyInstruction = (routerResult && routerResult._losingMoneyIntent && hasCompareProjects)
+            ? (compareCount === 0
+              ? ' CRITICAL: The user asked about losing money / profit leaks across active projects. compare_projects returned 0 active projects. Say clearly: "You have no active projects." Do NOT ask "which project do you mean?"'
+              : ' CRITICAL: The user asked "where am I losing money across my active projects." You have compare_projects data. Use it. List EACH project with margin, profit, and any profit leaks. Do NOT ask "which project do you mean?" — you already have all active projects.')
+            : '';
+          const completedProjectsInstruction = (routerResult && routerResult._completedProjectsIntent && hasCompareProjects)
+            ? (compareCount === 0
+              ? ' CRITICAL: The user asked about completed projects (e.g. where they lost money or could have made more). compare_projects returned 0 completed projects. Say clearly: "You have no completed projects." Do NOT ask "which project do you mean?"'
+              : ' CRITICAL: The user asked about completed projects (where they lost money or could have made more). You have compare_projects data for completed projects. List EACH completed project with margin, net profit, and where they lost money or could have made more. Do NOT ask "which project do you mean?" — you already have all completed projects.')
+            : '';
+          const overBudgetInstruction = (routerResult && routerResult._overBudgetIntent && hasCompareProjects)
+            ? ' CRITICAL: The user asked which projects are over budget and by how much. You have compare_projects data for active and completed projects. List EACH project that is/was over budget with project name, status (active/completed), and how much over budget (use overBudgetPct and spent vs budget). If no projects are over budget, say clearly: "No projects are over budget." Do NOT ask "which project do you mean?" — you already have all projects.'
+            : '';
+          const focusTodayInstruction = (routerResult && routerResult._focusTodayIntent && hasCompareProjects)
+            ? ' CRITICAL: The user asked for top priorities / what to focus on today. Your response MUST include BOTH: (1) Project priorities from compare_projects — e.g. lowest margin, missing receipts, over budget, overdue payments — and (2) Calendar/schedule items from the UPCOMING EVENTS section in your context: any payments due, inspections, deliveries, or other events in the next 7 days. List project priorities and calendar items together as one unified list of priorities. If UPCOMING EVENTS was provided in context, mention those dates and project names; if not, still list payment due dates from compare_projects upcomingPayments/overduePayments.'
+            : '';
+          const lastUserMsg = (messages.filter((m) => m.role === 'user').pop()?.content || '').toLowerCase();
+          const isPaymentQuestion = /\b(when am I getting paid|next payment|upcoming payment|payments due|when.*getting paid|my next payment)\b/i.test(lastUserMsg);
+          const hasPaymentTool = functionResultsSummary.some(r => r.functionName === 'compare_projects' || r.functionName === 'get_project_health');
+          const paymentQuestionInstruction = (isPaymentQuestion && hasPaymentTool)
+            ? ' CRITICAL: The user asked about payments or "when am I getting paid next". Answer from the TIMELINE data in the function results (upcomingPayments, overduePayments). Use this format: "Your next payment is the [payment name] for the [project title] project, amounting to $[amount], due on [date]." List the soonest payment first. You may end with: "Want me to check on any other upcoming payments or project details?"'
+            : '';
+          const calendarEventsInstruction = (routerResult && routerResult._calendarEventsIntent && hasPaymentTool)
+            ? ' CRITICAL: The user asked about "upcoming events on the calendar". The dashboard calendar = (1) UPCOMING EVENTS in your context (inspections, deliveries, deadlines) and (2) upcoming payments from compare_projects. List ALL across projects — do NOT limit to one project. If UPCOMING EVENTS was provided, list those first, then upcoming payments. If no calendar events in context, list upcoming payments from compare_projects as the calendar (payments, deadlines). Do NOT say "no events for [project name]" or direct to Timeline tab only — answer from dashboard calendar data and compare_projects.'
+            : '';
           messages.push({
             role: 'system',
-            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}`
+            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}${losingMoneyInstruction}${completedProjectsInstruction}${overBudgetInstruction}${focusTodayInstruction}${paymentQuestionInstruction}${calendarEventsInstruction}`
           });
         } else if (allFailed) {
           const errors = functionResultsSummary.map(r => r.error || r.message).filter(Boolean);

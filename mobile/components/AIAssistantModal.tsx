@@ -46,6 +46,7 @@ import {
   type ProjectIntent
 } from "@/lib/ai/projectContextResolver";
 import { useProjectList } from "@/contexts/ProjectListContext";
+import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
@@ -137,6 +138,34 @@ function getEstimatedCostBaseline(project: any, estimateData: any): number {
     Number(ed?.permitCost ?? 0);
   if (fromParts > 0) return fromParts;
   return Number(project?.estimatedCost ?? 0);
+}
+
+/** Bid margin % from estimate (what we had in our bid). Used for bid vs current vs projected. Prefer stored marginPercent/margin (matches Estimate Generator and Projects). */
+function getBidMarginPct(estimateData: any, bidPrice: number): number | null {
+  if (!estimateData || !bidPrice || bidPrice <= 0) return null;
+  const ed = estimateData;
+  // Prefer explicit margin from estimate (Estimate Generator stores marginPercent; Projects use marginPercent ?? margin)
+  const storedMargin = ed?.marginPercent ?? ed?.margin ?? ed?.marginPct;
+  if (typeof storedMargin === 'number' && Number.isFinite(storedMargin)) {
+    const pct = storedMargin > 1 ? storedMargin : storedMargin * 100;
+    if (pct >= 0 && pct <= 100) return Math.round(pct * 10) / 10;
+  }
+  const subtotal = Number(ed?.subtotal ?? ed?.estimatedCost ?? 0) || 0;
+  const profit = Number(ed?.profit ?? 0) || 0;
+  if (subtotal > 0 && profit >= 0) {
+    const total = subtotal + profit;
+    if (total > 0) return Math.round((profit / total) * 1000) / 10;
+  }
+  const markupPct = Number(ed?.markupPct ?? ed?.markup ?? 0) || 0;
+  if (markupPct > 0) return Math.round((markupPct / (100 + markupPct)) * 1000) / 10;
+  return null;
+}
+
+/** Current margin % = (bidPrice - totalSpent) / bidPrice * 100 */
+function getCurrentMarginPct(bidPrice: number, totalSpent: number): number | null {
+  if (!bidPrice || bidPrice <= 0) return null;
+  const spent = Number(totalSpent) || 0;
+  return Math.round(((bidPrice - spent) / bidPrice) * 1000) / 10;
 }
 
 // Helper function to try multiple URLs with fallback
@@ -281,7 +310,7 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
     { label: 'Forecast Profit', prompt: 'Forecast profit across my projects' },
     { label: 'Check Budget Risks', prompt: 'Identify budget risks across my projects' },
     { label: 'Missing Receipts', prompt: 'Which projects have expenses missing receipts?' },
-    { label: 'Upcoming Deadlines', prompt: 'What payments or deadlines are coming up?' },
+    { label: 'Upcoming Payments', prompt: 'What payments are coming up?' },
   ];
 
   const isActive = (s: string) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
@@ -922,12 +951,29 @@ const AIAssistantModal: React.FC<Props> = ({
   try {
     if (context) {
       parsedContext = JSON.parse(context);
+      const bidTotal = parsedContext.bidTotal || parsedContext.total || 0;
+      const estimateData = parsedContext.estimateData || parsedContext.bidData || null;
+      const fromEstimate = getBidMarginPct(estimateData, bidTotal);
+      const fromContext = typeof parsedContext.margin === 'number' && Number.isFinite(parsedContext.margin) && parsedContext.margin >= 0 && parsedContext.margin <= 100 ? parsedContext.margin : undefined;
+      // Prefer Overview's projected margin when in Project Detail — matches Financial Health (e.g. 75%)
+      const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct) ? parsedContext.projectedMarginPct : undefined;
+      const bidMarginPct = fromOverview ?? fromEstimate ?? fromContext ?? parsedContext.bidMarginPct;
+      // When job has live actuals or linked project, show Project context — not Estimate phase
+      const hasLiveProject = parsedContext.hasLiveProjectContext === true ||
+        (typeof parsedContext.actualCost === 'number' && parsedContext.actualCost > 0);
+      const phaseLabel = hasLiveProject ? (parsedContext.phase || 'Project') : (parsedContext.stepTitle || 'Estimate phase');
+      const spendToDatePct = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
+        ? parsedContext.spendToDateMarginPct
+        : undefined;
       projectInfo = {
         title: parsedContext.bidTitle || parsedContext.projectName || "Current Project",
-        phase: parsedContext.stepTitle || "Estimate phase",
-        total: parsedContext.bidTotal || parsedContext.total || 0,
+        phase: phaseLabel,
+        total: bidTotal,
         overhead: parsedContext.overheadPct || 12,
         markup: parsedContext.markupPct || parsedContext.bidData?.markupPct || 18,
+        bidMarginPct: bidMarginPct != null ? Math.round(Number(bidMarginPct) * 10) / 10 : undefined,
+        spendToDateMarginPct: spendToDatePct != null ? Math.round(Number(spendToDatePct) * 10) / 10 : undefined,
+        hasLiveProjectContext: hasLiveProject,
       };
     }
   } catch (e) {
@@ -1083,9 +1129,25 @@ const AIAssistantModal: React.FC<Props> = ({
             markupPct: ed?.markupPct || ed?.markup || 0,
             profit: ed?.profit || 0,
             marginPct: ed?.marginPct || 0,
+            bidMarginPct: getBidMarginPct(ed, p.bidPrice || ed?.totalBid || 0),
+            currentMarginPct: getCurrentMarginPct(p.bidPrice || ed?.totalBid || 0, p.totalSpent || p.actualCost || computedActualCost || (p.projectData?.spent || p.projectData?.actualCost || 0)),
           };
         });
         
+        // When from Project Detail, inject Overview's projected margin/profit, spend-to-date margin, and actual cost into current project so backend uses correct numbers
+        if (baseContext.projectId) {
+          const idx = allProjects.findIndex((p: any) => String(p?.id) === String(baseContext.projectId));
+          if (idx >= 0) {
+            const inject: Record<string, any> = {};
+            if (typeof baseContext.projectedMarginPct === 'number' && Number.isFinite(baseContext.projectedMarginPct)) inject.projectedMarginPct = baseContext.projectedMarginPct;
+            if (typeof baseContext.projectedProfit === 'number' && Number.isFinite(baseContext.projectedProfit)) inject.projectedProfit = baseContext.projectedProfit;
+            if (typeof baseContext.spendToDateMarginPct === 'number' && Number.isFinite(baseContext.spendToDateMarginPct)) inject.spendToDateMarginPct = baseContext.spendToDateMarginPct;
+            if (typeof baseContext.actualCost === 'number' && Number.isFinite(baseContext.actualCost)) inject.actualCost = baseContext.actualCost;
+            if (typeof baseContext.totalSpent === 'number' && Number.isFinite(baseContext.totalSpent)) inject.totalSpent = baseContext.totalSpent;
+            if (typeof baseContext.contractValue === 'number' && Number.isFinite(baseContext.contractValue)) inject.contractValue = baseContext.contractValue;
+            if (Object.keys(inject).length > 0) allProjects[idx] = { ...allProjects[idx], ...inject };
+          }
+        }
         baseContext.allProjects = allProjects;
       } else {
         // Update existing allProjects with latest budget/expense data
@@ -1120,12 +1182,28 @@ const AIAssistantModal: React.FC<Props> = ({
               markupPct: ed?.markupPct || ed?.markup || existing.markupPct || 0,
               profit: ed?.profit || existing.profit || 0,
               marginPct: ed?.marginPct || existing.marginPct || 0,
+              bidMarginPct: getBidMarginPct(ed, fullProject.bidPrice || ed?.totalBid || existing.bidPrice || 0),
+              currentMarginPct: getCurrentMarginPct(fullProject.bidPrice || ed?.totalBid || existing.bidPrice || 0, fullProject.totalSpent || fullProject.actualCost || computedActualCost || (fullProject.projectData?.spent || fullProject.projectData?.actualCost || existing.totalSpent || 0)),
               // Preserve progress from context (timeline-based from Assistant) — do not overwrite with fullProject
               progress: existing.progress ?? fullProject.progress ?? fullProject.overallProgressPct ?? 0,
             };
           }
           return existing;
         });
+        // When from Project Detail, inject Overview's projected margin/profit, spend-to-date margin, and actual cost into current project
+        if (baseContext.projectId) {
+          const idx = updatedProjects.findIndex((p: any) => String(p?.id) === String(baseContext.projectId));
+          if (idx >= 0) {
+            const inject: Record<string, any> = {};
+            if (typeof baseContext.projectedMarginPct === 'number' && Number.isFinite(baseContext.projectedMarginPct)) inject.projectedMarginPct = baseContext.projectedMarginPct;
+            if (typeof baseContext.projectedProfit === 'number' && Number.isFinite(baseContext.projectedProfit)) inject.projectedProfit = baseContext.projectedProfit;
+            if (typeof baseContext.spendToDateMarginPct === 'number' && Number.isFinite(baseContext.spendToDateMarginPct)) inject.spendToDateMarginPct = baseContext.spendToDateMarginPct;
+            if (typeof baseContext.actualCost === 'number' && Number.isFinite(baseContext.actualCost)) inject.actualCost = baseContext.actualCost;
+            if (typeof baseContext.totalSpent === 'number' && Number.isFinite(baseContext.totalSpent)) inject.totalSpent = baseContext.totalSpent;
+            if (typeof baseContext.contractValue === 'number' && Number.isFinite(baseContext.contractValue)) inject.contractValue = baseContext.contractValue;
+            if (Object.keys(inject).length > 0) updatedProjects[idx] = { ...updatedProjects[idx], ...inject };
+          }
+        }
         baseContext.allProjects = updatedProjects;
       }
       
@@ -2003,7 +2081,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
         (isProjectsScreenContext || isGlobalAssistantContext) &&
-        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+deadlines)\b/i.test(
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
           messageToSend
         );
 
@@ -2261,6 +2339,24 @@ const AIAssistantModal: React.FC<Props> = ({
             const mergedEstimateData = storageProject?.estimateData || ctxObj?.estimateData || null;
             const mergedTotalSpent = mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
 
+            const contractVal = storageProject?.budgeted || storageProject?.bidPrice || ctxObj?.contractValue || ctxObj?.bidPrice || ctxObj?.bidTotal || 0;
+            const spendToDatePct = contractVal > 0 && mergedTotalSpent >= 0
+              ? Math.round(((contractVal - mergedTotalSpent) / contractVal) * 1000) / 10
+              : (ctxObj?.spendToDateMarginPct ?? null);
+            const progressPct = Number(storageProject?.overallProgressPct ?? storageProject?.progress ?? ctxObj?.progress ?? 0) || 0;
+            const committedPOs = Array.isArray(storageProject?.purchaseOrders)
+              ? storageProject.purchaseOrders.filter((po: any) => (po?.status || '').toLowerCase() === 'pending').reduce((s: number, po: any) => s + Number(po?.amount || 0), 0)
+              : 0;
+            const estCostBaseline = getEstimatedCostBaseline({ ...storageProject, ...ctxObj }, mergedEstimateData) || contractVal;
+            const pf = contractVal > 0 ? computeProfitForecast({
+              contractValue: contractVal,
+              adjustedBudget: estCostBaseline || contractVal,
+              estimatedCostBaseline: estCostBaseline,
+              actualExpenses: mergedTotalSpent,
+              committedPOs,
+              progressPct,
+              isCompleted: progressPct >= 100,
+            }) : null;
             const hydratedContext = {
               ...ctxObj,
               projectId: targetProjectId,
@@ -2274,6 +2370,11 @@ const AIAssistantModal: React.FC<Props> = ({
               paymentMilestones: mergedMilestones,
               actualCost: mergedTotalSpent,
               totalSpent: mergedTotalSpent,
+              contractValue: contractVal > 0 ? contractVal : (ctxObj?.contractValue || ctxObj?.bidTotal || 0),
+              spendToDateMarginPct: typeof spendToDatePct === 'number' ? spendToDatePct : (pf?.spendToDateMarginPct ?? ctxObj?.spendToDateMarginPct),
+              projectedMarginPct: pf?.projectedMarginPct ?? ctxObj?.projectedMarginPct,
+              projectedProfit: pf?.projectedProfit ?? ctxObj?.projectedProfit,
+              hasLiveProjectContext: mergedTotalSpent > 0 || ctxObj?.hasLiveProjectContext === true,
               bidPrice: storageProject?.bidPrice || ctxObj?.bidPrice || 0,
               estimatedCost: getEstimatedCostBaseline(
                 { ...storageProject, ...ctxObj },
@@ -2285,6 +2386,8 @@ const AIAssistantModal: React.FC<Props> = ({
               materialTotal: Number(
                 mergedEstimateData?.materialTotal || storageProject?.materialTotal || ctxObj?.materialTotal || 0
               ),
+              bidMarginPct: getBidMarginPct(mergedEstimateData, storageProject?.bidPrice || ctxObj?.bidPrice || 0),
+              currentMarginPct: getCurrentMarginPct(storageProject?.bidPrice || ctxObj?.bidPrice || 0, mergedTotalSpent),
             };
             finalContext = JSON.stringify(hydratedContext);
           }
@@ -2317,6 +2420,32 @@ const AIAssistantModal: React.FC<Props> = ({
           delete ctx.activeProjectId;
           contextToSend = JSON.stringify(ctx);
         } catch (_e) { /* keep original */ }
+      }
+
+      // Enrich context with timeline payment data at send time so AI always sees Timeline (Projects → [Project] → Timeline)
+      if (contextToSend) {
+        try {
+          const ctx = JSON.parse(contextToSend);
+          const allProjects = Array.isArray(ctx?.allProjects) ? ctx.allProjects : [];
+          if (allProjects.length > 0) {
+            let updated = false;
+            for (const p of allProjects) {
+              const pid = String(p?.id ?? '').trim();
+              if (!pid) continue;
+              const hasMilestones = Array.isArray(p?.milestones) && p.milestones.length > 0;
+              if (hasMilestones) continue;
+              const raw = await AsyncStorage.getItem(`bps.timeline.v2.${pid}`);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  p.milestones = parsed;
+                  updated = true;
+                }
+              }
+            }
+            if (updated) contextToSend = JSON.stringify(ctx);
+          }
+        } catch (_e) { /* keep context as-is on any error */ }
       }
 
       const response = await fetchWithFallback(
@@ -3221,6 +3350,15 @@ const AIAssistantModal: React.FC<Props> = ({
                     )}
                   </>
                 )}
+                {__DEV__ && (() => {
+                  const base = resolveAIBaseUrl();
+                  const label = base.includes('render.com') ? 'Production' : base.includes('localhost') || base.includes('127.0.0.1') ? 'Local (localhost:3001)' : `Local (${base.replace(/^https?:\/\//, '').replace(/\/api\/?$/, '')})`;
+                  return (
+                    <Text style={[styles.headerMeta, { marginTop: 2, opacity: 0.8 }, !darkMode && { color: ThemeColors.sub }]} numberOfLines={1}>
+                      Backend: {label}
+                    </Text>
+                  );
+                })()}
               </View>
               <View style={styles.headerSpacer} />
             </View>
@@ -3409,7 +3547,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       )}
 
                       {/* Quick actions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0 }, !darkMode && { color: ThemeColors.sub }]}>
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0, color: '#FFFFFF' }]}>
                         Quick actions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -3427,9 +3565,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={qa.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefQuickChip, !darkMode && { borderColor: ThemeColors.line }, chipDisabled && { opacity: 0.5 }]}
+                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }]}
                           >
-                            <Text style={[styles.todayBriefQuickChipText, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={styles.todayBriefQuickChipText}>
                               {qa.label}
                             </Text>
                           </TouchableOpacity>
@@ -3438,7 +3576,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       </ScrollView>
 
                       {/* Suggested questions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0 }, !darkMode && { color: ThemeColors.sub }]}>
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0, color: '#FFFFFF' }]}>
                         Suggested questions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -3452,9 +3590,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={sf.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefFollowChip, !darkMode && { borderColor: ThemeColors.line }]}
+                            style={styles.todayBriefFollowChip}
                           >
-                            <Text style={[styles.todayBriefFollowChipText, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={styles.todayBriefFollowChipText}>
                               {sf.label}
                             </Text>
                           </TouchableOpacity>
@@ -3565,9 +3703,13 @@ const AIAssistantModal: React.FC<Props> = ({
 
                       <View style={styles.projectRight}>
                         <View style={[styles.marginBadge, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                          <Text style={[styles.marginBadgeLabel, !darkMode && { color: Colors.green }]}>Margin</Text>
+                          <Text style={[styles.marginBadgeLabel, !darkMode && { color: Colors.green }]}>
+                            {projectInfo.hasLiveProjectContext ? 'Spend-to-date' : 'Bid margin'}
+                          </Text>
                           <Text style={[styles.marginBadgeValue, !darkMode && { color: Colors.green }]}>
-                            {projectInfo.markup ? `${projectInfo.markup}%` : "—"}
+                            {projectInfo.hasLiveProjectContext && projectInfo.spendToDateMarginPct != null
+                              ? `${Number(projectInfo.spendToDateMarginPct).toFixed(1)}%`
+                              : projectInfo.bidMarginPct != null ? `${Number(projectInfo.bidMarginPct).toFixed(1)}%` : projectInfo.markup ? `${projectInfo.markup}%` : "—"}
                           </Text>
                         </View>
 
@@ -3771,7 +3913,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         { label: 'Forecast Profit', basePrompt: 'Forecast profit across my projects', portfolioScope: true },
                         { label: 'Budget Risks', basePrompt: 'Identify budget risks across my projects', portfolioScope: true },
                         { label: 'Missing Receipts', basePrompt: 'Which projects have expenses missing receipts?', portfolioScope: true },
-                        { label: 'Upcoming Deadlines', basePrompt: 'What payments or deadlines are coming up?', portfolioScope: true },
+                        { label: 'Upcoming Payments', basePrompt: 'What payments are coming up?', portfolioScope: true },
                         { label: '➕ Add expense', basePrompt: 'Add an expense', portfolioScope: false },
                         { label: '📦 Add PO', basePrompt: 'Create a purchase order', portfolioScope: false },
                         { label: '📝 Daily log', basePrompt: 'Add a daily log for today', portfolioScope: false },
@@ -4579,10 +4721,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.25)",
+    borderColor: "#2DFFC4",
   },
   todayBriefQuickChipText: {
-    color: Colors.text,
+    color: "#2DFFC4",
     fontSize: 12,
     fontWeight: "600",
   },
@@ -4591,10 +4733,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.3)",
+    borderColor: "rgba(45, 255, 196, 0.5)",
   },
   todayBriefFollowChipText: {
-    color: Colors.sub,
+    color: "#2DFFC4",
     fontSize: 11,
     fontWeight: "600",
   },

@@ -957,13 +957,21 @@ export default function BudgetTab({
             valueColor='#ef4444'
           />
           <Row
-            label='Forecast Profit'
+            label='Projected Profit'
             value={money(profitForecast.projectedProfit, currency)}
             theme={theme}
             valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
           />
           <Row
-            label='Forecast Margin'
+            label='Spend-to-Date Margin'
+            sublabel='Based on costs logged so far'
+            value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
+            theme={theme}
+            valueColor={profitStatusColor}
+          />
+          <Row
+            label='Projected Margin'
+            sublabel='Based on current spend vs completion progress'
             value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
             theme={theme}
             valueColor={profitStatusColor}

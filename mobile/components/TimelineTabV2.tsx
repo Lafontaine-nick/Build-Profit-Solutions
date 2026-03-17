@@ -18,6 +18,7 @@ import { getColors } from "@/theme/getColors";
 /* -------------------- helpers -------------------- */
 
 const getStorageKey = (projectId: string) => `bps.timeline.v2.${projectId}`;
+const BID_STORAGE_KEY = "bps.currentBid.v2";
 
 function clampPct(n: number) {
   return Math.min(100, Math.max(0, n || 0));
@@ -36,14 +37,16 @@ function computeOverallPct(items: Milestone[]) {
 }
 
 function safeISODate(isoLike: string) {
-  // we store plannedDate as an ISO string sometimes, or YYYY-MM-DD
-  // normalize to YYYY-MM-DD for display/sorts
+  // Normalize to YYYY-MM-DD without timezone shifts (date-only strings are source of truth)
   try {
-    const d = new Date(isoLike);
+    if (!isoLike || typeof isoLike !== "string") return new Date().toISOString().split("T")[0];
+    const trimmed = String(isoLike).trim();
+    // If already YYYY-MM-DD (or ISO with date), extract date part - avoid new Date() for date-only to prevent UTC shift
+    const dateOnlyMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateOnlyMatch) return dateOnlyMatch[1];
+    const d = new Date(trimmed);
     if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
   } catch {}
-  // maybe it's already YYYY-MM-DD
-  if (typeof isoLike === "string" && isoLike.includes("-")) return isoLike.split("T")[0];
   return new Date().toISOString().split("T")[0];
 }
 
@@ -191,6 +194,41 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   const isLoadingRef = useRef<boolean>(false);
   const lastEstimateDataRef = useRef<string>("");
 
+  // Live bid from Estimate tab (when user edits dates there) - use when bid.id matches project
+  const [liveBidPaymentData, setLiveBidPaymentData] = useState<{
+    paymentMilestones: any[];
+    weeklyPayments: any[];
+    paymentSchedule?: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!project?.id) {
+      setLiveBidPaymentData(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(BID_STORAGE_KEY);
+        if (!raw || cancelled) return;
+        const bid = JSON.parse(raw);
+        if (bid?.id === project.id && (bid.paymentMilestones?.length || bid.weeklyPayments?.length)) {
+          if (!cancelled) {
+            setLiveBidPaymentData({
+              paymentMilestones: bid.paymentMilestones || [],
+              weeklyPayments: bid.weeklyPayments || [],
+              paymentSchedule: bid.paymentSchedule,
+            });
+          }
+        } else {
+          if (!cancelled) setLiveBidPaymentData(null);
+        }
+      } catch {
+        if (!cancelled) setLiveBidPaymentData(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [project?.id]);
+
   /* ---------- conversions ---------- */
 
   const convertWeeklyPaymentsToMilestones = (weeklyPayments: any[] = []): Milestone[] => {
@@ -233,32 +271,92 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   };
 
   const collectPaymentMilestones = useCallback(() => {
-    const estimateData = (project as any)?.estimateData || projectFromList?.estimateData || {};
+    const baseEstimate = (project as any)?.estimateData || projectFromList?.estimateData || {};
+    // Prefer live bid from Estimate tab (bps.currentBid.v2) when it matches this project — ensures dates match what user sees in Estimate
+    const estimateData = liveBidPaymentData
+      ? { ...baseEstimate, paymentMilestones: liveBidPaymentData.paymentMilestones, weeklyPayments: liveBidPaymentData.weeklyPayments, paymentSchedule: liveBidPaymentData.paymentSchedule ?? baseEstimate?.paymentSchedule }
+      : baseEstimate;
     const scheduleType = (project as any)?.paymentSchedule ?? estimateData?.paymentSchedule ?? "milestone-based";
 
     // For hybrid schedules, combine paymentMilestones (deposit, etc.) + weeklyPayments (week 1, 2, etc.)
+    // Prefer estimateData (or live bid) for payment schedule so timeline dates match Estimate page
     const getMilestones = () => {
+      if (estimateData?.milestones?.length) return estimateData.milestones;
       if (project?.milestones?.length) return project.milestones;
       if (projectFromList?.milestones?.length) return projectFromList.milestones;
-      if (estimateData?.milestones?.length) return estimateData.milestones;
       return [];
     };
     const getPaymentMilestones = () => {
+      if (estimateData?.paymentMilestones?.length) return estimateData.paymentMilestones;
       if (project?.milestones?.length) return project.milestones;
       if (projectFromList?.milestones?.length) return projectFromList.milestones;
-      if (estimateData?.paymentMilestones?.length) return estimateData.paymentMilestones;
       return [];
     };
     const getWeeklyPayments = () => {
+      if (estimateData?.weeklyPayments?.length) return estimateData.weeklyPayments;
       if (project?.weeklyPayments?.length) return project.weeklyPayments;
       if (projectFromList?.weeklyPayments?.length) return projectFromList.weeklyPayments;
-      if (estimateData?.weeklyPayments?.length) return estimateData.weeklyPayments;
       return [];
     };
 
     const milestones = getMilestones();
     const paymentMs = getPaymentMilestones();
     const weekly = getWeeklyPayments();
+
+    // Weekly schedule source of truth: weeklyPayments.
+    // Do not let stale paymentMilestones override weekly dates.
+    if (scheduleType === "weekly") {
+      const srcWeeklyOnly = (estimateData?.weeklyPayments?.length ? estimateData.weeklyPayments : weekly) || [];
+      if (srcWeeklyOnly.length) {
+        const startDateOnly = (() => {
+          const raw = (project as any)?.estimateData?.projectStartDate ?? (project as any)?.startDate ?? projectFromList?.estimateData?.projectStartDate ?? projectFromList?.startDate;
+          const match = raw ? String(raw).match(/^\d{4}-\d{2}-\d{2}/) : null;
+          return match ? match[0] : "";
+        })();
+        const addDays = (dateStr: string, days: number): string => {
+          if (!dateStr) return "";
+          try {
+            const d = new Date(dateStr + "T12:00:00");
+            d.setDate(d.getDate() + days);
+            return d.toISOString().split("T")[0];
+          } catch {
+            return dateStr;
+          }
+        };
+        const normalizeDateOnly = (raw: any): string => {
+          const m = String(raw || "").match(/^\d{4}-\d{2}-\d{2}/);
+          return m ? m[0] : "";
+        };
+        const milestoneDeposit = paymentMs.find((m: any) =>
+          (m.type || "").toString().toLowerCase() === "deposit" ||
+          /deposit/.test((m.name || m.title || "").toString().toLowerCase())
+        );
+        const inferredDepositDate =
+          normalizeDateOnly(milestoneDeposit?.scheduledDate ?? milestoneDeposit?.dueDate) ||
+          (startDateOnly ? addDays(startDateOnly, 7) : "");
+        const fromWeeklyOnly = srcWeeklyOnly.map((w: any, i: number) => {
+          const weekNo = Number(w.weekNumber ?? i + 1);
+          const fallbackDate = weekNo === 0
+            ? inferredDepositDate
+            : (inferredDepositDate ? addDays(inferredDepositDate, weekNo * 7) : "");
+          return {
+            ...w,
+            id: w.id || `week-${i}`,
+            name: w.description || w.name || `Week ${w.weekNumber ?? i + 1} Payment`,
+            title: w.description || w.name || `Week ${w.weekNumber ?? i + 1} Payment`,
+            scheduledDate: w.scheduledDate ?? w.dueDate ?? fallbackDate,
+            dueDate: w.scheduledDate ?? w.dueDate ?? fallbackDate,
+            paymentAmount: w.amount ?? w.paymentAmount ?? 0,
+            amount: w.amount ?? w.paymentAmount ?? 0,
+            status: w.status ?? "pending",
+          };
+        });
+        return fromWeeklyOnly;
+      }
+      // Fall back only when weeklyPayments are missing.
+      if (paymentMs.length) return paymentMs;
+      if (milestones.length) return milestones;
+    }
 
     // Hybrid: deposit + week 1, week 2, etc. — combine from estimate to avoid duplicates.
     const edPaymentMs = estimateData?.paymentMilestones || [];
@@ -269,26 +367,75 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     const srcPaymentMs = edPaymentMs.length > 0 ? edPaymentMs : paymentMs;
     const srcWeekly = edWeekly.length > 0 ? edWeekly : (pmAlreadyMerged ? [] : weekly);
     if (isHybrid && (srcPaymentMs.length || srcWeekly.length)) {
-      const fromMs = srcPaymentMs.map((m: any, i: number) => ({
-        id: m.id || `payment-${i}`,
-        name: m.name || m.title,
-        title: m.title || m.name,
-        paymentAmount: m.amount ?? m.paymentAmount ?? 0,
-        amount: m.amount ?? m.paymentAmount ?? 0,
-        scheduledDate: m.scheduledDate ?? m.dueDate,
-        dueDate: m.dueDate ?? m.scheduledDate,
-        status: m.status ?? "pending",
-      }));
-      const fromWeekly = srcWeekly.map((w: any, i: number) => ({
-        id: w.id || `week-${i}`,
-        name: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
-        title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
-        paymentAmount: w.amount ?? 0,
-        amount: w.amount ?? 0,
-        scheduledDate: w.scheduledDate ?? w.dueDate,
-        dueDate: w.scheduledDate ?? w.dueDate,
-        status: w.status ?? "pending",
-      }));
+      const startDateOnly = (() => {
+        const raw = (project as any)?.estimateData?.projectStartDate ?? (project as any)?.startDate ?? projectFromList?.estimateData?.projectStartDate ?? projectFromList?.startDate;
+        if (!raw) return "";
+        const match = String(raw).match(/^\d{4}-\d{2}-\d{2}/);
+        return match ? match[0] : "";
+      })();
+      const normalizeDateOnly = (raw: any): string => {
+        const m = String(raw || "").match(/^\d{4}-\d{2}-\d{2}/);
+        return m ? m[0] : "";
+      };
+      const addDays = (dateStr: string, days: number): string => {
+        if (!dateStr) return "";
+        try {
+          const d = new Date(dateStr + "T12:00:00");
+          d.setDate(d.getDate() + days);
+          return d.toISOString().split("T")[0];
+        } catch {
+          return dateStr;
+        }
+      };
+      const msDeposit = srcPaymentMs.find((m: any) =>
+        (m.type || "").toString().toLowerCase() === "deposit" ||
+        /deposit/.test((m.name || m.title || "").toString().toLowerCase())
+      );
+      const weeklyDeposit = srcWeekly.find((w: any) =>
+        Number(w.weekNumber) === 0 || /deposit/.test((w.description || "").toString().toLowerCase())
+      );
+      const inferredDepositDate =
+        normalizeDateOnly(msDeposit?.scheduledDate ?? msDeposit?.dueDate) ||
+        normalizeDateOnly(weeklyDeposit?.scheduledDate ?? weeklyDeposit?.dueDate) ||
+        (startDateOnly ? addDays(startDateOnly, 7) : "");
+      const fromMs = srcPaymentMs.map((m: any, i: number) => {
+        const raw = m.scheduledDate ?? m.dueDate;
+        const isDeposit = (m.type || "").toString().toLowerCase() === "deposit" || /deposit/.test((m.name || m.title || "").toString().toLowerCase());
+        // Never use project start date as the deposit date — deposit is due after start (e.g. start 3/21, deposit 3/28)
+        let scheduledDate = raw;
+        if (isDeposit && startDateOnly) {
+          const rawNorm = raw ? safeISODate(raw) : "";
+          if (!rawNorm || rawNorm === startDateOnly) scheduledDate = inferredDepositDate || addDays(startDateOnly, 7);
+        }
+        return {
+          id: m.id || `payment-${i}`,
+          name: m.name || m.title,
+          title: m.title || m.name,
+          paymentAmount: m.amount ?? m.paymentAmount ?? 0,
+          amount: m.amount ?? m.paymentAmount ?? 0,
+          scheduledDate: scheduledDate ?? raw,
+          dueDate: scheduledDate ?? raw ?? m.dueDate ?? m.scheduledDate,
+          status: m.status ?? "pending",
+        };
+      });
+      const fromWeekly = srcWeekly.map((w: any, i: number) => {
+        const weekNo = Number(w.weekNumber ?? i + 1);
+        const inferredWeekDate =
+          weekNo === 0
+            ? inferredDepositDate
+            : (inferredDepositDate ? addDays(inferredDepositDate, weekNo * 7) : "");
+        const scheduledDate = w.scheduledDate ?? w.dueDate ?? inferredWeekDate;
+        return {
+          id: w.id || `week-${i}`,
+          name: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+          title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+          paymentAmount: w.amount ?? 0,
+          amount: w.amount ?? 0,
+          scheduledDate,
+          dueDate: scheduledDate,
+          status: w.status ?? "pending",
+        };
+      });
       const combined = [...fromMs, ...fromWeekly].sort((a, b) => {
         const dA = new Date(a.scheduledDate || a.dueDate || 0).getTime();
         const dB = new Date(b.scheduledDate || b.dueDate || 0).getTime();
@@ -318,7 +465,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     }
 
     return [];
-  }, [project?.milestones, project?.weeklyPayments, projectFromList?.milestones, projectFromList?.weeklyPayments, (project as any)?.estimateData, (project as any)?.paymentSchedule]);
+  }, [liveBidPaymentData, project?.milestones, project?.weeklyPayments, projectFromList?.milestones, projectFromList?.weeklyPayments, (project as any)?.estimateData, (project as any)?.paymentSchedule]);
 
   const convertTimelineMilestonesToProject = () => {
     const existingLookup = new Map(
@@ -443,7 +590,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     // Check if estimate data has changed or if this is a new project
     const estimateDataChanged = lastEstimateDataRef.current !== estimateDataHash;
     const isNewProject = hasLoadedForProjectRef.current !== project.id;
-    
+
     // Allow reload if trigger changed (for payment collection updates)
     if (!isNewProject && !estimateDataChanged && reloadTrigger === 0) return;
 
@@ -479,8 +626,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     assignee: savedM.assignee || newM.assignee,
                     costDelta: savedM.costDelta,
                     costCategory: savedM.costCategory,
-                    // Prefer saved plannedDate when user has edited it (e.g. Week 4 Payment → Apr 13)
-                    plannedDate: savedM.plannedDate || newM.plannedDate,
+                    // Always use current schedule dates (from estimate/project) so timeline matches Estimate page; only keep status/progress from saved.
+                    plannedDate: newM.plannedDate,
                   };
                 }
                 return newM;

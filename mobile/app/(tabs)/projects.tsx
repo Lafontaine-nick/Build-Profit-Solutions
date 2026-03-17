@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,15 @@ import {
   TouchableOpacity,
   Modal,
   InteractionManager,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
@@ -594,19 +602,21 @@ export default function ProjectsScreen() {
           })
         : null;
 
-      // Prefer estimate's profit & margin when project came from estimate and has no real spending yet
+      // Prefer estimate's profit & margin only when project has no real spending AND no meaningful progress.
       const hasNoRealSpend = actualCost === 0 || (revenue > 0 && actualCost < 0.01 * revenue);
-      const useEstimateValues = hasNoRealSpend && (effectiveEstimateProfit > 0 || estimateMarginNum != null);
+      const useEstimateValues = hasNoRealSpend && finalProgress < 0.05 && (effectiveEstimateProfit > 0 || estimateMarginNum != null);
 
       const derivedMarginFromProfit = revenue > 0 && effectiveEstimateProfit > 0 ? (effectiveEstimateProfit / revenue) * 100 : null;
       const derivedProfitFromMargin = revenue > 0 && estimateMarginNum != null ? revenue * (estimateMarginNum / 100) : null;
+      // Card shows CURRENT margin (spend-to-date) and current profit — not projected. Current = (contract − spent) / contract.
+      const spendToDateMargin = revenue > 0 && actualCost >= 0 ? ((revenue - actualCost) / revenue) * 100 : null;
+      const currentProfit = revenue > 0 && actualCost >= 0 ? Math.round(revenue - actualCost) : null;
       const displayProfit = useEstimateValues && (effectiveEstimateProfit > 0 || derivedProfitFromMargin != null)
         ? (effectiveEstimateProfit > 0 ? effectiveEstimateProfit : derivedProfitFromMargin!)
-        : profitForecast?.projectedProfit;
-      // When using estimate profit, derive margin from it so they match (e.g. 20% not 21%)
+        : (spendToDateMargin != null ? currentProfit : profitForecast?.projectedProfit);
       const displayMargin = useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
         ? (derivedMarginFromProfit ?? estimateMarginNum!)
-        : (profitForecast?.projectedMarginPct ?? (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0));
+        : (spendToDateMargin ?? profitForecast?.projectedMarginPct ?? (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0));
 
       // Only show revenue for submitted/active/completed projects, show $0 for drafts
       const displayAmount = (displayStatus === 'Draft' || status === 'estimate') ? 0 : revenue;
@@ -654,6 +664,7 @@ export default function ProjectsScreen() {
   const [selectedProjectForWon, setSelectedProjectForWon] = useState<any>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
   const [successProjectName, setSuccessProjectName] = useState('');
+  const successBannerOpacity = useRef(new Animated.Value(0)).current;
 
   const handleDeleteProject = async (project: any, e: any) => {
     // Stop event propagation so it doesn't trigger the card press
@@ -710,35 +721,41 @@ export default function ProjectsScreen() {
 
   const confirmMarkAsWon = async () => {
     if (!selectedProjectForWon) return;
-    
+    const projectName = selectedProjectForWon.name;
+    const projectId = selectedProjectForWon.id;
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setMarkAsWonModalVisible(false);
-    
+    setSelectedProjectForWon(null);
+
     try {
-      // Convert the submitted bid to active project
-      convertBidToProject(selectedProjectForWon.id);
-      
-      // Show success banner
-      setSuccessProjectName(selectedProjectForWon.name);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setActiveTab('active');
+      convertBidToProject(projectId);
+
+      setSuccessProjectName(projectName);
       setShowSuccessBanner(true);
-      
-      // Auto-dismiss banner after 2 seconds
+      successBannerOpacity.setValue(0);
+      Animated.timing(successBannerOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+
+      const dismissAfter = 3000;
       setTimeout(() => {
-        setShowSuccessBanner(false);
-      }, 2000);
-      
-      // Switch to Active tab and scroll to show the new project
-      setTimeout(() => {
-        setActiveTab('active');
-        // The project will now appear in the Active tab
-      }, 500);
-      
+        Animated.timing(successBannerOpacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) setShowSuccessBanner(false);
+        });
+      }, dismissAfter);
     } catch (error) {
       console.error('Error marking project as won:', error);
       Alert.alert('Error', 'Failed to mark project as won');
     }
-    
-    setSelectedProjectForWon(null);
   };
 
   return (
@@ -1060,15 +1077,15 @@ export default function ProjectsScreen() {
         </View>
       )}
 
-      {/* Success Banner */}
+      {/* Success Banner - smooth fade in/out, auto-dismiss after 3 sec */}
       {showSuccessBanner && (
-        <View style={styles.successBanner}>
+        <Animated.View style={[styles.successBanner, { opacity: successBannerOpacity }]}>
           <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
           <Text style={styles.successBannerText}>
             🏁 Project activated{'\n'}
             {successProjectName} is now a live project.
           </Text>
-        </View>
+        </Animated.View>
       )}
 
       {/* Mark as Won Confirmation Modal (Bottom Sheet) */}

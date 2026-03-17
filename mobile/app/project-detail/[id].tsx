@@ -175,6 +175,8 @@ function ProjectDetailContent() {
   const [showActivationCelebration, setShowActivationCelebration] = useState(false);
   const celebrationAnim = useRef(new Animated.Value(0)).current;
   const [showCommandCenter, setShowCommandCenter] = useState(false);
+  const [justActivatedDismissed, setJustActivatedDismissed] = useState(false);
+  const justActivatedOpacity = useRef(new Animated.Value(1)).current;
   const [liveTimelineMilestones, setLiveTimelineMilestones] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
 
@@ -999,32 +1001,114 @@ function ProjectDetailContent() {
       const isHybrid = scheduleType === 'hybrid' || hasBoth;
 
       // For hybrid: combine deposit + week 1, week 2, etc. For non-hybrid: use paymentMilestones only
-      const fromPayment = paymentMs.map((m: any, i: number) => ({
-        id: m.id || `payment-${i}`,
-        title: m.name || m.title || `Payment ${i + 1}`,
-        description: m.description || m.workDescription || '',
-        dueDate: m.scheduledDate || m.dueDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        status: (m.status as const) || 'pending',
-        amount: Number(m.paymentAmount ?? m.amount) || 0,
-        percentage: Number(m.percentage) || 0,
-      }));
+      const startDateOnly = (ed?.projectStartDate ?? (realProjectData as any)?.startDate ?? '')?.toString().match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
+      const addDays = (dateStr: string, days: number): string => {
+        if (!dateStr) return '';
+        try {
+          const d = new Date(dateStr + 'T12:00:00');
+          d.setDate(d.getDate() + days);
+          return d.toISOString().split('T')[0];
+        } catch { return dateStr; }
+      };
+      const normalizeDateOnly = (raw: any): string => {
+        const m = String(raw || '').match(/^\d{4}-\d{2}-\d{2}/);
+        return m ? m[0] : '';
+      };
+      const milestoneDeposit = paymentMs.find((m: any) =>
+        (m.type || '').toString().toLowerCase() === 'deposit' ||
+        /deposit/.test((m.name || m.title || '').toString().toLowerCase())
+      );
+      const weeklyDeposit = weekly.find((w: any) =>
+        Number(w.weekNumber) === 0 || /deposit/.test((w.description || '').toString().toLowerCase())
+      );
+      const inferredDepositDate =
+        normalizeDateOnly(milestoneDeposit?.scheduledDate || milestoneDeposit?.dueDate) ||
+        normalizeDateOnly(weeklyDeposit?.scheduledDate || weeklyDeposit?.dueDate) ||
+        (startDateOnly ? addDays(startDateOnly, 7) : '');
+      const fromPayment = paymentMs.map((m: any, i: number) => {
+        let raw = m.scheduledDate || m.dueDate;
+        const isDeposit = (m.type || '').toString().toLowerCase() === 'deposit' || /deposit/.test((m.name || m.title || '').toString().toLowerCase());
+        if (!raw && isDeposit) raw = inferredDepositDate;
+        if (!raw) raw = new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // Never use project start date as the deposit date — deposit is due after start (e.g. start 3/21, deposit 3/28)
+        if (isDeposit && startDateOnly) {
+          const rawNorm = raw ? raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '' : '';
+          if (!rawNorm || rawNorm === startDateOnly) raw = inferredDepositDate || addDays(startDateOnly, 7);
+        }
+        return {
+          id: m.id || `payment-${i}`,
+          title: m.name || m.title || `Payment ${i + 1}`,
+          description: m.description || m.workDescription || '',
+          dueDate: raw,
+          status: (m.status as const) || 'pending',
+          amount: Number(m.paymentAmount ?? m.amount) || 0,
+          percentage: Number(m.percentage) || 0,
+        };
+      });
       const fromWeekly = isHybrid && weekly.length > 0
-        ? weekly.map((w: any, i: number) => ({
-            id: w.id || `week-${i}`,
-            title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
-            description: w.description || '',
-            dueDate: w.scheduledDate || w.dueDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            status: (w.status as const) || 'pending',
-            amount: Number(w.amount) || 0,
-            percentage: Number(w.percentage) || 0,
-          }))
+        ? weekly.map((w: any, i: number) => {
+            const weekNo = Number(w.weekNumber ?? i + 1);
+            const inferredWeekDate =
+              weekNo === 0
+                ? inferredDepositDate
+                : (inferredDepositDate ? addDays(inferredDepositDate, weekNo * 7) : '');
+            return {
+              id: w.id || `week-${i}`,
+              title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+              description: w.description || '',
+              dueDate:
+                w.scheduledDate ||
+                w.dueDate ||
+                inferredWeekDate ||
+                new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              status: (w.status as const) || 'pending',
+              amount: Number(w.amount) || 0,
+              percentage: Number(w.percentage) || 0,
+            };
+          })
         : [];
 
-      const baseMilestones = isHybrid && fromWeekly.length > 0
-        ? [...fromPayment, ...fromWeekly].sort((a, b) =>
-            new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
-          )
-        : fromPayment;
+      const weeklyScheduleMilestones = weekly.length > 0
+        ? (() => {
+            const normalizeDateOnly = (raw: any): string => {
+              const m = String(raw || '').match(/^\d{4}-\d{2}-\d{2}/);
+              return m ? m[0] : '';
+            };
+            const milestoneDeposit = paymentMs.find((m: any) =>
+              (m.type || '').toString().toLowerCase() === 'deposit' ||
+              /deposit/.test((m.name || m.title || '').toString().toLowerCase())
+            );
+            const inferredDepositDate =
+              normalizeDateOnly(milestoneDeposit?.scheduledDate || milestoneDeposit?.dueDate) ||
+              (startDateOnly ? addDays(startDateOnly, 7) : '');
+
+            return weekly.map((w: any, i: number) => {
+              const weekNo = Number(w.weekNumber ?? i + 1);
+              const fallbackDate = weekNo === 0
+                ? inferredDepositDate
+                : (inferredDepositDate ? addDays(inferredDepositDate, weekNo * 7) : '');
+              return {
+                id: w.id || `week-${i}`,
+                title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+                description: w.description || '',
+                dueDate: w.scheduledDate || w.dueDate || fallbackDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                status: (w.status as const) || 'pending',
+                amount: Number(w.amount) || 0,
+                percentage: Number(w.percentage) || 0,
+              };
+            });
+          })()
+        : [];
+
+      // Root fix: weekly schedule must use weeklyPayments dates as source of truth.
+      // Stale paymentMilestones can carry start-date-based deposit and cause mismatch.
+      const baseMilestones = scheduleType === 'weekly'
+        ? weeklyScheduleMilestones
+        : (isHybrid && fromWeekly.length > 0
+          ? [...fromPayment, ...fromWeekly].sort((a, b) =>
+              new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+            )
+          : fromPayment);
 
       // CRITICAL: Merge live timeline data (from bps.timeline.v2.<id>) which has completed statuses.
       // Without this, all milestones are hardcoded as 'pending' and the AI never sees completions.
@@ -1782,6 +1866,7 @@ function ProjectDetailContent() {
                       </View>
                       <View style={{ flex: 1, alignItems: 'flex-end' }}>
                         <Text style={styles.mutedLabel}>Budget Used</Text>
+                        <Text style={[styles.mutedLabel, { fontSize: 10, opacity: 0.7, marginTop: 1 }]}>Percent of budget spent so far</Text>
                         <Text style={[styles.mediumNumber, { color: metrics.budgetColor }]}>
                           {metrics.budgetProgress.toFixed(0)}%
                         </Text>
@@ -1853,7 +1938,27 @@ function ProjectDetailContent() {
                       </Text>
                     </View>
                     <View style={styles.budgetRow}>
-                      <Text style={styles.budgetLabel}>Projected Margin</Text>
+                      <View>
+                        <Text style={styles.budgetLabel}>Spend-to-Date Margin</Text>
+                        <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on costs logged so far</Text>
+                      </View>
+                      <Text style={[
+                        styles.budgetValue,
+                        {
+                          color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
+                            metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
+                            metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
+                            metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
+                        },
+                      ]}>
+                        {(metrics.profitForecast?.spendToDateMarginPct ?? 0).toFixed(1)}%
+                      </Text>
+                    </View>
+                    <View style={styles.budgetRow}>
+                      <View>
+                        <Text style={styles.budgetLabel}>Projected Margin</Text>
+                        <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+                      </View>
                       <Text style={[
                         styles.budgetValue,
                         {
@@ -1896,7 +2001,10 @@ function ProjectDetailContent() {
 
                   <View style={styles.projectStatusMetrics}>
                     <View style={styles.projectStatusMetricRow}>
-                      <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+                      <View>
+                        <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+                        <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of budget spent so far</Text>
+                      </View>
                       <Text style={styles.projectStatusMetricValue}>{metrics.budgetProgress.toFixed(0)}%</Text>
                     </View>
                     <View style={styles.projectStatusBarTrack}>
@@ -2100,25 +2208,46 @@ function ProjectDetailContent() {
     return safeProjectData?.title || 'Project Details';
   }, [safeProjectData?.title]);
 
-  const projectStatus = useMemo(() => {
+  const showJustActivated = useMemo(() => {
     const status = safeProjectData?.status || 'In Progress';
     const updatedAt = safeProjectData?.updatedAt ? new Date(safeProjectData.updatedAt).getTime() : 0;
     const now = Date.now();
-    const fiveMinutesAgo = now - (5 * 60 * 1000);
-    const isRecentlyActivated = updatedAt > fiveMinutesAgo;
-    
+    const fiveMinAgo = now - 5 * 60 * 1000;
+    const isRecentlyActivated = updatedAt > fiveMinAgo;
+    return (status === 'won' || status === 'in_progress') && isRecentlyActivated;
+  }, [safeProjectData?.status, safeProjectData?.updatedAt]);
+
+  useEffect(() => {
+    setJustActivatedDismissed(false);
+    justActivatedOpacity.setValue(1);
+  }, [id]);
+
+  useEffect(() => {
+    if (showJustActivated && !justActivatedDismissed) {
+      const t = setTimeout(() => {
+        Animated.timing(justActivatedOpacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) setJustActivatedDismissed(true);
+        });
+      }, 3500);
+      return () => clearTimeout(t);
+    }
+  }, [showJustActivated, justActivatedDismissed]);
+
+  const projectStatus = useMemo(() => {
+    const status = safeProjectData?.status || 'In Progress';
     if (status === 'estimate') return 'Draft';
     if (status === 'bid_submitted') return 'Submitted';
     if (status === 'won' || status === 'in_progress') {
-      // Show "Just activated" for recently activated projects
-      if (isRecentlyActivated && (status === 'won' || status === 'in_progress')) {
-        return 'Just activated';
-      }
+      if (showJustActivated && !justActivatedDismissed) return 'Just activated';
       return 'Active';
     }
     if (status === 'completed') return 'Completed';
     return status.charAt(0).toUpperCase() + status.slice(1);
-  }, [safeProjectData?.status, safeProjectData?.updatedAt]);
+  }, [safeProjectData?.status, showJustActivated, justActivatedDismissed]);
 
   try {
     return (
@@ -2158,7 +2287,17 @@ function ProjectDetailContent() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.screenTitle}>{projectTitle}</Text>
-              <Text style={styles.screenSubtitle}>{projectStatus} · {(safeProjectData as any)?.location || 'Unknown Location'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                {projectStatus === 'Just activated' ? (
+                  <Animated.Text style={[styles.screenSubtitle, { opacity: justActivatedOpacity }]}>
+                    {projectStatus}
+                  </Animated.Text>
+                ) : (
+                  <Text style={styles.screenSubtitle}>{projectStatus}</Text>
+                )}
+                <Text style={styles.screenSubtitle}>·</Text>
+                <Text style={styles.screenSubtitle}>{(safeProjectData as any)?.location || 'Unknown Location'}</Text>
+              </View>
             </View>
             
             {/* Profile with glow */}
@@ -2750,16 +2889,23 @@ function ProjectDetailContent() {
             // Pre-computed profit forecast — matches Financial Health / Budget Totals. AI uses these when answering "what is projected profit"
             projectedProfit: pf?.projectedProfit,
             projectedMarginPct: pf?.projectedMarginPct,
+            spendToDateMarginPct: pf?.spendToDateMarginPct,
             forecastFinalCost: pf?.forecastFinalCost,
             profitStatus: pf?.status,
             location: safeProjectData?.location || '',
             projectType: safeProjectData?.projectType || '',
-            margin: safeProjectData?.margin || ed?.marginPct || 0,
+            // Bid margin from estimateData only — top-level margin is overwritten with realized margin by updateProject
+            margin: ed?.marginPercent ?? ed?.margin ?? ed?.marginPct ?? safeProjectData?.margin ?? 0,
             markup: safeProjectData?.markup || ed?.markupPct || ed?.markup || 0,
             overheadPct: ed?.overheadPct || 12,
             progress: safeProjectData?.overallProgressPct || safeProjectData?.progress || 0,
-            // Include full estimateData so backend can access all fields
-            estimateData: ed,
+            // Include full estimateData so backend can access all fields; ensure marginPercent/margin so AI strip shows correct bid margin (e.g. 75%)
+            // BID margin must come from estimateData only — top-level margin gets overwritten by updateProject with realized margin
+            estimateData: (() => {
+              const bidMargin = ed?.marginPercent ?? ed?.margin ?? ed?.marginPct;
+              if (typeof bidMargin !== 'number' || !Number.isFinite(bidMargin)) return ed;
+              return { ...ed, marginPercent: bidMargin, margin: bidMargin };
+            })(),
             materialTotal: ed?.materialTotal || 0,
             laborTotal: ed?.laborTotal || 0,
             overheadTotal: ed?.overheadTotal || 0,

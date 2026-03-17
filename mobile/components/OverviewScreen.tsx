@@ -614,7 +614,10 @@ export default function OverviewScreen({
 
           <View style={styles.projectStatusMetrics}>
             <View style={styles.projectStatusMetricRow}>
-              <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+              <View>
+                <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
+                <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of budget spent so far</Text>
+              </View>
               <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{budgetProgress.toFixed(0)}%</Text>
             </View>
             <View style={styles.projectStatusBarTrack}>
@@ -692,7 +695,16 @@ export default function OverviewScreen({
               </Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Projected Margin</Text>
+              <Text style={styles.budgetLabel}>Spend-to-Date Margin</Text>
+              <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
+                {(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%
+              </Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <View>
+                <Text style={styles.budgetLabel}>Projected Margin</Text>
+                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+              </View>
               <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
                 {profitForecast.projectedMarginPct.toFixed(1)}%
               </Text>
@@ -834,13 +846,22 @@ export default function OverviewScreen({
               <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Forecast Profit</Text>
+              <Text style={styles.budgetLabel}>Projected Profit</Text>
               <Text style={[styles.budgetValue, { color: profitForecast.projectedProfit >= 0 ? '#22c55e' : '#EF4444' }]}>
                 {formatMoney(profitForecast.projectedProfit)}
               </Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Forecast Margin</Text>
+              <Text style={styles.budgetLabel}>Spend-to-Date Margin</Text>
+              <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
+                {(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%
+              </Text>
+            </View>
+            <View style={styles.budgetRow}>
+              <View>
+                <Text style={styles.budgetLabel}>Projected Margin</Text>
+                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+              </View>
               <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
                 {profitForecast.projectedMarginPct.toFixed(1)}%
               </Text>

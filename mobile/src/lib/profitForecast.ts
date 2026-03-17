@@ -22,6 +22,9 @@ export interface ProfitForecastOutput {
   committedPOs: number;
   forecastFinalCost: number;
   projectedProfit: number;
+  /** Spend-to-date margin: (contract - actualExpenses) / contract */
+  spendToDateMarginPct: number;
+  /** Expected margin at completion: (contract - forecastFinalCost) / contract. Uses run-rate (actualExpenses/progress) for forecast. */
   projectedMarginPct: number;
   /** Estimated profit = contractValue - estimatedCostBaseline */
   estimatedProfit: number;
@@ -90,6 +93,8 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
   }
 
   const projectedProfit = contractValue - forecastFinalCost;
+  const spendToDateMarginPct =
+    contractValue > 0 ? ((contractValue - actualExpenses) / contractValue) * 100 : 0;
   const projectedMarginPct =
     contractValue > 0 ? (projectedProfit / contractValue) * 100 : 0;
   // Use estimatedCostBaseline when provided; otherwise fall back to adjustedBudget for backward compat
@@ -107,6 +112,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
     committedPOs,
     forecastFinalCost,
     projectedProfit,
+    spendToDateMarginPct,
     projectedMarginPct,
     estimatedProfit,
     profitVarianceVsEstimate,

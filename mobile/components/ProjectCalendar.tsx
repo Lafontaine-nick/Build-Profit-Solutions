@@ -34,6 +34,7 @@ export type CalendarEvent = {
   completed?: boolean;
   completedAt?: string;
   inspectionResult?: 'passed' | 'failed'; // For inspection events
+  deliveryReceived?: boolean; // For delivery events — true when marked as received
   linkedMilestoneId?: string; // Link to timeline milestone
   calendarCategory?: 'payment' | 'inspection' | 'phase' | 'delivery' | 'deadline';
   createdAt: string;
@@ -140,6 +141,7 @@ export default function ProjectCalendar({
       };
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [deliveryReceivedIds, setDeliveryReceivedIds] = useState<Set<string>>(new Set());
   const [timelineMilestones, setTimelineMilestones] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
@@ -194,6 +196,20 @@ export default function ProjectCalendar({
   useEffect(() => {
     loadEvents();
   }, [loadEvents]);
+
+  // Load delivery received ids (for synced timeline/PO events user marked as received)
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(`delivery_received_${projectId}`);
+        const arr = raw ? JSON.parse(raw) : [];
+        setDeliveryReceivedIds(new Set(Array.isArray(arr) ? arr : []));
+      } catch {
+        setDeliveryReceivedIds(new Set());
+      }
+    })();
+  }, [projectId]);
 
 
   // Load timeline milestones
@@ -283,57 +299,7 @@ export default function ProjectCalendar({
       pushUnique({ ...event, calendarCategory: category });
     });
 
-    // Payments: deposits, milestone payments, weekly payments
-    const paymentMilestones: any[] = [];
-    if (projectData?.milestones?.length) paymentMilestones.push(...projectData.milestones);
-    if (milestones?.length) paymentMilestones.push(...milestones);
-    if (projectData?.weeklyPayments?.length) {
-      projectData.weeklyPayments.forEach((w: any, i: number) => {
-        paymentMilestones.push({
-          id: w.id || `week-${i}`,
-          name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
-          amount: w.amount || 0,
-          scheduledDate: w.scheduledDate,
-          dueDate: w.scheduledDate,
-          status: w.status || 'pending',
-        });
-      });
-    }
-    if ((projectData as any)?.estimateData?.paymentMilestones?.length) {
-      paymentMilestones.push(...(projectData as any).estimateData.paymentMilestones);
-    }
-    if ((projectData as any)?.estimateData?.weeklyPayments?.length) {
-      (projectData as any).estimateData.weeklyPayments.forEach((w: any, i: number) => {
-        paymentMilestones.push({
-          id: w.id || `week-${i}`,
-          name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
-          amount: w.amount || 0,
-          scheduledDate: w.scheduledDate,
-          dueDate: w.scheduledDate,
-          status: w.status || 'pending',
-        });
-      });
-    }
-
-    paymentMilestones.forEach((m: any) => {
-      const date = toISODate(m.scheduledDate || m.dueDate || m.dateISO || m.date || m.plannedDate);
-      if (!date) return;
-      const amount = Number(m.paymentAmount || m.amount || 0);
-      const isCollected = m.status === 'completed' || m.status === 'paid' || m.collected || m.isPaid;
-      pushUnique({
-        id: `payment-${m.id || `${date}-${amount}`}`,
-        title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`,
-        date,
-        type: 'other',
-        calendarCategory: 'payment',
-        notes: isCollected ? 'Payment collected' : 'Payment due',
-        completed: Boolean(isCollected),
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      });
-    });
-
-    // Timeline milestones: inspections, major phases, deadlines
+    // Timeline milestones first — source of truth for completion (inspection, phase, payment/deposit, etc.)
     timelineMilestones.forEach((item: any) => {
       const date = toISODate(item.scheduledDate || item.dueDate || item.date || item.plannedDate);
       if (!date) return;
@@ -365,11 +331,73 @@ export default function ProjectCalendar({
       });
     });
 
+    // Set of date|amount for payments already added by timeline (avoid duplicate deposit from estimate with different title)
+    const timelinePaymentKeys = new Set<string>();
+    result.forEach((e) => {
+      if (e.calendarCategory !== 'payment') return;
+      const amountMatch = e.title?.match(/\$[\d,]+/);
+      const amount = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '';
+      timelinePaymentKeys.add(`${e.date}|${amount}`);
+    });
+
+    // Payments from estimate/project data (only if not already added by timeline)
+    const paymentMilestones: any[] = [];
+    if (projectData?.milestones?.length) paymentMilestones.push(...projectData.milestones);
+    if (milestones?.length) paymentMilestones.push(...milestones);
+    if (projectData?.weeklyPayments?.length) {
+      projectData.weeklyPayments.forEach((w: any, i: number) => {
+        paymentMilestones.push({
+          id: w.id || `week-${i}`,
+          name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+          amount: w.amount || 0,
+          scheduledDate: w.scheduledDate,
+          dueDate: w.scheduledDate,
+          status: w.status || 'pending',
+        });
+      });
+    }
+    if ((projectData as any)?.estimateData?.paymentMilestones?.length) {
+      paymentMilestones.push(...(projectData as any).estimateData.paymentMilestones);
+    }
+    if ((projectData as any)?.estimateData?.weeklyPayments?.length) {
+      (projectData as any).estimateData.weeklyPayments.forEach((w: any, i: number) => {
+        paymentMilestones.push({
+          id: w.id || `week-${i}`,
+          name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+          amount: w.amount || 0,
+          scheduledDate: w.scheduledDate,
+          dueDate: w.scheduledDate,
+          status: w.status || 'pending',
+        });
+      });
+    }
+    paymentMilestones.forEach((m: any) => {
+      const date = toISODate(m.scheduledDate || m.dueDate || m.dateISO || m.date || m.plannedDate);
+      if (!date) return;
+      const amount = Number(m.paymentAmount || m.amount || 0);
+      const amountStr = String(amount);
+      if (timelinePaymentKeys.has(`${date}|${amountStr}`)) return; // timeline already has this payment — keep its completion state
+      // Only treat as completed when status is explicitly completed/paid (timeline is source of truth when present; this is fallback for estimate-only payments)
+      const isCollected = m.status === 'completed' || m.status === 'paid';
+      pushUnique({
+        id: `payment-${m.id || `${date}-${amount}`}`,
+        title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`,
+        date,
+        type: 'other',
+        calendarCategory: 'payment',
+        notes: isCollected ? 'Payment collected' : 'Payment due',
+        completed: Boolean(isCollected),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+    });
+
     // Deliveries from POs
     if (projectData?.purchaseOrders?.length) {
       projectData.purchaseOrders.forEach((po: any) => {
         const date = toISODate(po.expectedDelivery);
         if (!date) return;
+        const isReceived = po.status === 'Received';
         pushUnique({
           id: `po-${po.id || `${po.poNumber || 'po'}-${date}`}`,
           title: `Delivery: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
@@ -377,7 +405,8 @@ export default function ProjectCalendar({
           type: 'delivery',
           calendarCategory: 'delivery',
           notes: po.description || po.notes || (po.poNumber ? `PO ${po.poNumber}` : undefined),
-          completed: po.status === 'Received',
+          completed: isReceived,
+          deliveryReceived: isReceived,
           createdAt: po.orderDate || nowIso,
           updatedAt: nowIso,
         });
@@ -399,6 +428,62 @@ export default function ProjectCalendar({
         updatedAt: nowIso,
       });
     }
+
+    // Payment completion: timeline is the ONLY source of truth. Never show completed unless explicitly confirmed.
+    const timelinePaymentInfo: Array<{ date: string; amount: string; completed: boolean }> = [];
+    const addPaymentInfo = (item: any) => {
+      const date = toISODate(item.scheduledDate || item.dueDate || item.date || item.plannedDate);
+      if (!date) return;
+      const amount = Number(item.amount || item.paymentAmount || 0);
+      const text = `${(item.title || item.name || '')} ${(item.description || '')}`.toLowerCase();
+      if (amount > 0 || includesAny(text, PAYMENT_KEYWORDS)) {
+        const completed = item.status === 'completed' || Number(item.progressPct || 0) >= 100;
+        timelinePaymentInfo.push({ date, amount: String(amount), completed });
+      }
+    };
+    timelineMilestones.forEach(addPaymentInfo);
+    // When timeline storage is empty, use projectData for matching keys but NEVER trust projectData for completion.
+    // projectData/estimate can have status "completed" from backend while the real timeline (user's view) shows Pending.
+    if (timelinePaymentInfo.length === 0) {
+      const fallbackPayments: any[] = [];
+      if (projectData?.milestones?.length) fallbackPayments.push(...projectData.milestones);
+      if ((projectData as any)?.estimateData?.paymentMilestones?.length) {
+        fallbackPayments.push(...(projectData as any).estimateData.paymentMilestones);
+      }
+      if ((projectData as any)?.estimateData?.weeklyPayments?.length) {
+        (projectData as any).estimateData.weeklyPayments.forEach((w: any, i: number) => {
+          fallbackPayments.push({
+            title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
+            amount: w.amount || 0,
+            scheduledDate: w.scheduledDate,
+            dueDate: w.scheduledDate,
+          });
+        });
+      }
+      fallbackPayments.forEach((item: any) => {
+        const date = toISODate(item.scheduledDate || item.dueDate || item.date || item.plannedDate);
+        if (!date) return;
+        const amount = Number(item.amount || item.paymentAmount || 0);
+        const text = `${(item.title || item.name || '')} ${(item.description || '')}`.toLowerCase();
+        if (amount > 0 || includesAny(text, PAYMENT_KEYWORDS)) {
+          timelinePaymentInfo.push({ date, amount: String(amount), completed: false });
+        }
+      });
+    }
+    result.forEach((e) => {
+      if (e.calendarCategory !== 'payment') return;
+      const amountMatch = e.title?.match(/\$[\d,]+\.?\d*/);
+      const amountStr = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '0';
+      const eventDate = new Date(e.date + 'T12:00:00').getTime();
+      const match = timelinePaymentInfo.find((t) => {
+        const amtMatch = String(t.amount).replace(/[$,]/g, '') === amountStr || Number(t.amount) === Number(amountStr);
+        if (!amtMatch) return false;
+        const tDate = new Date(t.date + 'T12:00:00').getTime();
+        const dayMs = 24 * 60 * 60 * 1000;
+        return Math.abs(eventDate - tDate) <= dayMs;
+      });
+      e.completed = match ? match.completed : false;
+    });
 
     return result.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [events, milestones, projectData, projectId, projectName, timelineMilestones]);
@@ -483,6 +568,7 @@ export default function ProjectCalendar({
       linkedMilestoneId: undefined,
       completed: editingEvent?.completed || false,
       completedAt: editingEvent?.completedAt,
+      deliveryReceived: editingEvent?.deliveryReceived,
       inspectionResult: editingEvent?.inspectionResult,
       createdAt: editingEvent?.createdAt || now,
       updatedAt: now,
@@ -553,6 +639,80 @@ export default function ProjectCalendar({
   const isInspectionEvent = (e: CalendarEvent) =>
     e.type === 'inspection' || e.calendarCategory === 'inspection';
 
+  const isDeliveryEvent = (e: CalendarEvent) =>
+    e.type === 'delivery' || e.calendarCategory === 'delivery';
+
+  const isPaymentEvent = (e: CalendarEvent) =>
+    e.calendarCategory === 'payment' || (e.type === 'other' && /\$[\d,]+/.test(e.title || ''));
+
+  // Payment completion: only true when timeline (bps.timeline.v2) explicitly says completed. Never trust event.completed.
+  const paymentCompletedKeys = useMemo(() => {
+    const completed = new Set<string>();
+    const add = (date: string, amount: string, isCompleted: boolean) => {
+      if (isCompleted) completed.add(`${date}|${amount}`);
+    };
+    timelineMilestones.forEach((item: any) => {
+      const date = (item.scheduledDate || item.dueDate || item.date || item.plannedDate)?.toString().split('T')[0];
+      if (!date) return;
+      const amount = String(Number(item.amount || item.paymentAmount || 0));
+      const text = `${(item.title || item.name || '')} ${(item.description || '')}`.toLowerCase();
+      if (Number(amount) > 0 || includesAny(text, PAYMENT_KEYWORDS)) {
+        add(date, amount, item.status === 'completed' || Number(item.progressPct || 0) >= 100);
+      }
+    });
+    return completed;
+  }, [timelineMilestones]);
+
+  const isPaymentCompleted = useCallback((e: CalendarEvent) => {
+    if (!isPaymentEvent(e)) return false;
+    const amountMatch = e.title?.match(/\$[\d,]+\.?\d*/);
+    const amountStr = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '0';
+    const key = `${e.date}|${amountStr}`;
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const k of paymentCompletedKeys) {
+      const [d, a] = k.split('|');
+      if (a !== amountStr) continue;
+      const t = new Date(d + 'T12:00:00').getTime();
+      const ev = new Date(e.date + 'T12:00:00').getTime();
+      if (Math.abs(t - ev) <= dayMs) return true;
+    }
+    return false;
+  }, [paymentCompletedKeys]);
+
+  // True when a delivery event is considered "received" (show Received badge, hide Received button)
+  const isDeliveryReceived = (e: CalendarEvent) =>
+    !!e.deliveryReceived ||
+    (e.id.startsWith('po-') && !!e.completed) ||
+    deliveryReceivedIds.has(e.id);
+
+  // Mark delivery as received (delivery events use this instead of generic complete)
+  const handleMarkDeliveryReceived = async (event: CalendarEvent) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const existing = events.find((e) => e.id === event.id);
+    if (existing) {
+      const updatedEvent: CalendarEvent = {
+        ...event,
+        completed: true,
+        deliveryReceived: true,
+        completedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const updatedEvents = events.map((e) => (e.id === event.id ? updatedEvent : e));
+      await saveEvents(updatedEvents);
+    } else {
+      // Synced event (timeline or PO) — persist in delivery received ids
+      const next = new Set(deliveryReceivedIds).add(event.id);
+      setDeliveryReceivedIds(next);
+      try {
+        await AsyncStorage.setItem(`delivery_received_${projectId}`, JSON.stringify([...next]));
+      } catch (err) {
+        console.error('Failed to save delivery received:', err);
+      }
+    }
+    if (onEventComplete) onEventComplete({ ...event, completed: true, deliveryReceived: true });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
   // Mark event as complete
   const handleCompleteEvent = async (event: CalendarEvent) => {
     const updatedEvent: CalendarEvent = {
@@ -584,7 +744,8 @@ export default function ProjectCalendar({
 
     return syncedEvents
       .filter((e) => {
-        if (e.completed) return false;
+        const done = isDeliveryEvent(e) ? isDeliveryReceived(e) : isPaymentEvent(e) ? isPaymentCompleted(e) : e.completed;
+        if (done) return false;
         const eventDate = new Date(e.date);
         eventDate.setHours(0, 0, 0, 0);
         return eventDate >= today && eventDate <= nextWeek;
@@ -600,7 +761,7 @@ export default function ProjectCalendar({
         return a.time ? -1 : b.time ? 1 : 0;
       })
       .slice(0, 5);
-  }, [syncedEvents]);
+  }, [syncedEvents, deliveryReceivedIds, isPaymentCompleted]);
 
   // Removed markedDates - only current date should be highlighted, not selected dates
 
@@ -650,7 +811,7 @@ export default function ProjectCalendar({
               const isInspection = isInspectionEvent(event);
               const hasInspectionResult = !!event.inspectionResult;
               return (
-              <View key={event.id} style={[styles.eventCardWrapper, { backgroundColor: COLORS.surface2, borderColor: COLORS.border }]}>
+              <View key={event.id} style={[styles.eventCardWrapper, { backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5', borderColor: darkMode ? '#4f4f4f' : '#d0d0d0' }]}>
                 <TouchableOpacity
                   style={styles.eventCardTouchable}
                   onPress={() => handleEventPress(event)}
@@ -712,7 +873,7 @@ export default function ProjectCalendar({
                     </Text>
                   )}
                 </View>
-                {!event.completed && !isInspection && (
+                {!event.completed && !isInspection && !isDeliveryEvent(event) && !isPaymentEvent(event) && (
                   <TouchableOpacity
                     style={styles.completeButton}
                     onPress={() => handleCompleteEvent(event)}
@@ -720,9 +881,29 @@ export default function ProjectCalendar({
                     <Ionicons name="checkmark-circle-outline" size={24} color={COLORS.green} />
                   </TouchableOpacity>
                 )}
-                {event.completed && !hasInspectionResult && (
+                {isDeliveryEvent(event) && !isDeliveryReceived(event) && (
+                  <TouchableOpacity
+                    style={[styles.receivedButton, { borderColor: COLORS.green }]}
+                    onPress={() => handleMarkDeliveryReceived(event)}
+                  >
+                    <Ionicons name="cube-outline" size={18} color={COLORS.green} />
+                    <Text style={[styles.receivedButtonText, { color: COLORS.green }]}>Received</Text>
+                  </TouchableOpacity>
+                )}
+                {event.completed && !hasInspectionResult && !isDeliveryEvent(event) && !isPaymentEvent(event) && (
                   <View style={styles.completedBadge}>
                     <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                  </View>
+                )}
+                {isPaymentEvent(event) && isPaymentCompleted(event) && (
+                  <View style={styles.completedBadge}>
+                    <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                  </View>
+                )}
+                {isDeliveryEvent(event) && isDeliveryReceived(event) && (
+                  <View style={[styles.receivedBadge, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]}>
+                    <Ionicons name="checkmark-circle" size={14} color={COLORS.green} />
+                    <Text style={[styles.receivedBadgeText, { color: COLORS.green }]}>Received</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -897,9 +1078,20 @@ export default function ProjectCalendar({
                                 </View>
                               )}
                             </View>
-                            {event.completed && !hasInspectionResult && (
+                            {event.completed && !hasInspectionResult && !isDeliveryEvent(event) && !isPaymentEvent(event) && (
                               <View style={styles.completedBadge}>
                                 <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                              </View>
+                            )}
+                            {isPaymentEvent(event) && isPaymentCompleted(event) && (
+                              <View style={styles.completedBadge}>
+                                <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                              </View>
+                            )}
+                            {isDeliveryEvent(event) && isDeliveryReceived(event) && (
+                              <View style={[styles.receivedBadge, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]}>
+                                <Ionicons name="checkmark-circle" size={14} color={COLORS.green} />
+                                <Text style={[styles.receivedBadgeText, { color: COLORS.green }]}>Received</Text>
                               </View>
                             )}
                           </TouchableOpacity>
@@ -920,6 +1112,18 @@ export default function ProjectCalendar({
                               >
                                 <Ionicons name="close-circle" size={18} color="#fff" />
                                 <Text style={styles.inspectionButtonText}>Failed</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                          {isDeliveryEvent(event) && !isDeliveryReceived(event) && (
+                            <View style={styles.inspectionActions}>
+                              <TouchableOpacity
+                                style={[styles.inspectionButton, styles.inspectionButtonPassed]}
+                                onPress={() => handleMarkDeliveryReceived(event)}
+                                activeOpacity={0.8}
+                              >
+                                <Ionicons name="cube-outline" size={18} color="#fff" />
+                                <Text style={styles.inspectionButtonText}>Received</Text>
                               </TouchableOpacity>
                             </View>
                           )}
@@ -1289,7 +1493,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   upcomingSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
     marginBottom: 24,
   },
   sectionHeader: {
@@ -1407,6 +1611,33 @@ const styles = StyleSheet.create({
   completeButton: {
     padding: 8,
     marginLeft: 8,
+  },
+  receivedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 8,
+  },
+  receivedButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  receivedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  receivedBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   completedBadge: {
     padding: 8,

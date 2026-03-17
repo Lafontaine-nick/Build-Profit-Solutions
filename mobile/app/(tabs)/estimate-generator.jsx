@@ -47,6 +47,7 @@ import BottomToast from '../../components/BottomToast';
 import { buildProposalHtml } from '../../lib/proposals/buildProposalHtml';
 import { exportProposalPdf } from '../../lib/proposals/exportPdf';
 import { useProjectList } from '../../contexts/ProjectListContext';
+import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useRequireAuth } from '../../hooks/useRequireAuth';
@@ -2284,6 +2285,18 @@ const money = (n) => {
   });
 };
 
+// Compute total from saved bid data (for Restore list when stored total is 0)
+const computeTotalFromBidData = (bidData) => {
+  if (!bidData) return 0;
+  const materials = (bidData.materialLineItems || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+  const labor = (bidData.laborLineItems || []).reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+  const permitCosts = (Number(bidData.planCost) || 0) + (Number(bidData.permitCost) || 0);
+  const overhead = (Number(bidData.insuranceOverhead) || 0) + (Number(bidData.equipment) || 0) + (Number(bidData.facilities) || 0) + (Number(bidData.otherOverhead) || 0) + permitCosts;
+  const subtotal = materials + labor + overhead;
+  const profit = (subtotal * (Number(bidData.markupPct) || 0)) / 100;
+  return Math.round(subtotal + profit) || 0;
+};
+
 // Gradient colors for borders
 const GRAD = ['#2DFFC4', '#00A6FF'];
 // Premium border: same colors, lower intensity to reduce "neon"
@@ -3033,6 +3046,7 @@ export default function EstimateGeneratorScreen() {
   const [step, setStep] = useState(0); // Start at step 0 (Bid Summary) - default first page
   const [activeNavButton, setActiveNavButton] = useState('summary'); // 'back', 'summary', or 'next'
   const [bid, setBid] = useState(blankState());
+  const bidRef = useRef(bid);
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [savedEstimates, setSavedEstimates] = useState([]);
@@ -3049,6 +3063,10 @@ export default function EstimateGeneratorScreen() {
   const [hasCreatedFirstEstimate, setHasCreatedFirstEstimate] = useState(false);
   const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
   const [isOnboardingReset, setIsOnboardingReset] = useState(false);
+
+  useEffect(() => {
+    bidRef.current = bid;
+  }, [bid]);
   
   // Local state for customer fields to prevent glitching during typing
   const [localCustomerName, setLocalCustomerName] = useState('');
@@ -3403,6 +3421,87 @@ export default function EstimateGeneratorScreen() {
   const markupInputRef = useRef(null);
   const isMarkupFocused = useRef(false);
   const { addEstimate, convertBidToProject, updateProject, activeProjects, estimates, deleteProject } = useProjectList();
+
+  // Load live project metrics — AI must use Projects data, not Estimates. Match by id OR title.
+  const [projectLiveMetrics, setProjectLiveMetrics] = useState(null);
+  useEffect(() => {
+    if (!bid?.id && !bid?.title) {
+      setProjectLiveMetrics(null);
+      return;
+    }
+    const matchById = (p) => String(p?.id) === String(bid.id);
+    const matchByTitle = (p) => (bid.title || '').trim() && (p?.title || p?.name || '').toLowerCase() === (bid.title || '').trim().toLowerCase();
+    const matched = Array.isArray(activeProjects) && activeProjects.find(p => matchById(p) || matchByTitle(p));
+    if (!matched) {
+      setProjectLiveMetrics(null);
+      return;
+    }
+    const projectId = matched.id;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        // 1. Try AsyncStorage first (source of truth for expenses)
+        const key = `bps.project.${projectId}`;
+        let raw = await AsyncStorage.getItem(key);
+        let data = raw ? JSON.parse(raw) : null;
+        let spent = 0;
+        let budgeted = 0;
+        let committedPOs = 0;
+        let progressPct = 0;
+        if (data) {
+          spent = Number(data?.spent || 0) || (Array.isArray(data?.expenses) ? data.expenses.reduce((s, e) => s + Number(e?.amount || 0), 0) : 0);
+          budgeted = Number(data?.budgeted || 0);
+          committedPOs = Array.isArray(data?.purchaseOrders)
+            ? data.purchaseOrders.filter(po => (po?.status || '').toLowerCase() === 'pending').reduce((s, po) => s + Number(po?.amount || 0), 0)
+            : 0;
+          progressPct = Number(data?.overallProgressPct ?? data?.progress ?? 0) || 0;
+        }
+        // 2. Fallback: use project from activeProjects when AsyncStorage empty or no spend
+        if (spent === 0 && !data) {
+          const p = matched;
+          spent = Number(p?.actualCost ?? p?.totalSpent ?? p?.projectData?.spent ?? p?.projectData?.actualCost ?? 0)
+            || (Array.isArray(p?.expenses || p?.projectData?.expenses) ? (p.expenses || p.projectData.expenses).reduce((s, e) => s + Number(e?.amount || 0), 0) : 0);
+          budgeted = Number(p?.bidPrice ?? p?.projectData?.budgeted ?? 0);
+          committedPOs = Array.isArray(p?.purchaseOrders || p?.projectData?.purchaseOrders)
+            ? (p.purchaseOrders || p.projectData.purchaseOrders).filter(po => (po?.status || '').toLowerCase() === 'pending').reduce((s, po) => s + Number(po?.amount || 0), 0)
+            : 0;
+          progressPct = Number(p?.progress ?? p?.overallProgressPct ?? 0) || 0;
+        }
+        if (cancelled) return;
+        const contractValue = budgeted > 0 ? budgeted : (calc?.total || bid?.total || bid?.bidPrice || 0);
+        if (contractValue > 0 && spent >= 0) {
+          const pf = computeProfitForecast({
+            contractValue,
+            adjustedBudget: budgeted || contractValue,
+            estimatedCostBaseline: Number(matched?.estimatedCost || data?.estimatedCost || budgeted || contractValue),
+            actualExpenses: spent,
+            committedPOs,
+            progressPct,
+            isCompleted: progressPct >= 100,
+          });
+          setProjectLiveMetrics({
+            projectId: projectId,
+            actualCost: spent,
+            totalSpent: spent,
+            contractValue,
+            spendToDateMarginPct: pf.spendToDateMarginPct,
+            projectedMarginPct: pf.projectedMarginPct,
+            projectedProfit: pf.projectedProfit,
+            forecastFinalCost: pf.forecastFinalCost,
+            profitVarianceVsEstimate: pf.profitVarianceVsEstimate,
+            hasLiveProjectContext: true,
+            phase: 'Project',
+          });
+        } else {
+          setProjectLiveMetrics(null);
+        }
+      } catch (e) {
+        if (!cancelled) setProjectLiveMetrics(null);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [bid?.id, bid?.title, activeProjects, calc?.total, bid?.total]);
   const cleanupRanRef = useRef(false);
 
   // Load saved estimates on component mount
@@ -3612,12 +3711,31 @@ export default function EstimateGeneratorScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       
+      // Sync materialsCart into bid data so Restore can compute total from saved data
+      const bidDataToSave = {
+        ...bid,
+        materialLineItems: materialsCart.length > 0
+          ? materialsCart.map(item => ({
+              id: item.id,
+              name: item.name || item.description,
+              description: item.description || item.name,
+              quantity: item.quantity || item.qty || 1,
+              qty: item.quantity || item.qty || 1,
+              unit: item.unit || 'ea',
+              unitPrice: item.unitPrice || item.cost,
+              cost: item.cost || item.unitPrice,
+              total: Number(item.total) || 0,
+              section: item.section || 'General Materials',
+            }))
+          : (bid.materialLineItems || []),
+      };
+      
       const estimateData = {
         id: bid.id,
         title: bid.title || 'Untitled Bid',
         timestamp: new Date().toISOString(),
-        data: { ...bid }, // Full bid data
-        total: calc?.total || 0,
+        data: bidDataToSave,
+        total: calc?.total || calc?.grandTotal || 0,
         customer: bid.customerName || 'Unknown Customer',
       };
 
@@ -3679,12 +3797,31 @@ export default function EstimateGeneratorScreen() {
 
   const backupCurrentEstimateSilently = async () => {
     try {
+      // Sync materialsCart into bid data so Restore can compute total from saved data
+      const bidDataToSave = {
+        ...bid,
+        materialLineItems: materialsCart.length > 0
+          ? materialsCart.map(item => ({
+              id: item.id,
+              name: item.name || item.description,
+              description: item.description || item.name,
+              quantity: item.quantity || item.qty || 1,
+              qty: item.quantity || item.qty || 1,
+              unit: item.unit || 'ea',
+              unitPrice: item.unitPrice || item.cost,
+              cost: item.cost || item.unitPrice,
+              total: Number(item.total) || 0,
+              section: item.section || 'General Materials',
+            }))
+          : (bid.materialLineItems || []),
+      };
+      
       const estimateData = {
         id: bid.id,
         title: bid.title || 'Untitled Bid',
         timestamp: new Date().toISOString(),
-        data: JSON.parse(JSON.stringify(bid)),
-        total: calc?.grandTotal || 0,
+        data: bidDataToSave,
+        total: calc?.grandTotal || calc?.total || 0,
         customer: bid.customerName || 'Unknown Customer',
       };
 
@@ -5051,7 +5188,8 @@ export default function EstimateGeneratorScreen() {
     return { materials, labor, rentals, overhead, permitCosts, contingency, profit, total, subtotal, unitPrice, marginRatio, marginPercent };
   }, [bid, rentalCart, materialsCart]);
 
-  const estimateContext = useMemo(() => JSON.stringify({
+  const estimateContext = useMemo(() => {
+    const base = {
     screen: 'Estimate Generator',
     projectId: bid.id,
     projectName: bid.title || 'Current Estimate',
@@ -5077,7 +5215,13 @@ export default function EstimateGeneratorScreen() {
       location: p.location || '',
     })),
     stepTitle: step === 0 ? 'Bid Summary' : `Step ${step + 1}`,
-  }), [bid, calc?.total, step, activeProjects, estimates]);
+    };
+    // CRITICAL: When viewing an existing project with live actuals, inject Projects data so AI uses spend-to-date margin, NOT estimate margin
+    const withLive = projectLiveMetrics && typeof projectLiveMetrics.actualCost === 'number' && projectLiveMetrics.actualCost >= 0
+      ? { ...base, ...projectLiveMetrics }
+      : base;
+    return JSON.stringify(withLive);
+  }, [bid, calc?.total, step, activeProjects, estimates, projectLiveMetrics]);
 
   const handleEstimateAIAction = useCallback(async (action) => {
     if (!action || !action.type) return;
@@ -5871,18 +6015,19 @@ export default function EstimateGeneratorScreen() {
   };
 
   const updateBid = async (key, value) => {
+    const currentBid = bidRef.current || bid;
     let normalizedValue = value;
     
     // For payment updates, calculate current total and recalculate amounts from percentages
     if (key === 'paymentMilestones' || key === 'weeklyPayments') {
       // Calculate current total from materials, labor, overhead, markup
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
-      const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
-      const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-      const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + permitCosts;
+      const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+      const permitCosts = (currentBid.planCost || 0) + (currentBid.permitCost || 0);
+      const overhead = (currentBid.insuranceOverhead || 0) + (currentBid.equipment || 0) + (currentBid.facilities || 0) + (currentBid.otherOverhead || 0) + permitCosts;
       const subtotal = materials + labor + overhead;
-      const profit = (subtotal * (bid.markupPct || 0)) / 100;
-      const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || bid.grandTotal || bid.total || 0;
+      const profit = (subtotal * (currentBid.markupPct || 0)) / 100;
+      const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
       
       if (grandTotal > 0 && Array.isArray(value) && value.length > 0) {
         if (key === 'paymentMilestones') {
@@ -5914,11 +6059,20 @@ export default function EstimateGeneratorScreen() {
       }
     }
     
-    const updatedBid = { ...bid, [key]: normalizedValue };
+    const updatedBid = { ...currentBid, [key]: normalizedValue };
+    bidRef.current = updatedBid;
     setBid(updatedBid);
     
-    // Auto-save payment schedule changes immediately
-    if (key === 'paymentSchedule' || key === 'paymentMilestones' || key === 'weeklyPayments') {
+    // Auto-save schedule/date edits immediately to avoid losing changes.
+    if (
+      key === 'paymentSchedule' ||
+      key === 'paymentMilestones' ||
+      key === 'weeklyPayments' ||
+      key === 'startDate' ||
+      key === 'projectStartDate' ||
+      key === 'endDate' ||
+      key === 'projectEndDate'
+    ) {
       try {
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid));
         console.log(`💾 Auto-saved payment schedule change: ${key}`);
@@ -5926,6 +6080,22 @@ export default function EstimateGeneratorScreen() {
         console.error('Error auto-saving payment schedule:', error);
       }
     }
+  };
+
+  const getLatestBidForActions = async () => {
+    let latest = bidRef.current || bid;
+    try {
+      const raw = await AsyncStorage.getItem(BID_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.id && saved.id === latest?.id) {
+          latest = { ...latest, ...saved };
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read latest bid snapshot for action:', e);
+    }
+    return latest;
   };
 
   // Payment Milestone Management
@@ -6695,17 +6865,18 @@ export default function EstimateGeneratorScreen() {
         {
           text: 'Submit',
           onPress: async () => {
+            const sourceBid = await getLatestBidForActions();
             console.log('🔍 Submit button pressed');
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
             
             // First ensure the estimate is saved, then update status
             try {
               // Save the estimate first if it doesn't exist
-              const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
+              const location = `${sourceBid.customerCity || 'Unknown'}, ${sourceBid.customerState || 'Unknown'}`;
               const estimatedCost = Number(calc?.subtotal || 0);
               const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
-              const markup = Number(bid.markupPct || 0);
-              const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
+              const markup = Number(sourceBid.markupPct || 0);
+              const totalOverhead = (sourceBid.insuranceOverhead || 0) + (sourceBid.equipment || 0) + (sourceBid.facilities || 0) + (sourceBid.otherOverhead || 0) + (sourceBid.planCost || 0) + (sourceBid.permitCost || 0);
               const profitRaw = calc?.profit ?? 0;
               const netProfit = Math.max(0, profitRaw - totalOverhead);
               const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
@@ -6713,8 +6884,8 @@ export default function EstimateGeneratorScreen() {
               console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
               
               const estimateData = {
-                id: bid.id,
-                title: bid.title || 'Untitled Bid',
+                id: sourceBid.id,
+                title: sourceBid.title || 'Untitled Bid',
                 status: 'bid_submitted', // Set status to bid_submitted so it shows as "Submitted" in projects
                 estimatedCost,
                 bidPrice,
@@ -6723,29 +6894,29 @@ export default function EstimateGeneratorScreen() {
                 margin,
                 markup,
                 location,
-                city: bid.customerCity,
-                state: bid.customerState,
-                zip: bid.customerZip,
-                startDate: bid.startDate || new Date().toISOString().split('T')[0],
-                endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                city: sourceBid.customerCity,
+                state: sourceBid.customerState,
+                zip: sourceBid.customerZip,
+                startDate: sourceBid.startDate || sourceBid.projectStartDate || new Date().toISOString().split('T')[0],
+                endDate: sourceBid.endDate || sourceBid.projectEndDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
                 progress: 0,
-                client: bid.customerName || bid.clientName || 'Unknown Client',
-                clientEmail: bid.customerEmail || bid.clientEmail,
-                clientPhone: bid.customerPhone,
+                client: sourceBid.customerName || sourceBid.clientName || 'Unknown Client',
+                clientEmail: sourceBid.customerEmail || sourceBid.clientEmail,
+                clientPhone: sourceBid.customerPhone,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                estimateData: { ...bid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
+                estimateData: { ...sourceBid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
               };
               
               console.log('🔍 Debug - submitting bid with data:', estimateData);
               await addEstimate(estimateData);
               
               // Update lead stage to "proposal" if this bid came from a qualified lead
-              if (bid.leadId && bid.leadSource === 'qualified_lead') {
+              if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
                 try {
-                  const leadId = bid.leadId;
+                  const leadId = sourceBid.leadId;
                   console.log(`🔄 Updating lead ${leadId} stage to proposal after submitting bid`);
-                  console.log(`🔄 Lead source: ${bid.leadSource}, Lead ID: ${leadId}`);
+                  console.log(`🔄 Lead source: ${sourceBid.leadSource}, Lead ID: ${leadId}`);
                   
                   // Track that bid was submitted
                   const { trackBidSubmitted } = await import('../../services/engagementTracking');
@@ -6841,83 +7012,86 @@ export default function EstimateGeneratorScreen() {
   // Mark bid as won (converts to project)
   const handleMarkAsWon = async () => {
     const performMarkAsWon = async () => {
+      const sourceBid = await getLatestBidForActions();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      // First, ensure the bid/estimate is saved to the projects list
-      // Check if it already exists
+      // Always upsert latest bid snapshot when marking won, so Step 7 dates
+      // (start/deposit/weekly/milestones) stay identical in Timeline after conversion.
       const allProjects = [...activeProjects, ...estimates];
-      console.log(`🔍 Checking for bid ${bid.id} in ${allProjects.length} projects`);
-      console.log(`🔍 Available project IDs:`, allProjects.map(p => `${p.id} (${p.status})`));
-      
-      const existingProject = allProjects.find(p => p.id === bid.id);
-      
-      if (!existingProject) {
-        console.log(`📝 Bid ${bid.id} not found in projects, saving it first...`);
-        // Save the estimate with 'in_progress' status directly (since we're marking it as won)
-        const location = `${bid.customerCity || 'Unknown'}, ${bid.customerState || 'Unknown'}`;
-        const estimatedCost = Number(calc?.subtotal) || 0;
-        const bidPrice = Number(calc?.grandTotal) || 0;
-        const markup = Number(bid.markupPct) || 0;
-        const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
-        const profitRaw = calc?.profit ?? 0;
-        const netProfit = Math.max(0, profitRaw - totalOverhead);
-        const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
-        
-        const estimateData = {
-          id: bid.id,
-          title: bid.title || 'Untitled Bid',
-          status: 'won', // Set status to 'won' so it shows as "Active" in projects
-          estimatedCost,
-          bidPrice,
-          profit: netProfit,
-          actualCost: 0,
-          margin,
-          markup,
-          location,
-          city: bid.customerCity,
-          state: bid.customerState,
-          zip: bid.customerZip,
-          startDate: bid.startDate || new Date().toISOString().split('T')[0],
-          endDate: bid.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          progress: 0,
-          client: bid.customerName || bid.clientName || 'Unknown Client',
-          clientEmail: bid.customerEmail || bid.clientEmail,
-          clientPhone: bid.customerPhone,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          estimateData: { ...bid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
-        };
-        
-        console.log(`💾 Saving bid as active project with status 'won':`, {
-          id: estimateData.id,
-          title: estimateData.title,
-          status: estimateData.status,
-          bidPrice: estimateData.bidPrice
-        });
-        addEstimate(estimateData);
-        console.log(`✅ Bid saved! It should now appear in Projects tab with 'Active' status.`);
-      } else {
-        // Bid exists, convert it to won (Active)
-        console.log(`🔄 Converting existing bid ${bid.id} from status '${existingProject.status}' to 'won'`);
-        // Update the project status to 'won' so it shows as "Active"
-        updateProject(bid.id, { status: 'won' });
-        
-        // Verify the update happened
-        setTimeout(() => {
-          const updatedProjects = [...activeProjects, ...estimates];
-          const updated = updatedProjects.find(p => p.id === bid.id);
-          if (updated) {
-            console.log(`✅ Verified: Bid ${bid.id} now has status '${updated.status}' (should display as 'Active')`);
-          } else {
-            console.log(`⚠️ Warning: Could not find bid ${bid.id} after conversion`);
-          }
-        }, 500);
-      }
+      const existingProject = allProjects.find(p => p.id === sourceBid.id);
+      console.log(`🔍 Mark as Won upsert for ${sourceBid.id} (existing: ${!!existingProject})`);
+
+      const location = `${sourceBid.customerCity || 'Unknown'}, ${sourceBid.customerState || 'Unknown'}`;
+      const estimatedCost = Number(calc?.subtotal) || 0;
+      const bidPrice = Number(calc?.grandTotal || calc?.total) || 0;
+      const markup = Number(sourceBid.markupPct) || 0;
+      const totalOverhead = (sourceBid.insuranceOverhead || 0) + (sourceBid.equipment || 0) + (sourceBid.facilities || 0) + (sourceBid.otherOverhead || 0) + (sourceBid.planCost || 0) + (sourceBid.permitCost || 0);
+      const profitRaw = calc?.profit ?? 0;
+      const netProfit = Math.max(0, profitRaw - totalOverhead);
+      const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
+
+      const normalizedPaymentMilestones = Array.isArray(sourceBid.paymentMilestones)
+        ? sourceBid.paymentMilestones.map((m, i) => ({ ...m, id: m.id || `payment-${i}` }))
+        : [];
+      const normalizedWeeklyPayments = Array.isArray(sourceBid.weeklyPayments)
+        ? sourceBid.weeklyPayments.map((w, i) => ({ ...w, id: w.id || `week-${i}` }))
+        : [];
+
+      const estimateSnapshot = {
+        ...sourceBid,
+        margin,
+        marginPercent: margin,
+        profit: netProfit,
+        grandTotal: bidPrice,
+        bidPrice,
+        total: bidPrice,
+        paymentMilestones: normalizedPaymentMilestones,
+        weeklyPayments: normalizedWeeklyPayments,
+      };
+
+      const estimateData = {
+        id: sourceBid.id,
+        title: sourceBid.title || 'Untitled Bid',
+        status: 'won',
+        estimatedCost,
+        bidPrice,
+        profit: netProfit,
+        actualCost: existingProject?.actualCost || 0,
+        margin,
+        markup,
+        location,
+        city: sourceBid.customerCity,
+        state: sourceBid.customerState,
+        zip: sourceBid.customerZip,
+        startDate:
+          sourceBid.startDate ||
+          sourceBid.projectStartDate ||
+          existingProject?.startDate ||
+          new Date().toISOString().split('T')[0],
+        endDate:
+          sourceBid.endDate ||
+          sourceBid.projectEndDate ||
+          existingProject?.endDate ||
+          new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        progress: existingProject?.progress || 0,
+        client: sourceBid.customerName || sourceBid.clientName || 'Unknown Client',
+        clientEmail: sourceBid.customerEmail || sourceBid.clientEmail,
+        clientPhone: sourceBid.customerPhone,
+        createdAt: existingProject?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        paymentSchedule: sourceBid.paymentSchedule || existingProject?.paymentSchedule || 'milestone-based',
+        milestones: normalizedPaymentMilestones,
+        weeklyPayments: normalizedWeeklyPayments,
+        estimateData: estimateSnapshot,
+      };
+
+      await addEstimate(estimateData);
+      console.log(`✅ Upserted active project with latest schedule dates (${estimateData.status})`);
       
       // Update lead stage to "won" if this bid came from a qualified lead
-      if (bid.leadId && bid.leadSource === 'qualified_lead') {
+      if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
         try {
-          const leadId = bid.leadId;
+          const leadId = sourceBid.leadId;
           console.log(`🔄 Updating lead ${leadId} stage to won after marking bid as won`);
           
           // Track that bid was won
@@ -6965,10 +7139,10 @@ export default function EstimateGeneratorScreen() {
       
       Alert.alert(
         '🎉 Congratulations!',
-        `${bid.title} is now an active project! View it in the Projects tab.`,
+        `${sourceBid.title} is now an active project! View it in the Projects tab.`,
         [{ text: 'OK' }]
       );
-      console.log(`🎉 Won bid converted to project: ${bid.title}`);
+      console.log(`🎉 Won bid converted to project: ${sourceBid.title}`);
     };
 
     const seenInterstitial = await AsyncStorage.getItem('bps.seenEstimateToProjectInterstitial');
@@ -14096,7 +14270,8 @@ export default function EstimateGeneratorScreen() {
           </LinearGradient>
         </View>
 
-        {/* Navigation Pill (matches dashboard segmented control) */}
+        {/* Navigation Pill (matches dashboard segmented control) - same width as Bid Summary */}
+        <View style={s.wideContainer}>
         <View
           style={[
             s.navPillBorder,
@@ -14247,6 +14422,7 @@ export default function EstimateGeneratorScreen() {
                 )}
             </View>
           </BlurView>
+        </View>
         </View>
       </View>
 
@@ -14998,7 +15174,7 @@ export default function EstimateGeneratorScreen() {
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: '#22c55e', fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
-                            {money(item.total || item.grandTotal || 0)}
+                            {money(item.total || item.grandTotal || computeTotalFromBidData(item.data) || 0)}
                           </Text>
                           <TouchableOpacity
                             style={{

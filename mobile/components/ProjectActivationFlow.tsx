@@ -137,9 +137,67 @@ export default function ProjectActivationFlow({
       setStartDateObj(startDateValue);
       setEndDateObj(endDateValue);
 
-      // Load payment schedule from estimate
-      if (project.estimateData?.weeklyPayments && project.estimateData.weeklyPayments.length > 0) {
-        setPaymentSchedule(project.estimateData.weeklyPayments);
+      // Load payment schedule from estimate (hybrid: paymentMilestones + weeklyPayments)
+      const ed = project.estimateData || {};
+      const paymentMs = ed.paymentMilestones || [];
+      const weekly = ed.weeklyPayments || [];
+      const hasBoth = paymentMs.length > 0 && weekly.length > 0;
+      const isHybrid = (ed.paymentSchedule || project.estimateData?.paymentSchedule) === 'hybrid' || hasBoth;
+      const startDateOnly = (ed.projectStartDate || project.startDate || '')?.toString().match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
+      const addDays = (dateStr: string, days: number): string => {
+        if (!dateStr) return '';
+        try {
+          const d = new Date(dateStr + 'T12:00:00');
+          d.setDate(d.getDate() + days);
+          return d.toISOString().split('T')[0];
+        } catch { return dateStr; }
+      };
+      const fixDepositDate = (item: any, isDeposit: boolean): any => {
+        if (!isDeposit || !startDateOnly) return item;
+        const raw = item.scheduledDate || item.dueDate || '';
+        const rawNorm = raw ? raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '' : '';
+        if (!rawNorm || rawNorm === startDateOnly) {
+          return { ...item, scheduledDate: addDays(startDateOnly, 7), dueDate: addDays(startDateOnly, 7) };
+        }
+        return item;
+      };
+      if (isHybrid && paymentMs.length > 0 && weekly.length > 0) {
+        const fromPayment = paymentMs.map((m: any) => {
+          const isDep = (m.type || '').toString().toLowerCase() === 'deposit' || /deposit/.test((m.name || m.title || '').toString().toLowerCase());
+          return fixDepositDate({
+            description: m.name || m.title || 'Deposit',
+            scheduledDate: m.scheduledDate || m.dueDate,
+            amount: m.paymentAmount ?? m.amount ?? 0,
+            weekNumber: 0,
+          }, isDep);
+        });
+        const fromWeekly = weekly.map((w: any) => {
+          const isDep = w.weekNumber === 0 || /deposit/.test((w.description || '').toString().toLowerCase());
+          return fixDepositDate({ ...w }, isDep);
+        });
+        const combined = [...fromPayment, ...fromWeekly].sort((a, b) => {
+          const da = a.scheduledDate || a.dueDate || '';
+          const db = b.scheduledDate || b.dueDate || '';
+          return da.localeCompare(db);
+        });
+        setPaymentSchedule(combined);
+      } else if (weekly.length > 0) {
+        const fixed = weekly.map((w: any) => {
+          const isDep = w.weekNumber === 0 || /deposit/.test((w.description || '').toString().toLowerCase());
+          return fixDepositDate({ ...w }, isDep);
+        });
+        setPaymentSchedule(fixed);
+      } else if (paymentMs.length > 0) {
+        const fixed = paymentMs.map((m: any) => {
+          const isDep = (m.type || '').toString().toLowerCase() === 'deposit' || /deposit/.test((m.name || m.title || '').toString().toLowerCase());
+          return fixDepositDate({
+            description: m.name || m.title || `Payment`,
+            scheduledDate: m.scheduledDate || m.dueDate,
+            amount: m.paymentAmount ?? m.amount ?? 0,
+            weekNumber: 0,
+          }, isDep);
+        });
+        setPaymentSchedule(fixed);
       }
     }
   }, [visible, project]);
