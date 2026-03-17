@@ -263,5 +263,58 @@
     "budgetItems": [],
     "createdAt": "2026-03-13T04:51:35.118Z",
     "updatedAt": "2026-03-13T05:04:02.239Z"
+  },
+  {
+    "id": "1773513471624",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Jerry",
+    "title": "Jerry",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 12000,
+    "estimatedCost": 10000,
+    "bidPrice": 12000,
+    "totalSpent": 3500,
+    "remaining": 8500,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "txn-1773715912123",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 500,
+        "date": "2026-03-17T02:51:52.123Z",
+        "notes": "",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "normal"
+      },
+      {
+        "id": "txn-1773715957251",
+        "category": "Materials/Equipment",
+        "vendor": "Lowe’s",
+        "amount": 1000,
+        "date": "2026-03-17T02:52:37.251Z",
+        "notes": "",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "normal"
+      },
+      {
+        "id": "expense-1773723071853",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 2000,
+        "date": "2026-03-17",
+        "notes": "Windows from Home Depot",
+        "createdAt": "2026-03-17T04:51:11.853Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-17T04:51:11.852Z",
+    "updatedAt": "2026-03-17T04:51:11.853Z"
   }
 ]
