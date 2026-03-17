@@ -395,6 +395,19 @@ SCENARIO ANALYSIS RULES:
 → After presenting scenario results, include: [DISCLAIMER]Scenario results are modeled projections—not guarantees of actual outcomes.[/DISCLAIMER]
 → Scenarios: labor_up_10, materials_up_10, typical_friction, bad_remodel, smooth_job, custom` : '';
 
+  // Profitability and financial intelligence — answer these from project/estimate data
+  const profitabilityBlock = `
+PROFITABILITY AND FINANCIAL INTELLIGENCE (answer these when the user asks):
+→ "Am I making enough money on this job?" — Use current spend-to-date margin and projected margin from context. Compare to a typical target (e.g. 15–25% for many contractors). Say: "Your spend-to-date margin is X%, projected Y%. Many contractors target 15–25%; you're [above/at/below] that."
+→ "Is 18% margin healthy for this kind of project?" / "Is X% margin good?" — Compare the stated % to the project's current or bid margin and to typical ranges (residential often 15–25%, commercial can be tighter). Give a direct yes/no and one sentence why.
+→ "What's the biggest threat to profit on this job?" — Use project risk data: over_budget, low_margin, spend_ahead_of_progress, material burn, margin_erosion, overdue_milestones. Name the top 1–2 and the dollar or % impact if available.
+→ "Which cost category matters most if prices go up?" — Use estimate line items (materialLineItems, laborLineItems). The category with the largest total $ has the most impact. Say: "[Category] has the highest exposure at $X — a 10% increase there would add $Y to cost and drop margin by Z%."
+→ "If [category] labor/material increases X%, how much margin do I lose?" — Find that category in estimate line items, compute new cost = current cost + (category total × X/100). New margin = (revenue - new cost) / revenue × 100. Report: "Margin would drop from A% to B% (about C points)."
+→ "What price should I charge to protect a X% margin?" — Use estimated cost (or actual + remaining budget). Price = cost / (1 - X/100). Example: cost $80k, 22% margin → price = 80000/0.78 ≈ $102,564. Say the exact number and: "At current cost, bid at least $X to keep Y% margin."
+→ "What happens if overhead increases from X% to Y%?" — Overhead impact = (Y - X)% of the applicable base (e.g. labor + materials). Add that to cost, recompute margin. Report new margin and profit.
+→ "Show me a worst-case scenario for this estimate" — Apply: materials +10%, labor +10%, overhead +3% (or similar). Compute new total cost, new margin, new profit. Present: "Worst case: cost $X (up $Y), margin Z%, profit $W. Your cushion is $V before you hit break-even."
+When you have estimate data (line items, totals, overhead), do the math and give numbers. Never say you can't run scenarios — use the numbers in context.`;
+
   // Change order domain
   const changeOrderBlock = aiPmMode ? `
 CHANGE ORDER RULES:
@@ -545,6 +558,7 @@ RULES:
     timelineBlock,
     estimateBlock,
     scenarioBlock,
+    profitabilityBlock,
     changeOrderBlock,
     dailyLogBlock,
     calendarBlock,

@@ -3346,6 +3346,138 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // ── PROFITABILITY INTELLIGENCE: answer "am I making enough", "biggest threat", "which category matters", "if X increases Y%", "price for Z% margin", "overhead increase", "worst-case" ──
+    const isProfitabilityQ =
+      /\bam I making enough money (?:on )?(?:this )?job\b/i.test(rawBodyMsg) ||
+      /\bis \d+% margin healthy/i.test(rawBodyMsg) ||
+      /\b(?:what'?s|what is) the biggest threat to profit (?:on )?(?:this )?job\b/i.test(rawBodyMsg) ||
+      /\bwhich cost category matters most (?:if )?prices go up\b/i.test(rawBodyMsg) ||
+      /\bif .+ (?:labor|material) increases \d+%/i.test(rawBodyMsg) ||
+      /\b(?:how much margin do I lose|margin do I lose)\b/i.test(rawBodyMsg) ||
+      /\bwhat price (?:should I )?charge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
+      /\bwhat happens if overhead increases from \d+% to \d+%\b/i.test(rawBodyMsg) ||
+      /\bshow me (?:a )?worst[- ]?case scenario (?:for )?(?:this )?estimate\b/i.test(rawBodyMsg);
+    if (isProfitabilityQ && (projectId || currentProjectData) && (contractValue > 0 || estimatedCost > 0)) {
+      const proj = currentProjectData || (Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : []).find(p => String(p?.id) === String(projectId));
+      const ed = proj?.estimateData || parsedContext.estimateData || estimateData || {};
+      const revenue = Number(contractValue || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || bidTotal || 0);
+      const cost = Number(estimatedCost || proj?.estimatedCost || ed?.totalCost || ed?.baseCost || 0);
+      const spent = Number(actualCost || proj?.totalSpent || proj?.actualCost || 0);
+      const prog = Math.max(0, Math.min(100, Number(proj?.progress ?? proj?.overallProgressPct ?? progress ?? 0)));
+      const matTotal = Number(ed?.materialTotal ?? ed?.materials ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
+      const labTotal = Number(ed?.laborTotal ?? ed?.labor ?? 0) || sumLineItems(ed?.laborLineItems, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
+      const overTotal = Number(parsedContext.overhead ?? proj?.overhead ?? ed?.overheadTotal ?? 0);
+      const projName = parsedContext.currentProject || parsedContext.projectName || proj?.title || proj?.name || 'This project';
+      const currentMarginPct = revenue > 0 && (spent > 0 || cost > 0)
+        ? (revenue - (spent > 0 && prog > 5 ? spent / (prog / 100) : cost)) / revenue * 100
+        : (revenue > 0 && cost > 0 ? (revenue - cost) / revenue * 100 : null);
+      const bidMarginPctVal = typeof parsedContext.bidMarginPct === 'number' ? parsedContext.bidMarginPct : (proj?.bidMarginPct ?? ed?.marginPct);
+      let reply = null;
+
+      if (/\bam I making enough money/i.test(rawBodyMsg)) {
+        const m = currentMarginPct != null ? Number(currentMarginPct).toFixed(1) : (bidMarginPctVal != null ? Number(bidMarginPctVal).toFixed(1) : null);
+        if (m) {
+          const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
+          reply = `Your current margin on **${projName}** is **${m}%** (projected at completion). Many contractors target 15–25%; you're **${above}** that. `;
+          reply += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        }
+      } else if (/\bis \d+% margin healthy/i.test(rawBodyMsg)) {
+        const m = rawBodyMsg.match(/(\d+)\s*%?\s*margin healthy/);
+        const askedPct = m ? parseInt(m[1], 10) : 18;
+        const projMargin = currentMarginPct != null ? currentMarginPct : bidMarginPctVal;
+        if (projMargin != null) {
+          const healthy = askedPct >= 15 && askedPct <= 25;
+          reply = `**${askedPct}%** is ${healthy ? 'a healthy margin' : askedPct < 15 ? 'on the tight side' : 'strong'} for most construction jobs. **${projName}** is at **${Number(projMargin).toFixed(1)}%** — ${projMargin >= askedPct ? "you're at or above that." : "you're below that; consider where you can protect margin."}`;
+        }
+      } else if (/\bbiggest threat to profit\b/i.test(rawBodyMsg)) {
+        const risks = [];
+        if (cost > 0 && spent > cost) risks.push({ text: 'Over budget', impact: `$${Math.round(spent - cost).toLocaleString()} over estimate` });
+        if (prog > 0 && cost > 0 && (spent / cost) * 100 > prog + 15) risks.push({ text: 'Spend ahead of progress', impact: 'costs burning faster than work completed' });
+        if (matTotal > 0 && labTotal > 0 && currentMarginPct != null && currentMarginPct < 10) risks.push({ text: 'Low margin', impact: `${Number(currentMarginPct).toFixed(1)}% leaves little cushion` });
+        const top = risks[0];
+        if (top) reply = `The biggest threat to profit on **${projName}** is **${top.text}** — ${top.impact}. `; else reply = `No major profit threats show up for **${projName}** right now. Keep an eye on spend vs. progress and PO commitments.`;
+      } else if (/\bwhich cost category matters most\b/i.test(rawBodyMsg)) {
+        const byCat = {};
+        (ed?.materialLineItems || ed?.materialsCart || []).forEach((i) => {
+          const c = (i?.category || i?.description || 'Materials').toString().trim() || 'Materials';
+          byCat[c] = (byCat[c] || 0) + Number(i?.total ?? i?.amount ?? i?.cost ?? 0);
+        });
+        (ed?.laborLineItems || []).forEach((i) => {
+          const c = (i?.trade || i?.category || i?.description || 'Labor').toString().trim() || 'Labor';
+          byCat[c] = (byCat[c] || 0) + Number(i?.total ?? i?.amount ?? i?.cost ?? 0);
+        });
+        const entries = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+        const topCat = entries[0];
+        if (topCat && revenue > 0) {
+          const [name, total] = topCat;
+          const pctImpact = total > 0 ? ((total * 0.1) / revenue * 100) : 0;
+          reply = `**${name}** has the highest exposure at **$${Math.round(total).toLocaleString()}**. If prices there go up 10%, cost would rise about **$${Math.round(total * 0.1).toLocaleString()}** and margin would drop about **${Number(pctImpact).toFixed(1)}** points.`;
+        } else reply = `I don't have a cost breakdown by category for **${projName}** in this view. Add line items in the estimate to see which category matters most.`;
+      } else if (/\bif .+ increases \d+%\b/i.test(rawBodyMsg) || /\b(?:how much )?margin do I lose\b/i.test(rawBodyMsg)) {
+        const pctMatch = rawBodyMsg.match(/(\d+)\s*%?\s*(?:percent)?/);
+        const pct = pctMatch ? Math.min(50, Math.max(1, parseInt(pctMatch[1], 10))) : 10;
+        const key = rawBodyMsg.replace(/\d+\s*%?/g, '').toLowerCase();
+        const isLabor = /\blabor\b/i.test(rawBodyMsg);
+        const items = isLabor ? (ed?.laborLineItems || []) : (ed?.materialLineItems || ed?.materialsCart || []);
+        const matchWord = (key.match(/(?:drywall|framing|lumber|electrical|plumb|concrete|hvac|roof|paint|tile|floor|insulation|siding|trim|drywall)/i) || [])[0];
+        let categoryTotal = 0;
+        if (matchWord) {
+          items.forEach((i) => {
+            const t = (i?.trade || i?.category || i?.description || '').toString().toLowerCase();
+            if (t.includes(matchWord.toLowerCase())) categoryTotal += Number(i?.total ?? i?.amount ?? i?.cost ?? 0);
+          });
+        }
+        if (categoryTotal === 0) categoryTotal = isLabor ? labTotal : matTotal;
+        if (categoryTotal > 0 && revenue > 0 && cost > 0) {
+          const addCost = categoryTotal * (pct / 100);
+          const newCost = cost + addCost;
+          const newMargin = ((revenue - newCost) / revenue) * 100;
+          const oldMargin = ((revenue - cost) / revenue) * 100;
+          const drop = oldMargin - newMargin;
+          reply = `If ${matchWord || (isLabor ? 'labor' : 'materials')} costs increase **${pct}%** (about **$${Math.round(addCost).toLocaleString()}**), margin would drop from **${Number(oldMargin).toFixed(1)}%** to **${Number(newMargin).toFixed(1)}%** — about **${Number(drop).toFixed(1)}** points.`;
+        }
+      } else if (/\bwhat price .* (?:to )?protect .* \d+%\s*margin\b/i.test(rawBodyMsg)) {
+        const m = rawBodyMsg.match(/(\d+)\s*%?\s*(?:margin)?/);
+        const targetPct = m ? Math.min(50, Math.max(5, parseInt(m[1], 10))) : 22;
+        const ratio = 1 - targetPct / 100;
+        if (ratio > 0 && cost > 0) {
+          const price = cost / ratio;
+          reply = `To protect a **${targetPct}%** margin at current cost (**$${Math.round(cost).toLocaleString()}**), you’d need to charge at least **$${Math.round(price).toLocaleString()}**. That keeps **$${Math.round(price - cost).toLocaleString()}** profit.`;
+        }
+      } else if (/\boverhead increases from \d+% to \d+%\b/i.test(rawBodyMsg)) {
+        const nums = rawBodyMsg.match(/\d+/g);
+        const fromPct = nums && nums[0] ? parseInt(nums[0], 10) : 12;
+        const toPct = nums && nums[1] ? parseInt(nums[1], 10) : 15;
+        const base = cost > 0 ? cost : (matTotal + labTotal);
+        if (base > 0) {
+          const addOverhead = base * ((toPct - fromPct) / 100);
+          const newCost = base + addOverhead;
+          const newMargin = revenue > 0 ? ((revenue - newCost) / revenue) * 100 : null;
+          reply = `If overhead goes from **${fromPct}%** to **${toPct}%**, that adds about **$${Math.round(addOverhead).toLocaleString()}** to cost. `;
+          if (newMargin != null) reply += `New margin would be about **${Number(newMargin).toFixed(1)}%**.`;
+        }
+      } else if (/\bworst[- ]?case scenario\b/i.test(rawBodyMsg)) {
+        const mat = matTotal || cost * 0.5;
+        const lab = labTotal || cost * 0.5;
+        const over = overTotal || (cost * 0.12);
+        const newMat = mat * 1.1;
+        const newLab = lab * 1.1;
+        const newOver = over * 1.25;
+        const worstCost = newMat + newLab + newOver;
+        const worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
+        const cushion = revenue > 0 ? revenue - worstCost : 0;
+        reply = `**Worst-case scenario** for **${projName}** (materials +10%, labor +10%, overhead +25%): cost **$${Math.round(worstCost).toLocaleString()}** (up **$${Math.round(worstCost - cost).toLocaleString()}**). `;
+        if (worstMargin != null) reply += `Margin would be **${Number(worstMargin).toFixed(1)}%**, profit **$${Math.round(cushion).toLocaleString()}**. `;
+        reply += `You’d still have **$${Math.round(cushion).toLocaleString()}** cushion before break-even.`;
+      }
+
+      if (reply) {
+        if (!reply.includes('➡️')) reply += `\n\n➡️ Want me to run another scenario or check margin?`;
+        console.log('✅ PROFITABILITY INTELLIGENCE: deterministic reply for', rawBodyMsg.slice(0, 50));
+        return res.json({ reply, actions: [] });
+      }
+    }
+
     // ── EARLY: Missing cost scan (run BEFORE budget block to guarantee it always wins) ──
     const msgLowerEarly = (message || '').toLowerCase();
     const recentHistory = Array.isArray(history) ? history.slice(-10) : [];
