@@ -2524,12 +2524,95 @@ router.post('/stream', async (req, res) => {
       else if (typeof context === 'object') parsedContext = context || {};
     } catch (e) { parsedContext = {}; }
 
-    const session = getOrCreateSession(sessionId || `stream-${Date.now()}`);
+    const sessionStream = getOrCreateSession(sessionId || `stream-${Date.now()}`);
+
+    // RUN-FIRST STREAM: "making enough" — use only parsedContext (same as main POST)
+    const rawMsgStreamFirst = String(message ?? '').trim().toLowerCase();
+    const isMakingEnoughStreamFirst = /\bmaking\s+enough\b/i.test(rawMsgStreamFirst) && (/\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawMsgStreamFirst) || /\bmoney\b/i.test(rawMsgStreamFirst) || /\bjob\b/i.test(rawMsgStreamFirst) || /\b(?:am\s+i|are\s+we|is\s+this)\s+making\s+enough/i.test(rawMsgStreamFirst));
+    const hasProjectContextStreamFirst = parsedContext.projectId || parsedContext.currentProject || parsedContext.projectName || (parsedContext.screen && String(parsedContext.screen).toLowerCase() === 'project detail');
+    if (isMakingEnoughStreamFirst && hasProjectContextStreamFirst) {
+      const revS = Number(parsedContext.contractValue || parsedContext.bidTotal || parsedContext.total || 0);
+      const spS = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const projNameStreamFirst = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+      const marginStreamFirst = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct) ? parsedContext.spendToDateMarginPct : (typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct)) ? parsedContext.projectedMarginPct : (revS > 0 && spS >= 0) ? Math.round(((revS - spS) / revS) * 1000) / 10 : null;
+      if (marginStreamFirst != null && Number.isFinite(Number(marginStreamFirst))) {
+        const mS = Number(marginStreamFirst).toFixed(1);
+        const aboveS = parseFloat(mS) >= 20 ? 'above' : (parseFloat(mS) >= 15 ? 'at' : 'below');
+        let replyStreamFirst = `Your current margin on **${projNameStreamFirst}** is **${mS}%** (projected at completion). Many contractors target 15–25%; you're **${aboveS}** that. `;
+        replyStreamFirst += parseFloat(mS) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        replyStreamFirst += `\n\n➡️ Want me to check your biggest profit threat or run a scenario?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: replyStreamFirst })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+      if (revS > 0 || Number(parsedContext.estimatedCost || 0) > 0) {
+        let replyStreamFirst = `I have **${projNameStreamFirst}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
+        replyStreamFirst += `\n\n➡️ Want a health check or budget breakdown?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: replyStreamFirst })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+      const fallbackStreamFirst = `I don't have contract or cost numbers for **${projNameStreamFirst}** in this view. Open the project and ask "What is my margin?" first.`;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: fallbackStreamFirst })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const session = sessionStream;
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     const allProjects = parsedContext.allProjects || [];
     const screen = parsedContext.screen || 'assistant_tab';
     const screenLower = screen.toLowerCase();
     const isCommandCenter = screenLower === 'projects' || screenLower === 'ai assistant tab';
+
+    const projectIdStream = parsedContext.projectId;
+    const rawBodyMsgStream = String(message ?? '').toLowerCase();
+
+    // EARLY STREAM: "Am I making enough (money)? (on this job/project)?" — same deterministic reply as main POST
+    const isMakingEnoughStream = /\bmaking\s+enough\b/i.test(rawBodyMsgStream) && (/\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawBodyMsgStream) || /\bmoney\b/i.test(rawBodyMsgStream) || /\bjob\b/i.test(rawBodyMsgStream));
+    const hasProjectContextStream = projectIdStream || parsedContext.currentProject || parsedContext.projectName || (parsedContext.screen && String(parsedContext.screen).toLowerCase() === 'project detail') || allProjects.length > 0;
+    if (isMakingEnoughStream && hasProjectContextStream) {
+      const revenueS = Number(parsedContext.contractValue || parsedContext.bidTotal || parsedContext.total || 0);
+      const costS = Number(parsedContext.estimatedCost || 0);
+      const spentS = Number(parsedContext.actualCost || parsedContext.totalSpent || 0);
+      const projNameS = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+      const spendToDatePctS = revenueS > 0 && spentS >= 0 ? Math.round(((revenueS - spentS) / revenueS) * 1000) / 10 : null;
+      const marginPctS = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct) ? parsedContext.spendToDateMarginPct : (typeof parsedContext.projectedMarginPct === 'number' ? parsedContext.projectedMarginPct : null) ?? spendToDatePctS ?? parsedContext.bidMarginPct;
+      if (marginPctS != null && Number.isFinite(Number(marginPctS))) {
+        const mS = Number(marginPctS).toFixed(1);
+        const aboveS = parseFloat(mS) >= 20 ? 'above' : (parseFloat(mS) >= 15 ? 'at' : 'below');
+        let replyS = `Your current margin on **${projNameS}** is **${mS}%** (projected at completion). Many contractors target 15–25%; you're **${aboveS}** that. `;
+        replyS += parseFloat(mS) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        replyS += `\n\n➡️ Want me to check your biggest profit threat or run a scenario?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: replyS })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+      if (revenueS > 0 || costS > 0) {
+        let replyS = `I have **${projNameS}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
+        replyS += `\n\n➡️ Want a health check or budget breakdown?`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: replyS })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+      const fallbackNameS = parsedContext.currentProject || parsedContext.projectName || 'this project';
+      const fallbackReplyS = `I don't have contract or cost numbers for **${fallbackNameS}** in this view. Open the project (or the estimate) and ask again, or ask "What is my margin?" first.`;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: fallbackReplyS })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+      res.end();
+      return;
+    }
 
     // MARGIN AT X% COMPLETE: "margin at 50% complete" / "50% timeline left"
     const msgForProgressStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
@@ -2927,7 +3010,7 @@ router.post('/', async (req, res) => {
     const requestId = `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const requestStartedAt = Date.now();
     const logPhase = (phase, extra = {}) => {
-      console.log(`⏱️ [${requestId}] ${phase}`, { elapsedMs: Date.now() - requestStartedAt, ...extra });
+      if (process.env.DEBUG_AI_CONTEXT) console.log(`⏱️ [${requestId}] ${phase}`, { elapsedMs: Date.now() - requestStartedAt, ...extra });
     };
 
     logPhase('request_start');
@@ -2944,11 +3027,7 @@ router.post('/', async (req, res) => {
     const authHeader = req.headers['authorization'];
     const authToken = authHeader && authHeader.split(' ')[1];
     
-    if (!authToken) {
-      console.warn('⚠️ AI Assistant request missing auth token');
-    } else {
-      console.log('✅ AI Assistant request has auth token (length:', authToken.length, ')');
-    }
+    if (!authToken && process.env.DEBUG_AI_CONTEXT) console.warn('⚠️ AI Assistant request missing auth token');
 
     const { message, context, history = [], user_settings = {}, sessionId } = req.body;
 
@@ -2974,6 +3053,48 @@ router.post('/', async (req, res) => {
       parsedContext = {};
     }
 
+    // ── RUN-FIRST: "Am I making enough (money) on this job?" — use ONLY parsedContext so we never miss (e.g. project detail sends no allProjects)
+    const rawMsgFirst = String(req.body?.message ?? message ?? '').trim();
+    const rawMsgLower = rawMsgFirst.toLowerCase();
+    const isMakingEnoughRunFirst = /\bmaking\s+enough\b/i.test(rawMsgLower) && (
+      /\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawMsgLower) ||
+      /\bmoney\b/i.test(rawMsgLower) ||
+      /\bjob\b/i.test(rawMsgLower) ||
+      /\b(?:am\s+i|are\s+we|is\s+this)\s+making\s+enough/i.test(rawMsgLower)
+    );
+    const hasProjectContextRunFirst = parsedContext.projectId || parsedContext.currentProject || parsedContext.projectName ||
+      (parsedContext.screen && String(parsedContext.screen).toLowerCase() === 'project detail');
+    if (isMakingEnoughRunFirst && !hasProjectContextRunFirst && process.env.DEBUG_AI_CONTEXT) {
+      console.log('⚠️ RUN-FIRST "making enough": no project context', parsedContext.screen, parsedContext.projectId);
+    }
+    if (isMakingEnoughRunFirst && hasProjectContextRunFirst) {
+      const rev = Number(parsedContext.contractValue || parsedContext.bidTotal || parsedContext.total || 0);
+      const sp = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const projNameFirst = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
+      const marginFromContext = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
+        ? parsedContext.spendToDateMarginPct
+        : (typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
+          ? parsedContext.projectedMarginPct
+          : (rev > 0 && sp >= 0) ? Math.round(((rev - sp) / rev) * 1000) / 10 : null;
+      if (marginFromContext != null && Number.isFinite(Number(marginFromContext))) {
+        const m = Number(marginFromContext).toFixed(1);
+        const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
+        let replyFirst = `Your current margin on **${projNameFirst}** is **${m}%** (projected at completion). Many contractors target 15–25%; you're **${above}** that. `;
+        replyFirst += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        replyFirst += `\n\n➡️ Want me to check your biggest profit threat or run a scenario?`;
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST "making enough":', projNameFirst, m + '%');
+        return res.json({ reply: replyFirst, actions: [] });
+      }
+      if (rev > 0 || Number(parsedContext.estimatedCost || 0) > 0) {
+        let replyFirst = `I have **${projNameFirst}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
+        replyFirst += `\n\n➡️ Want a health check or budget breakdown?`;
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST "making enough": fallback (no margin)');
+        return res.json({ reply: replyFirst, actions: [] });
+      }
+      if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST "making enough": no revenue/cost');
+      return res.json({ reply: `I don't have contract or cost numbers for **${projNameFirst}** in this view. Open the project and ask "What is my margin?" first.`, actions: [] });
+    }
+
     // Build system prompt based on context and settings
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     
@@ -2984,25 +3105,9 @@ router.post('/', async (req, res) => {
     let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId || selectedProjectIdHint;
     const allProjects = parsedContext.allProjects || [];
     
-    console.log('🔍 AI Assistant: Initial project context', {
-      projectName,
-      projectId,
-      allProjectsCount: allProjects.length,
-      projectIds: allProjects.slice(0, 3).map(p => ({ id: p.id, title: p.title || p.name })),
-      parsedContextKeys: Object.keys(parsedContext),
-      parsedContextProjectId: parsedContext.projectId,
-      parsedContextActiveProjectId: parsedContext.activeProjectId,
-      parsedContextResolvedProjectId: parsedContext.resolvedProjectId,
-      parsedContextCurrentProject: parsedContext.currentProject,
-      parsedContextProjectName: parsedContext.projectName,
-      parsedContextBidTitle: parsedContext.bidTitle
-    });
-    if (parsedContext?.screen === 'Projects') {
-      console.log('🧭 Projects screen hints', {
-        selectedProjectIdHint,
-        lastOpenedProjectIdHint,
-        initialProjectId: projectId,
-      });
+    // Reduced logging to prevent terminal glitching (was: full context dump)
+    if (process.env.DEBUG_AI_CONTEXT) {
+      console.log('🔍 AI Assistant: Initial project context', { projectName, projectId, allProjectsCount: allProjects.length, screen: parsedContext.screen });
     }
     
     // If we have a project name but no ID, try to find it in allProjects
@@ -3014,11 +3119,7 @@ router.post('/', async (req, res) => {
       });
       if (foundProject) {
         projectId = foundProject.id;
-        console.log('✅ AI Assistant: Resolved projectId from projectName in allProjects:', {
-          projectName,
-          projectId,
-          foundTitle: foundProject.title || foundProject.name
-        });
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ AI Assistant: Resolved projectId', projectName, '→', projectId);
       } else {
         console.warn('⚠️ AI Assistant: Could not find project in allProjects', {
           projectName,
@@ -3031,11 +3132,53 @@ router.post('/', async (req, res) => {
     let currentProjectData = null;
     if (projectId && allProjects.length > 0) {
       currentProjectData = allProjects.find(p => String(p.id) === String(projectId));
-      console.log('✅ AI Assistant: Found currentProjectData from allProjects for projectId:', projectId);
+      if (process.env.DEBUG_AI_CONTEXT) console.log('✅ AI Assistant: Found currentProjectData for', projectId);
+    }
+
+    const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
+
+    // ── EARLY: "Am I making enough (money)? (on this job/project)?" → answer before router so we never get "quick health check or full breakdown?"
+    // Match any phrasing that clearly asks about making enough (money) on this job/project
+    const isMakingEnoughEarly = /\bmaking\s+enough\b/i.test(rawBodyMsg) && (
+      /\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawBodyMsg) ||
+      /\bmoney\b/i.test(rawBodyMsg) ||
+      /\bjob\b/i.test(rawBodyMsg) ||
+      /\b(?:am\s+i|are\s+we|is\s+this)\s+making\s+enough/i.test(rawBodyMsg)
+    );
+    const hasProjectContext = projectId || currentProjectData || allProjects.length > 0 || parsedContext.currentProject || parsedContext.projectName || parsedContext.screen === 'Project Detail';
+    if (isMakingEnoughEarly && hasProjectContext) {
+      const proj = currentProjectData || (Array.isArray(allProjects) ? allProjects.find(p => String(p?.id) === String(projectId)) : null) || (allProjects && allProjects[0]) || null;
+      // Use parsedContext first (project-detail sends everything at top level; no allProjects)
+      const revenue = Number(parsedContext.contractValue || parsedContext.bidTotal || parsedContext.total || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || 0);
+      const cost = Number(parsedContext.estimatedCost || proj?.estimatedCost || proj?.estimateData?.totalCost || proj?.estimateData?.baseCost || 0);
+      const spent = Number(parsedContext.actualCost || parsedContext.totalSpent || proj?.totalSpent || proj?.actualCost || 0);
+      const prog = Math.max(0, Math.min(100, Number(proj?.progress ?? proj?.overallProgressPct ?? parsedContext.progress ?? 0)));
+      const projName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || proj?.title || proj?.name || 'This project';
+      const spendToDatePct = revenue > 0 && (spent >= 0) ? Math.round(((revenue - spent) / revenue) * 1000) / 10 : null;
+      const projectedMarginPct = revenue > 0 && cost > 0 ? (revenue - (prog > 5 && spent > 0 ? spent / (prog / 100) : cost)) / revenue * 100 : (revenue > 0 && cost > 0 ? (revenue - cost) / revenue * 100 : null);
+      const marginPct = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct) ? parsedContext.spendToDateMarginPct : (typeof parsedContext.projectedMarginPct === 'number' ? parsedContext.projectedMarginPct : null) ?? spendToDatePct ?? projectedMarginPct ?? parsedContext.bidMarginPct ?? (proj && (proj.bidMarginPct ?? proj.currentMarginPct ?? proj.estimateData?.marginPct));
+      if (marginPct != null && Number.isFinite(Number(marginPct))) {
+        const m = Number(marginPct).toFixed(1);
+        const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
+        let reply = `Your current margin on **${projName}** is **${m}%** (projected at completion). Many contractors target 15–25%; you're **${above}** that. `;
+        reply += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        reply += `\n\n➡️ Want me to check your biggest profit threat or run a scenario?`;
+        console.log('✅ EARLY "making enough": deterministic reply for', projName, m + '%');
+        return res.json({ reply, actions: [] });
+      }
+      if (revenue > 0 || cost > 0) {
+        let reply = `I have **${projName}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
+        reply += `\n\n➡️ Want a health check or budget breakdown?`;
+        console.log('✅ EARLY "making enough": fallback (no margin data)');
+        return res.json({ reply, actions: [] });
+      }
+      // Still in "making enough" context but no numbers — return short message so we never hit router
+      const fallbackName = parsedContext.currentProject || parsedContext.projectName || 'this project';
+      console.log('✅ EARLY "making enough": no revenue/cost in context');
+      return res.json({ reply: `I don't have contract or cost numbers for **${fallbackName}** in this view. Open the project (or the estimate) and ask again, or ask "What is my margin?" first.`, actions: [] });
     }
 
     // ── FIRST-PRIORITY: "profit margin" / "margin" question → short response only (before ANY other handler)
-    const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
     const isMarginQuestion = rawBodyMsg.includes('margin') && !rawBodyMsg.includes('forecast') &&
       (rawBodyMsg.includes('profit') || rawBodyMsg.includes('expected') ||
        /\b(what is my|what'?s my|what is the|how is my|how'?s my)\b/i.test(rawBodyMsg) ||
@@ -3348,21 +3491,29 @@ router.post('/', async (req, res) => {
 
     // ── PROFITABILITY INTELLIGENCE: answer "am I making enough", "biggest threat", "which category matters", "if X increases Y%", "price for Z% margin", "overhead increase", "worst-case" ──
     const isProfitabilityQ =
-      /\bam I making enough money (?:on )?(?:this )?job\b/i.test(rawBodyMsg) ||
+      /\bam I making enough money (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg) ||
+      /\bmaking enough (?:on |on this )?(?:job|project)\b/i.test(rawBodyMsg) ||
       /\bis \d+% margin healthy/i.test(rawBodyMsg) ||
-      /\b(?:what'?s|what is) the biggest threat to profit (?:on )?(?:this )?job\b/i.test(rawBodyMsg) ||
-      /\bwhich cost category matters most (?:if )?prices go up\b/i.test(rawBodyMsg) ||
-      /\bif .+ (?:labor|material) increases \d+%/i.test(rawBodyMsg) ||
-      /\b(?:how much margin do I lose|margin do I lose)\b/i.test(rawBodyMsg) ||
+      /\bmargin healthy for this kind/i.test(rawBodyMsg) ||
+      /\b(?:what'?s|what is) the biggest threat to profit/i.test(rawBodyMsg) ||
+      /\bbiggest threat to profit (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg) ||
+      /\bwhich cost category matters most/i.test(rawBodyMsg) ||
+      /\b(?:if |when ).+ (?:labor|material) increases \d+%/i.test(rawBodyMsg) ||
+      /\bdrywall labor increases \d+%|\blabor increases \d+%/i.test(rawBodyMsg) ||
+      /\b(?:how much )?margin do I lose\b/i.test(rawBodyMsg) ||
       /\bwhat price (?:should I )?charge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
+      /\bcharge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
       /\bwhat happens if overhead increases from \d+% to \d+%\b/i.test(rawBodyMsg) ||
-      /\bshow me (?:a )?worst[- ]?case scenario (?:for )?(?:this )?estimate\b/i.test(rawBodyMsg);
-    if (isProfitabilityQ && (projectId || currentProjectData) && (contractValue > 0 || estimatedCost > 0)) {
-      const proj = currentProjectData || (Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : []).find(p => String(p?.id) === String(projectId));
+      /\boverhead increases from \d+% to \d+%\b/i.test(rawBodyMsg) ||
+      /\bshow me (?:a )?worst[- ]?case scenario/i.test(rawBodyMsg) ||
+      /\bworst[- ]?case scenario (?:for )?(?:this )?estimate\b/i.test(rawBodyMsg);
+    if (isProfitabilityQ && (projectId || currentProjectData || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0))) {
+      const proj = currentProjectData || (Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : []).find(p => String(p?.id) === String(projectId)) || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0 ? parsedContext.allProjects[0] : null);
       const ed = proj?.estimateData || parsedContext.estimateData || estimateData || {};
-      const revenue = Number(contractValue || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || bidTotal || 0);
-      const cost = Number(estimatedCost || proj?.estimatedCost || ed?.totalCost || ed?.baseCost || 0);
-      const spent = Number(actualCost || proj?.totalSpent || proj?.actualCost || 0);
+      const revenue = Number(contractValue || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || parsedContext.bidTotal || parsedContext.contractValue || bidTotal || 0);
+      const cost = Number(estimatedCost || proj?.estimatedCost || parsedContext.estimatedCost || ed?.totalCost || ed?.baseCost || 0);
+      const spent = Number(actualCost || proj?.totalSpent || proj?.actualCost || parsedContext.actualCost || parsedContext.totalSpent || 0);
+      if (process.env.DEBUG_AI_CONTEXT) console.log('✅ PROFITABILITY INTELLIGENCE: matched');
       const prog = Math.max(0, Math.min(100, Number(proj?.progress ?? proj?.overallProgressPct ?? progress ?? 0)));
       const matTotal = Number(ed?.materialTotal ?? ed?.materials ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
       const labTotal = Number(ed?.laborTotal ?? ed?.labor ?? 0) || sumLineItems(ed?.laborLineItems, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
@@ -3374,14 +3525,16 @@ router.post('/', async (req, res) => {
       const bidMarginPctVal = typeof parsedContext.bidMarginPct === 'number' ? parsedContext.bidMarginPct : (proj?.bidMarginPct ?? ed?.marginPct);
       let reply = null;
 
-      if (/\bam I making enough money/i.test(rawBodyMsg)) {
+      if (/\bam I making enough money/i.test(rawBodyMsg) || /\bmaking enough (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg)) {
         const m = currentMarginPct != null ? Number(currentMarginPct).toFixed(1) : (bidMarginPctVal != null ? Number(bidMarginPctVal).toFixed(1) : null);
         if (m) {
           const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
           reply = `Your current margin on **${projName}** is **${m}%** (projected at completion). Many contractors target 15–25%; you're **${above}** that. `;
           reply += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
+        } else if (revenue > 0 || cost > 0) {
+          reply = `I have **${projName}** but no margin percentage in this view. Open the project and ask "What is my margin?" first, then I can tell you if you're making enough.`;
         }
-      } else if (/\bis \d+% margin healthy/i.test(rawBodyMsg)) {
+      } else if (/\bis \d+% margin healthy/i.test(rawBodyMsg) || /\bmargin healthy for this kind/i.test(rawBodyMsg)) {
         const m = rawBodyMsg.match(/(\d+)\s*%?\s*margin healthy/);
         const askedPct = m ? parseInt(m[1], 10) : 18;
         const projMargin = currentMarginPct != null ? currentMarginPct : bidMarginPctVal;
@@ -3474,6 +3627,13 @@ router.post('/', async (req, res) => {
       if (reply) {
         if (!reply.includes('➡️')) reply += `\n\n➡️ Want me to run another scenario or check margin?`;
         console.log('✅ PROFITABILITY INTELLIGENCE: deterministic reply for', rawBodyMsg.slice(0, 50));
+        return res.json({ reply, actions: [] });
+      }
+      if (isProfitabilityQ && (revenue <= 0 && cost <= 0)) {
+        const projNameFallback = parsedContext.currentProject || parsedContext.projectName || proj?.title || proj?.name || 'this project';
+        reply = `I don't have contract or cost numbers for **${projNameFallback}** in this view. Open the project (or the estimate) and ask again so I can use the real numbers.`;
+        reply += `\n\n➡️ You can also ask from the project screen: "What is my margin?" or "Am I making enough money on this job?"`;
+        console.log('✅ PROFITABILITY INTELLIGENCE: fallback (no revenue/cost)');
         return res.json({ reply, actions: [] });
       }
     }
@@ -7173,7 +7333,7 @@ router.post('/', async (req, res) => {
     }
 
     logPhase('router_done', { domain: routerResult?.domain, proposedTool: routerResult?.proposed_tool });
-    console.log('🧭 Router:', JSON.stringify({ domain: routerResult.domain, tool: routerResult.proposed_tool, missing: routerResult.required_fields_missing, confidence: routerResult.confidence }));
+    if (process.env.DEBUG_AI_CONTEXT) console.log('🧭 Router:', routerResult.domain, routerResult.proposed_tool);
 
     // SIMPLE MARGIN/PROFIT OVERRIDE: "what is my margin", "what is my profit margin", "what is my profit" → answer from context, NOT forecast_profit
     const msgForMarginCheck = (normalizedMessage || message || '').toLowerCase();
@@ -7223,8 +7383,7 @@ router.post('/', async (req, res) => {
     // Gate: if required fields are missing → ask the clarification question and stop
     if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
       const question = routerResult.clarification_question || `I need a few more details. Could you provide the ${routerResult.required_fields_missing.join(' and ')}?`;
-      console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing, '→ asking clarification');
-      console.log('🛑 Router: returning early with question:', question);
+      if (process.env.DEBUG_AI_CONTEXT) console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing);
       return res.json({ reply: question, actions: [], projectUpdateData: null });
     }
 

@@ -1580,7 +1580,10 @@ const AIAssistantModal: React.FC<Props> = ({
                               /\bscope\s+change\b/i.test(query) ||
                               /\bclient\s+wants\s+to\s+add\b/i.test(query) ||
                               /\bextra\s+work\b/i.test(query);
-    if (!isExpenseLikeQuery && !isChangeOrderQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+    // Skip analysis-type chip for "making enough" / margin questions — backend returns deterministic margin answer
+    const isMakingEnoughOrMarginQuery = /\bmaking\s+enough\b/i.test(query) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(query) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(query)) ||
+      /\b(what is my|what'?s my)\s+(profit\s+)?margin\b/i.test(query);
+    if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
         projectId,
@@ -2212,7 +2215,11 @@ const AIAssistantModal: React.FC<Props> = ({
             const isTeamActionIntent = /\b(add|update)\s+(team\s+member|a\s+team\s+member)/i.test(newMessage.content) ||
                                       /\b(turn|make|set|change)\s+.+\s+(active|off\s*duty)/i.test(newMessage.content) ||
                                       /\bteam\s+member.*(off\s*duty|active)/i.test(newMessage.content);
-            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: "Am I making enough money?" and margin questions → send to backend for deterministic margin answer; do NOT show "quick health check or full breakdown?"
+            const isMakingEnoughOrMargin = /\bmaking\s+enough\b/i.test(newMessage.content) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(newMessage.content) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(newMessage.content)) ||
+              /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(newMessage.content) ||
+              /\bam i making\s+enough\b/i.test(newMessage.content);
+            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
