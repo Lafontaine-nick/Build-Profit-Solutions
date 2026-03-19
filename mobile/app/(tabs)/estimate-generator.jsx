@@ -5191,6 +5191,7 @@ export default function EstimateGeneratorScreen() {
   const estimateContext = useMemo(() => {
     const base = {
     screen: 'Estimate Generator',
+    aiScope: 'project',
     projectId: bid.id,
     projectName: bid.title || 'Current Estimate',
     bidTitle: bid.title || 'Current Estimate',

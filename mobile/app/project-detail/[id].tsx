@@ -2869,6 +2869,7 @@ function ProjectDetailContent() {
             const pf = overviewMetrics?.profitForecast;
             return {
             screen: 'Project Detail',
+            aiScope: 'project',
             currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectName: safeProjectData?.title || safeProjectData?.name || 'Current Project',
             projectId: safeProjectData?.id,

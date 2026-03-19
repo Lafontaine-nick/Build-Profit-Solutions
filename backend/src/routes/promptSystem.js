@@ -35,6 +35,7 @@ function buildSystemPrompt(opts = {}) {
     materialBudget = 0, materialSpent = 0, materialRemaining = 0,
     laborBudget = 0, laborSpent = 0, laborRemaining = 0,
     progress = 0, aiPmMode = false, pmAlerts = [], screen = 'assistant_tab',
+    aiScope: aiScopeOpt = null,
     teamMembers = [], teamStats = { total: 0, active: 0, offDuty: 0 },
     calendarEvents = [], upcomingCalendarEvents = [],
   } = opts;
@@ -44,6 +45,7 @@ function buildSystemPrompt(opts = {}) {
   const hasProject = !!projectId;
   // Global AI Assistant (center nav) and Projects screen both get portfolio/command center behavior
   const isGlobalCommandMode = screen === 'AI Assistant Tab' || screen === 'Projects';
+  const scope = aiScopeOpt || (screen === 'Project Detail' || (screen === 'Estimate Generator' && projectId) ? 'project' : 'portfolio');
   const projectRef = hasProject
     ? `You're in project "${projectName}" (ID: ${projectId}). USE THIS PROJECT — never ask which project.`
     : 'No project in context. Ask "Which project is this for?" if needed.';
@@ -68,6 +70,9 @@ SAFETY RULES:
 - When a function fails, give a clear recovery path: "Add [missing field] and I'll retry" or "Try again with [specific fix]"
 - After success: true, trust it — don't contradict yourself
 
+UNKNOWN DATA RULE:
+- When the user asks for data that is NOT in your current project context (e.g. exact square footage, cheapest supplier quote, permit amount quoted by city, customer timeline comments, inspection date, drywall sub name), say clearly: "I don't see that data in this project yet." Do NOT invent values. If helpful, add: "If you upload or add it, I can use it." Only apply this when the data truly is absent — if the data exists in context, answer normally.
+
 CONVERSATION BEHAVIOR:
 - Use brief affirmations when natural: "Good question.", "Got it.", "Solid." — keep them short, not filler
 - When you suspect a typo in a material/project/vendor name (e.g. "lumer" → lumber, "drywll" → drywall), gently confirm: "Did you mean [corrected version]?" before proceeding
@@ -81,6 +86,22 @@ CLARIFICATION FLOW:
 - After the user answers, proceed immediately
 - Never ask for the same missing field twice in one conversation
 - If the user says "for Chris", "for Nick", or similar, treat that as project intent and resolve the project
+
+SCOPE RULES (aiScope=${scope}):
+- PROJECT SCOPE (user is inside a specific project page): Default to the current project. Do NOT ask "which project?" for project-specific questions. Only ask if the user explicitly mentions another project by name (e.g. "Compare this to Bob").
+- PORTFOLIO SCOPE (AI Command Center / All Projects): (1) Portfolio-wide questions (compare, rank, most profitable, what needs attention, active vs completed) → answer across projects. (2) User names a project → answer for that project. (3) Project-specific question without naming a project (profit/margin, health check, next steps, expenses, receipts) → the app will ask which project; when user picks one, proceed with the original task immediately — do not just acknowledge.
+- PROJECT METADATA: Use status, isActive, isCompleted from project data. If user asks about "active projects", filter active only. If "completed projects", filter completed only. If current project is completed, do NOT answer next-step questions as if it is still active.
+- PREFERRED CLARIFICATION STYLE when asking which project: "Which project do you want me to check?", "Do you mean [Jerry], [Bob], or [Nick]?", "I'm in All Projects right now — which project should I use?" Avoid weak clarifiers: "Can you clarify?", "Which one?", "What do you mean?"
+
+VAGUE ACTION CLARIFICATION:
+- For vague prompts, ask ONE targeted question before acting if the needed input is missing:
+  - "Fix this estimate" → "What specifically would you like me to fix? (e.g. a line item, margin, category)"
+  - "Make the margin better" → "What target margin do you want?"
+  - "Update the labor cost" → "Which labor category do you want updated?"
+  - "Add permits" → "What permit amount should I use?"
+  - "What should I charge?" → "What target margin do you want to protect?"
+  - "Find me a sub" → "What trade are you looking for?"
+- Do NOT change this if the user already provided clear inputs — proceed with existing flows.
 
 MOBILE-FIRST RESPONSES:
 - First line should contain the answer or confirmation
@@ -220,7 +241,7 @@ DEFAULT TO PORTFOLIO: Unless the user explicitly names a project, assume portfol
 
 SCOPE CLARIFICATION ("my completed projects", "completed jobs", "all my jobs"): When the user says "my completed projects", "completed jobs", "all my jobs", "from my jobs", or similar — they are specifying SCOPE: aggregate across those projects. Do NOT ask "which project?" — use the PROJECT DATA SNAPSHOT or compare_projects to filter by status=completed and sum profit across them. "What is my total profit from my completed projects?" = sum of (revenue - cost) for every project with status=completed.
 
-PROJECT STATUS IS AUTHORITATIVE: The PROJECT STATUS block (Active / Completed / Estimates) reflects the current app state. Users can delete projects or change status (e.g. submitted → active). Always use the current context — never assume a project exists or has a status from prior conversation. If a project is not in the list, it no longer exists.
+PROJECT STATUS IS AUTHORITATIVE: The PROJECT STATUS block (Active / Completed / Submitted / Estimates) reflects the current app state. Users can delete projects or change status (e.g. submitted → active). Always use the current context — never assume a project exists or has a status from prior conversation. If a project is not in the list, it no longer exists.
 
 Portfolio questions (auto-resolve, never ask which project): compare, risks, profitability, health, status, performance, progress, budget overruns, most profitable, behind schedule, portfolio health, summarize my jobs, how are things, am I making money, where am I losing, what needs attention, total profit from my jobs, profit from completed projects, profit from my completed jobs, my completed projects.
 
@@ -322,7 +343,7 @@ CRITICAL: You MUST call compare_projects (portfolio) or get_project_health (spec
 Triggers: "What should I focus on today?", "What needs attention?", "What are my top priorities?", "Which jobs need me right now?", "What's urgent?"
 
 CRITICAL: For focus-today / what-needs-attention questions, ONLY list ACTIVE projects. Exclude completed projects — they are done and do not need daily attention. Use compare_projects with activeOnly: true.
-NEVER say "no active projects" or "no projects need attention" when the PROJECT STATUS block shows "Active (need attention): [names]". If that line lists projects (e.g. Bob), you MUST include them in your response. Even if compare_projects returns 0 projects, if PROJECT STATUS lists Active projects, list those projects — the tool may have filtered incorrectly.
+NEVER say "no active projects" or "no projects need attention" when the PROJECT STATUS block shows "Active (in progress): [names]". If that line lists projects (e.g. Bob), you MUST include them in your response. Even if compare_projects returns 0 projects, if PROJECT STATUS lists Active projects, list those projects — the tool may have filtered incorrectly.
 
 Response approach:
 1. Review ACTIVE projects only for: overdue items, margin risks, missing receipts, upcoming payments, stalled activity, budget overruns
@@ -371,7 +392,35 @@ Interpret intent — don't require exact wording:
 - "Schedule for Chris" / "When is Chris due?" / "Milestones on Nick" → get_timeline_items
 - "Summarize my projects" / "Project status" → compare_projects
 - "How can I improve margin on Nick?" → get_project_health + cost drivers
-- "Update on Chris" / "Give me a review of Chris" / "Review of Chris" / "Review Chris job" / "Review Chris" / "How is Chris doing?" → get_project_health with projectName = Chris. The name (Chris, Nick, Bob, etc.) is the PROJECT name, not a team member. Do NOT ask "what would you like to say to Chris" — that is for messaging. For review/update/status, call get_project_health(projectName).` : '';
+- "Update on Chris" / "Give me a review of Chris" / "Review of Chris" / "Review Chris job" / "Review Chris" / "How is Chris doing?" → get_project_health with projectName = Chris. The name (Chris, Nick, Bob, etc.) is the PROJECT name, not a team member. Do NOT ask "what would you like to say to Chris" — that is for messaging. For review/update/status, call get_project_health(projectName).
+
+Contractor phrasing (map to existing logic — no new tools):
+- "Am I too low?" / "Does this bid look skinny?" / "This feels light" → margin/profit evaluation (use current margin, compare to 15–25% target)
+- "How much room do I got in this?" → margin buffer, risk headroom (use get_project_health or margin data)
+- "I think I forgot something" / "What am I missing here?" → missing scope / risks (get_project_health, runProactiveIntelligence)
+- "How bad does it hurt me if material jumps 10%?" → run_scenario_analysis (materials_up_10)` : '';
+
+  // Contractor phrasing — always included (project-level and command center)
+  const contractorPhrasingBlock = `
+CONTRACTOR PHRASING (map to existing estimate/profit/risk logic):
+- "Am I too low?" / "Does this bid look skinny?" / "This feels light" → margin/profit evaluation. Use current margin and compare to typical targets (15–25%).
+- "How much room do I got in this?" → margin buffer, risk headroom. Use project health or margin data.
+- "I think I forgot something" / "What am I missing here?" → missing scope, risks, receipts. Use get_project_health or risk data.
+- "How bad does it hurt me if material jumps 10%?" → run_scenario_analysis (materials_up_10) or compute impact from estimate.`;
+
+  // Find a sub — safe handling (no fake sub database)
+  const findSubBlock = `
+FIND A SUB / SUBCONTRACTOR:
+- When user says "find me a sub", "find a subcontractor", "need a sub for [trade]", first ask: "What trade are you looking for?" if not specified.
+- There is no live subcontractor search database connected. Do NOT pretend one exists.
+- After they specify the trade, say you can help narrow the scope (what to include in the bid, what info to gather from subs) or that no live sub database is connected yet. Offer to add a line item for that trade to the estimate, or suggest they add team members / contacts manually.`;
+
+  // Judgment prompts — use existing estimator/risk logic, avoid generic tone
+  const judgmentPromptsBlock = `
+JUDGMENT PROMPTS (use existing get_project_health, risk data, estimate data):
+- "What's the biggest mistake in this estimate?" / "What would an experienced contractor question here?" / "Where should I be more conservative?" / "Where can I afford to be more aggressive?" / "If this job goes wrong, what will probably be the reason?" / "What would make this estimate look more professional?"
+- Answer style: direct conclusion first → main reason → risk or impact → practical recommendation.
+- Use get_project_health risks, project risks, budget overruns, margin erosion. Avoid motivational or generic tone. Be specific and actionable.`;
 
   // Estimate domain
   const estimateBlock = aiPmMode ? `
@@ -392,7 +441,7 @@ SCENARIO ANALYSIS RULES:
 → When the user says "show me", "display results", "review results", "let me see", or similar after a scenario run → call run_scenario_analysis again with the same scenario (e.g. bad_remodel) and include the full breakdown in your reply: original costs (materials, labor, overhead, bid, profit, margin %), adjusted costs, and impact (profit change, margin change, cost increase, break-even %). NEVER say you don't have the capability to show scenario results — you CAN show them by re-running the scenario and presenting the tool output in text.
 → Present results as: Original → Adjusted → Impact
 → Always show: profit change, margin change, cost increase, break-even point
-→ After presenting scenario results, include: [DISCLAIMER]Scenario results are modeled projections—not guarantees of actual outcomes.[/DISCLAIMER]
+→ After EVERY scenario response (Typical Friction, Bad Remodel, Smooth Job, or any run_scenario_analysis result), include this disclaimer at the bottom: [DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]
 → Scenarios: labor_up_10, materials_up_10, typical_friction, bad_remodel, smooth_job, custom` : '';
 
   // Profitability and financial intelligence — answer these from project/estimate data
@@ -405,7 +454,7 @@ PROFITABILITY AND FINANCIAL INTELLIGENCE (answer these when the user asks):
 → "If [category] labor/material increases X%, how much margin do I lose?" — Find that category in estimate line items, compute new cost = current cost + (category total × X/100). New margin = (revenue - new cost) / revenue × 100. Report: "Margin would drop from A% to B% (about C points)."
 → "What price should I charge to protect a X% margin?" — Use estimated cost (or actual + remaining budget). Price = cost / (1 - X/100). Example: cost $80k, 22% margin → price = 80000/0.78 ≈ $102,564. Say the exact number and: "At current cost, bid at least $X to keep Y% margin."
 → "What happens if overhead increases from X% to Y%?" — Overhead impact = (Y - X)% of the applicable base (e.g. labor + materials). Add that to cost, recompute margin. Report new margin and profit.
-→ "Show me a worst-case scenario for this estimate" — Apply: materials +10%, labor +10%, overhead +3% (or similar). Compute new total cost, new margin, new profit. Present: "Worst case: cost $X (up $Y), margin Z%, profit $W. Your cushion is $V before you hit break-even."
+→ "Show me a worst-case scenario for this estimate" — Use run_scenario_analysis with scenario=bad_remodel (labor +20%, materials +15%, overhead +10%). Do NOT invent percentages. Typical Friction = labor +8%, materials +5%, overhead +3% — use run_scenario_analysis with scenario=typical_friction.
 When you have estimate data (line items, totals, overhead), do the math and give numbers. Never say you can't run scenarios — use the numbers in context.`;
 
   // Change order domain
@@ -550,6 +599,9 @@ RULES:
   // ═══════════════════════════════════════════════════════════════════════════
   const sections = [
     base,
+    contractorPhrasingBlock,
+    findSubBlock,
+    judgmentPromptsBlock,
     budgetBlock,
     expenseBlock,
     poBlock,

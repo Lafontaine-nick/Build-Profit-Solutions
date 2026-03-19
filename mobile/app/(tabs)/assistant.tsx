@@ -105,11 +105,16 @@ export default function AssistantScreen() {
         progressByProjectId[titleSlug] ??
         compareItem?.progress ??
         (p.progress ?? p.overallProgressPct ?? p.projectData?.progress ?? 0);
+      const st = (p.status || '').toLowerCase();
+      const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);
+      const isCompleted = st === 'completed';
       return {
       id: p.id,
       title: p.title,
       customerName: p.client || p.title,
       status: p.status,
+      isActive,
+      isCompleted,
       bidPrice,
       contractValue: contractValue > 0 ? contractValue : bidPrice,
       estimatedCost: p.estimatedCost || 0,
@@ -132,21 +137,29 @@ export default function AssistantScreen() {
     };
     });
     
-    // If there's only one project, or if there's a "won" or "active" project, use it as current
-    let currentProject = null;
+    // If there's only one project, or exactly one active project, use it as current.
+    // When 2+ active projects exist, do NOT pre-fill projectId — let the AI ask "which project?"
+    let currentProject: any = null;
+    const activeOnly = allProjectsList.filter((p: any) =>
+      ['won', 'active', 'in_progress', 'in-progress'].includes((p.status || '').toLowerCase())
+    );
     if (allProjectsList.length === 1) {
       currentProject = allProjectsList[0];
+    } else if (activeOnly.length === 1) {
+      currentProject = activeOnly[0];
+    } else if (activeOnly.length >= 2) {
+      // Multiple active projects — do NOT pre-fill; user must pick
+      currentProject = null;
     } else {
-      // Prefer active/won projects, then estimates
-      currentProject = allProjectsList.find(p => 
-        ['won', 'active', 'in_progress', 'in-progress'].includes((p.status || '').toLowerCase())
-      ) || allProjectsList.find(p => 
+      // No active projects: prefer estimates
+      currentProject = allProjectsList.find((p: any) =>
         ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((p.status || '').toLowerCase())
       ) || allProjectsList[0];
     }
     
     const contextObj: any = {
       screen: "AI Assistant Tab",
+      aiScope: "portfolio",
       allProjects: mappedProjects,
     };
     if (compareProjectsData.length > 0) {

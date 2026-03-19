@@ -63,7 +63,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
   
   // Action keywords that need project but are NOT analysis requests
   const actionKeywords = [
-    'add', 'create', 'update', 'record', 'set', 'change', 'modify',
+    'add', 'create', 'update', 'record', 'set', 'change', 'modify', 'mark',
     'remove', 'delete', 'approve', 'reject', 'send', 'generate',
     'do it', 'do this', 'handle', 'take care of', 'apply', 'log'
   ];
@@ -93,7 +93,7 @@ export function detectProjectIntent(query: string): ProjectIntent {
     'project', 'job', 'this project', 'this job', 'current project', 'my project',
     'our project', 'our job', 'our estimate', 'my estimate', 'the project', 'the job',
     'summary', 'overview', 'progress', 'budget', 'costs', 'spending', 
-    'profit', 'margin', 'risks', 'timeline', 'schedule', 'milestones',
+    'profit', 'margin', 'risks', 'timeline', 'schedule', 'milestones', 'payment', 'payments',
     'expenses', 'purchase orders', 'change orders'
   ];
   
@@ -249,17 +249,21 @@ export function resolveProjectContext(
       };
     }
     // If no project mentioned, ask for clarification
-    // Filter active projects from recentProjects
-    const activeProjects = recentProjects.filter(p => {
+    // ACTIVE-ONLY: For generic project-specific questions, only show active projects (exclude completed).
+    // Completed projects are included only when user explicitly asks about completed/historical (handled by PORTFOLIO_COMPLETED_PROJECTS_PATTERN above) or names a project (findProjectInQuery above).
+    const isCompleted = (p: RecentProject) => (p.status || '').toLowerCase() === 'completed';
+    const isActiveProject = (p: RecentProject) => {
       const status = (p.status || '').toLowerCase();
-      return ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes(status);
-    });
+      return p.isActive === true || ['won', 'active', 'in_progress', 'in-progress', 'submitted', 'bid_submitted'].includes(status);
+    };
+    const selectableProjects = recentProjects.filter(p => !isCompleted(p) && isActiveProject(p));
     
+    // Use selectableProjects only (no fallback to all) so we never show completed in generic clarification
     return {
       needsClarification: true,
       clarificationType: 'project_selection',
-      options: getTopProjectsForClarification(recentProjects, activeProjects),
-      reason: 'No project mentioned in query - asking for clarification',
+      options: getTopProjectsForClarification(selectableProjects, selectableProjects),
+      reason: 'No project mentioned in query - asking for clarification (active projects only)',
     };
   }
   
@@ -387,10 +391,21 @@ function getTopProjectsForClarification(
     .sort((a, b) => b.sortScore - a.sortScore)
     .slice(0, 3);
   
+  // Normalize status for AI clarification chips: use user-facing labels, not pipeline labels
+  // Won/In Progress/Active -> Active; Completed -> Completed
+  const displayStatus = (s: string | undefined) => {
+    if (!s) return undefined;
+    const lower = s.toLowerCase();
+    if (lower === 'completed') return 'Completed';
+    if (['won', 'active', 'in_progress', 'in-progress'].includes(lower)) return 'Active';
+    if (['bid_submitted', 'submitted'].includes(lower)) return 'Submitted';
+    return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
+  };
+
   return sorted.map(({ sortScore, ...project }) => ({
     id: project.id,
     title: project.title,
-    status: project.status,
+    status: displayStatus(project.status) ?? project.status,
     lastOpened: project.lastOpened,
   }));
 }

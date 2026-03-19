@@ -2376,15 +2376,23 @@ const DashboardScreen: React.FC = () => {
         onClose={() => setShowAIAssistant(false)}
         context={JSON.stringify({
           screen: "Dashboard",
-          allProjects: [...activeProjects, ...estimates].map((p) => ({
-            id: p.id,
-            title: p.title,
-            customerName: (p as any).client || p.title,
-            status: p.status,
-            bidPrice: p.bidPrice || 0,
-            estimatedCost: p.estimatedCost || 0,
-            totalBudget: p.estimatedCost || p.bidPrice || 0,
-          })),
+          aiScope: "portfolio",
+          allProjects: [...activeProjects, ...estimates].map((p) => {
+            const st = ((p as any).status || '').toLowerCase();
+            const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);
+            const isCompleted = st === 'completed';
+            return {
+              id: p.id,
+              title: p.title,
+              customerName: (p as any).client || p.title,
+              status: (p as any).status,
+              isActive,
+              isCompleted,
+              bidPrice: p.bidPrice || 0,
+              estimatedCost: p.estimatedCost || 0,
+              totalBudget: p.estimatedCost || p.bidPrice || 0,
+            };
+          }),
         })}
       />
     </SafeAreaView>

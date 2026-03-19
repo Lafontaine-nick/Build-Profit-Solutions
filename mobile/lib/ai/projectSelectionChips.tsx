@@ -22,6 +22,8 @@ type ProjectSelectionChipsProps = {
   darkMode?: boolean;
   /** Compact mode: horizontal scroll, smaller chips, inline label */
   compact?: boolean;
+  /** Preferred clarification label: "Which project do you want me to check?" or "Do you mean Jerry, Bob, or Nick?" */
+  clarificationLabel?: string;
 };
 
 export default function ProjectSelectionChips({
@@ -29,7 +31,11 @@ export default function ProjectSelectionChips({
   onSelect,
   darkMode = true,
   compact = false,
+  clarificationLabel,
 }: ProjectSelectionChipsProps) {
+  const label = clarificationLabel ?? (options.length >= 2 && options.length <= 4
+    ? `Do you mean ${options.map((o) => o.title).join(', ')}?`
+    : 'Which project do you want me to check?');
   const handleSelect = (projectId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSelect(projectId);
@@ -39,7 +45,7 @@ export default function ProjectSelectionChips({
     return (
       <View style={styles.compactContainer}>
         <Text style={[styles.compactLabel, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
-          Select Project
+          {clarificationLabel ?? 'Select Project'}
         </Text>
         <ScrollView
           horizontal
@@ -77,7 +83,7 @@ export default function ProjectSelectionChips({
   return (
     <View style={styles.container}>
       <Text style={[styles.label, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
-        Which project do you mean?
+        {label}
       </Text>
       <View style={styles.chipsContainer}>
         {options.map((option, index) => (

@@ -49,7 +49,9 @@ import { useProjectList } from "@/contexts/ProjectListContext";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { getLastOpenedProjectId, setLastOpenedProjectId } from "@/lib/ai/userProjectSettings";
 import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
+import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
 import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
+import SelectionCards from "@/lib/ai/SelectionCards";
 
 function resolveAIBaseUrl(): string {
   const envBase = process.env.EXPO_PUBLIC_AI_API_URL;
@@ -388,6 +390,7 @@ type Message = {
     name: string;
   };
   analysisCard?: any;
+  selectionType?: 'payment' | 'expense_type' | 'po' | 'scenario';
 };
 
 type Props = {
@@ -495,6 +498,22 @@ const AIAssistantModal: React.FC<Props> = ({
     query: string;
     projectId: string;
   } | null>(null);
+  const [pendingPaymentSelection, setPendingPaymentSelection] = useState<{
+    options: Array<{ id: string; title: string; status?: string; amount?: number; dueDate?: string }>;
+    projectId?: string;
+    projectName?: string;
+  } | null>(null);
+  const [pendingExpenseTypeSelection, setPendingExpenseTypeSelection] = useState<{
+    options: Array<{ id: string; title: string; subtitle?: string }>;
+  } | null>(null);
+  const [pendingPOSelection, setPendingPOSelection] = useState<{
+    options: Array<{ id: string; title: string; subtitle?: string }>;
+    projectId?: string;
+    projectName?: string;
+  } | null>(null);
+  const [pendingScenarioSelection, setPendingScenarioSelection] = useState<{
+    options: Array<{ id: string; title: string; subtitle?: string }>;
+  } | null>(null);
   const [lastOpenedProjectId, setLastOpenedProjectIdState] = useState<string | null>(null);
   const [recentSummary, setRecentSummary] = useState<{ content: string; timestamp?: Date } | null>(null);
   const [recentSummaryExpanded, setRecentSummaryExpanded] = useState(false);
@@ -515,6 +534,16 @@ const AIAssistantModal: React.FC<Props> = ({
   const wasVisibleRef = useRef(false);
   /** When user picks a project from chips, we inject this so sendMessage uses it (resume original intent) */
   const pendingResolvedProjectIdRef = useRef<string | null>(null);
+  /** When user picks a payment from chips, we inject project ID and name so sendMessage bypasses project resolver and sends to backend */
+  const pendingPaymentProjectIdRef = useRef<string | null>(null);
+  const pendingPaymentProjectNameRef = useRef<string | null>(null);
+  /** When user picks a PO from chips, we inject project ID and PO number for backend */
+  const pendingPOProjectIdRef = useRef<string | null>(null);
+  const pendingPOProjectNameRef = useRef<string | null>(null);
+  /** Context overrides for selection-card resume flows (expense, PO, scenario) */
+  const pendingExpenseTypeResumeRef = useRef<{ type: string } | null>(null);
+  const pendingPOResumeRef = useRef<{ poNumber: string } | null>(null);
+  const pendingScenarioResumeRef = useRef<{ scenario: string } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -845,6 +874,7 @@ const AIAssistantModal: React.FC<Props> = ({
     if (!visible) {
       greetingShownRef.current = false;
       setTodayBriefData(null);
+      setPendingPaymentSelection(null);
     }
   }, [visible]);
 
@@ -1651,6 +1681,67 @@ const AIAssistantModal: React.FC<Props> = ({
     }, 100);
   };
 
+  // Handler for payment selection from chips (mark payment as completed flow)
+  const handlePaymentSelection = async (paymentId: string, paymentTitle: string) => {
+    if (!pendingPaymentSelection) return;
+    const projectId = pendingPaymentSelection.projectId;
+    const projectName = pendingPaymentSelection.projectName;
+    setPendingPaymentSelection(null);
+    if (projectId) {
+      pendingPaymentProjectIdRef.current = projectId;
+      pendingPaymentProjectNameRef.current = projectName || null;
+      await setLastOpenedProjectId(projectId);
+      setLastOpenedProjectIdState(projectId);
+    }
+    setInput(paymentTitle);
+    setTimeout(() => {
+      sendMessage(paymentTitle);
+    }, 100);
+  };
+
+  // Handler for expense type selection from chips
+  const handleExpenseTypeSelection = async (id: string) => {
+    if (!pendingExpenseTypeSelection) return;
+    setPendingExpenseTypeSelection(null);
+    pendingExpenseTypeResumeRef.current = { type: id };
+    const msg = id === 'labor' ? 'labor' : id === 'materials' ? 'materials' : id;
+    setInput(msg);
+    setTimeout(() => {
+      sendMessage(msg);
+    }, 100);
+  };
+
+  // Handler for PO selection from chips
+  const handlePOSelection = async (id: string, option: { title: string }) => {
+    if (!pendingPOSelection) return;
+    const projectId = pendingPOSelection.projectId;
+    const projectName = pendingPOSelection.projectName;
+    setPendingPOSelection(null);
+    if (projectId) {
+      pendingPOProjectIdRef.current = projectId;
+      pendingPOProjectNameRef.current = projectName || null;
+      await setLastOpenedProjectId(projectId);
+      setLastOpenedProjectIdState(projectId);
+    }
+    pendingPOResumeRef.current = { poNumber: option.title || id };
+    const poIdentifier = option.title || id;
+    setInput(poIdentifier);
+    setTimeout(() => {
+      sendMessage(poIdentifier);
+    }, 100);
+  };
+
+  // Handler for scenario selection from chips
+  const handleScenarioSelection = async (id: string) => {
+    if (!pendingScenarioSelection) return;
+    setPendingScenarioSelection(null);
+    pendingScenarioResumeRef.current = { scenario: id };
+    setInput(id);
+    setTimeout(() => {
+      sendMessage(id);
+    }, 100);
+  };
+
   // Hash-based caching for health summaries
   const computeProjectHash = (projectData: any): string => {
     // Create a hash from key project metrics that affect health
@@ -2137,6 +2228,19 @@ const AIAssistantModal: React.FC<Props> = ({
         resolvedProjectId = pendingResolvedProjectIdRef.current;
         pendingResolvedProjectIdRef.current = null;
       }
+      // Resume from payment chips: user picked a payment — use project ID so we don't re-ask "which project?"
+      // Also set flag so we skip analysis-type flow (don't show "quick health check or full breakdown?")
+      let isPaymentSelectionResume = false;
+      if (pendingPaymentProjectIdRef.current) {
+        resolvedProjectId = pendingPaymentProjectIdRef.current;
+        pendingPaymentProjectIdRef.current = null;
+        isPaymentSelectionResume = true;
+      }
+      // Resume from PO chips: user picked a PO — use project ID
+      if (pendingPOProjectIdRef.current) {
+        resolvedProjectId = pendingPOProjectIdRef.current;
+        pendingPOProjectIdRef.current = null;
+      }
       
       // Skip project resolver for portfolio/compare-all messages — send directly to backend
       if (!isPortfolioScopeMessage && (intent.needsProject || resolvedProjectId)) {
@@ -2245,7 +2349,8 @@ const AIAssistantModal: React.FC<Props> = ({
               /\b(worst|best)\s+case\s+scenario\b/i.test(newMessage.content) ||
               /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(newMessage.content) ||
               /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(newMessage.content);
-            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: Skip analysis-type flow when resuming from payment card tap — bind to mark_payment_completed, not health check
+            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -2269,11 +2374,64 @@ const AIAssistantModal: React.FC<Props> = ({
             if (intent.analysisType !== 'unspecified') {
               contextObj.requestedAnalysisType = intent.analysisType;
             }
+            // CRITICAL: When resuming from payment card tap, hint backend to bind to mark_payment_completed (not health check)
+            if (isPaymentSelectionResume) {
+              contextObj.paymentSelectionResume = true;
+              contextObj.selectedPaymentName = newMessage.content;
+              if (pendingPaymentProjectNameRef.current) {
+                contextObj.paymentSelectionProjectName = pendingPaymentProjectNameRef.current;
+                pendingPaymentProjectNameRef.current = null;
+              }
+            }
+            // Resume from expense type card tap
+            if (pendingExpenseTypeResumeRef.current) {
+              contextObj.expenseTypeSelectionResume = true;
+              contextObj.selectedExpenseType = pendingExpenseTypeResumeRef.current.type;
+              pendingExpenseTypeResumeRef.current = null;
+            }
+            // Resume from PO card tap
+            if (pendingPOResumeRef.current) {
+              contextObj.poSelectionResume = true;
+              contextObj.selectedPONumber = pendingPOResumeRef.current.poNumber;
+              pendingPOResumeRef.current = null;
+            }
+            // Resume from scenario card tap
+            if (pendingScenarioResumeRef.current) {
+              contextObj.scenarioSelectionResume = true;
+              contextObj.selectedScenario = pendingScenarioResumeRef.current.scenario;
+              pendingScenarioResumeRef.current = null;
+            }
             finalContext = JSON.stringify(contextObj);
           }
         } catch (e) {
           console.error('Error resolving project context:', e);
           // Continue with original context if resolver fails
+        }
+      }
+
+      // Always inject selection-card resume context when user tapped a card (expense/PO/scenario)
+      // This ensures backend receives hints even when we skipped project resolver (e.g. expense from project detail)
+      if (pendingExpenseTypeResumeRef.current || pendingPOResumeRef.current || pendingScenarioResumeRef.current) {
+        try {
+          const ctx = JSON.parse(finalContext || '{}');
+          if (pendingExpenseTypeResumeRef.current) {
+            ctx.expenseTypeSelectionResume = true;
+            ctx.selectedExpenseType = pendingExpenseTypeResumeRef.current.type;
+            pendingExpenseTypeResumeRef.current = null;
+          }
+          if (pendingPOResumeRef.current) {
+            ctx.poSelectionResume = true;
+            ctx.selectedPONumber = pendingPOResumeRef.current.poNumber;
+            pendingPOResumeRef.current = null;
+          }
+          if (pendingScenarioResumeRef.current) {
+            ctx.scenarioSelectionResume = true;
+            ctx.selectedScenario = pendingScenarioResumeRef.current.scenario;
+            pendingScenarioResumeRef.current = null;
+          }
+          finalContext = JSON.stringify(ctx);
+        } catch (_e) {
+          // Ignore
         }
       }
 
@@ -2535,14 +2693,49 @@ const AIAssistantModal: React.FC<Props> = ({
       // Check if the response mentions a contract PDF or if there's a show_contract action
       const hasContractAction = data.actions?.some((a: any) => a.type === 'show_contract');
       
+      const hasPaymentSelectionOptions = Array.isArray(data.paymentSelectionOptions) && data.paymentSelectionOptions.length > 0;
+      const hasExpenseTypeSelectionOptions = Array.isArray(data.expenseTypeSelectionOptions) && data.expenseTypeSelectionOptions.length > 0;
+      const hasPOSelectionOptions = Array.isArray(data.poSelectionOptions) && data.poSelectionOptions.length > 0;
+      const hasScenarioSelectionOptions = Array.isArray(data.scenarioSelectionOptions) && data.scenarioSelectionOptions.length > 0;
+      const hasSelectionCards = hasPaymentSelectionOptions || hasExpenseTypeSelectionOptions || hasPOSelectionOptions || hasScenarioSelectionOptions;
+      const selectionType = hasPaymentSelectionOptions ? 'payment' : hasExpenseTypeSelectionOptions ? 'expense_type' : hasPOSelectionOptions ? 'po' : hasScenarioSelectionOptions ? 'scenario' : null;
       const assistantMessage: Message = {
-        id: Date.now().toString() + "-ai",
+        id: hasSelectionCards ? Date.now().toString() + "-ai-selection-clarification" : Date.now().toString() + "-ai",
         role: "assistant",
         content: data.reply ?? "Sorry, I couldn't generate a response.",
         timestamp: new Date(),
         // Attach server-computed analysis card if present
         ...(data.analysisCard ? { analysisCard: data.analysisCard } : {}),
+        ...(selectionType ? { selectionType } : {}),
       };
+      if (hasPaymentSelectionOptions) {
+        setPendingPaymentSelection({
+          options: data.paymentSelectionOptions,
+          projectId: data.paymentSelectionProjectId,
+          projectName: data.paymentSelectionProjectName,
+        });
+      } else {
+        setPendingPaymentSelection(null);
+      }
+      if (hasExpenseTypeSelectionOptions) {
+        setPendingExpenseTypeSelection({ options: data.expenseTypeSelectionOptions });
+      } else {
+        setPendingExpenseTypeSelection(null);
+      }
+      if (hasPOSelectionOptions) {
+        setPendingPOSelection({
+          options: data.poSelectionOptions,
+          projectId: data.poSelectionProjectId,
+          projectName: data.poSelectionProjectName,
+        });
+      } else {
+        setPendingPOSelection(null);
+      }
+      if (hasScenarioSelectionOptions) {
+        setPendingScenarioSelection({ options: data.scenarioSelectionOptions });
+      } else {
+        setPendingScenarioSelection(null);
+      }
       
       // Debug: Log if analysisCard was received
       if (data.analysisCard) {
@@ -3157,9 +3350,14 @@ const AIAssistantModal: React.FC<Props> = ({
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === "user";
     
-    // Check if this message needs chips
-    const showProjectChips = !isUser && item.id.includes('clarification') && pendingProjectSelection;
+    // Check if this message needs chips (match by selectionType for new flows, id for legacy payment)
+    const msgSelectionType = (item as any).selectionType;
+    const showProjectChips = !isUser && item.id.includes('clarification') && !item.id.includes('payment') && !item.id.includes('selection') && pendingProjectSelection;
     const showAnalysisChips = !isUser && item.id.includes('analysis-type') && pendingAnalysisType;
+    const showPaymentChips = !isUser && pendingPaymentSelection && (msgSelectionType === 'payment' || item.id.includes('payment-clarification'));
+    const showExpenseTypeChips = !isUser && pendingExpenseTypeSelection && msgSelectionType === 'expense_type';
+    const showPOChips = !isUser && pendingPOSelection && msgSelectionType === 'po';
+    const showScenarioChips = !isUser && pendingScenarioSelection && msgSelectionType === 'scenario';
     
     return (
       <View
@@ -3294,6 +3492,50 @@ const AIAssistantModal: React.FC<Props> = ({
                 <AnalysisTypeChips
                   darkMode={darkMode}
                   onSelect={handleAnalysisTypeSelection}
+                />
+              </View>
+            )}
+            {showPaymentChips && pendingPaymentSelection && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <PaymentSelectionChips
+                  options={pendingPaymentSelection.options}
+                  darkMode={darkMode}
+                  clarificationLabel={pendingPaymentSelection.projectName
+                    ? `Which payment should I mark as completed for ${pendingPaymentSelection.projectName}?`
+                    : undefined}
+                  onSelect={handlePaymentSelection}
+                />
+              </View>
+            )}
+            {showExpenseTypeChips && pendingExpenseTypeSelection && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <SelectionCards
+                  options={pendingExpenseTypeSelection.options}
+                  label="What type of expense are you logging?"
+                  darkMode={darkMode}
+                  onSelect={handleExpenseTypeSelection}
+                />
+              </View>
+            )}
+            {showPOChips && pendingPOSelection && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <SelectionCards
+                  options={pendingPOSelection.options}
+                  label={pendingPOSelection.projectName
+                    ? `Which purchase order should I mark as received for ${pendingPOSelection.projectName}?`
+                    : 'Which purchase order should I mark as received?'}
+                  darkMode={darkMode}
+                  onSelect={handlePOSelection}
+                />
+              </View>
+            )}
+            {showScenarioChips && pendingScenarioSelection && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <SelectionCards
+                  options={pendingScenarioSelection.options}
+                  label="Which scenario would you like to run?"
+                  darkMode={darkMode}
+                  onSelect={handleScenarioSelection}
                 />
               </View>
             )}
