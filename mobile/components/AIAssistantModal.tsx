@@ -513,6 +513,8 @@ const AIAssistantModal: React.FC<Props> = ({
   const hasAutoExpandedProjectsRef = useRef(false);
   const portfolioScopeOverrideRef = useRef(false);
   const wasVisibleRef = useRef(false);
+  /** When user picks a project from chips, we inject this so sendMessage uses it (resume original intent) */
+  const pendingResolvedProjectIdRef = useRef<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1566,6 +1568,8 @@ const AIAssistantModal: React.FC<Props> = ({
     
     const query = pendingProjectSelection.query;
     setPendingProjectSelection(null);
+    // Resume original intent: inject resolved project so sendMessage uses it (avoids re-asking "which project?")
+    pendingResolvedProjectIdRef.current = projectId;
     
     // Check if we need to ask about analysis type
     const intent = detectProjectIntent(query);
@@ -1583,7 +1587,12 @@ const AIAssistantModal: React.FC<Props> = ({
     // Skip analysis-type chip for "making enough" / margin questions — backend returns deterministic margin answer
     const isMakingEnoughOrMarginQuery = /\bmaking\s+enough\b/i.test(query) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(query) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(query)) ||
       /\b(what is my|what'?s my)\s+(profit\s+)?margin\b/i.test(query);
-    if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+    // Skip for scenario requests (worst case, what if, profit scenarios, etc.) — backend runs scenario analysis
+    const isScenarioQuery = /\b(worst\s*[- ]?case|best\s*[- ]?case|what\s*if|run\s+scenario|scenario\s+analysis)\b/i.test(query) ||
+      /\b(typical\s*friction|bad\s*remodel|smooth\s*job)\b/i.test(query) ||
+      /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(query) ||
+      /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(query);
+    if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && !isScenarioQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
         projectId,
@@ -1599,11 +1608,10 @@ const AIAssistantModal: React.FC<Props> = ({
       return;
     }
     
-    // Send the query with resolved project
+    // Send the query with resolved project — pass query explicitly so we don't rely on setState
     setInput(query);
-    // Small delay to ensure input is set, then trigger send
     setTimeout(() => {
-      sendMessage();
+      sendMessage(query);
     }, 100);
   };
 
@@ -1636,11 +1644,10 @@ const AIAssistantModal: React.FC<Props> = ({
       modifiedQuery = `${query} (full breakdown)`;
     }
     
-    // Send the modified query
+    // Send the modified query — pass explicitly so we don't rely on setState
     setInput(modifiedQuery);
-    // Small delay to ensure input is set, then trigger send
     setTimeout(() => {
-      sendMessage();
+      sendMessage(modifiedQuery);
     }, 100);
   };
 
@@ -2125,19 +2132,25 @@ const AIAssistantModal: React.FC<Props> = ({
         // This is the analysis type selection, use the pending project ID
         resolvedProjectId = pendingAnalysisType.projectId;
       }
+      // Resume from project chips: user picked a project — use it and proceed with original query
+      if (pendingResolvedProjectIdRef.current) {
+        resolvedProjectId = pendingResolvedProjectIdRef.current;
+        pendingResolvedProjectIdRef.current = null;
+      }
       
       // Skip project resolver for portfolio/compare-all messages — send directly to backend
       if (!isPortfolioScopeMessage && (intent.needsProject || resolvedProjectId)) {
         try {
-          const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => ({
-            id: p.id,
-            title: p.title || p.name || 'Untitled Project',
-            status: p.status || 'unknown',
-            lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-            isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
-              ((p.status || '') as string).toLowerCase()
-            ),
-          }));
+          const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
+            const status = ((p.status || '') as string).toLowerCase();
+            return {
+              id: p.id,
+              title: p.title || p.name || 'Untitled Project',
+              status: p.status || 'unknown',
+              lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
+              isActive: ['active', 'won', 'in_progress', 'in-progress', 'submitted', 'bid_submitted'].includes(status),
+            };
+          });
 
           // Projects screen behavior: use selected project as strong hint unless user explicitly names another project
           const explicitlyMentionedProject = recentProjects.find((p) => {
@@ -2169,16 +2182,23 @@ const AIAssistantModal: React.FC<Props> = ({
             const projectContext = resolveProjectContext(newMessage.content, uiState, recentProjects);
             
             if (projectContext.needsClarification && projectContext.clarificationType === 'project_selection') {
+              const opts = projectContext.options || [];
+              const optsCount = opts.length;
+              const clarificationContent = optsCount >= 2 && optsCount <= 4
+                ? `I'm in All Projects right now — which active project should I use? (${opts.map((o) => o.title).join(', ')})`
+                : optsCount > 0
+                  ? 'Which active project do you want me to check?'
+                  : 'Which project do you want me to check?';
               // Show project selection chips
               setPendingProjectSelection({
                 query: newMessage.content,
-                options: projectContext.options || [],
+                options: opts,
               });
               // Add a clarification message to the chat
               const clarificationMsg: Message = {
                 id: Date.now().toString() + '-clarification',
                 role: 'assistant',
-                content: 'Which project do you mean?',
+                content: clarificationContent,
                 timestamp: new Date(),
               };
               setMessages((prev) => [...prev, clarificationMsg]);
@@ -2219,7 +2239,13 @@ const AIAssistantModal: React.FC<Props> = ({
             const isMakingEnoughOrMargin = /\bmaking\s+enough\b/i.test(newMessage.content) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(newMessage.content) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(newMessage.content)) ||
               /\b(what is my|what'?s my|what is the)\s+(profit\s+)?margin\b/i.test(newMessage.content) ||
               /\bam i making\s+enough\b/i.test(newMessage.content);
-            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: Scenario requests (worst case, what if, profit scenarios, etc.) → send to backend for scenario analysis; do NOT show "quick health check or full breakdown?"
+            const isScenarioRequest = /\b(worst\s*[- ]?case|best\s*[- ]?case|what\s*if|run\s+scenario|scenario\s+analysis)\b/i.test(newMessage.content) ||
+              /\b(typical\s*friction|bad\s*remodel|smooth\s*job)\b/i.test(newMessage.content) ||
+              /\b(worst|best)\s+case\s+scenario\b/i.test(newMessage.content) ||
+              /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(newMessage.content) ||
+              /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(newMessage.content);
+            if (!isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -2256,7 +2282,7 @@ const AIAssistantModal: React.FC<Props> = ({
       try {
         const ctxObj: any = JSON.parse(finalContext || "{}");
         const targetProjectId =
-          resolvedProjectId || ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || null;
+          resolvedProjectId || ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || ctxObj?.lastOpenedProjectId || null;
         if (targetProjectId) {
           const storageRaw = await AsyncStorage.getItem(`bps.project.${targetProjectId}`);
           const timelineRaw = await AsyncStorage.getItem(`bps.timeline.v2.${targetProjectId}`);
@@ -3133,7 +3159,7 @@ const AIAssistantModal: React.FC<Props> = ({
     
     // Check if this message needs chips
     const showProjectChips = !isUser && item.id.includes('clarification') && pendingProjectSelection;
-    const showAnalysisChips = !isUser && pendingAnalysisType;
+    const showAnalysisChips = !isUser && item.id.includes('analysis-type') && pendingAnalysisType;
     
     return (
       <View
@@ -3253,6 +3279,23 @@ const AIAssistantModal: React.FC<Props> = ({
               <Text style={[styles.messageTimestamp, styles.assistantTimestamp]}>
                 {formatTimestamp(item.timestamp)}
               </Text>
+            )}
+            {showProjectChips && pendingProjectSelection && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <ProjectSelectionChips
+                  options={pendingProjectSelection.options}
+                  darkMode={darkMode}
+                  onSelect={handleProjectSelection}
+                />
+              </View>
+            )}
+            {showAnalysisChips && pendingAnalysisType && (
+              <View style={{ marginTop: 8, marginLeft: 4 }}>
+                <AnalysisTypeChips
+                  darkMode={darkMode}
+                  onSelect={handleAnalysisTypeSelection}
+                />
+              </View>
             )}
           </View>
         )}

@@ -292,6 +292,131 @@ async function runRouter(message, history, ctxSummary) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MARGIN REPLY — structured format for margin/profit answers
+// ─────────────────────────────────────────────────────────────────────────────
+function formatMarginReply(opts = {}) {
+  const { spendToDatePct, projectedPct, originalEstPct, projectedProfit, followUp = '➡️ Want me to check your PO commitments or anything else?' } = opts;
+  const lines = ['### Margin Summary\n'];
+  if (spendToDatePct != null) lines.push(`**Spend-to-date:** ${Number(spendToDatePct).toFixed(1)}%`);
+  if (projectedPct != null) lines.push(`**Projected at completion:** ${typeof projectedPct === 'string' ? projectedPct : Number(projectedPct).toFixed(1) + '%'}`);
+  if (originalEstPct != null) lines.push(`**Original estimate:** ${typeof originalEstPct === 'string' ? originalEstPct : Number(originalEstPct).toFixed(1) + '%'}`);
+  const profitStr = projectedProfit != null
+    ? (typeof projectedProfit === 'string' ? projectedProfit : `$${Math.round(projectedProfit).toLocaleString()}`)
+    : '—';
+  lines.push(`**Projected profit:** ${profitStr}`);
+  lines.push('');
+  lines.push(followUp);
+  return lines.join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCENARIO "YES" = ALL PRESETS — run inline when user says Yes after scenario question
+// Returns formatted message or null if no project context
+// ─────────────────────────────────────────────────────────────────────────────
+function formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline) {
+  const profitStr = `${profitChange >= 0 ? '+' : ''}$${Math.round(profitChange).toLocaleString()}`;
+  const marginStr = `${Math.round(newMarginPct * 10) / 10}%`;
+  const wasStr = `${Math.round(originalMarginPct * 10) / 10}%`;
+  const profitEmoji = profitChange >= 0 ? '📈' : '📉';
+  let subLabel;
+  if (adj.weeks) {
+    subLabel = `${adj.weeks} extra week${adj.weeks > 1 ? 's' : ''} (labor + materials + overhead)`;
+  } else if (adj.labor || adj.materials || adj.overhead) {
+    subLabel = `Labor ${adj.labor >= 0 ? '+' : ''}${adj.labor}% · Mat ${adj.materials >= 0 ? '+' : ''}${adj.materials}%${adj.overhead ? ` · OH ${adj.overhead >= 0 ? '+' : ''}${adj.overhead}%` : ''}`;
+  } else {
+    subLabel = adj.label;
+  }
+  const forecastNote = useProjectBaseline ? ' (project forecast)' : '';
+  return `**${adj.label}**\n${subLabel}\n${profitEmoji} Profit **${profitStr}** · Margin **${marginStr}** (was ${wasStr})${forecastNote}`;
+}
+
+function runScenarioAllPresetsInline(ctx = {}) {
+  const currentProject = ctx.currentProject || ctx;
+  const estimateData = currentProject.estimateData || currentProject.estimate || {};
+  const revenue = Number(ctx.contractValue || ctx.bidTotal || ctx.total || estimateData.totalBid || currentProject.bidPrice || 0);
+  const forecastCost = Number(ctx.forecastFinalCost || currentProject.forecastFinalCost || 0);
+  const projectedMarginPct = typeof ctx.projectedMarginPct === 'number' && Number.isFinite(ctx.projectedMarginPct) ? ctx.projectedMarginPct : (currentProject.projectedMarginPct);
+  const hasProjectBaseline = revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
+  const baseCostFromProject = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projectedMarginPct === 'number') ? revenue * (1 - projectedMarginPct / 100) : 0;
+  if (!hasProjectBaseline && revenue <= 0) return null;
+  let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct;
+  let useProjectBaseline = false;
+  if (hasProjectBaseline && baseCostFromProject > 0) {
+    useProjectBaseline = true;
+    baseCost = baseCostFromProject;
+    originalBid = revenue;
+    originalProfit = revenue - baseCost;
+    originalMarginPct = revenue > 0 ? (originalProfit / revenue * 100) : 0;
+    materialCost = laborCost = overheadCost = markupPct = 0;
+  } else {
+    materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+    laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
+    overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
+    baseCost = materialCost + laborCost + overheadCost;
+    markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+    const markup = baseCost * (markupPct / 100);
+    originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
+    originalProfit = originalBid - baseCost;
+    originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+  }
+  const scenarioMap = {
+    typical_friction: { labor: 8, materials: 5, overhead: 3, bid: 0, costPct: 5.33, label: 'Typical Friction' },
+    bad_remodel: { labor: 20, materials: 15, overhead: 10, bid: 0, costPct: 15, label: 'Bad Remodel' },
+    smooth_job: { labor: -5, materials: -3, overhead: 0, bid: 0, costPct: -4, label: 'Smooth Job' },
+    job_runs_long: { weeks: 2, label: 'Job Runs Long (2 weeks)' },
+    job_runs_long_4: { weeks: 4, label: 'Job Runs Long (4 weeks)' },
+    job_runs_long_6: { weeks: 6, label: 'Job Runs Long (6 weeks)' },
+  };
+  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+  const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
+  const parts = ['### Scenario Analysis\n', `Baseline: **${Math.round(originalMarginPct * 10) / 10}%** margin\n`];
+  const laborBudget = laborCost || Number(estimateData.laborTotal || currentProject.laborTotal || 0);
+  const materialBudget = materialCost || Number(estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+  const overheadBudget = overheadCost || Number(estimateData.overheadTotal || currentProject.overheadTotal || 0);
+  const startISO = ctx.startDate || ctx.startISO || currentProject.startDate || currentProject.startISO;
+  const endISO = ctx.endDate || ctx.endISO || currentProject.endDate || currentProject.endISO;
+  let estimatedWeeks = 12;
+  if (startISO && endISO) {
+    const start = new Date(String(startISO));
+    const end = new Date(String(endISO));
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start) {
+      estimatedWeeks = Math.max(4, Math.round((end - start) / (7 * 24 * 60 * 60 * 1000)));
+    }
+  }
+  for (const preset of presets) {
+    const adj = scenarioMap[preset];
+    let newBaseCost, newBid, newProfit, newMarginPct;
+    if (adj.weeks) {
+      const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+      const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
+      const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+      const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
+      const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
+      newBaseCost = baseCost + addedDelayCost;
+      newBid = originalBid;
+      newProfit = newBid - newBaseCost;
+      newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+    } else if (useProjectBaseline && typeof adj.costPct === 'number') {
+      newBaseCost = baseCost * (1 + adj.costPct / 100);
+      newBid = originalBid * (1 + (adj.bid || 0) / 100);
+      newProfit = newBid - newBaseCost;
+      newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+    } else {
+      const newLabor = laborCost * (1 + (adj.labor || 0) / 100);
+      const newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
+      const newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
+      newBaseCost = newLabor + newMaterials + newOverhead;
+      newBid = originalBid * (1 + (adj.bid || 0) / 100);
+      newProfit = newBid - newBaseCost;
+      newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+    }
+    const profitChange = newProfit - originalProfit;
+    parts.push(formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline));
+  }
+  return parts.join('\n\n') + disclaimer;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // VALIDATION LAYER — runs before ANY write tool executes
 // Returns { valid: true } or { valid: false, reason, clarificationQuestion }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -962,21 +1087,24 @@ function buildProjectStatusBlock(parsedContext) {
 
   const isActive = (s) => ['won', 'active', 'in_progress', 'in-progress'].includes((s || '').toLowerCase());
   const isCompleted = (s) => (s || '').toLowerCase() === 'completed';
-  const isEstimate = (s) => ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((s || '').toLowerCase());
+  const isSubmitted = (s) => ['bid_submitted', 'submitted'].includes((s || '').toLowerCase());
+  const isEstimate = (s) => ['estimate', 'draft'].includes((s || '').toLowerCase());
 
   const getStatus = (p) => (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase().replace(/\s+/g, '_');
   const active = allProjects.filter((p) => isActive(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
   const completed = allProjects.filter((p) => isCompleted(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
+  const submitted = allProjects.filter((p) => isSubmitted(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
   const estimates = allProjects.filter((p) => isEstimate(getStatus(p))).map((p) => p?.title || p?.name || 'Untitled');
 
   let lines = [];
-  if (active.length > 0) lines.push(`Active (need attention): ${active.join(', ')}`);
+  if (active.length > 0) lines.push(`Active (in progress): ${active.join(', ')}`);
   if (completed.length > 0) lines.push(`Completed (done): ${completed.join(', ')}`);
-  if (estimates.length > 0) lines.push(`Estimates (not yet won): ${estimates.join(', ')}`);
+  if (submitted.length > 0) lines.push(`Submitted (bid sent, awaiting): ${submitted.join(', ')}`);
+  if (estimates.length > 0) lines.push(`Estimates (draft, not yet sent): ${estimates.join(', ')}`);
 
   if (lines.length === 0) return '';
   return `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 PROJECT STATUS (authoritative — use this for active vs completed)
+📋 PROJECT STATUS (authoritative — active, completed, submitted, estimates)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${lines.join('\n')}
 
@@ -985,7 +1113,7 @@ RULES:
 → Always use this list — never assume a project exists or has a status from prior conversation.
 → For "focus today" / "what needs attention" — only list ACTIVE projects. Exclude completed. Also include calendar/schedule: payments due, inspections, deliveries from the UPCOMING EVENTS block when present.
 → Do not reference deleted projects. If a project is not in this list, it no longer exists.
-→ CRITICAL: If "Active (need attention)" lists project names (e.g. Bob), you MUST mention them. NEVER say "no active projects" or "no projects need attention" when the Active list has names.`;
+→ CRITICAL: If "Active (in progress)" lists project names (e.g. Bob), you MUST mention them. NEVER say "no active projects" or "no projects need attention" when the Active list has names.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2564,6 +2692,28 @@ router.post('/stream', async (req, res) => {
       return;
     }
 
+    // RUN-FIRST STREAM: "Yes" after scenario choice → return all three scenarios immediately
+    const histStream = Array.isArray(history) ? history : [];
+    const lastAsstStream = String([...histStream].reverse().find((m) => m?.role === 'assistant')?.content || [...histStream].reverse().find((m) => m?.role === 'assistant')?.text || '').toLowerCase();
+    const asstAskedScenarioStream = lastAsstStream.includes('typical friction') && lastAsstStream.includes('bad remodel') && lastAsstStream.includes('smooth job');
+    const userMsgTrimStream = String(message ?? '').trim();
+    const lettersOnlyStream = userMsgTrimStream.toLowerCase().replace(/\W/g, '');
+    const isYesWordStream = ['yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure', 'please', 'all'].includes(lettersOnlyStream) ||
+      /^\s*(yes|yeah|yep|sure|ok|okay|please|all)\s*\.?\s*$/i.test(userMsgTrimStream) ||
+      /\b(all\s+of\s+them|all\s+three)\b/i.test(userMsgTrimStream);
+    if (asstAskedScenarioStream && isYesWordStream) {
+      const projStream = parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) || parsedContext;
+      const ctxStream = { ...parsedContext, currentProject: projStream };
+      const scenarioReplyStream = runScenarioAllPresetsInline(ctxStream);
+      if (scenarioReplyStream) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: scenarioReplyStream })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
     const session = sessionStream;
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     const allProjects = parsedContext.allProjects || [];
@@ -2766,16 +2916,15 @@ router.post('/stream', async (req, res) => {
         const streamSpendToDate = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
           ? parsedContext.spendToDateMarginPct
           : Math.round(((streamCtxContract - streamCtxSpent) / streamCtxContract) * 1000) / 10;
-        const streamProjPct = typeof parsedContext.projectedMarginPct === 'number' ? Number(parsedContext.projectedMarginPct).toFixed(1) + '%' : null;
+        const streamProjPctNum = typeof parsedContext.projectedMarginPct === 'number' ? parsedContext.projectedMarginPct : null;
         const streamBidVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
-        const streamBidStr = typeof streamBidVal === 'number' && Number.isFinite(streamBidVal) ? Number(streamBidVal).toFixed(1) + '%' : null;
-        const streamName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
-        const streamProjProfit = typeof parsedContext.projectedProfit === 'number' ? `$${Math.round(parsedContext.projectedProfit).toLocaleString()}` : '—';
-        let streamR = `Your spend-to-date margin is ${Number(streamSpendToDate).toFixed(1)}%`;
-        if (streamProjPct) streamR += `, and your projected margin at completion is ${streamProjPct}`;
-        streamR += `. `;
-        if (streamBidStr) streamR += `Your original estimated margin was ${streamBidStr}. `;
-        streamR += `Projected profit: ${streamProjProfit}.\n\n➡️ Want me to check your PO commitments or anything else?`;
+        const streamProjProfitNum = typeof parsedContext.projectedProfit === 'number' ? parsedContext.projectedProfit : null;
+        const streamR = formatMarginReply({
+          spendToDatePct: streamSpendToDate,
+          projectedPct: streamProjPctNum,
+          originalEstPct: streamBidVal,
+          projectedProfit: streamProjProfitNum,
+        });
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: streamR })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -2819,8 +2968,6 @@ router.post('/stream', async (req, res) => {
             const projectedPct = (isCurrentProject && typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct))
               ? parsedContext.projectedMarginPct
               : (contract > 0 && projectedCost > 0 ? Math.round(((contract - projectedCost) / contract) * 1000) / 10 : null);
-            const projProfitStr = projectedProfit != null ? `$${projectedProfit.toLocaleString()}` : '—';
-            const name = targetStream.title || targetStream.name || 'This project';
             let bidPct = targetStream.bidMarginPct;
             if (bidPct == null && targetStream.estimateData) {
               const ed = targetStream.estimateData;
@@ -2831,14 +2978,13 @@ router.post('/stream', async (req, res) => {
               }
               if (bidPct == null) bidPct = targetStream.estimateData?.marginPct;
             }
-            const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
-            const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
-            let r = `Your spend-to-date margin is ${spendToDateStr}`;
-            if (projectedStr) r += `, and your projected margin at completion is ${projectedStr}`;
-            r += `. `;
-            if (bidPct != null) r += `Your original estimated margin was ${Number(bidPct).toFixed(1)}%. `;
-            r += `Projected profit: ${projProfitStr}.\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
-            return r;
+            return formatMarginReply({
+              spendToDatePct: spendToDatePct,
+              projectedPct: projectedPct,
+              originalEstPct: bidPct,
+              projectedProfit: projectedProfit,
+              followUp: '➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?',
+            });
           })()
         : (() => { const nameHint = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim() || 'this project'; return `I don't have ${nameHint}'s data in this view. Open the project and ask again, or ask from the project screen.`; })();
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -3095,6 +3241,25 @@ router.post('/', async (req, res) => {
       return res.json({ reply: `I don't have contract or cost numbers for **${projNameFirst}** in this view. Open the project and ask "What is my margin?" first.`, actions: [] });
     }
 
+    // ── RUN-FIRST: "Yes" after scenario choice → return all three scenarios immediately (bypass router entirely)
+    const hist = Array.isArray(history) ? history : [];
+    const lastAsst = String([...hist].reverse().find((m) => m?.role === 'assistant')?.content || [...hist].reverse().find((m) => m?.role === 'assistant')?.text || '').toLowerCase();
+    const asstAskedScenario = lastAsst.includes('typical friction') && lastAsst.includes('bad remodel') && lastAsst.includes('smooth job');
+    const userMsgTrim = String(req.body?.message ?? message ?? '').trim();
+    const lettersOnlyScenario = userMsgTrim.toLowerCase().replace(/\W/g, '');
+    const isYesWord = ['yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure', 'please', 'all'].includes(lettersOnlyScenario) ||
+      /^\s*(yes|yeah|yep|sure|ok|okay|please|all)\s*\.?\s*$/i.test(userMsgTrim) ||
+      /\b(all\s+of\s+them|all\s+three)\b/i.test(userMsgTrim);
+    if (asstAskedScenario && isYesWord) {
+      const proj = parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) || parsedContext;
+      const ctx = { ...parsedContext, currentProject: proj };
+      const scenarioReply = runScenarioAllPresetsInline(ctx);
+      if (scenarioReply) {
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST scenario "Yes": returning all three presets');
+        return res.json({ reply: scenarioReply, actions: [] });
+      }
+    }
+
     // Build system prompt based on context and settings
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     
@@ -3102,7 +3267,7 @@ router.post('/', async (req, res) => {
     const projectName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
     const selectedProjectIdHint = parsedContext.selectedProjectId || null;
     const lastOpenedProjectIdHint = parsedContext.lastOpenedProjectId || null;
-    let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId || selectedProjectIdHint;
+    let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId || selectedProjectIdHint || lastOpenedProjectIdHint;
     const allProjects = parsedContext.allProjects || [];
     
     // Reduced logging to prevent terminal glitching (was: full context dump)
@@ -3195,16 +3360,16 @@ router.post('/', async (req, res) => {
         const fpSpendToDate = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
           ? parsedContext.spendToDateMarginPct
           : Math.round(((fpContract - fpSpent) / fpContract) * 1000) / 10;
-        const fpProjPct = typeof parsedContext.projectedMarginPct === 'number' ? Number(parsedContext.projectedMarginPct).toFixed(1) + '%' : null;
         const fpBidVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
-        const fpBidStr = typeof fpBidVal === 'number' && Number.isFinite(fpBidVal) ? Number(fpBidVal).toFixed(1) + '%' : null;
         const fpName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
-        const fpProjProfit = typeof parsedContext.projectedProfit === 'number' ? `$${Math.round(parsedContext.projectedProfit).toLocaleString()}` : '—';
-        let fpReply = `Your spend-to-date margin is ${Number(fpSpendToDate).toFixed(1)}%`;
-        if (fpProjPct) fpReply += `, and your projected margin at completion is ${fpProjPct}`;
-        fpReply += `. `;
-        if (fpBidStr) fpReply += `Your original estimated margin was ${fpBidStr}. `;
-        fpReply += `Projected profit: ${fpProjProfit}.\n\n➡️ Want me to check your PO commitments or anything else?`;
+        const fpProjProfit = typeof parsedContext.projectedProfit === 'number' ? parsedContext.projectedProfit : null;
+        const fpProjPctNum = typeof parsedContext.projectedMarginPct === 'number' ? parsedContext.projectedMarginPct : null;
+        const fpReply = formatMarginReply({
+          spendToDatePct: fpSpendToDate,
+          projectedPct: fpProjPctNum,
+          originalEstPct: fpBidVal,
+          projectedProfit: fpProjProfit,
+        });
         console.log('✅ FIRST-PRIORITY MARGIN: Using context for', fpName, 'spend-to-date', fpSpendToDate + '%', fpHasAnySpendData ? '(live)' : '(from contract/spent)');
         return res.json({ reply: fpReply, actions: [] });
       }
@@ -3252,13 +3417,13 @@ router.post('/', async (req, res) => {
           if (bidPct == null && Number(ed.markupPct || ed.markup || 0) > 0) bidPct = Math.round((Number(ed.markupPct || ed.markup) / (100 + Number(ed.markupPct || ed.markup))) * 1000) / 10;
         }
         const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
-        const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
-        let reply = `Your spend-to-date margin is ${spendToDateStr}`;
-        if (projectedStr) reply += `, and your projected margin at completion is ${projectedStr}`;
-        reply += `. `;
-        if (bidPct != null) reply += `Your original estimated margin was ${Number(bidPct).toFixed(1)}%. `;
-        reply += `Projected profit: ${projProfitStr}.`;
-        reply += `\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
+        const reply = formatMarginReply({
+          spendToDatePct: spendToDatePct,
+          projectedPct: projectedPct,
+          originalEstPct: bidPct,
+          projectedProfit: projectedProfit,
+          followUp: '➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?',
+        });
         console.log('✅ SIMPLE MARGIN (first-priority): short response for', name, 'spend-to-date', spendToDateStr);
         return res.json({ reply, actions: [] });
       }
@@ -3610,18 +3775,31 @@ router.post('/', async (req, res) => {
           if (newMargin != null) reply += `New margin would be about **${Number(newMargin).toFixed(1)}%**.`;
         }
       } else if (/\bworst[- ]?case scenario\b/i.test(rawBodyMsg)) {
-        const mat = matTotal || cost * 0.5;
-        const lab = labTotal || cost * 0.5;
-        const over = overTotal || (cost * 0.12);
-        const newMat = mat * 1.1;
-        const newLab = lab * 1.1;
-        const newOver = over * 1.25;
-        const worstCost = newMat + newLab + newOver;
-        const worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
-        const cushion = revenue > 0 ? revenue - worstCost : 0;
-        reply = `**Worst-case scenario** for **${projName}** (materials +10%, labor +10%, overhead +25%): cost **$${Math.round(worstCost).toLocaleString()}** (up **$${Math.round(worstCost - cost).toLocaleString()}**). `;
+        // Prefer PROJECT baseline (forecast final cost) when available — matches Budget Totals
+        const forecastCost = Number(parsedContext.forecastFinalCost || proj?.forecastFinalCost || 0);
+        const projMarginPct = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct) ? parsedContext.projectedMarginPct : proj?.projectedMarginPct;
+        const baseCostForWorst = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projMarginPct === 'number') ? revenue * (1 - projMarginPct / 100) : cost;
+        const useProjectBaselineWorst = (forecastCost > 0 || (revenue > 0 && typeof projMarginPct === 'number')) && baseCostForWorst > 0;
+        let worstCost, costUp, worstMargin, cushion;
+        if (useProjectBaselineWorst) {
+          const worstMultiplier = 1.15;
+          worstCost = baseCostForWorst * worstMultiplier;
+          costUp = worstCost - baseCostForWorst;
+          worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
+          cushion = revenue > 0 ? revenue - worstCost : 0;
+        } else {
+          const mat = matTotal || cost * 0.5;
+          const lab = labTotal || cost * 0.5;
+          const over = overTotal || (cost * 0.12);
+          worstCost = mat * 1.1 + lab * 1.1 + over * 1.25;
+          costUp = worstCost - cost;
+          worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
+          cushion = revenue > 0 ? revenue - worstCost : 0;
+        }
+        reply = `**Worst-case scenario** for **${projName}** (materials +10%, labor +10%, overhead +25%): cost **$${Math.round(worstCost).toLocaleString()}** (up **$${Math.round(costUp).toLocaleString()}**). `;
         if (worstMargin != null) reply += `Margin would be **${Number(worstMargin).toFixed(1)}%**, profit **$${Math.round(cushion).toLocaleString()}**. `;
-        reply += `You’d still have **$${Math.round(cushion).toLocaleString()}** cushion before break-even.`;
+        reply += cushion >= 0 ? `You’d still have **${Math.round(cushion).toLocaleString()}** cushion before break-even.` : `You’d be **${Math.round(-cushion).toLocaleString()}** past break-even — consider tightening costs or a price increase.`;
+        if (useProjectBaselineWorst) reply += ` _Based on your project forecast._`;
       }
 
       if (reply) {
@@ -4085,15 +4263,14 @@ router.post('/', async (req, res) => {
             projPctVal = ctxContract > 0 ? Math.round(((ctxContract - projCost) / ctxContract) * 1000) / 10 : null;
           }
         }
-        const projPct = typeof projPctVal === 'number' && Number.isFinite(projPctVal) ? Number(projPctVal).toFixed(1) + '%' : null;
+        const projPctValNum = typeof projPctVal === 'number' && Number.isFinite(projPctVal) ? projPctVal : null;
         const bidPctVal = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? matchForEarly?.bidMarginPct;
-        const bidPct = typeof bidPctVal === 'number' && Number.isFinite(bidPctVal) ? Number(bidPctVal).toFixed(1) + '%' : null;
-        let reply = `Your spend-to-date margin is ${earlySpendToDate.toFixed(1)}%`;
-        if (projPct) reply += `, and your projected margin at completion is ${projPct}`;
-        reply += `. `;
-        if (bidPct) reply += `Your original estimated margin was ${bidPct}. `;
-        reply += `Projected profit: ${projProfitStr}.`;
-        reply += `\n\n➡️ Want me to check your PO commitments or anything else?`;
+        const reply = formatMarginReply({
+          spendToDatePct: earlySpendToDate,
+          projectedPct: projPctValNum,
+          originalEstPct: bidPctVal,
+          projectedProfit: projProfit,
+        });
         console.log('✅ SIMPLE MARGIN: Using context/allProjects for', name, 'spend-to-date', earlySpendToDate + '%');
         return res.json({ reply, actions: [] });
       }
@@ -4156,14 +4333,13 @@ router.post('/', async (req, res) => {
           if (bidMarginPct == null && ed.subtotal > 0 && ed.profit >= 0) bidMarginPct = Math.round((ed.profit / (ed.subtotal + ed.profit)) * 1000) / 10;
           if (bidMarginPct == null && Number(ed.markupPct || ed.markup || 0) > 0) bidMarginPct = Math.round((Number(ed.markupPct || ed.markup) / (100 + Number(ed.markupPct || ed.markup))) * 1000) / 10;
         }
-        const spendToDateStr = spendToDatePct != null ? Number(spendToDatePct).toFixed(1) + '%' : '—';
-        const projectedStr = projectedPct != null ? Number(projectedPct).toFixed(1) + '%' : null;
-        let reply = `Your spend-to-date margin is ${spendToDateStr}`;
-        if (projectedStr) reply += `, and your projected margin at completion is ${projectedStr}`;
-        reply += `. `;
-        if (bidMarginPct != null) reply += `Your original estimated margin was ${Number(bidMarginPct).toFixed(1)}%. `;
-        reply += `Projected profit: ${projProfitStr}.`;
-        reply += `\n\n➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?`;
+        const reply = formatMarginReply({
+          spendToDatePct: spendToDatePct,
+          projectedPct: projectedPct,
+          originalEstPct: bidMarginPct,
+          projectedProfit: projectedProfit,
+          followUp: '➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?',
+        });
         console.log('✅ SIMPLE MARGIN: Returning deterministic short response for', name, 'spend-to-date', spendToDateStr);
         return res.json({ reply, actions: [] });
       }
@@ -4353,6 +4529,7 @@ router.post('/', async (req, res) => {
     const calendarEvents = parsedContext.calendarEvents || [];
     const upcomingCalendarEvents = parsedContext.upcomingCalendarEvents || [];
     const bidMarginPctForPrompt = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? (projectId && allProjects?.length ? (() => { const p = allProjects.find(pr => String(pr?.id) === String(projectId)); return p?.bidMarginPct; })() : undefined);
+    const aiScope = parsedContext.aiScope || (parsedContext.screen === 'Project Detail' || (parsedContext.screen === 'Estimate Generator' && projectId) ? 'project' : 'portfolio');
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
@@ -4362,6 +4539,7 @@ router.post('/', async (req, res) => {
       laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
       progress, aiPmMode, pmAlerts,
       screen: parsedContext.screen || 'assistant_tab',
+      aiScope,
       teamMembers,
       teamStats,
       calendarEvents,
@@ -4905,7 +5083,7 @@ router.post('/', async (req, res) => {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Optional - will use current project from context if not provided.'}` },
-              scenario: { type: 'string', enum: ['labor_up_10', 'labor_down_10', 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'typical_friction', 'bad_remodel', 'smooth_job', 'custom'], description: 'The scenario to run. Preset scenarios (typical_friction, bad_remodel, smooth_job) have predefined percentage adjustments built-in. Use "custom" only for arbitrary adjustments. REQUIRED - this is the ONLY required field.' },
+              scenario: { type: 'string', enum: ['labor_up_10', 'labor_down_10', 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4', 'job_runs_long_6', 'custom'], description: 'The scenario to run. Preset scenarios: typical_friction, bad_remodel, smooth_job, job_runs_long (2 weeks), job_runs_long_4 (4 weeks), job_runs_long_6 (6 weeks). Use "custom" only for arbitrary adjustments. REQUIRED - this is the ONLY required field.' },
               customAdjustments: {
                 type: 'object',
                 description: 'For "custom" scenario only. Specify percentage changes.',
@@ -6606,6 +6784,20 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // ── PRE-ROUTER: "ALL OF THEM" / "ALL" = run all three scenario presets ──
+    // When last assistant message asked for scenario choice (Typical Friction / Bad Remodel / Smooth Job),
+    // and user says "all of them", "all", "yes" (all), etc., force all_presets so we never re-ask.
+    const lastAssistantForScenario = String([...messages].reverse().find((m) => m?.role === 'assistant')?.content || [...messages].reverse().find((m) => m?.role === 'assistant')?.text || '').toLowerCase();
+    const assistantAskedScenarioChoice = lastAssistantForScenario.includes('typical friction') && lastAssistantForScenario.includes('bad remodel') && lastAssistantForScenario.includes('smooth job');
+    const userWantsAllScenarios = /\b(all\s+of\s+them|all\s+three|all\s+the\s+scenarios?|I\s+want\s+all|show\s+me\s+all|give\s+me\s+all|every\s+one|each\s+one)\b/i.test(String(message || '').trim()) ||
+      /^\s*all\s*\.?\s*$/i.test(String(message || '').trim()) ||
+      // "Yes" / "Yeah" / "Yep" after "which scenario?" → treat as "run all three"
+      /^\s*(yes|yeah|yep|sure|ok|okay|please)\s*\.?\s*$/i.test(String(message || '').trim());
+    if (assistantAskedScenarioChoice && userWantsAllScenarios) {
+      req._forceScenarioAllPresets = true;
+      console.log('🛡️ PRE-ROUTER: User said "all" after scenario choice → forcing all_presets');
+    }
+
     // ── PRE-ROUTER: ADD TEAM MEMBER (name provided) ──────────────────────────
     // When assistant asked for name to ADD, user's response is the new member's name → ask for phone
     const lastAssistantForAdd = String([...messages].reverse().find((m) => m?.role === 'assistant')?.content || '');
@@ -7080,18 +7272,22 @@ router.post('/', async (req, res) => {
     // For generic "what if" requests, ask user to pick one preset scenario.
     // If user picks one, run immediately with no extra questions.
     const scenarioIntentRegex = /\b(what\s*if|scenario analysis|run a scenario analysis|run scenario analysis|project outcome scenario|outcome scenario)\b/i;
+    const profitScenariosIntentRegex = /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|(tell me|give me)\s+(my\s+)?(the\s+)?profit scenarios?|profit scenarios?)\b/i;
     const delayOverrunIntentRegex = /\b(delay(?:ed)?|overrun|too\s+long|longer|beyond\s+(?:the\s+)?(?:timeline|schedule)|go(?:es|ing)?\s+on\s+too\s+long|run(?:s|ning)?\s+long|extends?)\b/i;
     const delayOverrunContext = delayOverrunIntentRegex.test(String(message || '')) ||
       [...history]
         .slice(-6)
         .some((m) => m?.role === 'user' && delayOverrunIntentRegex.test(String(m?.content || '')));
     const lastAssistantScenarioMsg = String(
-      [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
+      [...history].reverse().find((m) => m?.role === 'assistant')?.content ||
+      [...history].reverse().find((m) => m?.role === 'assistant')?.text || ''
     ).toLowerCase();
     const lastAssistantAskedScenarioChoice =
       lastAssistantScenarioMsg.includes('typical friction') &&
       lastAssistantScenarioMsg.includes('bad remodel') &&
       lastAssistantScenarioMsg.includes('smooth job');
+    // PRE-ROUTER set this when user said "all of them" / "all" / "yes" after scenario choice
+    const forceAllPresets = req._forceScenarioAllPresets === true;
     const scenarioChoiceMap = [
       { regex: /\btypical\s*friction\b/i, value: 'typical_friction' },
       { regex: /\btypical\s+friction\b/i, value: 'typical_friction' }, // Match with space
@@ -7100,6 +7296,13 @@ router.post('/', async (req, res) => {
       { regex: /\bbad\s+remodel\b/i, value: 'bad_remodel' }, // Match with space
       { regex: /\bsmooth\s*job\b/i, value: 'smooth_job' },
       { regex: /\bsmooth\s+job\b/i, value: 'smooth_job' }, // Match with space
+      { regex: /\bjob\s+runs?\s+long\s+4\s*weeks?\b/i, value: 'job_runs_long_4' },
+      { regex: /\bjob\s+runs?\s+long\s+6\s*weeks?\b/i, value: 'job_runs_long_6' },
+      { regex: /\b4\s*weeks?\s+(?:too\s+long|long|delay)\b/i, value: 'job_runs_long_4' },
+      { regex: /\b6\s*weeks?\s+(?:too\s+long|long|delay)\b/i, value: 'job_runs_long_6' },
+      { regex: /\bjob\s+runs?\s+long\b/i, value: 'job_runs_long' },
+      { regex: /\bruns?\s+long\b/i, value: 'job_runs_long' },
+      { regex: /\bgoes?\s+(on\s+)?(too\s+)?long\b/i, value: 'job_runs_long' },
       { regex: /\blabor\s*\+?\s*10%?\b/i, value: 'labor_up_10' },
       { regex: /\blabor\s*-\s*10%?\b/i, value: 'labor_down_10' },
       { regex: /\bmaterials?\s*\+?\s*10%?\b/i, value: 'materials_up_10' },
@@ -7112,28 +7315,36 @@ router.post('/', async (req, res) => {
     ];
     const selectedScenario = scenarioChoiceMap.find(({ regex }) => regex.test(String(message || '')))?.value || null;
     const isGenericScenarioRequest =
-      scenarioIntentRegex.test(String(message || '')) &&
+      (scenarioIntentRegex.test(String(message || '')) || profitScenariosIntentRegex.test(String(message || ''))) &&
       !selectedScenario &&
       !delayOverrunContext;
+    // "What are my profit scenarios" / "show me profit scenarios" etc. → run all three immediately (same response as What If button + Yes)
+    const isDirectProfitScenariosAsk = profitScenariosIntentRegex.test(String(message || '').trim());
+    // User said "all" / "all of them" / "yes" / "yes all of them" (after "which scenario?") → run all three presets
+    const msgTrim = String(message || '').trim().toLowerCase();
+    const shortAffirmative = /^\s*(yes|yeah|yep|sure|ok|okay|please)\s*\.?\s*$/i.test(String(message || '').trim());
+    const yesPlusAll = /\b(yes|yeah|yep|ok|sure)\s+(all|all\s+of\s+them)\b/i.test(msgTrim) || /\b(all\s+of\s+them|all\s+three)\b/i.test(msgTrim);
+    const wantsAllScenarios = (lastAssistantAskedScenarioChoice || isGenericScenarioRequest) &&
+      (/\b(all|all of them|all three|all the scenarios?|I want all|show me all|give me all|every one|each one)\b/i.test(msgTrim) || (lastAssistantAskedScenarioChoice && shortAffirmative) || yesPlusAll);
+    const effectiveScenario = (forceAllPresets || wantsAllScenarios || isDirectProfitScenariosAsk) ? 'all_presets' : selectedScenario;
     // CRITICAL: If user selected a scenario (even without "what if" in message), activate flow
-    // This handles the case where user responds "Typical friction" to the AI's question
-    const isScenarioFlowActive = !!selectedScenario || (!delayOverrunContext && (isGenericScenarioRequest || lastAssistantAskedScenarioChoice));
+    const isScenarioFlowActive = !!effectiveScenario || (!delayOverrunContext && (isGenericScenarioRequest || lastAssistantAskedScenarioChoice));
 
     if (isScenarioFlowActive) {
       routerResult.domain = 'scenario_analysis';
       routerResult.proposed_tool = 'run_scenario_analysis';
       routerResult.tool_args_draft = routerResult.tool_args_draft || {};
 
-      if (selectedScenario) {
-        routerResult.tool_args_draft.scenario = selectedScenario;
+      if (effectiveScenario) {
+        routerResult.tool_args_draft.scenario = effectiveScenario;
         routerResult.required_fields_missing = [];
         routerResult.clarification_question = null;
         routerResult.confidence = 1.0;
         routerResult.action = 'execute';
-        console.log('🛡️ Scenario guard: scenario selected, executing', selectedScenario);
+        console.log('🛡️ Scenario guard: scenario selected, executing', effectiveScenario);
       } else {
         routerResult.required_fields_missing = ['scenario'];
-        routerResult.clarification_question = 'Run a scenario analysis for this project. Do you want Typical Friction, Bad Remodel, or Smooth Job?';
+        routerResult.clarification_question = 'Run a scenario analysis for this project. Do you want Typical Friction, Bad Remodel, Smooth Job, or Job Runs Long (2, 4, or 6 weeks)?';
         routerResult.confidence = 0.99;
         console.log('🛡️ Scenario guard: asking user to choose scenario preset');
       }
@@ -7225,7 +7436,21 @@ router.post('/', async (req, res) => {
 
     // ── PAYMENT-COLLECTION GUARD (after CO guard, before executor) ─────────
     // Ensure "mark payment collected" uses pending timeline milestones by name (not ID).
-    const pendingPaymentMilestones = getPendingPaymentMilestones(parsedContext);
+    // When user is in payment follow-up (e.g. "Weekly 2" after we asked which payment), preserve project context:
+    // Use lastOpenedProjectId/projectId to enrich parsedContext with the selected project's milestones so we don't lose context.
+    const lastAssistantPaymentMsgForGuard = String(
+      [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
+    ).toLowerCase();
+    const lastAssistantAskedWhichPaymentForGuard =
+      (lastAssistantPaymentMsgForGuard.includes('which milestone') ||
+       lastAssistantPaymentMsgForGuard.includes('which payment') ||
+       lastAssistantPaymentMsgForGuard.includes('specify which')) &&
+      lastAssistantPaymentMsgForGuard.includes('collected');
+    const paymentContextForGuard =
+      lastAssistantAskedWhichPaymentForGuard && currentProjectData && !parsedContext.currentProject
+        ? { ...parsedContext, currentProject: currentProjectData, projectId }
+        : parsedContext;
+    const pendingPaymentMilestones = getPendingPaymentMilestones(paymentContextForGuard);
     const paymentCollectIntentRegex = /\b(mark|set|record).*(payment|deposit|milestone).*(collected|complete|paid)|\b(payment collected|collected payment|mark a payment as collected|got paid|received payment|mark collected)\b/i;
     const lastAssistantPaymentMsg = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
@@ -7235,10 +7460,17 @@ router.post('/', async (req, res) => {
        lastAssistantPaymentMsg.includes('which payment') ||
        lastAssistantPaymentMsg.includes('specify which')) &&
       lastAssistantPaymentMsg.includes('collected');
+    const lastAssistantAskedPaymentConfirmation =
+      (lastAssistantPaymentMsg.includes('mark ') && lastAssistantPaymentMsg.includes('as collected')) ||
+      lastAssistantPaymentMsg.includes('as collected?');
+    const matchFromConfirmationMsg = lastAssistantAskedPaymentConfirmation && /mark\s+"([^"]+)"\s+as\s+collected/i.test(lastAssistantPaymentMsg)
+      ? lastAssistantPaymentMsg.match(/mark\s+"([^"]+)"\s+as\s+collected/i)?.[1]
+      : null;
     const isPaymentCollectionFlowActive =
       paymentCollectIntentRegex.test(String(message || '').toLowerCase()) ||
       routerResult?.proposed_tool === 'mark_payment_collected' ||
-      lastAssistantAskedWhichPayment;
+      lastAssistantAskedWhichPayment ||
+      lastAssistantAskedPaymentConfirmation;
 
     if (isPaymentCollectionFlowActive) {
       routerResult.domain = 'timeline';
@@ -7253,9 +7485,19 @@ router.post('/', async (req, res) => {
       // Check if user is confirming (after we've matched a payment)
       const isConfirmation = /^(yes|yep|ok|okay|confirm|proceed|go ahead|do it|mark it)$/i.test(userText);
       const hasMatchedPaymentInDraft = routerResult.tool_args_draft.milestoneName;
+      // When user confirms after "Mark X as collected?", extract X from prior message and use as candidate
+      const candidateNameForConfirm = (isConfirmation && matchFromConfirmationMsg) ? matchFromConfirmationMsg : null;
+      const matchedFromConfirmation = candidateNameForConfirm
+        ? matchPendingPaymentByName(pendingPaymentMilestones, candidateNameForConfirm)
+        : null;
       
-      // If user is confirming and we have a matched payment, proceed to execution
-      if (isConfirmation && hasMatchedPaymentInDraft) {
+      // If user is confirming and we have a matched payment (from draft or from prior message), proceed to execution
+      if (isConfirmation && (hasMatchedPaymentInDraft || matchedFromConfirmation)) {
+        if (matchedFromConfirmation && !hasMatchedPaymentInDraft) {
+          routerResult.tool_args_draft.milestoneName = matchedFromConfirmation.title || matchedFromConfirmation.name;
+          if (matchedFromConfirmation.id) routerResult.tool_args_draft.milestoneId = matchedFromConfirmation.id;
+        }
+        if (projectId) routerResult.tool_args_draft.projectId = projectId;
         routerResult.required_fields_missing = [];
         routerResult.clarification_question = null;
         routerResult.confidence = 1.0;
@@ -7279,7 +7521,10 @@ router.post('/', async (req, res) => {
               .join(', ');
             routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
           } else {
-            routerResult.clarification_question = 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.';
+            const hasProject = !!(parsedContext?.projectId || parsedContext?.resolvedProjectId);
+            routerResult.clarification_question = hasProject
+              ? 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.'
+              : 'Which project do you want me to mark a payment for? I need to know which project\'s timeline to use.';
           }
           console.log('🛡️ Payment guard: first time - listing pending payments');
         } else if (matchedPayment && assistantAlreadyAsked) {
@@ -7287,6 +7532,7 @@ router.post('/', async (req, res) => {
           routerResult.required_fields_missing = [];
           routerResult.tool_args_draft.milestoneName = matchedPayment.title || matchedPayment.name;
           if (matchedPayment.id) routerResult.tool_args_draft.milestoneId = matchedPayment.id;
+          if (projectId) routerResult.tool_args_draft.projectId = projectId;
           routerResult.clarification_question = `Mark "${matchedPayment.title || matchedPayment.name}" ($${Number(matchedPayment.amount || 0).toLocaleString()}) as collected?`;
           routerResult.confidence = 1.0;
           // Don't set action = 'execute' yet - wait for confirmation
@@ -7305,7 +7551,10 @@ router.post('/', async (req, res) => {
               .join(', ');
             routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
           } else {
-            routerResult.clarification_question = 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.';
+            const hasProject = !!(parsedContext?.projectId || parsedContext?.resolvedProjectId);
+            routerResult.clarification_question = hasProject
+              ? 'I could not find any pending payment milestones in the timeline. Please check the Timeline tab.'
+              : 'Which project do you want me to mark a payment for? I need to know which project\'s timeline to use.';
           }
           console.log('🛡️ Payment guard: asking user to choose pending milestone', {
             pendingCount: pendingPaymentMilestones.length,
@@ -7381,10 +7630,41 @@ router.post('/', async (req, res) => {
     }
 
     // Gate: if required fields are missing → ask the clarification question and stop
+    // BULLETPROOF: When ONLY scenario is missing and user said "Yes" (or similar) = give me all scenarios → run all_presets, never re-ask
+    const onlyScenarioMissing = routerResult.required_fields_missing?.length === 1 && routerResult.required_fields_missing[0] === 'scenario';
+    const gateMsg = String(req.body?.message ?? message ?? '').trim();
+    const msgForGate = gateMsg.toLowerCase();
+    const lettersOnly = msgForGate.replace(/\W/g, '');
+    const isExactYesWord = ['yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure', 'please', 'all'].includes(lettersOnly);
+    const isYesPlusAll = lettersOnly === 'yesallofthem' || lettersOnly === 'yesall' || lettersOnly === 'allofthem' || lettersOnly === 'allthree';
+    const isShortAffirmative = msgForGate.length <= 20 && (
+      /^(yes|yeah|yep|yup|sure|ok|okay|please|all)(\s*[.,!?]?\s*)?$/i.test(msgForGate) ||
+      /^(yes|yeah|ok)\s+(all|all\s+of\s+them)/i.test(msgForGate) ||
+      /\b(all\s+of\s+them|all\s+three)\b/i.test(msgForGate)
+    );
+    const userSaidYesOrAll = isExactYesWord || isYesPlusAll || isShortAffirmative ||
+      /^\s*(yes|yeah|yep|sure|ok|okay|please|all)\s*\.?\s*$/i.test(msgForGate) ||
+      /\b(all\s+of\s+them|all\s+three|yes\s+all|yes\s+all\s+of\s+them)\b/i.test(msgForGate) ||
+      (msgForGate.length <= 25 && /^\s*(yes|yeah|yep|ok|sure|please)\s+/i.test(msgForGate) && /\b(all|them|three)\b/i.test(msgForGate));
+    if (onlyScenarioMissing && userSaidYesOrAll) {
+      console.log('🛡️ Scenario gate: only scenario missing + user said Yes/all → forcing all_presets', { gateMsg: gateMsg.substring(0, 30), lettersOnly });
+      routerResult.required_fields_missing = [];
+      routerResult.clarification_question = null;
+      routerResult.domain = 'scenario_analysis';
+      routerResult.proposed_tool = 'run_scenario_analysis';
+      routerResult.tool_args_draft = routerResult.tool_args_draft || {};
+      routerResult.tool_args_draft.scenario = 'all_presets';
+      routerResult.action = 'execute';
+    }
     if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
       const question = routerResult.clarification_question || `I need a few more details. Could you provide the ${routerResult.required_fields_missing.join(' and ')}?`;
       if (process.env.DEBUG_AI_CONTEXT) console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing);
       return res.json({ reply: question, actions: [], projectUpdateData: null });
+    }
+    // Payment confirmation: when we matched a payment and are asking "Mark X as collected?", return that question (don't execute yet)
+    if (routerResult.clarification_question && routerResult.proposed_tool === 'mark_payment_collected' && routerResult.action !== 'execute') {
+      if (process.env.DEBUG_AI_CONTEXT) console.log('🛑 Router: payment confirmation question →', routerResult.clarification_question);
+      return res.json({ reply: routerResult.clarification_question, actions: [], projectUpdateData: null });
     }
 
     // Map router proposed_tool to finalToolChoice
@@ -7546,14 +7826,13 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
       console.error('❌ Router-forced tool call was ignored by AI:', typeof finalToolChoice === 'object' ? finalToolChoice.function?.name : 'unknown');
     }
 
-    // CRITICAL FALLBACK: If router selected scenario_analysis but executor ignored the tool call,
-    // force run_scenario_analysis using the scenario from tool_args_draft.
-    if (
-      toolCalls.length === 0 &&
-      routerResult.action === 'execute' &&
+    // CRITICAL FALLBACK: If router selected scenario_analysis but AI didn't call it (or called something else like get_project_health),
+    // force run_scenario_analysis so the user gets the numeric breakdown (Typical Friction / Bad Remodel / Smooth Job with $ and %).
+    const routerWantsScenario = routerResult.action === 'execute' &&
       routerResult.proposed_tool === 'run_scenario_analysis' &&
-      routerResult.tool_args_draft?.scenario
-    ) {
+      routerResult.tool_args_draft?.scenario;
+    const aiDidNotCallScenario = !toolCalls.some(tc => tc.function?.name === 'run_scenario_analysis');
+    if (routerWantsScenario && aiDidNotCallScenario) {
       const scenarioName = routerResult.tool_args_draft.scenario;
       const fallbackArgs = {
         projectId: projectId || null,
@@ -7569,7 +7848,7 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           },
         },
       ];
-      console.log('🛡️ Scenario fallback: forcing run_scenario_analysis tool call', {
+      console.log('🛡️ Scenario fallback: forcing run_scenario_analysis (AI called other tool or none)', {
         scenario: scenarioName,
         projectId,
       });
@@ -7581,7 +7860,7 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
       if (toolCall.function?.name === 'run_scenario_analysis') {
         try {
           const args = JSON.parse(toolCall.function.arguments);
-          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'labor_up_10', 'labor_down_10', 
+          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4', 'job_runs_long_6', 'labor_up_10', 'labor_down_10', 
                                 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 
                                 'overhead_down_10', 'bid_up_2', 'bid_down_2'];
           
@@ -7609,6 +7888,34 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
       }
     }
     
+    // CRITICAL FALLBACK: If router selected mark_payment_collected with action=execute but AI didn't call it,
+    // force the tool call so the payment gets marked (e.g. user said "yes" to confirm).
+    const routerWantsPaymentCollected = routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'mark_payment_collected' &&
+      routerResult.tool_args_draft?.milestoneName;
+    const aiDidNotCallPaymentCollected = !toolCalls.some(tc => tc.function?.name === 'mark_payment_collected');
+    if (routerWantsPaymentCollected && aiDidNotCallPaymentCollected) {
+      const fallbackArgs = {
+        projectId: routerResult.tool_args_draft.projectId || projectId,
+        milestoneName: routerResult.tool_args_draft.milestoneName,
+        milestoneId: routerResult.tool_args_draft.milestoneId || null,
+      };
+      toolCalls = [
+        {
+          id: `call_manual_mark_payment_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: 'mark_payment_collected',
+            arguments: JSON.stringify(fallbackArgs),
+          },
+        },
+      ];
+      console.log('🛡️ Payment fallback: forcing mark_payment_collected tool call', {
+        milestoneName: fallbackArgs.milestoneName,
+        projectId: fallbackArgs.projectId,
+      });
+    }
+
     // CRITICAL FALLBACK: If router selected daily_log but executor ignored the tool call,
     // force add_daily_log using the current user message as noteText.
     // This prevents "daily log" follow-ups from drifting into expense prompts.
@@ -7742,6 +8049,8 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
 
       // Track project lookup results to use in subsequent calls
       let resolvedProjectInfo = null;
+      // When run_scenario_analysis succeeds, use its message as the final reply so user sees all three scenarios (not LLM summary)
+      let scenarioAnalysisReply = null;
 
       // Execute each tool call
       for (const toolCall of toolCalls) {
@@ -7750,7 +8059,7 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
         
         // CRITICAL FIX: Correct scenario analysis tool calls where AI confused scenario with projectId
         if (functionName === 'run_scenario_analysis') {
-          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'labor_up_10', 'labor_down_10', 
+          const scenarioNames = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4', 'job_runs_long_6', 'labor_up_10', 'labor_down_10', 
                                 'materials_up_5', 'materials_up_10', 'materials_down_5', 'overhead_up_10', 
                                 'overhead_down_10', 'bid_up_2', 'bid_down_2', 'custom'];
           
@@ -8699,98 +9008,186 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
         // ── SCENARIO ANALYSIS EXECUTOR ─────────────────────────────────────────
         } else if (functionName === 'run_scenario_analysis') {
           // Pull project financials from context
-          // CRITICAL: This tool uses EXISTING project data - no user input needed
+          // CRITICAL: Prefer PROJECT page numbers (forecast final cost, projected margin) when available — not estimate-only
           const ctx = parsedContext || {};
           const currentProject = ctx.currentProject || ctx;
           const estimateData = currentProject.estimateData || currentProject.estimate || {};
-          
-          // Get material cost from multiple possible sources
-          const materialCost = Number(
-            ctx.materialBudgetDirect || 
-            estimateData.materialTotal || 
-            estimateData.materialsTotal ||
-            currentProject.materialBudget ||
-            currentProject.materialsTotal ||
-            0
-          );
-          
-          // Get labor cost from multiple possible sources
-          const laborCost = Number(
-            estimateData.laborTotal || 
-            estimateData.laborCost ||
-            currentProject.laborTotal ||
-            currentProject.laborCost ||
-            5000
-          );
-          
-          // Get overhead cost from multiple possible sources
-          const overheadCost = Number(
-            estimateData.overheadTotal || 
-            estimateData.overheadCost ||
-            currentProject.overheadTotal ||
-            currentProject.overheadCost ||
-            0
-          );
-          
-          console.log('📊 Scenario Analysis: Using project data from context', {
-            materialCost,
-            laborCost,
-            overheadCost,
-            projectId: functionArgs.projectId || projectId,
-            scenario: functionArgs.scenario,
-          });
-          const baseCost = materialCost + laborCost + overheadCost;
-          const markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
-          const markup = baseCost * (markupPct / 100);
-          const originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
-          const originalProfit = originalBid - baseCost;
-          const originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+          const revenue = Number(ctx.contractValue || ctx.bidTotal || ctx.total || estimateData.totalBid || currentProject.bidPrice || 0);
+          const forecastCost = Number(ctx.forecastFinalCost || currentProject.forecastFinalCost || 0);
+          const projectedMarginPct = typeof ctx.projectedMarginPct === 'number' && Number.isFinite(ctx.projectedMarginPct) ? ctx.projectedMarginPct : (currentProject.projectedMarginPct);
+          const hasProjectBaseline = revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
+          const baseCostFromProject = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projectedMarginPct === 'number') ? revenue * (1 - projectedMarginPct / 100) : 0;
 
-          // Define scenario adjustments
-          const scenarioMap = {
-            labor_up_10:       { labor: 10, materials: 0, overhead: 0, bid: 0, label: 'Labor +10%' },
-            labor_down_10:     { labor: -10, materials: 0, overhead: 0, bid: 0, label: 'Labor -10%' },
-            materials_up_5:    { labor: 0, materials: 5, overhead: 0, bid: 0, label: 'Materials +5%' },
-            materials_up_10:   { labor: 0, materials: 10, overhead: 0, bid: 0, label: 'Materials +10%' },
-            materials_down_5:  { labor: 0, materials: -5, overhead: 0, bid: 0, label: 'Materials -5%' },
-            overhead_up_10:    { labor: 0, materials: 0, overhead: 10, bid: 0, label: 'Overhead +10%' },
-            overhead_down_10:  { labor: 0, materials: 0, overhead: -10, bid: 0, label: 'Overhead -10%' },
-            bid_up_2:          { labor: 0, materials: 0, overhead: 0, bid: 2, label: 'Bid +2%' },
-            bid_down_2:        { labor: 0, materials: 0, overhead: 0, bid: -2, label: 'Bid -2%' },
-            typical_friction:  { labor: 8, materials: 5, overhead: 3, bid: 0, label: 'Typical Friction (labor +8%, mat +5%, OH +3%)' },
-            bad_remodel:       { labor: 20, materials: 15, overhead: 10, bid: 0, label: 'Bad Remodel (labor +20%, mat +15%, OH +10%)' },
-            smooth_job:        { labor: -5, materials: -3, overhead: 0, bid: 0, label: 'Smooth Job (labor -5%, mat -3%)' },
-          };
+          let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct;
+          let useProjectBaseline = false;
 
-          const scenario = functionArgs.scenario;
-          let adj;
-          if (scenario === 'custom' && functionArgs.customAdjustments) {
-            const ca = functionArgs.customAdjustments;
-            adj = { labor: ca.laborPctChange || 0, materials: ca.materialsPctChange || 0, overhead: ca.overheadPctChange || 0, bid: ca.bidPctChange || 0, label: 'Custom Scenario' };
-          } else {
-            adj = scenarioMap[scenario] || scenarioMap.typical_friction;
+          if (hasProjectBaseline && baseCostFromProject > 0) {
+            // Use PROJECT page baseline (Budget Totals: forecast final cost, projected margin) so scenario matches what user sees
+            useProjectBaseline = true;
+            baseCost = baseCostFromProject;
+            originalBid = revenue;
+            originalProfit = revenue - baseCost;
+            originalMarginPct = revenue > 0 ? (originalProfit / revenue * 100) : 0;
+            materialCost = 0;
+            laborCost = 0;
+            overheadCost = 0;
+            markupPct = 0;
           }
 
-          const newLabor = laborCost * (1 + adj.labor / 100);
-          const newMaterials = materialCost * (1 + adj.materials / 100);
-          const newOverhead = overheadCost * (1 + adj.overhead / 100);
-          const newBaseCost = newLabor + newMaterials + newOverhead;
-          const newMarkup = newBaseCost * (markupPct / 100);
-          const newBid = (originalBid * (1 + adj.bid / 100));
-          const newProfit = newBid - newBaseCost;
-          const newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+          if (!useProjectBaseline) {
+            // Fallback: estimate-based (material + labor + overhead from estimate)
+            materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+            laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
+            overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
+            baseCost = materialCost + laborCost + overheadCost;
+            markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+            const markup = baseCost * (markupPct / 100);
+            originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
+            originalProfit = originalBid - baseCost;
+            originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+          }
+
+          const laborBudget = laborCost || Number(estimateData.laborTotal || currentProject.laborTotal || 0);
+          const materialBudget = materialCost || Number(estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+          const overheadBudget = overheadCost || Number(estimateData.overheadTotal || currentProject.overheadTotal || 0);
+          const startISO = ctx.startDate || ctx.startISO || currentProject.startDate || currentProject.startISO;
+          const endISO = ctx.endDate || ctx.endISO || currentProject.endDate || currentProject.endISO;
+          let estimatedWeeks = 12;
+          if (startISO && endISO) {
+            const start = new Date(String(startISO));
+            const end = new Date(String(endISO));
+            if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start) {
+              estimatedWeeks = Math.max(4, Math.round((end - start) / (7 * 24 * 60 * 60 * 1000)));
+            }
+          }
+
+          // Preset scenarios: when using project baseline we only have total cost — apply single cost-% change (approximate to labor/mat/OH blend)
+          const scenario = functionArgs.scenario;
+          const scenarioMap = {
+            labor_up_10:       { labor: 10, materials: 0, overhead: 0, bid: 0, costPct: 10, label: 'Labor +10%' },
+            labor_down_10:     { labor: -10, materials: 0, overhead: 0, bid: 0, costPct: -10, label: 'Labor -10%' },
+            materials_up_5:    { labor: 0, materials: 5, overhead: 0, bid: 0, costPct: 5, label: 'Materials +5%' },
+            materials_up_10:   { labor: 0, materials: 10, overhead: 0, bid: 0, costPct: 10, label: 'Materials +10%' },
+            materials_down_5:  { labor: 0, materials: -5, overhead: 0, bid: 0, costPct: -5, label: 'Materials -5%' },
+            overhead_up_10:    { labor: 0, materials: 0, overhead: 10, bid: 0, costPct: 10, label: 'Overhead +10%' },
+            overhead_down_10:  { labor: 0, materials: 0, overhead: -10, bid: 0, costPct: -10, label: 'Overhead -10%' },
+            bid_up_2:          { labor: 0, materials: 0, overhead: 0, bid: 2, costPct: 0, label: 'Bid +2%' },
+            bid_down_2:        { labor: 0, materials: 0, overhead: 0, bid: -2, costPct: 0, label: 'Bid -2%' },
+            typical_friction:  { labor: 8, materials: 5, overhead: 3, bid: 0, costPct: 5.33, label: 'Typical Friction' },
+            bad_remodel:       { labor: 20, materials: 15, overhead: 10, bid: 0, costPct: 15, label: 'Bad Remodel' },
+            smooth_job:        { labor: -5, materials: -3, overhead: 0, bid: 0, costPct: -4, label: 'Smooth Job' },
+            job_runs_long:     { weeks: 2, label: 'Job Runs Long (2 weeks)' },
+            job_runs_long_4:   { weeks: 4, label: 'Job Runs Long (4 weeks)' },
+            job_runs_long_6:   { weeks: 6, label: 'Job Runs Long (6 weeks)' },
+          };
+
+          const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+
+          if (scenario === 'all_presets') {
+            const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
+            const parts = ['### Scenario Analysis\n', `Baseline: **${Math.round(originalMarginPct * 10) / 10}%** margin\n`];
+            const allResults = [];
+            for (const preset of presets) {
+              const adj = scenarioMap[preset];
+              let newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead;
+              if (adj.weeks) {
+                const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+                const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
+                const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+                const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
+                const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
+                newBaseCost = baseCost + addedDelayCost;
+                newBid = originalBid;
+                newProfit = newBid - newBaseCost;
+                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                newLabor = laborCost;
+                newMaterials = materialCost;
+                newOverhead = overheadCost;
+              } else if (useProjectBaseline && typeof adj.costPct === 'number') {
+                newBaseCost = baseCost * (1 + adj.costPct / 100);
+                newBid = originalBid * (1 + (adj.bid || 0) / 100);
+                newProfit = newBid - newBaseCost;
+                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                newLabor = laborCost;
+                newMaterials = materialCost;
+                newOverhead = overheadCost;
+              } else {
+                newLabor = laborCost * (1 + (adj.labor || 0) / 100);
+                newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
+                newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
+                newBaseCost = newLabor + newMaterials + newOverhead;
+                newBid = originalBid * (1 + (adj.bid || 0) / 100);
+                newProfit = newBid - newBaseCost;
+                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+              }
+              const profitChange = newProfit - originalProfit;
+              parts.push(formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline));
+              allResults.push({ scenario: preset, label: adj.label, profitChange: Math.round(profitChange), newMarginPct: Math.round(newMarginPct * 10) / 10 });
+            }
+            functionResult = {
+              success: true,
+              scenario: 'All presets (Typical Friction, Bad Remodel, Smooth Job, Job Runs Long 2 & 4 weeks)',
+              baselineSource: useProjectBaseline ? 'project' : 'estimate',
+              original: {
+                materialCost, laborCost, overheadCost, baseCost, markup: useProjectBaseline ? 0 : baseCost * (markupPct / 100), bid: originalBid,
+                profit: originalProfit, marginPct: Math.round(originalMarginPct * 10) / 10,
+              },
+              allPresets: allResults,
+              message: parts.join('\n\n') + disclaimer,
+            };
+          } else {
+          let adj = scenarioMap[scenario] || scenarioMap.typical_friction;
+          if (scenario === 'custom' && functionArgs.customAdjustments) {
+            const ca = functionArgs.customAdjustments;
+            const l = ca.laborPctChange || 0, m = ca.materialsPctChange || 0, o = ca.overheadPctChange || 0;
+            const avg = (l + m + o) / 3;
+            adj = { labor: l, materials: m, overhead: o, bid: ca.bidPctChange || 0, costPct: avg, label: 'Custom Scenario' };
+          }
+
+          let newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead;
+          if (adj.weeks) {
+            const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+            const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
+            const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+            const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
+            const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
+            newBaseCost = baseCost + addedDelayCost;
+            newBid = originalBid;
+            newProfit = newBid - newBaseCost;
+            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            newLabor = laborCost;
+            newMaterials = materialCost;
+            newOverhead = overheadCost;
+          } else if (useProjectBaseline && typeof adj.costPct === 'number') {
+            newBaseCost = baseCost * (1 + adj.costPct / 100);
+            newBid = originalBid * (1 + (adj.bid || 0) / 100);
+            newProfit = newBid - newBaseCost;
+            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            newLabor = laborCost;
+            newMaterials = materialCost;
+            newOverhead = overheadCost;
+          } else {
+            newLabor = laborCost * (1 + (adj.labor || 0) / 100);
+            newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
+            newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
+            newBaseCost = newLabor + newMaterials + newOverhead;
+            newBid = originalBid * (1 + (adj.bid || 0) / 100);
+            newProfit = newBid - newBaseCost;
+            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+          }
           const profitChange = newProfit - originalProfit;
 
           functionResult = {
             success: true,
             scenario: adj.label,
+            baselineSource: useProjectBaseline ? 'project' : 'estimate',
             original: {
-              materialCost, laborCost, overheadCost, baseCost, markup, bid: originalBid,
+              materialCost, laborCost, overheadCost, baseCost, markup: useProjectBaseline ? 0 : baseCost * (markupPct / 100), bid: originalBid,
               profit: originalProfit, marginPct: Math.round(originalMarginPct * 10) / 10,
             },
             adjusted: {
               materialCost: Math.round(newMaterials), laborCost: Math.round(newLabor), overheadCost: Math.round(newOverhead),
-              baseCost: Math.round(newBaseCost), markup: Math.round(newMarkup), bid: Math.round(newBid),
+              baseCost: Math.round(newBaseCost), markup: useProjectBaseline ? 0 : Math.round(newBaseCost * (markupPct / 100)), bid: Math.round(newBid),
               profit: Math.round(newProfit), marginPct: Math.round(newMarginPct * 10) / 10,
             },
             impact: {
@@ -8799,8 +9196,9 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
               costIncrease: Math.round(newBaseCost - baseCost),
               breakEvenCostIncrease: originalProfit > 0 ? `${Math.round((originalProfit / baseCost) * 100)}%` : 'N/A',
             },
-            message: `📊 ${adj.label}: Profit ${profitChange >= 0 ? '+' : ''}$${Math.round(profitChange).toLocaleString()} → Margin ${Math.round(newMarginPct * 10) / 10}% (was ${Math.round(originalMarginPct * 10) / 10}%)`,
+            message: `### Scenario Analysis\n\n${formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline)}${disclaimer}`,
           };
+          }
 
         // ── CHANGE ORDER EXECUTOR ─────────────────────────────────────────────
         } else if (functionName === 'create_change_order') {
@@ -9087,8 +9485,11 @@ RULES:
 
         } else if (functionName === 'mark_payment_collected') {
           const targetPid = functionArgs.projectId || projectId;
-          const allMilestones = getAllMilestonesFromContext(parsedContext);
-          const pendingPayments = getPendingPaymentMilestones(parsedContext);
+          const paymentExecutorContext = currentProjectData
+            ? { ...parsedContext, currentProject: currentProjectData, projectId }
+            : parsedContext;
+          const allMilestones = getAllMilestonesFromContext(paymentExecutorContext);
+          const pendingPayments = getPendingPaymentMilestones(paymentExecutorContext);
           
           // Try to match by ID first
           let match = null;
@@ -9262,6 +9663,11 @@ RULES:
           content: JSON.stringify(cleanResult),
         });
 
+        // Use scenario tool message as final reply so user always sees Typical Friction / Bad Remodel / Smooth Job (not LLM summary)
+        if (functionName === 'run_scenario_analysis' && functionResult?.success && functionResult?.message) {
+          scenarioAnalysisReply = functionResult.message;
+        }
+
         // ── AUDIT LOG: record every tool execution ─────────────────────────
         writeAuditLog({
           event: cleanResult.success ? 'tool_success' : 'tool_error',
@@ -9388,7 +9794,13 @@ RULES:
       logPhase('final_llm_done');
 
       reply = completion.choices[0].message.content || 'Sorry, I could not generate a response.';
-      
+
+      // CRITICAL: When we ran scenario analysis (all three presets), use the tool's message so user sees Typical Friction / Bad Remodel / Smooth Job — not the LLM's generic summary
+      if (scenarioAnalysisReply) {
+        reply = scenarioAnalysisReply;
+        if (process.env.DEBUG_AI_CONTEXT) console.log('🛡️ Scenario: using tool result as reply (all three scenarios)');
+      }
+
       // Check if AI responded without calling function when it should have
       const toolCallsAfter = completion.choices[0].message.tool_calls || [];
       const userMessage = messages.find(m => m.role === 'user');
