@@ -313,21 +313,197 @@ function formatMarginReply(opts = {}) {
 // SCENARIO "YES" = ALL PRESETS — run inline when user says Yes after scenario question
 // Returns formatted message or null if no project context
 // ─────────────────────────────────────────────────────────────────────────────
-function formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline) {
+function formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, baselineLabel) {
   const profitStr = `${profitChange >= 0 ? '+' : ''}$${Math.round(profitChange).toLocaleString()}`;
-  const marginStr = `${Math.round(newMarginPct * 10) / 10}%`;
-  const wasStr = `${Math.round(originalMarginPct * 10) / 10}%`;
+  const marginStr = `${(Math.round(newMarginPct * 10) / 10).toFixed(1)}%`;
+  const wasStr = `${(Math.round(originalMarginPct * 10) / 10).toFixed(1)}%`;
   const profitEmoji = profitChange >= 0 ? '📈' : '📉';
   let subLabel;
   if (adj.weeks) {
-    subLabel = `${adj.weeks} extra week${adj.weeks > 1 ? 's' : ''} (labor + materials + overhead)`;
+    subLabel = `${adj.weeks} extra week${adj.weeks > 1 ? 's' : ''} (labor + field overhead)`;
   } else if (adj.labor || adj.materials || adj.overhead) {
     subLabel = `Labor ${adj.labor >= 0 ? '+' : ''}${adj.labor}% · Mat ${adj.materials >= 0 ? '+' : ''}${adj.materials}%${adj.overhead ? ` · OH ${adj.overhead >= 0 ? '+' : ''}${adj.overhead}%` : ''}`;
   } else {
     subLabel = adj.label;
   }
-  const forecastNote = useProjectBaseline ? ' (project forecast)' : '';
-  return `**${adj.label}**\n${subLabel}\n${profitEmoji} Profit **${profitStr}** · Margin **${marginStr}** (was ${wasStr})${forecastNote}`;
+  const baselineNote = baselineLabel ? `\n_${baselineLabel}_` : '';
+  return `**${adj.label}**\n${subLabel}\n${profitEmoji} Profit **${profitStr}** · Margin **${marginStr}** (was ${wasStr})${baselineNote}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCENARIO FULL RESPONSE — structured output for single-scenario results
+// Returns complete response with baseline, assumptions, numbers, and impact
+// ─────────────────────────────────────────────────────────────────────────────
+function formatScenarioFullResponse(opts) {
+  const { adj, baselineLabel, original, adjusted, impact, projectName } = opts;
+  const fmt = (n) => (n != null && Number.isFinite(n) ? `$${Math.round(n).toLocaleString()}` : '—');
+  const pct = (n) => (n != null && Number.isFinite(n) ? `${Math.round(n * 10) / 10}%` : '—');
+  const baselineShort = baselineLabel && baselineLabel.includes('live forecast')
+    ? 'Current live forecast'
+    : baselineLabel && baselineLabel.includes('original estimate')
+      ? 'Original estimate baseline'
+      : baselineLabel || 'Original estimate baseline';
+
+  const lines = [];
+  lines.push(`**${adj.label}** scenario${projectName ? ` for ${projectName}` : ''}\n`);
+  lines.push(`**Baseline used:** ${baselineShort}\n`);
+
+  // Assumptions applied (use percentages from scenario definition, never invent)
+  lines.push('**Assumptions applied:**');
+  if (adj.weeks) {
+    lines.push(`- ${adj.weeks} extra week${adj.weeks > 1 ? 's' : ''} of delay-sensitive cost (labor, field overhead, supervision, and delay inefficiency)`);
+  } else {
+    if (adj.labor != null) lines.push(`- Labor: ${adj.labor >= 0 ? '+' : ''}${adj.labor}%`);
+    if (adj.materials != null) lines.push(`- Materials: ${adj.materials >= 0 ? '+' : ''}${adj.materials}%`);
+    if (adj.overhead != null) lines.push(`- Overhead: ${adj.overhead >= 0 ? '+' : ''}${adj.overhead}%`);
+    if (adj.labor == null && adj.materials == null && adj.overhead == null) {
+      lines.push('- No cost adjustments');
+    }
+  }
+  lines.push('');
+
+  // Numbers — clear labels for each value
+  const origMarginStr = original?.marginPct != null ? `${(Math.round(original.marginPct * 10) / 10).toFixed(1)}%` : '—';
+  const newMarginStr = adjusted?.marginPct != null ? `${(Math.round(adjusted.marginPct * 10) / 10).toFixed(1)}%` : '—';
+  lines.push('**Original:**');
+  lines.push(`- Original bid: ${fmt(original?.bid)}`);
+  lines.push(`- Original cost: ${fmt(original?.baseCost)}`);
+  lines.push(`- Original projected profit: ${fmt(original?.profit)}`);
+  lines.push(`- Original projected margin: ${origMarginStr}`);
+  lines.push('');
+  lines.push('**Revised:**');
+  lines.push(`- Revised cost: ${fmt(adjusted?.baseCost)}`);
+  lines.push(`- Revised projected profit: ${fmt(adjusted?.profit)}`);
+  lines.push(`- Revised projected margin: ${newMarginStr}`);
+  lines.push('');
+
+  // Impact
+  const origMargin = original?.marginPct != null ? Math.round(original.marginPct * 10) / 10 : null;
+  const newMargin = adjusted?.marginPct != null ? Math.round(adjusted.marginPct * 10) / 10 : null;
+  const marginChange = impact?.marginChange != null ? Math.round(impact.marginChange * 10) / 10 : (newMargin != null && origMargin != null ? newMargin - origMargin : null);
+  const direction = marginChange != null && marginChange < 0 ? 'drop' : 'rise';
+  const absChange = marginChange != null ? Math.abs(marginChange) : null;
+
+  lines.push('**Impact:**');
+  if (origMargin != null && newMargin != null && absChange != null) {
+    lines.push(`Your projected margin would ${direction} from ${origMargin.toFixed(1)}% to ${newMargin.toFixed(1)}%, a ${marginChange < 0 ? 'decline' : 'gain'} of ${absChange} margin point${absChange !== 1 ? 's' : ''}.`);
+  } else if (impact?.profitChange != null) {
+    const sign = impact.profitChange >= 0 ? '+' : '';
+    lines.push(`Projected profit change: ${sign}$${Math.round(impact.profitChange).toLocaleString()}.`);
+  }
+  return lines.join('\n');
+}
+
+// Compact block for multi-scenario (all_presets) view
+function formatScenarioPresetBlock(adj, originalMarginPct, newBaseCost, newBid, newProfit, newMarginPct, profitChange) {
+  const fmt = (n) => (n != null && Number.isFinite(n) ? `$${Math.round(n).toLocaleString()}` : '—');
+  const pct = (n) => (n != null && Number.isFinite(n) ? `${(Math.round(n * 10) / 10).toFixed(1)}%` : '—');
+  let assumptions = '';
+  if (adj.weeks) {
+    assumptions = `${adj.weeks} extra week${adj.weeks > 1 ? 's' : ''} of delay-sensitive cost (labor, field overhead, supervision, and delay inefficiency)`;
+  } else {
+    const parts = [];
+    if (adj.labor != null && adj.labor !== 0) parts.push(`Labor ${adj.labor >= 0 ? '+' : ''}${adj.labor}%`);
+    if (adj.materials != null && adj.materials !== 0) parts.push(`Materials ${adj.materials >= 0 ? '+' : ''}${adj.materials}%`);
+    if (adj.overhead != null && adj.overhead !== 0) parts.push(`Overhead ${adj.overhead >= 0 ? '+' : ''}${adj.overhead}%`);
+    assumptions = parts.length ? parts.join(', ') : 'No adjustments';
+  }
+  const marginChange = newMarginPct != null && originalMarginPct != null ? (newMarginPct - originalMarginPct) : null;
+  const origMarginStr = originalMarginPct != null ? `${(Math.round(originalMarginPct * 10) / 10).toFixed(1)}%` : '—';
+  const impactStr = marginChange != null
+    ? `Margin ${marginChange < 0 ? 'drops' : 'rises'} from ${origMarginStr} to ${pct(newMarginPct)}`
+    : '';
+  return `**${adj.label}**\nAssumptions: ${assumptions}\nRevised cost: ${fmt(newBaseCost)} · Revised projected profit: ${fmt(newProfit)} · Revised projected margin: ${pct(newMarginPct)}\nImpact: ${impactStr}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCENARIO MATH HELPERS — bucket-by-bucket primary, weighted fallback
+// ─────────────────────────────────────────────────────────────────────────────
+function computeScenarioCost(adj, { baseCost, laborCost, materialCost, overheadCost, originalBid }) {
+  const hasBucketBreakdown = (laborCost > 0 || materialCost > 0 || overheadCost > 0) && (laborCost + materialCost + overheadCost) > 0;
+  let newBaseCost, newBid, newLabor, newMaterials, newOverhead;
+
+  if (adj.weeks) {
+    return null; // Handled separately for delay logic
+  }
+
+  if (hasBucketBreakdown && (adj.labor != null || adj.materials != null || adj.overhead != null)) {
+    // PRIMARY: Bucket-by-bucket math
+    newLabor = laborCost * (1 + (adj.labor || 0) / 100);
+    newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
+    newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
+    newBaseCost = newLabor + newMaterials + newOverhead;
+    newBid = originalBid * (1 + (adj.bid || 0) / 100);
+  } else if (baseCost > 0 && (adj.labor != null || adj.materials != null || adj.overhead != null)) {
+    // FALLBACK: Weighted blend using cost shares (or equal weights if no breakdown)
+    const totalFromBuckets = laborCost + materialCost + overheadCost;
+    let laborShare = 1 / 3, materialsShare = 1 / 3, overheadShare = 1 / 3;
+    if (totalFromBuckets > 0) {
+      laborShare = laborCost / totalFromBuckets;
+      materialsShare = materialCost / totalFromBuckets;
+      overheadShare = overheadCost / totalFromBuckets;
+    }
+    const weightedPct = (laborShare * (adj.labor || 0)) + (materialsShare * (adj.materials || 0)) + (overheadShare * (adj.overhead || 0));
+    newBaseCost = baseCost * (1 + weightedPct / 100);
+    newBid = originalBid * (1 + (adj.bid || 0) / 100);
+    newLabor = laborCost;
+    newMaterials = materialCost;
+    newOverhead = overheadCost;
+  } else {
+    return null;
+  }
+
+  const newProfit = newBid - newBaseCost;
+  const newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+  return { newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead };
+}
+
+function computeDelayCost(adj, { baseCost, laborCost, materialCost, overheadCost, estimatedWeeks }) {
+  if (!adj.weeks || estimatedWeeks <= 0) return null;
+  const weeks = Math.max(estimatedWeeks, 1);
+  // Delay-sensitive: labor + field overhead + rentals/supervision proxy + delay friction allowance.
+  // Materials excluded: delayed jobs do not typically repeat full material spend weekly.
+  const weeklyLabor = laborCost > 0 ? laborCost / weeks : 0;
+  const weeklyFieldOverhead = overheadCost > 0 ? overheadCost / weeks : 0;
+  const weeklyRentalsSupervision = baseCost > 0 ? (baseCost * 0.12 / weeks) : 0; // 12% of base per week proxy
+  const weeklyDelayFriction = (weeklyLabor + weeklyFieldOverhead) * 0.12; // inefficiency, remobilization, cleanup
+  let weeklyDelaySensitive = weeklyLabor + weeklyFieldOverhead + weeklyRentalsSupervision + weeklyDelayFriction;
+  // Floor: ensure Job Runs Long (2 weeks) is usually worse than Typical Friction (~6% cost bump)
+  const minWeeklyPct = 0.035; // 3.5% of base per week → 2 weeks = 7% minimum
+  if (baseCost > 0) {
+    const floor = baseCost * minWeeklyPct;
+    weeklyDelaySensitive = Math.max(weeklyDelaySensitive, floor);
+  }
+  const addedDelayCost = weeklyDelaySensitive > 0 ? Math.round(weeklyDelaySensitive * adj.weeks) : Math.round((baseCost * 0.5 / weeks) * adj.weeks);
+  const newBaseCost = baseCost + addedDelayCost;
+  return { newBaseCost, addedDelayCost };
+}
+
+// Resolve correct full estimate baseline cost. Prefer full total over bucket sum (bucket sum can be partial).
+function resolveEstimateBaselineCost(ctx, currentProject, estimateData, bucketSum, revenue, markupPct) {
+  const fullTotal = Number(
+    ctx.estimatedCost ||
+    estimateData?.totalCost ||
+    estimateData?.estimatedCost ||
+    estimateData?.baseCost ||
+    estimateData?.subtotal ||
+    currentProject?.estimatedCost ||
+    0
+  );
+  if (fullTotal > 0 && fullTotal >= bucketSum) return fullTotal;
+  if (revenue > 0 && markupPct > 0 && markupPct < 100) {
+    const derivedFromBid = revenue / (1 + markupPct / 100);
+    if (derivedFromBid > 0 && derivedFromBid >= bucketSum) return Math.round(derivedFromBid);
+  }
+  if (revenue > 0 && (ctx.bidMarginPct ?? estimateData?.marginPct ?? estimateData?.margin) != null) {
+    const marginPct = Number(ctx.bidMarginPct ?? estimateData?.marginPct ?? estimateData?.margin ?? 0);
+    const pct = marginPct > 1 ? marginPct : marginPct * 100;
+    if (pct > 0 && pct < 100) {
+      const derived = revenue * (1 - pct / 100);
+      if (derived > 0 && derived >= bucketSum) return Math.round(derived);
+    }
+  }
+  return bucketSum > 0 ? bucketSum : fullTotal;
 }
 
 function runScenarioAllPresetsInline(ctx = {}) {
@@ -336,40 +512,48 @@ function runScenarioAllPresetsInline(ctx = {}) {
   const revenue = Number(ctx.contractValue || ctx.bidTotal || ctx.total || estimateData.totalBid || currentProject.bidPrice || 0);
   const forecastCost = Number(ctx.forecastFinalCost || currentProject.forecastFinalCost || 0);
   const projectedMarginPct = typeof ctx.projectedMarginPct === 'number' && Number.isFinite(ctx.projectedMarginPct) ? ctx.projectedMarginPct : (currentProject.projectedMarginPct);
-  const hasProjectBaseline = revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
+  const actualCost = Number(ctx.actualCost || ctx.totalSpent || currentProject.actualCost || currentProject.totalSpent || 0);
+  const estimatedCost = Number(estimateData.totalCost || estimateData.estimatedCost || estimateData.baseCost || currentProject.estimatedCost || 0);
+
+  // Baseline selection: use estimate when early-stage (<20% spend); otherwise use live forecast when available
+  const spendPct = estimatedCost > 0 ? (actualCost / estimatedCost) * 100 : 0;
+  const useLiveForecast = spendPct >= 20 && revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
   const baseCostFromProject = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projectedMarginPct === 'number') ? revenue * (1 - projectedMarginPct / 100) : 0;
-  if (!hasProjectBaseline && revenue <= 0) return null;
-  let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct;
-  let useProjectBaseline = false;
-  if (hasProjectBaseline && baseCostFromProject > 0) {
-    useProjectBaseline = true;
+
+  let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct, baselineLabel;
+  materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+  laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
+  overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
+  const bucketSum = materialCost + laborCost + overheadCost;
+  markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+  const resolvedBaseCost = resolveEstimateBaselineCost(ctx, currentProject, estimateData, bucketSum, revenue, markupPct);
+  if (bucketSum > 0 && resolvedBaseCost > bucketSum) {
+    const scale = resolvedBaseCost / bucketSum;
+    materialCost *= scale;
+    laborCost *= scale;
+    overheadCost *= scale;
+  }
+
+  if (useLiveForecast && baseCostFromProject > 0) {
     baseCost = baseCostFromProject;
     originalBid = revenue;
-    originalProfit = revenue - baseCost;
-    originalMarginPct = revenue > 0 ? (originalProfit / revenue * 100) : 0;
-    materialCost = laborCost = overheadCost = markupPct = 0;
+    baselineLabel = 'This scenario is based on your current live forecast.';
+  } else if (revenue > 0 && resolvedBaseCost > 0) {
+    baseCost = resolvedBaseCost;
+    originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + baseCost * (markupPct / 100));
+    baselineLabel = 'This scenario is based on your original estimate baseline.';
+  } else if (revenue > 0 && baseCostFromProject > 0) {
+    baseCost = baseCostFromProject;
+    originalBid = revenue;
+    baselineLabel = 'This scenario is based on your current live forecast.';
   } else {
-    materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
-    laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
-    overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
-    baseCost = materialCost + laborCost + overheadCost;
-    markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
-    const markup = baseCost * (markupPct / 100);
-    originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
-    originalProfit = originalBid - baseCost;
-    originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+    return null;
   }
-  const scenarioMap = {
-    typical_friction: { labor: 8, materials: 5, overhead: 3, bid: 0, costPct: 5.33, label: 'Typical Friction' },
-    bad_remodel: { labor: 20, materials: 15, overhead: 10, bid: 0, costPct: 15, label: 'Bad Remodel' },
-    smooth_job: { labor: -5, materials: -3, overhead: 0, bid: 0, costPct: -4, label: 'Smooth Job' },
-    job_runs_long: { weeks: 2, label: 'Job Runs Long (2 weeks)' },
-    job_runs_long_4: { weeks: 4, label: 'Job Runs Long (4 weeks)' },
-    job_runs_long_6: { weeks: 6, label: 'Job Runs Long (6 weeks)' },
-  };
-  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
-  const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
-  const parts = ['### Scenario Analysis\n', `Baseline: **${Math.round(originalMarginPct * 10) / 10}%** margin\n`];
+
+  originalProfit = originalBid - baseCost;
+  originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+  markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+
   const laborBudget = laborCost || Number(estimateData.laborTotal || currentProject.laborTotal || 0);
   const materialBudget = materialCost || Number(estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
   const overheadBudget = overheadCost || Number(estimateData.overheadTotal || currentProject.overheadTotal || 0);
@@ -383,37 +567,200 @@ function runScenarioAllPresetsInline(ctx = {}) {
       estimatedWeeks = Math.max(4, Math.round((end - start) / (7 * 24 * 60 * 60 * 1000)));
     }
   }
+
+  const scenarioMap = {
+    typical_friction: { labor: 8, materials: 5, overhead: 3, bid: 0, label: 'Typical Friction' },
+    bad_remodel: { labor: 20, materials: 15, overhead: 10, bid: 0, label: 'Bad Remodel' },
+    smooth_job: { labor: -5, materials: -3, overhead: 0, bid: 0, label: 'Smooth Job' },
+    job_runs_long: { weeks: 2, label: 'Job Runs Long (2 weeks)' },
+    job_runs_long_4: { weeks: 4, label: 'Job Runs Long (4 weeks)' },
+    job_runs_long_6: { weeks: 6, label: 'Job Runs Long (6 weeks)' },
+  };
+  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+  const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
+  const baselineShort = baselineLabel && baselineLabel.includes('live forecast')
+    ? 'Current live forecast'
+    : 'Original estimate baseline';
+  const projectName = (() => { const p = currentProject?.title || currentProject?.name || ctx.bidTitle; return typeof p === 'string' && p ? p : ''; })();
+  const parts = [
+    '### Scenario Analysis',
+    projectName ? `\nScenarios for ${projectName}\n` : '\n',
+    `**Baseline used:** ${baselineShort}\n`,
+  ];
+
   for (const preset of presets) {
     const adj = scenarioMap[preset];
     let newBaseCost, newBid, newProfit, newMarginPct;
     if (adj.weeks) {
-      const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
-      const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
-      const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
-      const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
-      const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
-      newBaseCost = baseCost + addedDelayCost;
+      const delayResult = computeDelayCost(adj, { baseCost, laborCost, materialCost, overheadCost, estimatedWeeks });
+      if (delayResult) {
+        newBaseCost = delayResult.newBaseCost;
+        newBid = originalBid;
+        newProfit = newBid - newBaseCost;
+        newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+      } else {
+        const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+        const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+        const weeklyDelay = weeklyLabor + weeklyOverhead || (baseCost * 0.5 / estimatedWeeks);
+        newBaseCost = baseCost + Math.round(weeklyDelay * adj.weeks);
+        newBid = originalBid;
+        newProfit = newBid - newBaseCost;
+        newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+      }
+    } else {
+      const result = computeScenarioCost(adj, { baseCost, laborCost, materialCost, overheadCost, originalBid });
+      if (result) {
+        newBaseCost = result.newBaseCost;
+        newBid = result.newBid;
+        newProfit = result.newProfit;
+        newMarginPct = result.newMarginPct;
+      } else {
+        const totalFromBuckets = laborCost + materialCost + overheadCost;
+        const laborShare = totalFromBuckets > 0 ? laborCost / totalFromBuckets : 1 / 3;
+        const materialsShare = totalFromBuckets > 0 ? materialCost / totalFromBuckets : 1 / 3;
+        const overheadShare = totalFromBuckets > 0 ? overheadCost / totalFromBuckets : 1 / 3;
+        const weightedPct = (laborShare * (adj.labor || 0)) + (materialsShare * (adj.materials || 0)) + (overheadShare * (adj.overhead || 0));
+        newBaseCost = baseCost * (1 + weightedPct / 100);
+        newBid = originalBid * (1 + (adj.bid || 0) / 100);
+        newProfit = newBid - newBaseCost;
+        newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+      }
+    }
+    const profitChange = newProfit - originalProfit;
+    parts.push(formatScenarioPresetBlock(adj, originalMarginPct, newBaseCost, newBid, newProfit, newMarginPct, profitChange));
+  }
+  return parts.join('\n\n') + disclaimer;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUN SCENARIO SINGLE INLINE — for RUN-FIRST when user taps a scenario card
+// Returns formatted message or null if no project context. Uses scenario card
+// assumptions exactly (e.g. Typical Friction = +8/+5/+3), never generic text.
+// ─────────────────────────────────────────────────────────────────────────────
+function runScenarioSingleInline(scenario, ctx = {}) {
+  const scenarioMap = {
+    typical_friction: { labor: 8, materials: 5, overhead: 3, bid: 0, label: 'Typical Friction' },
+    bad_remodel: { labor: 20, materials: 15, overhead: 10, bid: 0, label: 'Bad Remodel' },
+    smooth_job: { labor: -5, materials: -3, overhead: 0, bid: 0, label: 'Smooth Job' },
+    job_runs_long: { weeks: 2, label: 'Job Runs Long (2 weeks)' },
+    job_runs_long_4: { weeks: 4, label: 'Job Runs Long (4 weeks)' },
+    job_runs_long_6: { weeks: 6, label: 'Job Runs Long (6 weeks)' },
+  };
+  const adj = scenarioMap[scenario] || scenarioMap.typical_friction;
+  const currentProject = ctx.currentProject || ctx;
+  const estimateData = currentProject.estimateData || currentProject.estimate || {};
+  const revenue = Number(ctx.contractValue || ctx.bidTotal || ctx.total || estimateData.totalBid || currentProject.bidPrice || 0);
+  const forecastCost = Number(ctx.forecastFinalCost || currentProject.forecastFinalCost || 0);
+  const projectedMarginPct = typeof ctx.projectedMarginPct === 'number' && Number.isFinite(ctx.projectedMarginPct) ? ctx.projectedMarginPct : (currentProject.projectedMarginPct);
+  const actualCost = Number(ctx.actualCost || ctx.totalSpent || currentProject.actualCost || currentProject.totalSpent || 0);
+  const estimatedCost = Number(estimateData.totalCost || estimateData.estimatedCost || estimateData.baseCost || currentProject.estimatedCost || 0);
+  const baseCostFromProject = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projectedMarginPct === 'number') ? revenue * (1 - projectedMarginPct / 100) : 0;
+
+  const spendPct = estimatedCost > 0 ? (actualCost / estimatedCost) * 100 : 0;
+  const useLiveForecast = spendPct >= 20 && revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
+
+  let materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+  let laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
+  let overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
+  const bucketSum = materialCost + laborCost + overheadCost;
+  const markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+  const resolvedBaseCost = resolveEstimateBaselineCost(ctx, currentProject, estimateData, bucketSum, revenue, markupPct);
+  if (bucketSum > 0 && resolvedBaseCost > bucketSum) {
+    const scale = resolvedBaseCost / bucketSum;
+    materialCost *= scale;
+    laborCost *= scale;
+    overheadCost *= scale;
+  }
+
+  let baseCost, originalBid, baselineLabel;
+  if (useLiveForecast && baseCostFromProject > 0) {
+    baseCost = baseCostFromProject;
+    originalBid = revenue;
+    baselineLabel = 'This scenario is based on your current live forecast.';
+  } else if (revenue > 0 && resolvedBaseCost > 0) {
+    baseCost = resolvedBaseCost;
+    originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + baseCost * (markupPct / 100));
+    baselineLabel = 'This scenario is based on your original estimate baseline.';
+  } else if (revenue > 0 && baseCostFromProject > 0) {
+    baseCost = baseCostFromProject;
+    originalBid = revenue;
+    baselineLabel = 'This scenario is based on your current live forecast.';
+  } else {
+    return null;
+  }
+
+  const originalProfit = originalBid - baseCost;
+  const originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+  const laborBudget = laborCost || Number(estimateData.laborTotal || currentProject.laborTotal || 0);
+  const materialBudget = materialCost || Number(estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+  const overheadBudget = overheadCost || Number(estimateData.overheadTotal || currentProject.overheadTotal || 0);
+  const startISO = ctx.startDate || ctx.startISO || currentProject.startDate || currentProject.startISO;
+  const endISO = ctx.endDate || ctx.endISO || currentProject.endDate || currentProject.endISO;
+  let estimatedWeeks = 12;
+  if (startISO && endISO) {
+    const start = new Date(String(startISO));
+    const end = new Date(String(endISO));
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end > start) {
+      estimatedWeeks = Math.max(4, Math.round((end - start) / (7 * 24 * 60 * 60 * 1000)));
+    }
+  }
+
+  let newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead;
+  if (adj.weeks) {
+    const delayResult = computeDelayCost(adj, { baseCost, laborCost, materialCost, overheadCost, estimatedWeeks });
+    if (delayResult) {
+      newBaseCost = delayResult.newBaseCost;
       newBid = originalBid;
       newProfit = newBid - newBaseCost;
       newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
-    } else if (useProjectBaseline && typeof adj.costPct === 'number') {
-      newBaseCost = baseCost * (1 + adj.costPct / 100);
-      newBid = originalBid * (1 + (adj.bid || 0) / 100);
-      newProfit = newBid - newBaseCost;
-      newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
     } else {
-      const newLabor = laborCost * (1 + (adj.labor || 0) / 100);
-      const newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
-      const newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
-      newBaseCost = newLabor + newMaterials + newOverhead;
-      newBid = originalBid * (1 + (adj.bid || 0) / 100);
+      const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+      const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+      const weeklyDelay = weeklyLabor + weeklyOverhead || (baseCost * 0.5 / estimatedWeeks);
+      newBaseCost = baseCost + Math.round(weeklyDelay * adj.weeks);
+      newBid = originalBid;
       newProfit = newBid - newBaseCost;
       newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
     }
-    const profitChange = newProfit - originalProfit;
-    parts.push(formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline));
+    newLabor = laborCost;
+    newMaterials = materialCost;
+    newOverhead = overheadCost;
+  } else {
+    const result = computeScenarioCost(adj, { baseCost, laborCost, materialCost, overheadCost, originalBid });
+    if (result) {
+      newBaseCost = result.newBaseCost;
+      newBid = result.newBid;
+      newProfit = result.newProfit;
+      newMarginPct = result.newMarginPct;
+      newLabor = result.newLabor;
+      newMaterials = result.newMaterials;
+      newOverhead = result.newOverhead;
+    } else {
+      const totalFromBuckets = laborCost + materialCost + overheadCost;
+      const laborShare = totalFromBuckets > 0 ? laborCost / totalFromBuckets : 1 / 3;
+      const materialsShare = totalFromBuckets > 0 ? materialCost / totalFromBuckets : 1 / 3;
+      const overheadShare = totalFromBuckets > 0 ? overheadCost / totalFromBuckets : 1 / 3;
+      const weightedPct = (laborShare * (adj.labor || 0)) + (materialsShare * (adj.materials || 0)) + (overheadShare * (adj.overhead || 0));
+      newBaseCost = baseCost * (1 + weightedPct / 100);
+      newBid = originalBid * (1 + (adj.bid || 0) / 100);
+      newProfit = newBid - newBaseCost;
+      newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+      newLabor = laborCost;
+      newMaterials = materialCost;
+      newOverhead = overheadCost;
+    }
   }
-  return parts.join('\n\n') + disclaimer;
+  const profitChange = newProfit - originalProfit;
+  const projectName = (() => { const p = currentProject?.title || currentProject?.name || ctx.bidTitle; return typeof p === 'string' && p ? p : ''; })();
+  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+  return formatScenarioFullResponse({
+    adj,
+    baselineLabel: baselineLabel || '',
+    original: { baseCost, bid: originalBid, profit: originalProfit, marginPct: originalMarginPct },
+    adjusted: { baseCost: newBaseCost, bid: newBid, profit: newProfit, marginPct: newMarginPct },
+    impact: { profitChange, marginChange: newMarginPct - originalMarginPct },
+    projectName,
+  }) + disclaimer;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2714,6 +3061,24 @@ router.post('/stream', async (req, res) => {
       }
     }
 
+    // RUN-FIRST STREAM: User tapped a scenario card — return computed result immediately (no LLM)
+    const scenarioIdsStream = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4', 'job_runs_long_6'];
+    const selectedScenarioStream = parsedContext?.scenarioSelectionResume && parsedContext?.selectedScenario
+      ? parsedContext.selectedScenario
+      : (scenarioIdsStream.includes(String(userMsgTrimStream || '').toLowerCase()) ? String(userMsgTrimStream || '').toLowerCase() : null);
+    if (selectedScenarioStream) {
+      const projStreamSingle = parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) || parsedContext;
+      const ctxStreamSingle = { ...parsedContext, currentProject: projStreamSingle };
+      const singleScenarioReply = runScenarioSingleInline(selectedScenarioStream, ctxStreamSingle);
+      if (singleScenarioReply) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: singleScenarioReply })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
     const session = sessionStream;
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     const allProjects = parsedContext.allProjects || [];
@@ -3260,6 +3625,22 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // ── RUN-FIRST: User tapped a scenario card (typical_friction, bad_remodel, etc.) — return computed result immediately
+    // Bypasses router/LLM so we always return correct assumptions (+8/+5/+3 for Typical Friction) and final numbers
+    const scenarioIds = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4', 'job_runs_long_6'];
+    const selectedScenarioRunFirst = parsedContext?.scenarioSelectionResume && parsedContext?.selectedScenario
+      ? parsedContext.selectedScenario
+      : (scenarioIds.includes(String(userMsgTrim || '').toLowerCase()) ? String(userMsgTrim || '').toLowerCase() : null);
+    if (selectedScenarioRunFirst) {
+      const projRunFirst = parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) || parsedContext;
+      const ctxRunFirst = { ...parsedContext, currentProject: projRunFirst };
+      const singleReply = runScenarioSingleInline(selectedScenarioRunFirst, ctxRunFirst);
+      if (singleReply) {
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST scenario card tap:', selectedScenarioRunFirst);
+        return res.json({ reply: singleReply, actions: [] });
+      }
+    }
+
     // Build system prompt based on context and settings
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     
@@ -3510,7 +3891,7 @@ router.post('/', async (req, res) => {
         const marginAtCompletion = contract > 0 ? ((contract - projectedFinalCost) / contract) * 100 : 0;
         let reply = `At **${targetProgressPct}% complete** (${100 - targetProgressPct}% timeline left), your **margin** would be approximately **${Number(marginAtTarget).toFixed(1)}%** (profit: $${Math.round(profitAtTarget).toLocaleString()}). `;
         reply += `This assumes spend scales linearly with progress. Your current projection at completion is ${Number(marginAtCompletion).toFixed(1)}% margin. `;
-        reply += `Want me to run a what-if scenario (materials +10%, labor +10%, or job runs long) to pressure-test this?`;
+          reply += `Want me to run a what-if scenario (Typical Friction, Bad Remodel, or Job Runs Long) to pressure-test this?`;
         console.log('✅ MARGIN AT PROGRESS: short response for', name, 'at', targetProgressPct, '%');
         return res.json({ reply, actions: [] });
       }
@@ -3968,7 +4349,7 @@ router.post('/', async (req, res) => {
         }
       }
       reply += `[DISCLAIMER]Delay scenario uses explicit cost additions (labor, materials, overhead) — not progress-ratio forecasting. Schedule delays are modeled as additional expected cost.[/DISCLAIMER]\n\n`;
-      reply += `➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this?`;
+      reply += `➡️ Want me to run a what-if scenario (Typical Friction, Bad Remodel, or Job Runs Long) to pressure-test this?`;
 
       console.log('✅ EARLY delay-scenario profit projection (two-layer model) — returning immediately');
       return res.json({ reply, actions: [] });
@@ -4514,7 +4895,7 @@ router.post('/', async (req, res) => {
         reply += `${i + 1}. ${d}\n`;
       });
       reply += `\n[DISCLAIMER]Forecasts are projections based on current burn rate and progress—not guarantees of actual final cost or profit.[/DISCLAIMER]\n\n`;
-      reply += `➡️ Want me to run a what-if scenario (materials +10%, labor +10%, or bad-remodel) to pressure-test this forecast?`;
+      reply += `➡️ Want me to run a what-if scenario (Typical Friction, Bad Remodel, or Job Runs Long) to pressure-test this forecast?`;
 
       return res.json({ reply, actions: [] });
     }
@@ -6759,11 +7140,22 @@ router.post('/', async (req, res) => {
       const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
       const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
       
-      // If this is clearly an expense logging request without type, return early
+      // If this is clearly an expense logging request without type, return early with green-card options
       if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
-        console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning early');
-        const question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
-        return res.json({ reply: question, actions: [], projectUpdateData: null });
+        console.log('🛑 PRE-ROUTER: Detected expense logging without type → returning expense type cards');
+        const expenseTypeOptions = [
+          { id: 'materials', title: 'Materials', subtitle: 'Category, vendor, amount' },
+          { id: 'labor', title: 'Labor', subtitle: 'Trade, description, amount' },
+          { id: 'equipment', title: 'Equipment', subtitle: 'Rental or purchase' },
+          { id: 'permit', title: 'Permit', subtitle: 'Permit fees' },
+          { id: 'other', title: 'Other', subtitle: 'Custom category' },
+        ];
+        return res.json({
+          reply: 'What type of expense are you logging?',
+          actions: [],
+          projectUpdateData: null,
+          expenseTypeSelectionOptions: expenseTypeOptions,
+        });
       }
     } else {
       console.log('📝 PRE-ROUTER: User is in daily log flow, skipping expense detection');
@@ -7040,8 +7432,10 @@ router.post('/', async (req, res) => {
                               /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
     const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense && !inDailyLogContextForExpense;
     
-    // Check if expense type is already specified (materials/labor)
-    const hasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessageForExpense);
+    // Check if expense type is already specified (materials/labor) or from green-card selection
+    const expenseTypeFromCards = parsedContext?.expenseTypeSelectionResume && parsedContext?.selectedExpenseType;
+    const hasExpenseType = expenseTypeFromCards ||
+      /\b(material|materials|labor|labour|equipment|permit|other)\b/i.test(combinedMessageForExpense);
     
     console.log('🔍 Expense logging detection:', { 
       isExpenseLoggingRequest, 
@@ -7260,9 +7654,16 @@ router.post('/', async (req, res) => {
         routerResult.domain = 'expenses';
         routerResult.proposed_tool = 'add_material_expense';
         routerResult.required_fields_missing = ['expense_type'];
-        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
+        routerResult.clarification_question = 'What type of expense are you logging?';
+        routerResult.expenseTypeSelectionOptions = [
+          { id: 'materials', title: 'Materials', subtitle: 'Category, vendor, amount' },
+          { id: 'labor', title: 'Labor', subtitle: 'Trade, description, amount' },
+          { id: 'equipment', title: 'Equipment', subtitle: 'Rental or purchase' },
+          { id: 'permit', title: 'Permit', subtitle: 'Permit fees' },
+          { id: 'other', title: 'Other', subtitle: 'Custom category' },
+        ];
         routerResult.confidence = 0.95;
-        console.log('🛡️ Expense guard: overriding router to ask for expense type');
+        console.log('🛡️ Expense guard: overriding router to ask for expense type (with cards)');
       }
     } else if (isDailyLogDomain) {
       console.log('🛡️ Daily log protection: router says daily_log, blocking expense guard override');
@@ -7289,13 +7690,19 @@ router.post('/', async (req, res) => {
     // PRE-ROUTER set this when user said "all of them" / "all" / "yes" after scenario choice
     const forceAllPresets = req._forceScenarioAllPresets === true;
     const scenarioChoiceMap = [
+      { regex: /\btypical_friction\b/i, value: 'typical_friction' }, // From card id
       { regex: /\btypical\s*friction\b/i, value: 'typical_friction' },
       { regex: /\btypical\s+friction\b/i, value: 'typical_friction' }, // Match with space
       { regex: /\btypical\b/i, value: 'typical_friction' }, // Match just "typical" if in scenario context
+      { regex: /\bbad_remodel\b/i, value: 'bad_remodel' }, // From card id
       { regex: /\bbad\s*remodel\b/i, value: 'bad_remodel' },
       { regex: /\bbad\s+remodel\b/i, value: 'bad_remodel' }, // Match with space
+      { regex: /\bsmooth_job\b/i, value: 'smooth_job' }, // From card id
       { regex: /\bsmooth\s*job\b/i, value: 'smooth_job' },
       { regex: /\bsmooth\s+job\b/i, value: 'smooth_job' }, // Match with space
+      { regex: /\bjob_runs_long_4\b/i, value: 'job_runs_long_4' }, // From card id
+      { regex: /\bjob_runs_long_6\b/i, value: 'job_runs_long_6' }, // From card id
+      { regex: /\bjob_runs_long\b/i, value: 'job_runs_long' }, // From card id (must be after _4, _6)
       { regex: /\bjob\s+runs?\s+long\s+4\s*weeks?\b/i, value: 'job_runs_long_4' },
       { regex: /\bjob\s+runs?\s+long\s+6\s*weeks?\b/i, value: 'job_runs_long_6' },
       { regex: /\b4\s*weeks?\s+(?:too\s+long|long|delay)\b/i, value: 'job_runs_long_4' },
@@ -7313,7 +7720,12 @@ router.post('/', async (req, res) => {
       { regex: /\bbid\s*\+?\s*2%?\b/i, value: 'bid_up_2' },
       { regex: /\bbid\s*-\s*2%?\b/i, value: 'bid_down_2' },
     ];
-    const selectedScenario = scenarioChoiceMap.find(({ regex }) => regex.test(String(message || '')))?.value || null;
+    let selectedScenario = scenarioChoiceMap.find(({ regex }) => regex.test(String(message || '')))?.value || null;
+    // User tapped a scenario card — use selected scenario from context
+    if (parsedContext?.scenarioSelectionResume && parsedContext?.selectedScenario) {
+      selectedScenario = parsedContext.selectedScenario;
+      console.log('🛡️ Scenario guard: user selected from card', selectedScenario);
+    }
     const isGenericScenarioRequest =
       (scenarioIntentRegex.test(String(message || '')) || profitScenariosIntentRegex.test(String(message || ''))) &&
       !selectedScenario &&
@@ -7344,9 +7756,16 @@ router.post('/', async (req, res) => {
         console.log('🛡️ Scenario guard: scenario selected, executing', effectiveScenario);
       } else {
         routerResult.required_fields_missing = ['scenario'];
-        routerResult.clarification_question = 'Run a scenario analysis for this project. Do you want Typical Friction, Bad Remodel, Smooth Job, or Job Runs Long (2, 4, or 6 weeks)?';
+        routerResult.clarification_question = 'Which scenario would you like to run?';
+        routerResult.scenarioSelectionOptions = [
+          { id: 'typical_friction', title: 'Typical Friction', subtitle: 'Labor +8%, materials +5%, overhead +3%' },
+          { id: 'bad_remodel', title: 'Bad Remodel', subtitle: 'Labor +20%, materials +15%, overhead +10%' },
+          { id: 'smooth_job', title: 'Smooth Job', subtitle: 'Labor -5%, materials -3%' },
+          { id: 'job_runs_long', title: 'Job Runs Long (2 weeks)', subtitle: '2 extra weeks of burn' },
+          { id: 'job_runs_long_4', title: 'Job Runs Long (4 weeks)', subtitle: '4 extra weeks of burn' },
+        ];
         routerResult.confidence = 0.99;
-        console.log('🛡️ Scenario guard: asking user to choose scenario preset');
+        console.log('🛡️ Scenario guard: asking user to choose scenario preset (with cards)');
       }
     }
 
@@ -7445,13 +7864,13 @@ router.post('/', async (req, res) => {
       (lastAssistantPaymentMsgForGuard.includes('which milestone') ||
        lastAssistantPaymentMsgForGuard.includes('which payment') ||
        lastAssistantPaymentMsgForGuard.includes('specify which')) &&
-      lastAssistantPaymentMsgForGuard.includes('collected');
+      (lastAssistantPaymentMsgForGuard.includes('collected') || lastAssistantPaymentMsgForGuard.includes('completed') || lastAssistantPaymentMsgForGuard.includes('paid'));
     const paymentContextForGuard =
       lastAssistantAskedWhichPaymentForGuard && currentProjectData && !parsedContext.currentProject
         ? { ...parsedContext, currentProject: currentProjectData, projectId }
         : parsedContext;
     const pendingPaymentMilestones = getPendingPaymentMilestones(paymentContextForGuard);
-    const paymentCollectIntentRegex = /\b(mark|set|record).*(payment|deposit|milestone).*(collected|complete|paid)|\b(payment collected|collected payment|mark a payment as collected|got paid|received payment|mark collected)\b/i;
+    const paymentCollectIntentRegex = /\b(mark|set|record|make).*(payment|deposit|milestone).*(collected|complete|paid)|\b(payment collected|collected payment|mark a payment as collected|make a payment as completed|got paid|received payment|mark collected)\b/i;
     const lastAssistantPaymentMsg = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
     ).toLowerCase();
@@ -7459,14 +7878,17 @@ router.post('/', async (req, res) => {
       (lastAssistantPaymentMsg.includes('which milestone') ||
        lastAssistantPaymentMsg.includes('which payment') ||
        lastAssistantPaymentMsg.includes('specify which')) &&
-      lastAssistantPaymentMsg.includes('collected');
+      (lastAssistantPaymentMsg.includes('collected') || lastAssistantPaymentMsg.includes('completed') || lastAssistantPaymentMsg.includes('paid'));
     const lastAssistantAskedPaymentConfirmation =
-      (lastAssistantPaymentMsg.includes('mark ') && lastAssistantPaymentMsg.includes('as collected')) ||
-      lastAssistantPaymentMsg.includes('as collected?');
-    const matchFromConfirmationMsg = lastAssistantAskedPaymentConfirmation && /mark\s+"([^"]+)"\s+as\s+collected/i.test(lastAssistantPaymentMsg)
-      ? lastAssistantPaymentMsg.match(/mark\s+"([^"]+)"\s+as\s+collected/i)?.[1]
+      (lastAssistantPaymentMsg.includes('mark ') && (lastAssistantPaymentMsg.includes('as collected') || lastAssistantPaymentMsg.includes('as completed') || lastAssistantPaymentMsg.includes('as paid'))) ||
+      lastAssistantPaymentMsg.includes('as collected?') || lastAssistantPaymentMsg.includes('as completed?') || lastAssistantPaymentMsg.includes('as paid?');
+    // Support both double and single quotes (e.g. "Week 4 Payment" or 'Week 4 Payment')
+    const matchFromConfirmationMsg = lastAssistantAskedPaymentConfirmation && /mark\s+["']([^"']+)["']\s+as\s+(?:collected|completed|paid)/i.test(lastAssistantPaymentMsg)
+      ? lastAssistantPaymentMsg.match(/mark\s+["']([^"']+)["']\s+as\s+(?:collected|completed|paid)/i)?.[1]
       : null;
+    const paymentSelectionResumeHint = parsedContext?.paymentSelectionResume === true && parsedContext?.selectedPaymentName;
     const isPaymentCollectionFlowActive =
+      paymentSelectionResumeHint ||
       paymentCollectIntentRegex.test(String(message || '').toLowerCase()) ||
       routerResult?.proposed_tool === 'mark_payment_collected' ||
       lastAssistantAskedWhichPayment ||
@@ -7478,15 +7900,23 @@ router.post('/', async (req, res) => {
       routerResult.tool_args_draft = routerResult.tool_args_draft || {};
 
       const userText = String(message || '').trim();
-      
-      // Check if assistant already asked which payment (user is responding to that question)
-      const assistantAlreadyAsked = lastAssistantAskedWhichPayment;
+      // When frontend sends paymentSelectionResume, user tapped a payment card — treat as responding to "which payment?"
+      const assistantAlreadyAsked = lastAssistantAskedWhichPayment || paymentSelectionResumeHint;
       
       // Check if user is confirming (after we've matched a payment)
       const isConfirmation = /^(yes|yep|ok|okay|confirm|proceed|go ahead|do it|mark it)$/i.test(userText);
       const hasMatchedPaymentInDraft = routerResult.tool_args_draft.milestoneName;
-      // When user confirms after "Mark X as collected?", extract X from prior message and use as candidate
-      const candidateNameForConfirm = (isConfirmation && matchFromConfirmationMsg) ? matchFromConfirmationMsg : null;
+      // When user confirms after "Mark X as completed?", extract X from prior assistant message
+      let candidateNameForConfirm = (isConfirmation && matchFromConfirmationMsg) ? matchFromConfirmationMsg : null;
+      // Fallback: if regex didn't match (e.g. different quote style), use last user message before "Yes" (the payment they selected)
+      if (isConfirmation && !candidateNameForConfirm && lastAssistantAskedPaymentConfirmation) {
+        const hist = Array.isArray(history) ? history : [];
+        const lastUserMsg = [...hist].reverse().find((m) => m?.role === 'user')?.content || '';
+        const lastUserTrim = String(lastUserMsg || '').trim();
+        if (lastUserTrim && !/^(yes|yep|ok|okay|confirm|proceed|go ahead|do it|mark it)$/i.test(lastUserTrim)) {
+          candidateNameForConfirm = lastUserTrim;
+        }
+      }
       const matchedFromConfirmation = candidateNameForConfirm
         ? matchPendingPaymentByName(pendingPaymentMilestones, candidateNameForConfirm)
         : null;
@@ -7504,9 +7934,9 @@ router.post('/', async (req, res) => {
         routerResult.action = 'execute';
         console.log('🛡️ Payment guard: user confirmed, proceeding to mark payment as collected');
       } else {
-        // Try to match payment name from user's message
+        // Try to match payment name from user's message (or from paymentSelectionResume hint)
         const candidateName = !isConfirmation
-          ? (routerResult.tool_args_draft.milestoneName || userText)
+          ? (routerResult.tool_args_draft.milestoneName || parsedContext?.selectedPaymentName || userText)
           : '';
         const matchedPayment = matchPendingPaymentByName(pendingPaymentMilestones, candidateName);
 
@@ -7515,11 +7945,21 @@ router.post('/', async (req, res) => {
           // Still ask which one to be explicit
           routerResult.required_fields_missing = ['milestoneName'];
           if (pendingPaymentMilestones.length > 0) {
+            const projectName = parsedContext?.currentProject || currentProjectData?.title || currentProjectData?.name || 'this project';
             const options = pendingPaymentMilestones
               .slice(0, 6)
               .map((m) => `"${formatPaymentNameForDisplay(m.title || m.name)}"`)
               .join(', ');
-            routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
+            routerResult.clarification_question = `Which payment should I mark as completed for ${projectName}? Pending payments: ${options}.`;
+            routerResult.paymentSelectionOptions = pendingPaymentMilestones.slice(0, 6).map((m) => ({
+              id: m.id || `payment-${m.title || m.name}`,
+              title: formatPaymentNameForDisplay(m.title || m.name),
+              status: 'Pending',
+              amount: Number(m.amount || 0) || undefined,
+              dueDate: m.plannedDate || m.dueDate || m.date || undefined,
+            }));
+            routerResult.paymentSelectionProjectId = projectId;
+            routerResult.paymentSelectionProjectName = projectName;
           } else {
             const hasProject = !!(parsedContext?.projectId || parsedContext?.resolvedProjectId);
             routerResult.clarification_question = hasProject
@@ -7533,7 +7973,8 @@ router.post('/', async (req, res) => {
           routerResult.tool_args_draft.milestoneName = matchedPayment.title || matchedPayment.name;
           if (matchedPayment.id) routerResult.tool_args_draft.milestoneId = matchedPayment.id;
           if (projectId) routerResult.tool_args_draft.projectId = projectId;
-          routerResult.clarification_question = `Mark "${matchedPayment.title || matchedPayment.name}" ($${Number(matchedPayment.amount || 0).toLocaleString()}) as collected?`;
+          const projName = parsedContext?.currentProject || currentProjectData?.title || currentProjectData?.name || parsedContext?.paymentSelectionProjectName || 'this project';
+          routerResult.clarification_question = `Mark "${matchedPayment.title || matchedPayment.name}" ($${Number(matchedPayment.amount || 0).toLocaleString()}) as completed for ${projName}?`;
           routerResult.confidence = 1.0;
           // Don't set action = 'execute' yet - wait for confirmation
           console.log('🛡️ Payment guard: matched payment, asking for confirmation:', {
@@ -7545,11 +7986,21 @@ router.post('/', async (req, res) => {
           // No match found - ask which payment
           routerResult.required_fields_missing = ['milestoneName'];
           if (pendingPaymentMilestones.length > 0) {
+            const projectName = parsedContext?.currentProject || currentProjectData?.title || currentProjectData?.name || 'this project';
             const options = pendingPaymentMilestones
               .slice(0, 6)
               .map((m) => `"${formatPaymentNameForDisplay(m.title || m.name)}"`)
               .join(', ');
-            routerResult.clarification_question = `Which payment should I mark as collected? Pending payments: ${options}.`;
+            routerResult.clarification_question = `Which payment should I mark as completed for ${projectName}? Pending payments: ${options}.`;
+            routerResult.paymentSelectionOptions = pendingPaymentMilestones.slice(0, 6).map((m) => ({
+              id: m.id || `payment-${m.title || m.name}`,
+              title: formatPaymentNameForDisplay(m.title || m.name),
+              status: 'Pending',
+              amount: Number(m.amount || 0) || undefined,
+              dueDate: m.plannedDate || m.dueDate || m.date || undefined,
+            }));
+            routerResult.paymentSelectionProjectId = projectId;
+            routerResult.paymentSelectionProjectName = projectName;
           } else {
             const hasProject = !!(parsedContext?.projectId || parsedContext?.resolvedProjectId);
             routerResult.clarification_question = hasProject
@@ -7564,17 +8015,63 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // ── PO SELECTION GUARD: "mark as received" with 2+ pending POs → show green cards ──
+    const userSaidMarkPOReceived = lastUserContent.includes('mark') &&
+      (lastUserContent.includes('received') || lastUserContent.includes('recieved'));
+    const poSelectionResumeHint = parsedContext?.poSelectionResume === true && parsedContext?.selectedPONumber;
+    if ((userSaidMarkPOReceived || poSelectionResumeHint) && projectId) {
+      const poProject = currentProjectData || allProjects.find(p => String(p.id) === String(projectId));
+      const rawPOs = poProject?.projectData?.purchaseOrders || poProject?.purchaseOrders || parsedContext?.projectData?.purchaseOrders || parsedContext?.purchaseOrders || [];
+      const pendingPOs = Array.isArray(rawPOs) ? rawPOs.filter(po => (po?.status || '').toLowerCase() === 'pending') : [];
+      const userSpecifiedPO = /\bPO-?\d+/i.test(lastUserContent) || /\$\d+/.test(lastUserContent);
+      // User tapped a PO card — proceed to execute with selected PO
+      if (poSelectionResumeHint) {
+        routerResult.domain = 'budget';
+        routerResult.proposed_tool = 'mark_purchase_order_received';
+        routerResult.required_fields_missing = [];
+        routerResult.tool_args_draft = routerResult.tool_args_draft || {};
+        routerResult.tool_args_draft.poNumber = parsedContext.selectedPONumber;
+        routerResult.tool_args_draft.projectId = projectId;
+        routerResult.action = 'execute';
+        routerResult.confidence = 1.0;
+        console.log('🛡️ PO guard: user selected PO from card, executing', parsedContext.selectedPONumber);
+      } else if (pendingPOs.length >= 1 && !userSpecifiedPO) {
+        routerResult.domain = 'budget';
+        routerResult.proposed_tool = 'mark_purchase_order_received';
+        routerResult.required_fields_missing = ['poNumber'];
+        const projectName = poProject?.title || poProject?.name || parsedContext?.projectName || 'this project';
+        routerResult.clarification_question = `Which purchase order should I mark as received for ${projectName}?`;
+        routerResult.poSelectionOptions = pendingPOs.slice(0, 6).map((po) => ({
+          id: po.id || po.poNumber || `po-${po.poNumber}`,
+          title: po.poNumber || `PO ${po.id}`,
+          subtitle: [po.amount ? `$${Number(po.amount).toLocaleString()}` : '', po.vendor].filter(Boolean).join(' · ') || 'Pending',
+          amount: Number(po.amount) || undefined,
+          vendor: po.vendor,
+        }));
+        routerResult.poSelectionProjectId = projectId;
+        routerResult.poSelectionProjectName = projectName;
+        console.log('🛡️ PO guard: 2+ pending POs, showing selection cards', { count: pendingPOs.length });
+      }
+    }
+
     // ── FINAL EXPENSE LOGGING CHECK (after CO guard, before executor) ──────
     // Re-check expense logging after all guards have run to ensure it wasn't overridden
     // BUT skip if user is in a daily log flow OR router already said daily_log
     if (isExpenseLoggingRequest && !hasExpenseType && !inDailyLogContextForExpense && !isDailyLogDomain) {
       // Force expense logging intent - override any other domain
       if (routerResult.domain !== 'expenses' || !routerResult.required_fields_missing?.includes('expense_type')) {
-        console.log('🛡️ Final expense guard: forcing expense domain and required field');
+        console.log('🛡️ Final expense guard: forcing expense domain and required field (with cards)');
         routerResult.domain = 'expenses';
         routerResult.proposed_tool = 'add_material_expense';
         routerResult.required_fields_missing = ['expense_type'];
-        routerResult.clarification_question = 'What type of expense are you logging? Is it for materials or labor? If it\'s for materials, please provide the amount, category, and vendor. If it\'s for labor, please provide the amount, trade, and description of the work.';
+        routerResult.clarification_question = 'What type of expense are you logging?';
+        routerResult.expenseTypeSelectionOptions = [
+          { id: 'materials', title: 'Materials', subtitle: 'Category, vendor, amount' },
+          { id: 'labor', title: 'Labor', subtitle: 'Trade, description, amount' },
+          { id: 'equipment', title: 'Equipment', subtitle: 'Rental or purchase' },
+          { id: 'permit', title: 'Permit', subtitle: 'Permit fees' },
+          { id: 'other', title: 'Other', subtitle: 'Custom category' },
+        ];
         routerResult.confidence = 0.95;
       }
     } else if (isDailyLogDomain) {
@@ -7659,7 +8156,24 @@ router.post('/', async (req, res) => {
     if (routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0) {
       const question = routerResult.clarification_question || `I need a few more details. Could you provide the ${routerResult.required_fields_missing.join(' and ')}?`;
       if (process.env.DEBUG_AI_CONTEXT) console.log('🛑 Router: required fields missing →', routerResult.required_fields_missing);
-      return res.json({ reply: question, actions: [], projectUpdateData: null });
+      const payload = { reply: question, actions: [], projectUpdateData: null };
+      if (routerResult.paymentSelectionOptions?.length > 0) {
+        payload.paymentSelectionOptions = routerResult.paymentSelectionOptions;
+        payload.paymentSelectionProjectId = routerResult.paymentSelectionProjectId;
+        payload.paymentSelectionProjectName = routerResult.paymentSelectionProjectName;
+      }
+      if (routerResult.expenseTypeSelectionOptions?.length > 0) {
+        payload.expenseTypeSelectionOptions = routerResult.expenseTypeSelectionOptions;
+      }
+      if (routerResult.poSelectionOptions?.length > 0) {
+        payload.poSelectionOptions = routerResult.poSelectionOptions;
+        payload.poSelectionProjectId = routerResult.poSelectionProjectId;
+        payload.poSelectionProjectName = routerResult.poSelectionProjectName;
+      }
+      if (routerResult.scenarioSelectionOptions?.length > 0) {
+        payload.scenarioSelectionOptions = routerResult.scenarioSelectionOptions;
+      }
+      return res.json(payload);
     }
     // Payment confirmation: when we matched a payment and are asking "Mark X as collected?", return that question (don't execute yet)
     if (routerResult.clarification_question && routerResult.proposed_tool === 'mark_payment_collected' && routerResult.action !== 'execute') {
@@ -7712,12 +8226,9 @@ router.post('/', async (req, res) => {
 - scenario="${scenarioName}" (this is the SCENARIO TYPE, NOT a project ID)
 - projectId="${projectId || null}" (use the actual project ID from context, NOT the scenario name)
 
-CRITICAL: The tool uses the project's EXISTING budget, materials, labor, and overhead data from context. You do NOT need to provide any dollar amounts. The scenario "${scenarioName}" has preset percentage adjustments already defined (e.g., typical_friction = labor +8%, materials +5%, overhead +3%). The tool will automatically:
-1. Get the current project budget, materials, labor, overhead from context
-2. Apply the preset percentage adjustments
-3. Calculate the new costs, profit, and margin
+CRITICAL: The tool uses the project's EXISTING budget, materials, labor, and overhead data from context. You do NOT need to provide any dollar amounts. The scenario "${scenarioName}" has preset percentage adjustments already defined (e.g., typical_friction = labor +8%, materials +5%, overhead +3%). The tool will automatically return the final revised cost, profit, and margin.
 
-Do NOT ask for dollar amounts, parameters, percentages, or any other details. Just execute the tool immediately with ONLY the scenario parameter. The tool has all the data it needs from context.`,
+Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the tool immediately. The tool returns the complete numeric result. Do NOT ask for dollar amounts, parameters, percentages, or any other details. Just execute the tool with ONLY the scenario parameter. The tool has all the data it needs from context.`,
       });
       console.log('🛡️ Scenario executor hint: injected system message to force immediate execution with scenario:', scenarioName);
     }
@@ -9008,44 +9519,55 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
         // ── SCENARIO ANALYSIS EXECUTOR ─────────────────────────────────────────
         } else if (functionName === 'run_scenario_analysis') {
           // Pull project financials from context
-          // CRITICAL: Prefer PROJECT page numbers (forecast final cost, projected margin) when available — not estimate-only
           const ctx = parsedContext || {};
           const currentProject = ctx.currentProject || ctx;
           const estimateData = currentProject.estimateData || currentProject.estimate || {};
           const revenue = Number(ctx.contractValue || ctx.bidTotal || ctx.total || estimateData.totalBid || currentProject.bidPrice || 0);
           const forecastCost = Number(ctx.forecastFinalCost || currentProject.forecastFinalCost || 0);
           const projectedMarginPct = typeof ctx.projectedMarginPct === 'number' && Number.isFinite(ctx.projectedMarginPct) ? ctx.projectedMarginPct : (currentProject.projectedMarginPct);
-          const hasProjectBaseline = revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
+          const actualCost = Number(ctx.actualCost || ctx.totalSpent || currentProject.actualCost || currentProject.totalSpent || 0);
+          const estimatedCost = Number(estimateData.totalCost || estimateData.estimatedCost || estimateData.baseCost || currentProject.estimatedCost || 0);
           const baseCostFromProject = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projectedMarginPct === 'number') ? revenue * (1 - projectedMarginPct / 100) : 0;
 
-          let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct;
-          let useProjectBaseline = false;
+          // Baseline selection: use estimate when early-stage (<20% spend); otherwise use live forecast when available
+          const spendPct = estimatedCost > 0 ? (actualCost / estimatedCost) * 100 : 0;
+          const useLiveForecast = spendPct >= 20 && revenue > 0 && (forecastCost > 0 || (typeof projectedMarginPct === 'number' && projectedMarginPct >= 0 && projectedMarginPct <= 100));
 
-          if (hasProjectBaseline && baseCostFromProject > 0) {
-            // Use PROJECT page baseline (Budget Totals: forecast final cost, projected margin) so scenario matches what user sees
-            useProjectBaseline = true;
+          let baseCost, originalBid, originalProfit, originalMarginPct, materialCost, laborCost, overheadCost, markupPct, baselineLabel;
+          materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
+          laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
+          overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
+          const bucketSum = materialCost + laborCost + overheadCost;
+          markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
+          const resolvedBaseCost = resolveEstimateBaselineCost(ctx, currentProject, estimateData, bucketSum, revenue, markupPct);
+          if (bucketSum > 0 && resolvedBaseCost > bucketSum) {
+            const scale = resolvedBaseCost / bucketSum;
+            materialCost *= scale;
+            laborCost *= scale;
+            overheadCost *= scale;
+          }
+
+          if (useLiveForecast && baseCostFromProject > 0) {
             baseCost = baseCostFromProject;
             originalBid = revenue;
-            originalProfit = revenue - baseCost;
-            originalMarginPct = revenue > 0 ? (originalProfit / revenue * 100) : 0;
-            materialCost = 0;
-            laborCost = 0;
-            overheadCost = 0;
-            markupPct = 0;
+            baselineLabel = 'This scenario is based on your current live forecast.';
+          } else if (revenue > 0 && resolvedBaseCost > 0) {
+            baseCost = resolvedBaseCost;
+            originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + baseCost * (markupPct / 100));
+            baselineLabel = 'This scenario is based on your original estimate baseline.';
+          } else if (revenue > 0 && baseCostFromProject > 0) {
+            baseCost = baseCostFromProject;
+            originalBid = revenue;
+            baselineLabel = 'This scenario is based on your current live forecast.';
+          } else {
+            baseCost = resolvedBaseCost || baseCostFromProject;
+            originalBid = Number(estimateData.totalBid || currentProject.bidPrice || revenue || baseCost + baseCost * (markupPct / 100));
+            baselineLabel = 'This scenario is based on your original estimate baseline.';
           }
 
-          if (!useProjectBaseline) {
-            // Fallback: estimate-based (material + labor + overhead from estimate)
-            materialCost = Number(ctx.materialBudgetDirect || estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
-            laborCost = Number(estimateData.laborTotal || estimateData.laborCost || currentProject.laborTotal || currentProject.laborCost || 5000);
-            overheadCost = Number(estimateData.overheadTotal || estimateData.overheadCost || currentProject.overheadTotal || currentProject.overheadCost || 0);
-            baseCost = materialCost + laborCost + overheadCost;
-            markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
-            const markup = baseCost * (markupPct / 100);
-            originalBid = Number(estimateData.totalBid || currentProject.bidPrice || baseCost + markup);
-            originalProfit = originalBid - baseCost;
-            originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
-          }
+          originalProfit = originalBid - baseCost;
+          originalMarginPct = originalBid > 0 ? (originalProfit / originalBid * 100) : 0;
+          markupPct = Number(estimateData.markupPct || estimateData.markup || 20);
 
           const laborBudget = laborCost || Number(estimateData.laborTotal || currentProject.laborTotal || 0);
           const materialBudget = materialCost || Number(estimateData.materialTotal || estimateData.materialsTotal || currentProject.materialBudget || currentProject.materialsTotal || 0);
@@ -9064,18 +9586,18 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           // Preset scenarios: when using project baseline we only have total cost — apply single cost-% change (approximate to labor/mat/OH blend)
           const scenario = functionArgs.scenario;
           const scenarioMap = {
-            labor_up_10:       { labor: 10, materials: 0, overhead: 0, bid: 0, costPct: 10, label: 'Labor +10%' },
-            labor_down_10:     { labor: -10, materials: 0, overhead: 0, bid: 0, costPct: -10, label: 'Labor -10%' },
-            materials_up_5:    { labor: 0, materials: 5, overhead: 0, bid: 0, costPct: 5, label: 'Materials +5%' },
-            materials_up_10:   { labor: 0, materials: 10, overhead: 0, bid: 0, costPct: 10, label: 'Materials +10%' },
-            materials_down_5:  { labor: 0, materials: -5, overhead: 0, bid: 0, costPct: -5, label: 'Materials -5%' },
-            overhead_up_10:    { labor: 0, materials: 0, overhead: 10, bid: 0, costPct: 10, label: 'Overhead +10%' },
-            overhead_down_10:  { labor: 0, materials: 0, overhead: -10, bid: 0, costPct: -10, label: 'Overhead -10%' },
-            bid_up_2:          { labor: 0, materials: 0, overhead: 0, bid: 2, costPct: 0, label: 'Bid +2%' },
-            bid_down_2:        { labor: 0, materials: 0, overhead: 0, bid: -2, costPct: 0, label: 'Bid -2%' },
-            typical_friction:  { labor: 8, materials: 5, overhead: 3, bid: 0, costPct: 5.33, label: 'Typical Friction' },
-            bad_remodel:       { labor: 20, materials: 15, overhead: 10, bid: 0, costPct: 15, label: 'Bad Remodel' },
-            smooth_job:        { labor: -5, materials: -3, overhead: 0, bid: 0, costPct: -4, label: 'Smooth Job' },
+            labor_up_10:       { labor: 10, materials: 0, overhead: 0, bid: 0, label: 'Labor +10%' },
+            labor_down_10:     { labor: -10, materials: 0, overhead: 0, bid: 0, label: 'Labor -10%' },
+            materials_up_5:    { labor: 0, materials: 5, overhead: 0, bid: 0, label: 'Materials +5%' },
+            materials_up_10:   { labor: 0, materials: 10, overhead: 0, bid: 0, label: 'Materials +10%' },
+            materials_down_5:  { labor: 0, materials: -5, overhead: 0, bid: 0, label: 'Materials -5%' },
+            overhead_up_10:    { labor: 0, materials: 0, overhead: 10, bid: 0, label: 'Overhead +10%' },
+            overhead_down_10:  { labor: 0, materials: 0, overhead: -10, bid: 0, label: 'Overhead -10%' },
+            bid_up_2:          { labor: 0, materials: 0, overhead: 0, bid: 2, label: 'Bid +2%' },
+            bid_down_2:        { labor: 0, materials: 0, overhead: 0, bid: -2, label: 'Bid -2%' },
+            typical_friction:  { labor: 8, materials: 5, overhead: 3, bid: 0, label: 'Typical Friction' },
+            bad_remodel:       { labor: 20, materials: 15, overhead: 10, bid: 0, label: 'Bad Remodel' },
+            smooth_job:        { labor: -5, materials: -3, overhead: 0, bid: 0, label: 'Smooth Job' },
             job_runs_long:     { weeks: 2, label: 'Job Runs Long (2 weeks)' },
             job_runs_long_4:   { weeks: 4, label: 'Job Runs Long (4 weeks)' },
             job_runs_long_6:   { weeks: 6, label: 'Job Runs Long (6 weeks)' },
@@ -9085,51 +9607,74 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
 
           if (scenario === 'all_presets') {
             const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
-            const parts = ['### Scenario Analysis\n', `Baseline: **${Math.round(originalMarginPct * 10) / 10}%** margin\n`];
+            const baselineShort = baselineLabel && baselineLabel.includes('live forecast')
+              ? 'Current live forecast'
+              : 'Original estimate baseline';
+            const projectName = (() => { const p = currentProject?.title || currentProject?.name || ctx.bidTitle; return typeof p === 'string' && p ? p : ''; })();
+            const parts = [
+              '### Scenario Analysis',
+              projectName ? `\nScenarios for ${projectName}\n` : '\n',
+              `**Baseline used:** ${baselineShort}\n`,
+            ];
             const allResults = [];
             for (const preset of presets) {
               const adj = scenarioMap[preset];
               let newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead;
               if (adj.weeks) {
-                const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
-                const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
-                const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
-                const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
-                const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
-                newBaseCost = baseCost + addedDelayCost;
-                newBid = originalBid;
-                newProfit = newBid - newBaseCost;
-                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
-                newLabor = laborCost;
-                newMaterials = materialCost;
-                newOverhead = overheadCost;
-              } else if (useProjectBaseline && typeof adj.costPct === 'number') {
-                newBaseCost = baseCost * (1 + adj.costPct / 100);
-                newBid = originalBid * (1 + (adj.bid || 0) / 100);
-                newProfit = newBid - newBaseCost;
-                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                const delayResult = computeDelayCost(adj, { baseCost, laborCost, materialCost, overheadCost, estimatedWeeks });
+                if (delayResult) {
+                  newBaseCost = delayResult.newBaseCost;
+                  newBid = originalBid;
+                  newProfit = newBid - newBaseCost;
+                  newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                } else {
+                  const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+                  const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+                  const weeklyDelay = weeklyLabor + weeklyOverhead || (baseCost * 0.5 / estimatedWeeks);
+                  newBaseCost = baseCost + Math.round(weeklyDelay * adj.weeks);
+                  newBid = originalBid;
+                  newProfit = newBid - newBaseCost;
+                  newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                }
                 newLabor = laborCost;
                 newMaterials = materialCost;
                 newOverhead = overheadCost;
               } else {
-                newLabor = laborCost * (1 + (adj.labor || 0) / 100);
-                newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
-                newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
-                newBaseCost = newLabor + newMaterials + newOverhead;
-                newBid = originalBid * (1 + (adj.bid || 0) / 100);
-                newProfit = newBid - newBaseCost;
-                newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                const result = computeScenarioCost(adj, { baseCost, laborCost, materialCost, overheadCost, originalBid });
+                if (result) {
+                  newBaseCost = result.newBaseCost;
+                  newBid = result.newBid;
+                  newProfit = result.newProfit;
+                  newMarginPct = result.newMarginPct;
+                  newLabor = result.newLabor;
+                  newMaterials = result.newMaterials;
+                  newOverhead = result.newOverhead;
+                } else {
+                  const totalFromBuckets = laborCost + materialCost + overheadCost;
+                  const laborShare = totalFromBuckets > 0 ? laborCost / totalFromBuckets : 1 / 3;
+                  const materialsShare = totalFromBuckets > 0 ? materialCost / totalFromBuckets : 1 / 3;
+                  const overheadShare = totalFromBuckets > 0 ? overheadCost / totalFromBuckets : 1 / 3;
+                  const weightedPct = (laborShare * (adj.labor || 0)) + (materialsShare * (adj.materials || 0)) + (overheadShare * (adj.overhead || 0));
+                  newBaseCost = baseCost * (1 + weightedPct / 100);
+                  newBid = originalBid * (1 + (adj.bid || 0) / 100);
+                  newProfit = newBid - newBaseCost;
+                  newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+                  newLabor = laborCost;
+                  newMaterials = materialCost;
+                  newOverhead = overheadCost;
+                }
               }
               const profitChange = newProfit - originalProfit;
-              parts.push(formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline));
+              parts.push(formatScenarioPresetBlock(adj, originalMarginPct, newBaseCost, newBid, newProfit, newMarginPct, profitChange));
               allResults.push({ scenario: preset, label: adj.label, profitChange: Math.round(profitChange), newMarginPct: Math.round(newMarginPct * 10) / 10 });
             }
             functionResult = {
               success: true,
               scenario: 'All presets (Typical Friction, Bad Remodel, Smooth Job, Job Runs Long 2 & 4 weeks)',
-              baselineSource: useProjectBaseline ? 'project' : 'estimate',
+              baselineSource: useLiveForecast ? 'forecast' : 'estimate',
+              baselineLabel: baselineLabel || '',
               original: {
-                materialCost, laborCost, overheadCost, baseCost, markup: useProjectBaseline ? 0 : baseCost * (markupPct / 100), bid: originalBid,
+                materialCost, laborCost, overheadCost, baseCost, markup: useLiveForecast ? 0 : baseCost * (markupPct / 100), bid: originalBid,
                 profit: originalProfit, marginPct: Math.round(originalMarginPct * 10) / 10,
               },
               allPresets: allResults,
@@ -9139,55 +9684,74 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
           let adj = scenarioMap[scenario] || scenarioMap.typical_friction;
           if (scenario === 'custom' && functionArgs.customAdjustments) {
             const ca = functionArgs.customAdjustments;
-            const l = ca.laborPctChange || 0, m = ca.materialsPctChange || 0, o = ca.overheadPctChange || 0;
-            const avg = (l + m + o) / 3;
-            adj = { labor: l, materials: m, overhead: o, bid: ca.bidPctChange || 0, costPct: avg, label: 'Custom Scenario' };
+            adj = {
+              labor: ca.laborPctChange || 0,
+              materials: ca.materialsPctChange || 0,
+              overhead: ca.overheadPctChange || 0,
+              bid: ca.bidPctChange || 0,
+              label: 'Custom Scenario',
+            };
           }
 
           let newBaseCost, newBid, newProfit, newMarginPct, newLabor, newMaterials, newOverhead;
           if (adj.weeks) {
-            const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
-            const weeklyMaterial = materialBudget > 0 ? materialBudget / estimatedWeeks : 0;
-            const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
-            const weeklyBurn = weeklyLabor + weeklyMaterial + weeklyOverhead;
-            const addedDelayCost = weeklyBurn > 0 ? Math.round(weeklyBurn * adj.weeks) : Math.round((baseCost / estimatedWeeks) * adj.weeks);
-            newBaseCost = baseCost + addedDelayCost;
-            newBid = originalBid;
-            newProfit = newBid - newBaseCost;
-            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
-            newLabor = laborCost;
-            newMaterials = materialCost;
-            newOverhead = overheadCost;
-          } else if (useProjectBaseline && typeof adj.costPct === 'number') {
-            newBaseCost = baseCost * (1 + adj.costPct / 100);
-            newBid = originalBid * (1 + (adj.bid || 0) / 100);
-            newProfit = newBid - newBaseCost;
-            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            const delayResult = computeDelayCost(adj, { baseCost, laborCost, materialCost, overheadCost, estimatedWeeks });
+            if (delayResult) {
+              newBaseCost = delayResult.newBaseCost;
+              newBid = originalBid;
+              newProfit = newBid - newBaseCost;
+              newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            } else {
+              const weeklyLabor = laborBudget > 0 ? laborBudget / estimatedWeeks : 0;
+              const weeklyOverhead = overheadBudget > 0 ? overheadBudget / estimatedWeeks : 0;
+              const weeklyDelay = weeklyLabor + weeklyOverhead || (baseCost * 0.5 / estimatedWeeks);
+              newBaseCost = baseCost + Math.round(weeklyDelay * adj.weeks);
+              newBid = originalBid;
+              newProfit = newBid - newBaseCost;
+              newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            }
             newLabor = laborCost;
             newMaterials = materialCost;
             newOverhead = overheadCost;
           } else {
-            newLabor = laborCost * (1 + (adj.labor || 0) / 100);
-            newMaterials = materialCost * (1 + (adj.materials || 0) / 100);
-            newOverhead = overheadCost * (1 + (adj.overhead || 0) / 100);
-            newBaseCost = newLabor + newMaterials + newOverhead;
-            newBid = originalBid * (1 + (adj.bid || 0) / 100);
-            newProfit = newBid - newBaseCost;
-            newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+            const result = computeScenarioCost(adj, { baseCost, laborCost, materialCost, overheadCost, originalBid });
+            if (result) {
+              newBaseCost = result.newBaseCost;
+              newBid = result.newBid;
+              newProfit = result.newProfit;
+              newMarginPct = result.newMarginPct;
+              newLabor = result.newLabor;
+              newMaterials = result.newMaterials;
+              newOverhead = result.newOverhead;
+            } else {
+              const totalFromBuckets = laborCost + materialCost + overheadCost;
+              const laborShare = totalFromBuckets > 0 ? laborCost / totalFromBuckets : 1 / 3;
+              const materialsShare = totalFromBuckets > 0 ? materialCost / totalFromBuckets : 1 / 3;
+              const overheadShare = totalFromBuckets > 0 ? overheadCost / totalFromBuckets : 1 / 3;
+              const weightedPct = (laborShare * (adj.labor || 0)) + (materialsShare * (adj.materials || 0)) + (overheadShare * (adj.overhead || 0));
+              newBaseCost = baseCost * (1 + weightedPct / 100);
+              newBid = originalBid * (1 + (adj.bid || 0) / 100);
+              newProfit = newBid - newBaseCost;
+              newMarginPct = newBid > 0 ? (newProfit / newBid * 100) : 0;
+              newLabor = laborCost;
+              newMaterials = materialCost;
+              newOverhead = overheadCost;
+            }
           }
           const profitChange = newProfit - originalProfit;
 
           functionResult = {
             success: true,
             scenario: adj.label,
-            baselineSource: useProjectBaseline ? 'project' : 'estimate',
+            baselineSource: useLiveForecast ? 'forecast' : 'estimate',
+            baselineLabel: baselineLabel || '',
             original: {
-              materialCost, laborCost, overheadCost, baseCost, markup: useProjectBaseline ? 0 : baseCost * (markupPct / 100), bid: originalBid,
+              materialCost, laborCost, overheadCost, baseCost, markup: useLiveForecast ? 0 : baseCost * (markupPct / 100), bid: originalBid,
               profit: originalProfit, marginPct: Math.round(originalMarginPct * 10) / 10,
             },
             adjusted: {
               materialCost: Math.round(newMaterials), laborCost: Math.round(newLabor), overheadCost: Math.round(newOverhead),
-              baseCost: Math.round(newBaseCost), markup: useProjectBaseline ? 0 : Math.round(newBaseCost * (markupPct / 100)), bid: Math.round(newBid),
+              baseCost: Math.round(newBaseCost), markup: useLiveForecast ? 0 : Math.round(newBaseCost * (markupPct / 100)), bid: Math.round(newBid),
               profit: Math.round(newProfit), marginPct: Math.round(newMarginPct * 10) / 10,
             },
             impact: {
@@ -9196,7 +9760,14 @@ Do NOT ask for dollar amounts, parameters, percentages, or any other details. Ju
               costIncrease: Math.round(newBaseCost - baseCost),
               breakEvenCostIncrease: originalProfit > 0 ? `${Math.round((originalProfit / baseCost) * 100)}%` : 'N/A',
             },
-            message: `### Scenario Analysis\n\n${formatScenarioPresetLine(adj, profitChange, newMarginPct, originalMarginPct, useProjectBaseline)}${disclaimer}`,
+            message: formatScenarioFullResponse({
+              adj,
+              baselineLabel: baselineLabel || '',
+              original: { baseCost, bid: originalBid, profit: originalProfit, marginPct: originalMarginPct },
+              adjusted: { baseCost: newBaseCost, bid: newBid, profit: newProfit, marginPct: newMarginPct },
+              impact: { profitChange, marginChange: newMarginPct - originalMarginPct },
+              projectName: (() => { const p = currentProject?.title || currentProject?.name || ctx.bidTitle; return typeof p === 'string' && p ? p : ''; })(),
+            }) + disclaimer,
           };
           }
 
@@ -9507,7 +10078,7 @@ RULES:
             const availableNames = pendingPayments.map(m => `"${formatPaymentNameForDisplay(m.title || m.name)}"`).join(', ');
             functionResult = {
               success: false,
-              error: `Could not find a payment milestone matching "${functionArgs.milestoneName}". Available pending payments: ${availableNames}. Please specify which one you want to mark as collected.`,
+              error: `Could not find a payment milestone matching "${functionArgs.milestoneName}". Available pending payments: ${availableNames}. Please specify which one you want to mark as completed.`,
             };
           } else if (!match && pendingPayments.length === 0) {
             functionResult = {
@@ -9517,7 +10088,7 @@ RULES:
           } else if (!match) {
             functionResult = {
               success: false,
-              error: 'Please specify which payment milestone to mark as collected (e.g., "Week 1 Payment", "Deposit").',
+              error: 'Please specify which payment milestone to mark as completed (e.g., "Week 1 Payment", "Deposit").',
             };
           } else {
             const collectedAmount = functionArgs.amount || match.amount || 0;
@@ -9532,7 +10103,7 @@ RULES:
             actions.push(action);
             functionResult = {
               success: true,
-              message: `✅ Marked "${match.title}" as collected ($${collectedAmount.toLocaleString()}).`,
+              message: `✅ Marked "${match.title}" as completed ($${collectedAmount.toLocaleString()}).`,
               projectId: targetPid,
               action,
             };
