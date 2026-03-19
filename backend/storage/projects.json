@@ -316,5 +316,36 @@
     "budgetItems": [],
     "createdAt": "2026-03-17T04:51:11.852Z",
     "updatedAt": "2026-03-17T04:51:11.853Z"
+  },
+  {
+    "id": "1773885053453",
+    "userId": "user_35gOP06iTxxmej40Y68m79AShXP",
+    "name": "Nicholas ",
+    "title": "Nicholas ",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 83875,
+    "estimatedCost": 67100,
+    "bidPrice": 83875,
+    "totalSpent": 2000,
+    "remaining": 81875,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "expense-1773897874661",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 2000,
+        "date": "2026-03-19",
+        "notes": "Windows from Home Depot",
+        "createdAt": "2026-03-19T05:24:34.661Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-03-19T05:24:34.659Z",
+    "updatedAt": "2026-03-19T05:24:34.661Z"
   }
 ]
