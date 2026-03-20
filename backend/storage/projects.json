@@ -327,8 +327,8 @@
     "totalBudget": 83875,
     "estimatedCost": 67100,
     "bidPrice": 83875,
-    "totalSpent": 2000,
-    "remaining": 81875,
+    "totalSpent": 6000,
+    "remaining": 77875,
     "progress": 0,
     "status": "won",
     "description": "",
@@ -340,12 +340,30 @@
         "amount": 2000,
         "date": "2026-03-19",
         "notes": "Windows from Home Depot",
-        "createdAt": "2026-03-19T05:24:34.661Z"
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1773983193945",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 3000,
+        "date": "2026-03-20",
+        "notes": "Windows from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1773987161117",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 1000,
+        "date": "2026-03-20",
+        "notes": "Drywall from Home Depot",
+        "createdAt": "2026-03-20T06:12:41.117Z"
       }
     ],
     "phases": [],
     "budgetItems": [],
     "createdAt": "2026-03-19T05:24:34.659Z",
-    "updatedAt": "2026-03-19T05:24:34.661Z"
+    "updatedAt": "2026-03-20T06:12:41.117Z"
   }
 ]
