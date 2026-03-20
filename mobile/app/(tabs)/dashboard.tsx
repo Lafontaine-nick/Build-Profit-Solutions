@@ -2720,10 +2720,31 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
+  /** Collapsed by default — long lists expand on demand; preview still shows first N */
+  const [aiInsightsExpanded, setAiInsightsExpanded] = useState(false);
+  const insightCount = filteredInsights.length;
+  const INSIGHT_PREVIEW_COUNT = 3;
+  const showPreviewPanel =
+    aiPmMode && !aiLoading && !aiError && insightCount > 0 && !aiInsightsExpanded;
+  const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
+
+  const aiInsightsCollapsedHint = useMemo(() => {
+    if (aiLoading) return "Analyzing your projects…";
+    if (aiError) return aiError;
+    if (!aiPmMode) return "Turn on AI PM Mode to see insights.";
+    if (insightCount === 0) return "No major issues detected. Tap to expand.";
+    return `${insightCount} insight${insightCount === 1 ? "" : "s"} · Tap to expand`;
+  }, [aiLoading, aiError, aiPmMode, insightCount]);
+
+  const toggleAiInsights = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setAiInsightsExpanded((prev) => !prev);
+  }, []);
+
   return (
     <>
       {/* KEY METRICS */}
-      <View style={styles.sectionHeaderRow}>
+      <View style={[styles.sectionHeaderRow, styles.overviewKeyMetricsAiInsights]}>
         <View>
           <Text style={styles.sectionTitle}>Key Metrics</Text>
           <Text style={styles.sectionSubtitle}>This month at a glance</Text>
@@ -2731,7 +2752,14 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         <Text style={styles.linkText}>Swipe ➜</Text>
                   </View>
 
-        <View style={[styles.metricsRow, styles.wideContainer]}>
+        <View
+          style={[
+            styles.metricsRow,
+            styles.wideContainer,
+            styles.overviewKeyMetricsAiInsights,
+            styles.overviewKeyMetricsBottomSpacing,
+          ]}
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -2766,14 +2794,95 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                   </View>
 
       {/* AI INSIGHTS PANEL */}
-      <View style={styles.sectionHeaderRow}>
-        <View>
+      <Pressable
+        onPress={toggleAiInsights}
+        style={({ pressed }) => [
+          styles.sectionHeaderRow,
+          styles.aiInsightsHeaderTopSpacing,
+          { alignItems: "center" },
+          pressed && { opacity: 0.88 },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={
+          aiInsightsExpanded
+            ? "Collapse AI insights section"
+            : "Expand AI insights section"
+        }
+        accessibilityState={{ expanded: aiInsightsExpanded }}
+      >
+        <View style={{ flex: 1, paddingRight: 8 }}>
           <Text style={styles.sectionTitle}>AI Insights for Today</Text>
           <Text style={styles.sectionSubtitle}>What your AI project manager sees</Text>
         </View>
-      </View>
+        <Ionicons
+          name={aiInsightsExpanded ? "chevron-up" : "chevron-down"}
+          size={22}
+          color={Colors.sub}
+        />
+      </Pressable>
 
-      <View style={[styles.wideContainer, !aiPmMode && { opacity: 0.4 }]}>
+      {!aiInsightsExpanded && !showPreviewPanel && (
+        <View
+          style={[
+            styles.wideContainer,
+            styles.aiInsightsSectionBottomSpacing,
+          ]}
+        >
+          <Text style={styles.aiInsightsCollapsedHint}>{aiInsightsCollapsedHint}</Text>
+        </View>
+      )}
+
+      {showPreviewPanel && (
+        <View
+          style={[
+            styles.wideContainer,
+            styles.aiInsightsSectionBottomSpacing,
+          ]}
+        >
+          <LinearGradient
+            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.aiPanelBorder}
+          >
+            <View style={styles.aiPanelInner}>
+              {filteredInsights.slice(0, INSIGHT_PREVIEW_COUNT).map((insight) => (
+                <InsightItem
+                  key={insight.id}
+                  type={insight.type}
+                  title={insight.title}
+                  body={insight.body}
+                />
+              ))}
+              {insightsHiddenCount > 0 && (
+                <Pressable
+                  onPress={toggleAiInsights}
+                  style={({ pressed }) => [
+                    styles.aiInsightsShowMoreRow,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${insightsHiddenCount} more insights`}
+                >
+                  <Text style={styles.aiInsightsShowMoreText}>
+                    +{insightsHiddenCount} more insight{insightsHiddenCount === 1 ? "" : "s"} — tap to show all
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color="#22c55e" />
+                </Pressable>
+              )}
+            </View>
+          </LinearGradient>
+        </View>
+      )}
+
+      {aiInsightsExpanded && (
+      <View
+        style={[
+          styles.wideContainer,
+          styles.aiInsightsSectionBottomSpacing,
+          !aiPmMode && { opacity: 0.4 },
+        ]}
+      >
         <LinearGradient
           colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
           start={{ x: 0.05, y: 0.15 }}
@@ -2821,6 +2930,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           </View>
         </LinearGradient>
       </View>
+      )}
 
       {/* ALL PROJECTS */}
       {(() => {
@@ -2972,11 +3082,23 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                       </LinearGradient>
                     </Pressable>
                   </View>
+                ) : projects.length >= 4 ? (
+                  <ScrollView
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                    style={styles.allProjectsListScroll}
+                    contentContainerStyle={styles.allProjectsListScrollContent}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {projects.map((project) => (
+                      <ProjectSummaryCard key={project.id} project={project} />
+                    ))}
+                  </ScrollView>
                 ) : (
                   <View style={{ marginTop: 12 }}>
-                  {projects.map((project) => (
-                    <ProjectSummaryCard key={project.id} project={project} />
-                  ))}
+                    {projects.map((project) => (
+                      <ProjectSummaryCard key={project.id} project={project} />
+                    ))}
                   </View>
                 )}
               </View>
@@ -3196,8 +3318,8 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
           style={styles.nextStepsBorder}
         >
           <View style={styles.nextStepsInner}>
-            <Text style={styles.cardTitle}>AI Insights</Text>
-            <Text style={[styles.cardSubtitle, { marginTop: 8 }]}>
+            <Text style={styles.insightsCardTitle}>AI Insights</Text>
+            <Text style={styles.insightsBodyText}>
               {avgMargin > 80 && (
                 <>
                   Your average margin is trending above {avgMargin.toFixed(1)}%. Consider raising
@@ -3245,12 +3367,30 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             {aiPmMode &&
               !aiLoading &&
               !aiError &&
-              filteredNextSteps.map((step, index) => (
-                <NextStepItem
-                  key={step.id ? `${step.id}-${index}` : `step-${index}`}
-                  label={step.label}
-                  chip={step.chip}
-                />
+              (filteredNextSteps.length >= 4 ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                  style={styles.nextStepsListScroll}
+                  contentContainerStyle={styles.nextStepsListScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {filteredNextSteps.map((step, index) => (
+                    <NextStepItem
+                      key={step.id ? `${step.id}-${index}` : `step-${index}`}
+                      label={step.label}
+                      chip={step.chip}
+                    />
+                  ))}
+                </ScrollView>
+              ) : (
+                filteredNextSteps.map((step, index) => (
+                  <NextStepItem
+                    key={step.id ? `${step.id}-${index}` : `step-${index}`}
+                    label={step.label}
+                    chip={step.chip}
+                  />
+                ))
               ))}
 
             {!aiPmMode && (
@@ -3476,7 +3616,22 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginBottom: 16,
     marginHorizontal: -20,
     paddingHorizontal: 4,
-    paddingTop: 8,
+    paddingTop: 16,
+  },
+  /** Cap height when 4+ projects so the list scrolls inside the card */
+  allProjectsListScroll: {
+    marginTop: 12,
+    maxHeight: 340,
+  },
+  allProjectsListScrollContent: {
+    paddingBottom: 8,
+  },
+  /** Insights tab: Next Steps list when 4+ items */
+  nextStepsListScroll: {
+    maxHeight: 340,
+  },
+  nextStepsListScrollContent: {
+    paddingBottom: 8,
   },
   analyticsCardWide: {
     marginHorizontal: -8,
@@ -3520,6 +3675,31 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginTop: 2,
     fontSize: 13,
     color: Colors.bg === '#000000' ? "#8DA0B8" : "#475569", // slate-600 for better contrast
+  },
+  /** Insights tab — AI Insights card title + body (larger, easier to read) */
+  insightsCardTitle: {
+    fontSize: 24,
+    fontWeight: Colors.bg === '#000000' ? "700" : "800",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
+    letterSpacing: -0.3,
+  },
+  insightsBodyText: {
+    marginTop: 12,
+    fontSize: 15,
+    lineHeight: 23,
+    color: Colors.bg === '#000000' ? "#cbd5e1" : "#475569",
+  },
+  insightsSectionTitle: {
+    fontSize: 20,
+    fontWeight: Colors.bg === '#000000' ? "700" : "800",
+    color: Colors.bg === '#000000' ? "#e5e7eb" : "#0F172A",
+    letterSpacing: -0.2,
+  },
+  insightsSectionSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+    color: Colors.bg === '#000000' ? "#94a3b8" : "#64748b",
   },
   linkText: {
     fontSize: 14,
@@ -3974,6 +4154,16 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginHorizontal: -20,
     paddingHorizontal: 4,
   },
+  /** Extra left/right inset + vertical gap between Key Metrics strip and AI Insights (Overview tab) */
+  overviewKeyMetricsAiInsights: {
+    paddingHorizontal: 12,
+  },
+  overviewKeyMetricsBottomSpacing: {
+    marginBottom: 24,
+  },
+  aiInsightsHeaderTopSpacing: {
+    marginTop: 4,
+  },
 
   // SECTION HEADERS
   sectionHeaderRow: {
@@ -3995,12 +4185,35 @@ const getStyles = (Colors: any) => StyleSheet.create({
     color: Colors.bg === '#000000' ? "#6b7280" : "#475569", // slate-600 for better contrast
     marginTop: 2,
   },
+  aiInsightsCollapsedHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.bg === '#000000' ? "#9ca3af" : "#64748b",
+    paddingHorizontal: 4,
+  },
+  aiInsightsShowMoreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  aiInsightsShowMoreText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.bg === '#000000' ? "#22c55e" : Colors.primary,
+  },
+  /** Space below AI Insights (hint, preview, or expanded card) before All Projects */
+  aiInsightsSectionBottomSpacing: {
+    marginBottom: 22,
+  },
 
   // AI INSIGHTS PANEL
   aiPanelBorder: {
     borderRadius: 20,
     padding: 1,
-    marginBottom: 16,
   },
   aiPanelInner: {
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
@@ -4063,7 +4276,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   nextStepsInner: {
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
     borderRadius: 18,
-    padding: 16,
+    padding: 18,
   },
   nextStepsCard: {
     marginTop: 4,
@@ -4086,31 +4299,37 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   nextStepRow: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
+    alignItems: "flex-start",
+    marginBottom: 14,
+    paddingVertical: 2,
   },
   nextStepBullet: {
-    width: 6,
-    height: 6,
+    width: 7,
+    height: 7,
     borderRadius: 999,
     backgroundColor: "#22c55e",
-    marginRight: 8,
+    marginRight: 10,
+    marginTop: 6,
   },
   nextStepLabel: {
     flex: 1,
-    fontSize: 13,
-    color: Colors.bg === '#000000' ? "#e5e7eb" : Colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.bg === '#000000' ? "#f1f5f9" : Colors.text,
   },
   nextStepChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "rgba(34,197,94,0.18)",
+    backgroundColor: "rgba(34,197,94,0.22)",
     marginLeft: 8,
+    marginTop: 2,
+    flexShrink: 0,
   },
   nextStepChipText: {
-    fontSize: 10,
-    color: Colors.bg === '#000000' ? "#4ade80" : "#374151",
+    fontSize: 12,
+    lineHeight: 16,
+    color: Colors.bg === '#000000' ? "#86efac" : "#166534",
     fontWeight: "600",
   },
 

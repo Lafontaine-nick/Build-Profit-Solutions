@@ -46,8 +46,24 @@ export type ProjectIntent = {
 /**
  * Detects project-related intent from user query
  */
+/** Message body when user taps a green scenario card (matches backend scenario keys). */
+export const SCENARIO_SELECTION_ID_PATTERN =
+  /^(typical_friction|bad_remodel|smooth_job|job_runs_long(_\d+)?|all_presets)$/i;
+
+/** Command Center / All Projects: schedule, calendar, payments+deadlines — aggregate active jobs; never ask "which project?" */
+export const PORTFOLIO_SCHEDULE_CALENDAR_PATTERN =
+  /\b(?:payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|upcoming\s+(?:deadlines?|payments?|events?)|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|do\s+i\s+have\s+(?:any\s+)?events?|inspections?\s+coming|any\s+inspections)\b/i;
+
 export function detectProjectIntent(query: string): ProjectIntent {
   const lowerQuery = query.toLowerCase().trim();
+  // CRITICAL: Scenario card tap sends only the id (e.g. job_runs_long_4). That string contains "job",
+  // which would match projectKeywords and become project_analysis → "quick health check?" chips wrongly.
+  if (SCENARIO_SELECTION_ID_PATTERN.test(query.trim())) {
+    return { type: 'other', needsProject: true, analysisType: 'unspecified' };
+  }
+  if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(lowerQuery)) {
+    return { type: 'other', needsProject: false, analysisType: 'unspecified' };
+  }
   // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
   const expenseLoggingPattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
   const isExpenseFlow = expenseLoggingPattern.test(lowerQuery) ||
@@ -196,7 +212,15 @@ export function resolveProjectContext(
       reason: 'Portfolio/compare scope (over budget) — backend will list which projects are over budget and by how much',
     };
   }
-  
+  // Upcoming payments/deadlines/calendar across active jobs — backend aggregates; do NOT ask "which project?"
+  if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(userQuery)) {
+    return {
+      projectId: null,
+      needsClarification: false,
+      reason: 'Portfolio schedule (calendar + timeline) — all active projects',
+    };
+  }
+
   // Smart Default Rule 1: If user is on Project Detail or Estimate Generator screen, ALWAYS use the active project
   // This means when "Ask PM" is used from a project page, all questions default to that project
   if (
@@ -345,32 +369,64 @@ export function resolveProjectContext(
  * Finds if a project is mentioned in the user query
  */
 function findProjectInQuery(query: string, projects: RecentProject[]): RecentProject | null {
-  const lowerQuery = query.toLowerCase();
-  
+  const normalizeText = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return null;
+
+  const stopWords = new Set(['project', 'job', 'the', 'a', 'an', 'and', 'of', 'for', 'on', 'my', 'our']);
+  const candidates: Array<{ project: RecentProject; score: number }> = [];
+
   for (const project of projects) {
-    const projectTitle = project.title.toLowerCase();
-    const titleWords = projectTitle.split(/\s+/);
-    
-    // Check for exact match or significant word matches
-    if (lowerQuery.includes(projectTitle)) {
-      return project;
+    const projectTitle = normalizeText(project.title || '');
+    if (!projectTitle) continue;
+
+    if (
+      normalizedQuery === projectTitle ||
+      normalizedQuery.startsWith(`${projectTitle} `) ||
+      normalizedQuery.endsWith(` ${projectTitle}`) ||
+      normalizedQuery.includes(` ${projectTitle} `)
+    ) {
+      candidates.push({ project, score: 100 });
+      continue;
     }
-    
-    // Check if significant words from project title appear in query
-    const significantWords = titleWords.filter(word => word.length > 3);
-    if (significantWords.length > 0) {
-      const matchCount = significantWords.filter(word => 
-        lowerQuery.includes(word)
-      ).length;
-      
-      // If most significant words match, consider it a match
-      if (matchCount >= Math.ceil(significantWords.length * 0.6)) {
-        return project;
-      }
+
+    const titleWords = projectTitle
+      .split(' ')
+      .filter((word) => word.length > 2 && !stopWords.has(word));
+    if (!titleWords.length) continue;
+
+    const matchedWords = titleWords.filter((word) =>
+      normalizedQuery === word ||
+      normalizedQuery.startsWith(`${word} `) ||
+      normalizedQuery.endsWith(` ${word}`) ||
+      normalizedQuery.includes(` ${word} `)
+    );
+
+    if (matchedWords.length === titleWords.length && titleWords.length >= 2) {
+      candidates.push({ project, score: 90 + matchedWords.length });
+      continue;
+    }
+
+    if (titleWords.length === 1 && matchedWords.length === 1 && titleWords[0].length >= 5) {
+      candidates.push({ project, score: 70 });
+      continue;
+    }
+
+    if (matchedWords.length >= 2 && matchedWords.length >= Math.ceil(titleWords.length * 0.75)) {
+      candidates.push({ project, score: 60 + matchedWords.length });
     }
   }
-  
-  return null;
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  if (candidates.length > 1 && candidates[0].score === candidates[1].score) return null;
+  return candidates[0].project;
 }
 
 /**

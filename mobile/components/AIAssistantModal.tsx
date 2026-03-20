@@ -40,6 +40,7 @@ import {
   resolveProjectContext, 
   requiresProjectContext,
   detectProjectIntent,
+  SCENARIO_SELECTION_ID_PATTERN,
   type UIState,
   type RecentProject,
   formatClarificationMessage,
@@ -123,6 +124,18 @@ function resolveAIBaseUrl(): string {
 }
 
 const PRODUCTION_AI_API = 'https://build-profit-solutions-backend.onrender.com/api/ai-assistant';
+
+/** ISO timestamp so backend can show “data as of …” in financial/trust footers */
+function stampAiContextSnapshot(ctxStr: string | null | undefined): string | null {
+  if (ctxStr == null || ctxStr === '') return ctxStr ?? null;
+  try {
+    const o = JSON.parse(ctxStr);
+    o.snapshotAt = new Date().toISOString();
+    return JSON.stringify(o);
+  } catch {
+    return ctxStr;
+  }
+}
 
 /** Estimated cost baseline = materials + labor + overhead (incl. plans & permits). Matches BudgetTab/project-detail. */
 function getEstimatedCostBaseline(project: any, estimateData: any): number {
@@ -376,6 +389,11 @@ const Colors = {
 const CARD_GRADIENT: [string, string] = [
   "rgba(16, 242, 151, 0.07)",
   "rgba(16, 242, 151, 0)",
+];
+
+const ASSISTANT_BORDER_GRADIENT: [string, string] = [
+  "rgba(45, 255, 196, 0.45)",
+  "rgba(56, 189, 248, 0.35)",
 ];
 
 type Message = {
@@ -673,136 +691,7 @@ const AIAssistantModal: React.FC<Props> = ({
 
   // Auto-send initial question if provided
   const initialQuestionSentRef = useRef(false);
-  
-  useEffect(() => {
-    if (visible && initialQuestion && messages.length === 0 && !loading && !initialQuestionSentRef.current) {
-      initialQuestionSentRef.current = true;
-      // Set input and auto-send after a brief delay
-      setTimeout(() => {
-        setInput(initialQuestion);
-        // Trigger send after input is set
-        setTimeout(() => {
-          // Manually trigger send by calling sendMessage logic
-          if (initialQuestion.trim()) {
-            const userMsg: Message = {
-              id: Date.now().toString(),
-              role: 'user',
-              content: initialQuestion.trim(),
-              timestamp: new Date(),
-            };
-            setMessages([userMsg]);
-            setInput("");
-            setLoading(true);
-            setIsTyping(true);
-            
-            // Trigger API call (extracted from sendMessage)
-            (async () => {
-              try {
-                const AI_API_BASE = resolveAIBaseUrl();
-                const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
-                
-                // Build fallback URLs: only use localhost for simulators/web, not physical devices
-                const urlsToTry = [primaryUrl];
-                const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
-                const isWeb = Platform.OS === "web";
-                const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
-                
-                // Only add localhost fallback for simulators/web, not physical devices
-                if (!primaryUrl.includes('localhost') && !primaryUrl.includes('127.0.0.1') && (isSimulator || isWeb || isAndroidEmulator)) {
-                  urlsToTry.push('http://localhost:3001/api/ai-assistant');
-                  console.log('🔄 Will fallback to localhost if primary URL fails (simulator/web detected)');
-                }
-                // When using local backend, add production as last resort so AI works even if backend is down
-                if (primaryUrl.includes('localhost') || primaryUrl.includes('192.168.') || primaryUrl.includes('10.0.2.2')) {
-                  urlsToTry.push(PRODUCTION_AI_API);
-                  console.log('🔄 Will fallback to production API if local backend unreachable');
-                }
-
-                console.log('🤖 AI Assistant connecting to:', primaryUrl, `(Platform: ${Platform.OS}, isDevice: ${Constants.isDevice})`);
-                
-                // Get auth token from Clerk
-                const token = await getToken();
-                const headers: Record<string, string> = { "Content-Type": "application/json" };
-                if (token) {
-                  headers["Authorization"] = `Bearer ${token}`;
-                }
-                
-                const response = await fetchWithFallback(
-                  urlsToTry,
-                  {
-                  method: "POST",
-                  headers,
-                  body: JSON.stringify({
-                    message: initialQuestion.trim(),
-                    context,
-                    history: [],
-                    user_settings: {
-                      ai_project_manager_mode: aiManagerEnabled,
-                    },
-                  }),
-                  },
-                  AI_REQUEST_TIMEOUT_MS
-                );
-                const data = await response.json();
-                if (data.error) {
-                  const errorMsg: Message = {
-                    id: Date.now().toString() + "-error",
-                    role: "assistant",
-                    content: data.message || "Sorry, I couldn't generate a response.",
-                    timestamp: new Date(),
-                  };
-                  setMessages((prev) => [...prev, errorMsg]);
-                  setIsTyping(false);
-                  setLoading(false);
-                } else {
-                  const aiMsg: Message = {
-                    id: Date.now().toString(),
-                    role: "assistant",
-                    content: data.reply || data.response || data.message || "I'm here to help!",
-                    timestamp: new Date(),
-                  };
-                  setMessages((prev) => [...prev, aiMsg]);
-                  setIsTyping(false);
-                  setLoading(false);
-                }
-              } catch (error: any) {
-                // Handle timeout/abort errors
-                let errorMessage = "I ran into a connection issue talking to the AI.";
-                
-                if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
-                  errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
-                } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
-                  const triedProduction = urlsToTry.some((u) => u.includes('render.com'));
-                  errorMessage = triedProduction
-                    ? `Couldn't reach the AI (tried local and production). Check your internet connection, or start the local backend:\n\ncd backend && npm start`
-                    : `I can't connect to the AI backend at ${resolveAIBaseUrl()}.\n\n1. Start backend: cd backend && npm start\n2. Same network (physical devices)\n3. Check: http://localhost:3001/health`;
-                } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
-                  errorMessage = error.message;
-                } else if (error?.message) {
-                  errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
-                }
-                
-                const errorMsg: Message = {
-                  id: Date.now().toString() + "-error",
-                  role: "assistant",
-                  content: errorMessage,
-                  timestamp: new Date(),
-                };
-                setMessages((prev) => [...prev, errorMsg]);
-                setIsTyping(false);
-                setLoading(false);
-              }
-            })();
-          }
-        }, 300);
-      }, 500);
-    }
-    
-    // Reset when modal closes
-    if (!visible) {
-      initialQuestionSentRef.current = false;
-    }
-  }, [visible, initialQuestion, messages.length, loading, context, aiManagerEnabled]);
+  const sendMessageRef = useRef<((messageOverride?: string) => Promise<void>) | null>(null);
 
   // Global AI Assistant: fetch greeting with portfolio insights when opening with empty conversation
   const greetingShownRef = useRef(false);
@@ -1544,7 +1433,7 @@ const AIAssistantModal: React.FC<Props> = ({
           body: JSON.stringify({
             message:
               "Refresh this project health check using the SAME detailed format as before (not compressed). Keep section headers and bullet structure. Use this exact style: Budget Overview, Material Budget, Labor Budget, Margin Summary, Key Insights. Update only the numbers and keep the narrative format consistent.",
-            context: JSON.stringify(ctxObj),
+            context: stampAiContextSnapshot(JSON.stringify(ctxObj)) ?? JSON.stringify(ctxObj),
             history: messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
             user_settings: { ai_project_manager_mode: aiManagerEnabled },
           }),
@@ -1617,11 +1506,12 @@ const AIAssistantModal: React.FC<Props> = ({
     // Skip analysis-type chip for "making enough" / margin questions — backend returns deterministic margin answer
     const isMakingEnoughOrMarginQuery = /\bmaking\s+enough\b/i.test(query) && (/\bmoney\b|\bjob\b|\bproject\b/i.test(query) || /\b(am\s+i|are\s+we)\s+making\s+enough/i.test(query)) ||
       /\b(what is my|what'?s my)\s+(profit\s+)?margin\b/i.test(query);
-    // Skip for scenario requests (worst case, what if, profit scenarios, etc.) — backend runs scenario analysis
+    // Skip for scenario requests (worst case, what if, profit scenarios, green-card ids) — backend runs scenario analysis
     const isScenarioQuery = /\b(worst\s*[- ]?case|best\s*[- ]?case|what\s*if|run\s+scenario|scenario\s+analysis)\b/i.test(query) ||
       /\b(typical\s*friction|bad\s*remodel|smooth\s*job)\b/i.test(query) ||
       /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(query) ||
-      /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(query);
+      /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(query) ||
+      SCENARIO_SELECTION_ID_PATTERN.test(query.trim());
     if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && !isScenarioQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
@@ -1907,6 +1797,14 @@ const AIAssistantModal: React.FC<Props> = ({
           if (milestone.scheduledDate) details.push(`on ${new Date(milestone.scheduledDate + 'T00:00:00').toLocaleDateString()}`);
           return `Add payment milestone "${milestone.name}"${details.length > 0 ? ` (${details.join(', ')})` : ''}?`;
         }
+
+      case 'create_calendar_event': {
+        const ev = action.event || {};
+        const t = ev.type || 'event';
+        const d = ev.date || '?';
+        const tm = ev.time ? ` at ${ev.time}` : '';
+        return `Add to **Project Calendar**?\n\n**${ev.title || 'Event'}** (${t}) — ${d}${tm}\nProject: **${action.projectName || 'Project'}**`;
+      }
         return `Add payment milestone?`;
       
       case 'add_weekly_payment':
@@ -2182,7 +2080,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
         (isProjectsScreenContext || isGlobalAssistantContext) &&
-        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
           messageToSend
         );
 
@@ -2257,10 +2155,14 @@ const AIAssistantModal: React.FC<Props> = ({
           });
 
           // Projects screen behavior: use selected project as strong hint unless user explicitly names another project
+          const normalizedMessage = messageLower.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
           const explicitlyMentionedProject = recentProjects.find((p) => {
-            const title = (p.title || '').toLowerCase();
+            const title = (p.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
             if (!title) return false;
-            return title.includes(messageLower) || messageLower.includes(title);
+            return normalizedMessage === title ||
+              normalizedMessage.startsWith(`${title} `) ||
+              normalizedMessage.endsWith(` ${title}`) ||
+              normalizedMessage.includes(` ${title} `);
           });
           if (
             !resolvedProjectId &&
@@ -2348,7 +2250,8 @@ const AIAssistantModal: React.FC<Props> = ({
               /\b(typical\s*friction|bad\s*remodel|smooth\s*job)\b/i.test(newMessage.content) ||
               /\b(worst|best)\s+case\s+scenario\b/i.test(newMessage.content) ||
               /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(newMessage.content) ||
-              /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(newMessage.content);
+              /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(newMessage.content) ||
+              SCENARIO_SELECTION_ID_PATTERN.test(newMessage.content.trim());
             // CRITICAL: Skip analysis-type flow when resuming from payment card tap — bind to mark_payment_completed, not health check
             if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
@@ -2613,7 +2516,7 @@ const AIAssistantModal: React.FC<Props> = ({
         } catch (_e) { /* keep original */ }
       }
 
-      // Enrich context with timeline payment data at send time so AI always sees Timeline (Projects → [Project] → Timeline)
+      // Enrich context with timeline + Project Calendar events at send time (matches device AsyncStorage)
       if (contextToSend) {
         try {
           const ctx = JSON.parse(contextToSend);
@@ -2624,19 +2527,34 @@ const AIAssistantModal: React.FC<Props> = ({
               const pid = String(p?.id ?? '').trim();
               if (!pid) continue;
               const hasMilestones = Array.isArray(p?.milestones) && p.milestones.length > 0;
-              if (hasMilestones) continue;
-              const raw = await AsyncStorage.getItem(`bps.timeline.v2.${pid}`);
-              if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  p.milestones = parsed;
-                  updated = true;
+              if (!hasMilestones) {
+                const raw = await AsyncStorage.getItem(`bps.timeline.v2.${pid}`);
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    p.milestones = parsed;
+                    updated = true;
+                  }
                 }
               }
+              try {
+                const calRaw = await AsyncStorage.getItem(`calendar_events_${pid}`);
+                if (calRaw) {
+                  const calParsed = JSON.parse(calRaw);
+                  if (Array.isArray(calParsed)) {
+                    p.calendarEvents = calParsed;
+                    updated = true;
+                  }
+                }
+              } catch (_calErr) { /* ignore */ }
             }
             if (updated) contextToSend = JSON.stringify(ctx);
           }
         } catch (_e) { /* keep context as-is on any error */ }
+      }
+
+      if (contextToSend) {
+        contextToSend = stampAiContextSnapshot(contextToSend) ?? contextToSend;
       }
 
       const response = await fetchWithFallback(
@@ -3071,6 +2989,54 @@ const AIAssistantModal: React.FC<Props> = ({
                         type: action.type,
                         action: action
                       });
+                      if (action.type === 'create_calendar_event' && action.projectId && action.event) {
+                        try {
+                          const key = `calendar_events_${action.projectId}`;
+                          const existing = await AsyncStorage.getItem(key);
+                          const arr = existing ? JSON.parse(existing) : [];
+                          const validTypes = ['inspection', 'delivery', 'work', 'payment', 'deadline', 'other'] as const;
+                          const rawType = action.event.type;
+                          const evtType = rawType && validTypes.includes(rawType as any) ? rawType : 'work';
+                          const t = action.event.time && String(action.event.time).trim();
+                          const now = new Date().toISOString();
+                          const newEvent = {
+                            id: `event-${Date.now()}`,
+                            title: String(action.event.title || 'Event').slice(0, 200),
+                            date: String(action.event.date),
+                            type: evtType,
+                            time: t ? String(t) : undefined,
+                            notes: action.event.notes ? String(action.event.notes) : undefined,
+                            completed: false,
+                            createdAt: now,
+                            updatedAt: now,
+                          };
+                          await AsyncStorage.setItem(key, JSON.stringify([...arr, newEvent]));
+                          setMessages((prev) => [
+                            ...prev,
+                            {
+                              id: Date.now().toString() + '-cal-saved',
+                              role: 'assistant',
+                              content: `✅ Saved **${newEvent.title}** to **Project Calendar** (${action.projectName || 'project'}). Open the project → **Calendar** tab to edit or add more.`,
+                              timestamp: new Date(),
+                            },
+                          ]);
+                          if (onAction) {
+                            await onAction({ type: 'calendar_event_created', projectId: action.projectId, projectName: action.projectName, event: newEvent });
+                          }
+                        } catch (e) {
+                          console.warn('Calendar save failed', e);
+                          setMessages((prev) => [
+                            ...prev,
+                            {
+                              id: Date.now().toString() + '-cal-err',
+                              role: 'assistant',
+                              content: 'Could not save the calendar event. Try again from **Project → Calendar**.',
+                              timestamp: new Date(),
+                            },
+                          ]);
+                        }
+                        return;
+                      }
                       if (onAction) {
                         console.log('📤 AIAssistantModal: Calling onAction handler...');
                         const result = await onAction(action);
@@ -3158,6 +3124,26 @@ const AIAssistantModal: React.FC<Props> = ({
     }
   };
 
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
+
+  useEffect(() => {
+    if (!visible) {
+      initialQuestionSentRef.current = false;
+      return;
+    }
+    if (!initialQuestion || messages.length > 0 || loading || initialQuestionSentRef.current) return;
+    const trimmed = initialQuestion.trim();
+    if (!trimmed) return;
+
+    initialQuestionSentRef.current = true;
+    const timer = setTimeout(() => {
+      sendMessageRef.current?.(trimmed);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [visible, initialQuestion, messages.length, loading]);
+
   const handleQuickAction = async (labelOrPrompt: string) => {
     if (labelOrPrompt === "Find Subcontractors") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -3207,7 +3193,10 @@ const AIAssistantModal: React.FC<Props> = ({
         const token = await getToken();
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (token) headers["Authorization"] = `Bearer ${token}`;
-        const ctx = typeof enhancedContext === "string" ? enhancedContext : JSON.stringify(enhancedContext || {});
+        const ctx =
+          stampAiContextSnapshot(
+            typeof enhancedContext === "string" ? enhancedContext : JSON.stringify(enhancedContext || {})
+          ) ?? (typeof enhancedContext === "string" ? enhancedContext : JSON.stringify(enhancedContext || {}));
         const res = await fetch(url, {
           method: "POST",
           headers,
@@ -3261,78 +3250,213 @@ const AIAssistantModal: React.FC<Props> = ({
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  // Helper function to parse markdown and render formatted text
+  const renderInlineMarkdown = (text: string, keyPrefix: string, baseStyle: any) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|_[^_\n]+_)/g).filter(Boolean);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <Text key={`${keyPrefix}-bold-${index}`} style={[baseStyle, styles.messageBold]}>
+            {part.slice(2, -2)}
+          </Text>
+        );
+      }
+      if (part.startsWith('_') && part.endsWith('_')) {
+        return (
+          <Text key={`${keyPrefix}-italic-${index}`} style={[baseStyle, styles.messageItalic]}>
+            {part.slice(1, -1)}
+          </Text>
+        );
+      }
+      return (
+        <Text key={`${keyPrefix}-text-${index}`} style={baseStyle}>
+          {part}
+        </Text>
+      );
+    });
+  };
+
+  const stripLineMarkdownWrappers = (line: string) => {
+    let cleaned = line.replace(/\r/g, '').trim();
+    if (/^_.*_$/.test(cleaned)) cleaned = cleaned.replace(/^_+/, '').replace(/_+$/, '').trim();
+    return cleaned;
+  };
+
+  const looksLikeSectionHeader = (line: string) => {
+    if (!line) return false;
+    if (line.length > 42) return false;
+    if (/[.?!]/.test(line)) return false;
+    if (/^(here'?s|your|i'll|i can|no |payments? are|numbers reflect)/i.test(line)) return false;
+    return /^[A-Za-z0-9&/()' -]+$/.test(line);
+  };
+
+  const looksLikeSectionBanner = (line: string) => {
+    if (!line.endsWith(':')) return false;
+    if (line.length > 72) return false;
+    return !/^here'?s\s/i.test(line);
+  };
+
+  const splitMetricText = (text: string) => {
+    const match = text.match(/^([^:]{2,40}):\s+(.+)$/);
+    if (!match) return null;
+    return { label: match[1].trim(), value: match[2].trim() };
+  };
+
+  const renderMetricInline = (
+    label: string,
+    value: string,
+    keyPrefix: string,
+    valueStyle: any,
+  ) => (
+    <>
+      <Text style={styles.messageMetricLabel}>{label}: </Text>
+      {renderInlineMarkdown(value, `${keyPrefix}-value`, valueStyle)}
+    </>
+  );
+
+  const isMetadataLine = (line: string, rawLine: string) => {
+    if (!line) return false;
+    if (/^_.*_$/.test(rawLine.trim())) return true;
+    return /^(?:types:|payment milestones are managed|payments are managed in|numbers reflect your project data|add events in|updated\b|created from\b|completed jobs are excluded\b|pull to refresh\b)/i.test(line);
+  };
+
+  // Structured renderer for all AI text cards: headings, bullets, callouts, and muted metadata.
   const renderFormattedText = (text: string) => {
-    // Split by lines to handle headings and lists
-    const lines = text.split('\n');
+    const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
+    const lines = normalized.split('\n');
     const elements: any[] = [];
-    const disclaimerStyle = {
-      color: Colors.sub,
-      fontSize: 11,
-      textAlign: 'center' as const,
-      marginTop: 12,
-      opacity: 0.6,
-      fontStyle: 'italic' as const,
+    const metadataBuffer: string[] = [];
+
+    const flushMetadata = (keyBase: string) => {
+      if (!metadataBuffer.length) return;
+      const grouped = [...metadataBuffer];
+      metadataBuffer.length = 0;
+      elements.push(
+        <View key={`${keyBase}-meta`} style={styles.messageMetaBlock}>
+          {grouped.map((metaLine, index) => (
+            <Text key={`${keyBase}-meta-${index}`} style={styles.messageMetaText}>
+              {renderInlineMarkdown(metaLine, `${keyBase}-meta-inline-${index}`, styles.messageMetaText)}
+            </Text>
+          ))}
+        </View>
+      );
     };
 
-    lines.forEach((line, index) => {
-      const trimmedLine = line.trim();
+    lines.forEach((rawLine, index) => {
+      const trimmedLine = rawLine.trim();
+      const cleanedLine = stripLineMarkdownWrappers(rawLine);
 
-      // Disclaimer block (matches Estimate page style)
-      const disclaimerMatch = trimmedLine.match(/\[DISCLAIMER\](.+?)\[\/DISCLAIMER\]/);
+      const disclaimerMatch = cleanedLine.match(/\[DISCLAIMER\](.+?)\[\/DISCLAIMER\]/);
       if (disclaimerMatch) {
+        flushMetadata(`line-${index}`);
         elements.push(
-          <Text key={`disclaimer-${index}`} style={disclaimerStyle}>
-            {disclaimerMatch[1].trim()}
+          <View key={`disclaimer-wrap-${index}`} style={styles.messageMetaBlock}>
+            <Text key={`disclaimer-${index}`} style={styles.messageMetaText}>
+              {disclaimerMatch[1].trim()}
+            </Text>
+          </View>
+        );
+        return;
+      }
+
+      if (!trimmedLine) {
+        flushMetadata(`line-${index}`);
+        if (elements.length > 0) {
+          elements.push(<View key={`spacer-${index}`} style={styles.messageSpacer} />);
+        }
+        return;
+      }
+
+      if (isMetadataLine(cleanedLine, rawLine)) {
+        metadataBuffer.push(cleanedLine);
+        return;
+      }
+
+      flushMetadata(`line-${index}`);
+
+      if (/^#{2,3}\s+/.test(trimmedLine)) {
+        elements.push(
+          <Text key={`heading-${index}`} style={styles.messageHeading}>
+            {trimmedLine.replace(/^#{2,3}\s*/, '')}
           </Text>
         );
         return;
       }
 
-      // Headings (### or ##)
-      if (trimmedLine.startsWith('###')) {
-        const headingText = trimmedLine.replace(/^###+\s*/, '');
+      if (looksLikeSectionBanner(cleanedLine)) {
         elements.push(
-          <Text key={`heading-${index}`} style={styles.messageHeading}>
-            {headingText}
-          </Text>
+          <View key={`banner-${index}`} style={styles.messageSectionBanner}>
+            <Text style={styles.messageSectionBannerText}>
+              {cleanedLine.replace(/:$/, '')}
+            </Text>
+          </View>
         );
+        return;
       }
-      // Bold text (**text**)
-      else if (trimmedLine.includes('**')) {
-        const parts = trimmedLine.split(/(\*\*[^*]+\*\*)/g);
-        const formattedParts = parts.map((part, partIndex) => {
-          if (part.startsWith('**') && part.endsWith('**')) {
-            const boldText = part.slice(2, -2);
-            return (
-              <Text key={`bold-${index}-${partIndex}`} style={styles.messageBold}>
-                {boldText}
-              </Text>
-            );
-          }
-          return <Text key={`text-${index}-${partIndex}`}>{part}</Text>;
-        });
+
+      if (looksLikeSectionHeader(cleanedLine)) {
         elements.push(
-          <Text key={`line-${index}`} style={styles.messageText}>
-            {formattedParts}
-          </Text>
+          <View key={`section-${index}`} style={styles.messageSectionHeaderWrap}>
+            <Text style={styles.messageSectionHeader}>{cleanedLine}</Text>
+          </View>
         );
+        return;
       }
-      // Regular text
-      else if (trimmedLine) {
+
+      const warningMatch = cleanedLine.match(/^(⚠️|➡️)\s*(.+)$/);
+      if (warningMatch) {
         elements.push(
-          <Text key={`line-${index}`} style={styles.messageText}>
-            {trimmedLine}
-          </Text>
+          <View key={`callout-${index}`} style={styles.messageCallout}>
+            <Text style={styles.messageCalloutIcon}>{warningMatch[1]}</Text>
+            <Text style={styles.messageCalloutText}>
+              {renderInlineMarkdown(warningMatch[2], `callout-${index}`, styles.messageCalloutText)}
+            </Text>
+          </View>
         );
+        return;
       }
-      // Empty line for spacing
-      else if (index < lines.length - 1) {
-        elements.push(<View key={`spacer-${index}`} style={{ height: 8 }} />);
+
+      const bulletMatch = cleanedLine.match(/^(?:[-*•])\s+(.+)$/);
+      if (bulletMatch) {
+        const metric = splitMetricText(bulletMatch[1]);
+        elements.push(
+          <View key={`bullet-${index}`} style={[styles.messageBulletRow, metric && styles.messageMetricRow]}>
+            <Text style={styles.messageBullet}>•</Text>
+            <Text style={styles.messageListItem}>
+              {metric
+                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, styles.messageMetricValue)
+                : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, styles.messageListItem)}
+            </Text>
+          </View>
+        );
+        return;
       }
+
+      const numberMatch = cleanedLine.match(/^(\d+)\.\s+(.+)$/);
+      if (numberMatch) {
+        const metric = splitMetricText(numberMatch[2]);
+        elements.push(
+          <View key={`number-${index}`} style={[styles.messageNumberRow, metric && styles.messageMetricRow]}>
+            <Text style={styles.messageNumberIndex}>{numberMatch[1]}.</Text>
+            <Text style={styles.messageListItem}>
+              {metric
+                ? renderMetricInline(metric.label, metric.value, `number-${index}`, styles.messageMetricValue)
+                : renderInlineMarkdown(numberMatch[2], `number-${index}`, styles.messageListItem)}
+            </Text>
+          </View>
+        );
+        return;
+      }
+
+      elements.push(
+        <Text key={`line-${index}`} style={styles.messageText}>
+          {renderInlineMarkdown(cleanedLine, `line-${index}`, styles.messageText)}
+        </Text>
+      );
     });
-    
-    return <View>{elements}</View>;
+
+    flushMetadata('final');
+
+    return <View style={styles.formattedContent}>{elements}</View>;
   };
 
   const formatTimestamp = (timestamp?: Date) => {
@@ -3414,7 +3538,7 @@ const AIAssistantModal: React.FC<Props> = ({
         ) : (
           <View style={styles.assistantBubbleWrapper}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={ASSISTANT_BORDER_GRADIENT}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.assistantBubbleBorder}
@@ -3436,7 +3560,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 {(item.pdfUri || item.attachment) && (
                   <View style={styles.pdfAttachmentWrapper}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={ASSISTANT_BORDER_GRADIENT}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.pdfAttachmentBorder}
@@ -3642,15 +3766,6 @@ const AIAssistantModal: React.FC<Props> = ({
                     )}
                   </>
                 )}
-                {__DEV__ && (() => {
-                  const base = resolveAIBaseUrl();
-                  const label = base.includes('render.com') ? 'Production' : base.includes('localhost') || base.includes('127.0.0.1') ? 'Local (localhost:3001)' : `Local (${base.replace(/^https?:\/\//, '').replace(/\/api\/?$/, '')})`;
-                  return (
-                    <Text style={[styles.headerMeta, { marginTop: 2, opacity: 0.8 }, !darkMode && { color: ThemeColors.sub }]} numberOfLines={1}>
-                      Backend: {label}
-                    </Text>
-                  );
-                })()}
               </View>
               <View style={styles.headerSpacer} />
             </View>
@@ -3685,8 +3800,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 <>
                   {renderTypingIndicator()}
                   {!isTyping && chatSuggestions.length > 0 && messages.length > 0 && (
-                    <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <View style={styles.footerSuggestionsWrap}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.footerSuggestionsContent}>
                         {chatSuggestions.map((s, i) => (
                           <TouchableOpacity
                             key={`suggestion-${i}`}
@@ -3695,21 +3810,10 @@ const AIAssistantModal: React.FC<Props> = ({
                               setChatSuggestions([]);
                               handleQuickAction(s.prompt);
                             }}
-                            style={{
-                              paddingHorizontal: 14,
-                              paddingVertical: 8,
-                              borderRadius: 16,
-                              backgroundColor: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)',
-                              borderWidth: 1,
-                              borderColor: darkMode ? 'rgba(34,197,94,0.25)' : 'rgba(34,197,94,0.2)',
-                            }}
+                            style={styles.footerSuggestionChip}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                           >
-                            <Text style={{
-                              fontSize: 13,
-                              color: darkMode ? '#86efac' : '#166534',
-                              fontWeight: '500',
-                            }}>{s.label}</Text>
+                            <Text style={styles.footerSuggestionChipText}>{s.label}</Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
@@ -3777,9 +3881,12 @@ const AIAssistantModal: React.FC<Props> = ({
                           {displayBrief.insights.length > 0 ? (
                             <View style={styles.todayBriefInsights}>
                               {displayBrief.insights.map((insight, i) => (
-                                <Text key={i} style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}>
-                                  • {insight}
-                                </Text>
+                                <View key={i} style={styles.todayBriefInsightRow}>
+                                  <View style={styles.todayBriefInsightDot} />
+                                  <Text style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}>
+                                    {insight}
+                                  </Text>
+                                </View>
                               ))}
                             </View>
                           ) : (
@@ -3904,11 +4011,14 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={[styles.managerCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
                     <View style={styles.managerHeaderRow}>
                       <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={[styles.managerEyebrow, !darkMode && { color: ThemeColors.sub }]}>
+                          Project automation
+                        </Text>
                         <Text style={[styles.managerTitle, !darkMode && { color: ThemeColors.text }]}>
                           AI Project Manager Mode
                         </Text>
                         <Text style={[styles.managerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
-                          Let AI monitor your jobs, flag risks, and suggest next steps automatically.
+                          AI monitors cost, schedule, and margin so you can act faster.
                         </Text>
                       </View>
 
@@ -3950,22 +4060,22 @@ const AIAssistantModal: React.FC<Props> = ({
                         <View style={styles.managerChipRow}>
                           <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
                             <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                              Watching costs
+                              Costs
                             </Text>
                           </View>
                           <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
                             <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                              Tracking schedule
+                              Schedule
                             </Text>
                           </View>
                           <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
                             <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
-                              Protecting margin
+                              Margin
                             </Text>
                           </View>
                         </View>
                         <Text style={[styles.managerMicrocopy, !darkMode && { color: ThemeColors.sub }]}>
-                          Runs checks when you open the assistant or update the project.
+                          Checks run when you open AI or update this project.
                         </Text>
                       </>
                     )}
@@ -3985,6 +4095,9 @@ const AIAssistantModal: React.FC<Props> = ({
                       >
                         <View style={[styles.projectStrip, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
                       <View>
+                        <Text style={[styles.projectEyebrow, !darkMode && { color: ThemeColors.sub }]}>
+                          Current project
+                        </Text>
                         <Text style={[styles.projectTitle, !darkMode && { color: ThemeColors.text }]}>
                           {projectInfo.title}
                         </Text>
@@ -4039,22 +4152,18 @@ const AIAssistantModal: React.FC<Props> = ({
                   </View>
 
                   <Text style={[styles.greetingTitle, !darkMode && { color: ThemeColors.text }]}>
-                    {(isProjectsScreenContext || isGlobalAssistantContext) ? "Hi — I'm your AI Project Manager." : "Hi! I'm your AI project manager."}
+                    {(isProjectsScreenContext || isGlobalAssistantContext) ? "Your AI command center" : "Your AI project manager"}
                   </Text>
 
                   <Text style={[styles.greetingSubtitle, !darkMode && { color: ThemeColors.sub }]}>
                     {(isProjectsScreenContext || isGlobalAssistantContext) ? (
                       <>
-                        I can help you:{'\n'}
-                        • Compare projects{'\n'}
-                        • Add expenses or purchase orders{'\n'}
-                        • Log payments or daily logs{'\n'}
-                        • Check project health{'\n'}
-                        • Identify budget risks{'\n\n'}
-                        Select a project below or ask me anything.
+                        Compare projects, spot risks, review budgets, and act on schedule or payment issues.
+                        {'\n\n'}
+                        Ask anything or use a quick action below.
                       </>
                     ) : (
-                      <>Ask me about the <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text>. I can update your estimate, set payment schedules, find subs, or protect your profit.</>
+                      <>Ask about <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text> to review health, update costs, manage schedules, and protect profit.</>
                     )}
                   </Text>
 
@@ -4182,7 +4291,7 @@ const AIAssistantModal: React.FC<Props> = ({
             }]}>
               {/* Global AI & Projects: Smart Quick Actions */}
               {(isGlobalAssistantContext || isProjectsScreenContext) && (
-                <View style={{ paddingHorizontal: 16, marginBottom: 4 }}>
+                <View style={styles.bottomRailSection}>
                   {/* Projects screen only: project chips. Command Center: no Select Project row. */}
                   {isProjectsScreenContext && projectSelectionOptions.length > 0 && (
                     <ProjectSelectionChips
@@ -4196,8 +4305,8 @@ const AIAssistantModal: React.FC<Props> = ({
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
-                      style={{ marginTop: 2, maxHeight: 34 }}
-                      contentContainerStyle={{ gap: 6, alignItems: 'center', flexDirection: 'row', paddingBottom: 2 }}
+                      style={styles.bottomRailScroll}
+                      contentContainerStyle={styles.bottomRailContent}
                     >
                       {[
                         { label: 'Compare Projects', basePrompt: 'Compare all my projects for profitability and risk', portfolioScope: true },
@@ -4206,10 +4315,10 @@ const AIAssistantModal: React.FC<Props> = ({
                         { label: 'Budget Risks', basePrompt: 'Identify budget risks across my projects', portfolioScope: true },
                         { label: 'Missing Receipts', basePrompt: 'Which projects have expenses missing receipts?', portfolioScope: true },
                         { label: 'Upcoming Payments', basePrompt: 'What payments are coming up?', portfolioScope: true },
-                        { label: '➕ Add expense', basePrompt: 'Add an expense', portfolioScope: false },
-                        { label: '📦 Add PO', basePrompt: 'Create a purchase order', portfolioScope: false },
-                        { label: '📝 Daily log', basePrompt: 'Add a daily log for today', portfolioScope: false },
-                        { label: '🔄 Change order', basePrompt: 'Create a change order', portfolioScope: false },
+                        { label: 'Add Expense', basePrompt: 'Add an expense', portfolioScope: false },
+                        { label: 'Create PO', basePrompt: 'Create a purchase order', portfolioScope: false },
+                        { label: 'Daily Log', basePrompt: 'Add a daily log for today', portfolioScope: false },
+                        { label: 'Change Order', basePrompt: 'Create a change order', portfolioScope: false },
                       ].map((chip) => {
                         const isCompareChip = (chip as any).portfolioScope;
                         const chipDisabled = isCompareChip && !isContextReady;
@@ -4229,23 +4338,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             }
                             handleQuickAction(message);
                           }}
-                          style={{
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 18,
-                            borderWidth: 1,
-                            borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
-                            backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
-                            opacity: chipDisabled ? 0.5 : 1,
-                          }}
+                          style={[styles.bottomRailChip, chipDisabled && { opacity: 0.5 }]}
                         >
-                          <Text style={{
-                            fontSize: 12,
-                            fontWeight: '600',
-                            color: darkMode ? 'rgba(45, 255, 196, 0.95)' : 'rgba(0, 120, 200, 0.9)',
-                          }}>
-                            {chip.label}
-                          </Text>
+                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
                         </TouchableOpacity>
                         );
                       })}
@@ -4261,8 +4356,8 @@ const AIAssistantModal: React.FC<Props> = ({
                   scrollEnabled={true}
                   directionalLockEnabled={true}
                   nestedScrollEnabled={false}
-                  style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 40 }}
-                  contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
+                  style={styles.bottomRailSection}
+                  contentContainerStyle={styles.bottomRailContent}
                 >
                   {(() => {
                     // Determine if we're in Team context
@@ -4279,75 +4374,45 @@ const AIAssistantModal: React.FC<Props> = ({
                     // Team-specific quick actions
                     if (isTeamContext) {
                       return [
-                        { label: '👤 Assign PM', prompt: 'Assign a project manager to this project' },
-                        { label: '➕ Add Team Member', prompt: 'Add a new team member to this project' },
-                        { label: '📢 Notify Team', prompt: 'Send a notification to the team' },
-                        { label: '📊 Team Status', prompt: 'Show me the current team status and availability' },
-                        { label: '📋 Team Tasks', prompt: 'What tasks are assigned to team members?' },
-                        { label: '🔄 Update Status', prompt: 'Update a team member\'s status' },
+                        { label: 'Assign PM', prompt: 'Assign a project manager to this project' },
+                        { label: 'Add Team Member', prompt: 'Add a new team member to this project' },
+                        { label: 'Notify Team', prompt: 'Send a notification to the team' },
+                        { label: 'Team Status', prompt: 'Show me the current team status and availability' },
+                        { label: 'Team Tasks', prompt: 'What tasks are assigned to team members?' },
+                        { label: 'Update Status', prompt: 'Update a team member\'s status' },
                       ].map((chip) => (
                         <TouchableOpacity
                           key={chip.label}
                           onPress={() => {
                             handleQuickAction(chip.prompt);
                           }}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingHorizontal: 14,
-                            paddingVertical: 8,
-                            borderRadius: 20,
-                            backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
-                            borderWidth: 1,
-                            borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
-                          }}
+                          style={styles.bottomRailChip}
                         >
-                          <Text style={{
-                            fontSize: 13,
-                            fontWeight: '600',
-                            color: darkMode ? 'rgba(45, 255, 196, 0.9)' : 'rgba(0, 120, 200, 0.9)',
-                          }}>
-                            {chip.label}
-                          </Text>
+                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
 
                     // Default project quick actions
                     return [
-                      { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
-                      { label: '🔄 Change Order', prompt: 'Create me a change order' },
-                      { label: '📦 Create PO', prompt: 'Create a purchase order' },
-                      { label: '📋 Payments', prompt: 'Mark a payment as collected' },
-                      { label: '📝 Daily Log', prompt: 'Add a daily job log for today' },
-                      { label: '📊 Budget Check', prompt: 'Give me a project health check.' },
-                      { label: '👥 Team', prompt: 'can you help me with team management' },
-                      { label: '📈 What If?', prompt: 'Run a scenario analysis for this project.' },
-                      { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
+                      { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
+                      { label: 'Change Order', prompt: 'Create me a change order' },
+                      { label: 'Create PO', prompt: 'Create a purchase order' },
+                      { label: 'Payments', prompt: 'Mark a payment as collected' },
+                      { label: 'Daily Log', prompt: 'Add a daily job log for today' },
+                      { label: 'Budget Check', prompt: 'Give me a project health check.' },
+                      { label: 'Team', prompt: 'can you help me with team management' },
+                      { label: 'What If', prompt: 'Run a scenario analysis for this project.' },
+                      { label: 'Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
                     ].map((chip) => (
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
                         handleQuickAction(chip.prompt);
                       }}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingHorizontal: 14,
-                        paddingVertical: 8,
-                        borderRadius: 20,
-                        backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(0, 166, 255, 0.08)',
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(45, 255, 196, 0.25)' : 'rgba(0, 166, 255, 0.25)',
-                      }}
+                      style={styles.bottomRailChip}
                     >
-                      <Text style={{
-                        fontSize: 13,
-                        fontWeight: '600',
-                        color: darkMode ? 'rgba(45, 255, 196, 0.9)' : 'rgba(0, 120, 200, 0.9)',
-                      }}>
-                        {chip.label}
-                      </Text>
+                      <Text style={styles.bottomRailChipText}>{chip.label}</Text>
                     </TouchableOpacity>
                   ));
                   })()}
@@ -4359,14 +4424,14 @@ const AIAssistantModal: React.FC<Props> = ({
                   scrollEnabled={true}
                   directionalLockEnabled={true}
                   nestedScrollEnabled={false}
-                  style={{ paddingHorizontal: 16, marginBottom: 6, maxHeight: 36 }}
-                  contentContainerStyle={{ gap: 8, alignItems: 'center', flexDirection: 'row' }}
+                  style={styles.bottomRailSection}
+                  contentContainerStyle={styles.bottomRailContent}
                 >
                   {(() => {
                     if (isEstimateContext) {
                       return [
-                        { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
-                        { label: '🧾 Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+                        { label: 'Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
+                        { label: 'Missing Costs', prompt: 'Scan this estimate for missing costs.' },
                       ];
                     }
                     // Flow-specific chips for projects
@@ -4374,46 +4439,46 @@ const AIAssistantModal: React.FC<Props> = ({
                       switch (compactChipFlow) {
                         case 'change_order':
                           return [
-                            { label: '➕ Add Line Item', prompt: 'Add a line item to this change order', primary: true },
-                            { label: '❌ Cancel', prompt: 'Cancel this change order' },
+                            { label: 'Add Line Item', prompt: 'Add a line item to this change order', primary: true },
+                            { label: 'Cancel', prompt: 'Cancel this change order' },
                           ];
                         case 'payments':
                           return [
-                            { label: '📋 Mark Payment', prompt: 'Mark a payment as collected', primary: true },
-                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
-                            { label: '📦 Create PO', prompt: 'Create a purchase order' },
+                            { label: 'Mark Payment', prompt: 'Mark a payment as collected', primary: true },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: 'Create PO', prompt: 'Create a purchase order' },
                           ];
                         case 'daily_log':
                           return [
-                            { label: '📝 Daily Log', prompt: 'Add a daily job log for today', primary: true },
-                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: 'Daily Log', prompt: 'Add a daily job log for today', primary: true },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
                           ];
                         case 'budget_check':
                           return [
-                            { label: '📈 Forecast Profit', prompt: 'Forecast the final cost and profit for this project.', primary: true },
-                            { label: '📈 What If?', prompt: 'Run a scenario analysis for this project.' },
-                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: 'Forecast Profit', prompt: 'Forecast the final cost and profit for this project.', primary: true },
+                            { label: 'What If', prompt: 'Run a scenario analysis for this project.' },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
                           ];
                         case 'team':
                           return [
-                            { label: '👤 Assign PM', prompt: 'Assign a project manager to this project' },
-                            { label: '➕ Add Team Member', prompt: 'Add a new team member to this project' },
-                            { label: '📊 Team Status', prompt: 'Show me the current team status and availability' },
-                            { label: '🔄 Update Status', prompt: 'Update a team member\'s status' },
+                            { label: 'Assign PM', prompt: 'Assign a project manager to this project' },
+                            { label: 'Add Team Member', prompt: 'Add a new team member to this project' },
+                            { label: 'Team Status', prompt: 'Show me the current team status and availability' },
+                            { label: 'Update Status', prompt: 'Update a team member\'s status' },
                           ];
                         case 'create_po':
                           return [
-                            { label: '📦 Create PO', prompt: 'Create a purchase order', primary: true },
-                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?' },
-                            { label: '🔄 Change Order', prompt: 'Create me a change order' },
+                            { label: 'Create PO', prompt: 'Create a purchase order', primary: true },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
+                            { label: 'Change Order', prompt: 'Create me a change order' },
                           ];
                         case 'log_expense':
                         default:
                           return [
-                            { label: '💰 Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
-                            { label: '📦 Create PO', prompt: 'Create a purchase order' },
-                            { label: '🔄 Change Order', prompt: 'Create me a change order' },
-                            { label: '📋 Mark Payment', prompt: 'Mark a payment as collected' },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
+                            { label: 'Create PO', prompt: 'Create a purchase order' },
+                            { label: 'Change Order', prompt: 'Create me a change order' },
+                            { label: 'Mark Payment', prompt: 'Mark a payment as collected' },
                           ];
                       }
                     })();
@@ -4425,14 +4490,14 @@ const AIAssistantModal: React.FC<Props> = ({
                         handleQuickAction(chip.prompt);
                       }}
                       style={[
-                        styles.compactInsightChip,
+                        styles.bottomRailChip,
                         chip.primary && styles.compactInsightChipPrimary,
                         !darkMode && { borderColor: ThemeColors.line },
                       ]}
                     >
                       <Text
                         style={[
-                          styles.compactInsightChipText,
+                          styles.bottomRailChipText,
                           chip.primary && styles.compactInsightChipTextPrimary,
                           !darkMode && { color: ThemeColors.text },
                         ]}
@@ -4456,19 +4521,15 @@ const AIAssistantModal: React.FC<Props> = ({
                       name="chatbox-ellipses-outline"
                       size={18}
                       color={Colors.sub}
-                      style={{ marginLeft: 12, marginRight: 8 }}
+                      style={styles.inputLeadIcon}
                     />
                     {isRecording ? (
-                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                          <View style={{ 
-                            width: 8, 
-                            height: 8, 
-                            borderRadius: 4, 
-                            backgroundColor: '#ef4444', 
-                            marginRight: 8,
-                            opacity: recordingDuration % 2 === 0 ? 1 : 0.5
-                          }} />
+                      <View style={styles.recordingRow}>
+                        <View style={styles.recordingInner}>
+                          <View style={[
+                            styles.recordingDot,
+                            { opacity: recordingDuration % 2 === 0 ? 1 : 0.5 }
+                          ]} />
                           <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
                             Recording... {recordingDuration}s
                           </Text>
@@ -4596,8 +4657,9 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     color: Colors.sub,
     fontSize: 13,
-    marginTop: 4,
+    marginTop: 5,
     fontWeight: "600",
+    letterSpacing: 0.1,
   },
   headerMeta: {
     color: Colors.sub,
@@ -4611,15 +4673,15 @@ const styles = StyleSheet.create({
     elevation: 10, // Android
   },
   backButtonBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
-    backgroundColor: '#000000',
+    width: 44,
+    height: 44,
+    borderRadius: 21,
+    backgroundColor: '#05070A',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -4641,7 +4703,7 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 18,
+    borderRadius: 20,
     marginVertical: 2,
     flexShrink: 1,
   },
@@ -4650,41 +4712,45 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   assistantBubbleWrapper: {
-    maxWidth: "82%",
+    maxWidth: "86%",
     marginVertical: 4,
   },
   assistantBubbleBorder: {
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 1,
     overflow: "hidden",
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
   },
   assistantBubble: {
-    backgroundColor: "#000000",
-    borderBottomLeftRadius: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    backgroundColor: "#040608",
+    borderBottomLeftRadius: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     flexShrink: 1,
   },
   assistantLabelRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 10,
   },
   assistantLabelText: {
-    color: Colors.green,
-    fontSize: 11,
-    marginLeft: 4,
-    fontWeight: "600",
-    letterSpacing: 0.3,
+    color: "#8CF5CB",
+    fontSize: 10,
+    marginLeft: 5,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
   messageText: {
     color: Colors.text,
     fontSize: 15,
-    lineHeight: 24,
+    lineHeight: 23,
     flexWrap: "wrap",
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
     fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
+  },
+  formattedContent: {
+    gap: 0,
   },
   userMessageContainer: {
     alignItems: "flex-end",
@@ -4720,25 +4786,135 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   messageHeading: {
-    color: Colors.text,
+    color: "#F8FAFC",
     fontSize: 18,
     fontWeight: "800",
-    marginTop: 12,
-    marginBottom: 8,
-    letterSpacing: 0.3,
+    marginTop: 8,
+    marginBottom: 12,
+    letterSpacing: 0.12,
   },
   messageBold: {
     color: Colors.text,
-    fontWeight: "700",
-    fontSize: 15,
+    fontWeight: "800",
+  },
+  messageItalic: {
+    color: "#C7D4E8",
+    fontStyle: "italic",
   },
   messageListItem: {
     color: Colors.text,
     fontSize: 15,
-    lineHeight: 24,
-    marginLeft: 4,
-    marginBottom: 4,
-    letterSpacing: 0.2,
+    lineHeight: 23,
+    flex: 1,
+    letterSpacing: 0.1,
+  },
+  messageBulletRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  messageBullet: {
+    color: "#89F4CE",
+    fontSize: 16,
+    lineHeight: 22,
+    width: 16,
+    marginTop: 1,
+    fontWeight: "700",
+  },
+  messageNumberRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  messageNumberIndex: {
+    width: 24,
+    color: Colors.sub,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+  messageMetaBlock: {
+    marginTop: 6,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(141, 160, 184, 0.14)",
+  },
+  messageMetaText: {
+    color: Colors.sub,
+    fontSize: 11.5,
+    lineHeight: 17,
+    opacity: 0.8,
+    marginBottom: 3,
+  },
+  messageCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 2,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.035)",
+    borderWidth: 1,
+    borderColor: "rgba(141, 160, 184, 0.12)",
+  },
+  messageCalloutIcon: {
+    color: "#A7F3D0",
+    fontSize: 14,
+    lineHeight: 20,
+    marginRight: 8,
+  },
+  messageCalloutText: {
+    flex: 1,
+    color: "#D9E4F1",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  messageSectionHeaderWrap: {
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  messageSectionHeader: {
+    color: "#F8FAFC",
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  messageSectionBanner: {
+    marginTop: 4,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.045)",
+    borderWidth: 1,
+    borderColor: "rgba(141, 160, 184, 0.12)",
+  },
+  messageSectionBannerText: {
+    color: "#EAF2FF",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 21,
+  },
+  messageMetricRow: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(141, 160, 184, 0.08)",
+  },
+  messageMetricLabel: {
+    color: "#F8FAFC",
+    fontWeight: "800",
+  },
+  messageMetricValue: {
+    color: "#D7E3F4",
+  },
+  messageSpacer: {
+    height: 8,
   },
   pdfAttachmentWrapper: {
     marginTop: 12,
@@ -4806,29 +4982,31 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: "column",
     alignItems: "flex-end",
-    paddingHorizontal: 20,
-    backgroundColor: Colors.bg,
-    gap: 4,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(0,0,0,0.96)",
+    gap: 8,
     width: "100%",
     zIndex: 100,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.04)",
   },
   inputRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 8,
+    gap: 10,
   },
   inputInnerWrapper: {
     flex: 1,
   },
   inputInnerBorder: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
@@ -4836,28 +5014,51 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 17,
-    backgroundColor: "#000000",
-    minHeight: 44,
-    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    borderRadius: 21,
+    backgroundColor: "#05070A",
+    minHeight: 50,
+    paddingVertical: Platform.OS === "ios" ? 11 : 9,
+  },
+  inputLeadIcon: {
+    marginLeft: 14,
+    marginRight: 8,
+    opacity: 0.9,
   },
   input: {
     flex: 1,
     color: Colors.text,
     fontSize: 15,
-    paddingRight: 8,
+    paddingRight: 10,
     paddingVertical: 0,
     maxHeight: 100,
-    lineHeight: 20,
+    lineHeight: 21,
+  },
+  recordingRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 10,
+  },
+  recordingInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ef4444',
+    marginRight: 8,
   },
   recordingText: {
     color: '#ef4444',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   micButton: {
-    padding: 8,
-    marginRight: 8,
+    padding: 10,
+    marginRight: 6,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -4865,17 +5066,17 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
   sendButtonBorder: {
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 1,
     overflow: "hidden",
-    width: 44,
-    height: 44,
+    width: 50,
+    height: 50,
   },
   sendButtonInner: {
     width: "100%",
     height: "100%",
-    backgroundColor: "#000000",
-    borderRadius: 21,
+    backgroundColor: "#05070A",
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -4884,8 +5085,8 @@ const styles = StyleSheet.create({
   },
   greetingWrapper: {
     alignItems: "center",
-    marginTop: 8,
-    marginBottom: 18,
+    marginTop: 14,
+    marginBottom: 22,
     backgroundColor: Colors.bg,
   },
   greetingIconCircleWrapper: {
@@ -4906,19 +5107,20 @@ const styles = StyleSheet.create({
   },
   greetingTitle: {
     color: Colors.text,
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "800",
     textAlign: "center",
-    marginTop: 4,
-    marginBottom: 6,
-    letterSpacing: 0.15,
+    marginTop: 6,
+    marginBottom: 8,
+    letterSpacing: -0.2,
   },
   greetingSubtitle: {
     color: Colors.sub,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 22,
     textAlign: "center",
     marginTop: 4,
+    maxWidth: 340,
   },
   greetingHighlight: {
     fontWeight: "700",
@@ -4927,49 +5129,64 @@ const styles = StyleSheet.create({
   todayBriefCard: {
     marginHorizontal: 0,
     marginTop: 12,
-    marginBottom: 16,
-    borderRadius: 16,
+    marginBottom: 18,
+    borderRadius: 22,
     overflow: "hidden",
     backgroundColor: Colors.card,
     borderWidth: 1,
-    borderColor: "rgba(0, 140, 120, 0.2)",
-    shadowColor: "rgba(0, 100, 90, 0.25)",
-    shadowOffset: { width: 0, height: 4 },
+    borderColor: "rgba(16, 242, 151, 0.14)",
+    shadowColor: "rgba(0, 100, 90, 0.18)",
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowRadius: 18,
+    elevation: 7,
   },
   todayBriefGradient: {
-    padding: 16,
-    borderRadius: 15,
+    padding: 20,
+    borderRadius: 21,
   },
   todayBriefCardTitle: {
     color: Colors.sub,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 6,
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   todayBriefGreeting: {
     color: Colors.text,
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
+    fontSize: 26,
+    fontWeight: "800",
+    marginBottom: 6,
+    letterSpacing: -0.4,
   },
   todayBriefSubGreeting: {
     color: Colors.sub,
-    fontSize: 14,
-    marginBottom: 12,
+    fontSize: 15,
+    lineHeight: 21,
+    marginBottom: 16,
   },
   todayBriefInsights: {
-    marginBottom: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  todayBriefInsightRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  todayBriefInsightDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 8,
+    backgroundColor: "rgba(132, 255, 210, 0.95)",
   },
   todayBriefInsightItem: {
     color: Colors.text,
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 2,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
   },
   todayBriefEmptyInsight: {
     fontStyle: "italic",
@@ -4977,12 +5194,12 @@ const styles = StyleSheet.create({
   },
   todayBriefSectionLabel: {
     color: Colors.sub,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 6,
-    marginTop: 4,
+    letterSpacing: 1,
+    marginBottom: 8,
+    marginTop: 6,
   },
   todayBriefActionChip: {
     alignSelf: "flex-start",
@@ -4999,51 +5216,53 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   todayBriefChipsScroll: {
-    maxHeight: 36,
+    maxHeight: 42,
     marginBottom: 4,
   },
   todayBriefChipsContent: {
     flexDirection: "row",
     gap: 8,
     alignItems: "center",
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
   todayBriefQuickChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#2DFFC4",
+    borderColor: "rgba(45, 255, 196, 0.4)",
+    backgroundColor: "rgba(45, 255, 196, 0.05)",
   },
   todayBriefQuickChipText: {
     color: "#2DFFC4",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   todayBriefFollowChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.5)",
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.03)",
   },
   todayBriefFollowChipText: {
-    color: "#2DFFC4",
-    fontSize: 11,
+    color: "#E6EEF9",
+    fontSize: 12,
     fontWeight: "600",
   },
   allClearCard: {
     marginHorizontal: 0,
     marginTop: 12,
     marginBottom: 4,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "rgba(34, 197, 94, 0.08)",
+    backgroundColor: "rgba(34, 197, 94, 0.07)",
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.2)",
+    borderColor: "rgba(34, 197, 94, 0.16)",
   },
   allClearTitle: {
     color: Colors.text,
@@ -5059,11 +5278,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     marginTop: 12,
     marginBottom: 4,
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: "rgba(249, 115, 22, 0.08)",
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: "rgba(249, 115, 22, 0.07)",
     borderWidth: 1,
-    borderColor: "rgba(249, 115, 22, 0.25)",
+    borderColor: "rgba(249, 115, 22, 0.16)",
   },
   biggestRiskHeader: {
     flexDirection: "row",
@@ -5073,27 +5292,30 @@ const styles = StyleSheet.create({
   },
   biggestRiskTitle: {
     color: Colors.text,
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
   },
   biggestRiskMessage: {
     color: Colors.text,
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 4,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "700",
+    marginBottom: 6,
   },
   biggestRiskDetail: {
     color: Colors.sub,
-    fontSize: 13,
-    marginBottom: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 14,
   },
   biggestRiskButton: {
     alignSelf: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(249, 115, 22, 0.4)",
+    borderColor: "rgba(249, 115, 22, 0.3)",
+    backgroundColor: "rgba(249, 115, 22, 0.06)",
   },
   biggestRiskButtonText: {
     color: "#F97316",
@@ -5158,7 +5380,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   primaryActions: {
-    marginTop: 14,
+    marginTop: 18,
     width: "100%",
     gap: 10,
   },
@@ -5166,7 +5388,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   primaryButtonBorder: {
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 1,
     overflow: "hidden",
   },
@@ -5179,64 +5401,76 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: "#000000",
-    borderRadius: 17,
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    backgroundColor: "#05070A",
+    borderRadius: 19,
   },
   primaryButtonText: {
     color: Colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
   },
   projectStripContainer: {
     marginTop: 10,
-    marginBottom: 16,
+    marginBottom: 18,
   },
   projectStripBorder: {
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 1,
     overflow: "hidden",
   },
   projectStrip: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 17,
-    backgroundColor: "#000000",
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    borderRadius: 19,
+    backgroundColor: "#05070A",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+  projectEyebrow: {
+    color: Colors.sub,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 4,
+    fontWeight: "700",
+  },
   projectTitle: {
     color: Colors.text,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: "800",
-    letterSpacing: 0.1,
+    letterSpacing: -0.2,
   },
   projectSubtitle: {
-    marginTop: 2,
+    marginTop: 3,
     color: Colors.sub,
-    fontSize: 12,
+    fontSize: 13,
   },
   projectRight: {
     alignItems: "flex-end",
     gap: 6,
   },
   marginBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(22,163,74,0.35)",
+    backgroundColor: "rgba(22,163,74,0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(134, 239, 172, 0.16)",
   },
   marginBadgeLabel: {
-    color: "rgba(209,250,229,0.85)",
+    color: "rgba(209,250,229,0.72)",
     fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   marginBadgeValue: {
     color: "#BBF7D0",
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "800",
   },
   aiWatchingRow: {
     flexDirection: "row",
@@ -5246,46 +5480,74 @@ const styles = StyleSheet.create({
   aiWatchingText: {
     color: "#BBF7D0",
     fontSize: 11,
-  },
-  quickChipWrapper: {
-    marginHorizontal: 4,
-  },
-  quickChipBorder: {
-    borderRadius: 999,
-    padding: 1,
-    overflow: "hidden",
-  },
-  quickChip: {
-    borderRadius: 998,
-    backgroundColor: "#000000",
-    overflow: "hidden",
-  },
-  quickChipInner: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "#000000",
-    borderRadius: 998,
-  },
-  quickChipText: {
-    color: Colors.text,
-    fontSize: 12,
     fontWeight: "600",
   },
+  footerSuggestionsWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  footerSuggestionsContent: {
+    gap: 8,
+  },
+  footerSuggestionChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+  },
+  footerSuggestionChipText: {
+    fontSize: 12,
+    color: "#CDECDD",
+    fontWeight: "600",
+  },
+  bottomRailSection: {
+    paddingHorizontal: 16,
+    marginBottom: 6,
+  },
+  bottomRailScroll: {
+    marginTop: 4,
+    maxHeight: 40,
+  },
+  bottomRailContent: {
+    gap: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    paddingBottom: 2,
+  },
+  bottomRailChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.035)",
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.18)",
+  },
+  bottomRailChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#BCEFD8',
+    letterSpacing: 0.05,
+  },
   managerCardContainer: {
-    marginTop: 20,
-    marginBottom: 14,
+    marginTop: 18,
+    marginBottom: 16,
   },
   managerCardBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   managerCard: {
     paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderRadius: 19,
-    backgroundColor: "#000000",
+    paddingTop: 16,
+    paddingBottom: 14,
+    borderRadius: 21,
+    backgroundColor: "#05070A",
   },
   managerHeaderRow: {
     flexDirection: "row",
@@ -5294,45 +5556,55 @@ const styles = StyleSheet.create({
   },
   managerToggleWrapper: {
     padding: 2,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "transparent",
   },
+  managerEyebrow: {
+    color: Colors.sub,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 5,
+    fontWeight: "700",
+  },
   managerTitle: {
     color: Colors.text,
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: "800",
-    marginBottom: 2,
-    letterSpacing: 0.15,
+    marginBottom: 4,
+    letterSpacing: -0.2,
   },
   managerSubtitle: {
     color: Colors.sub,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
   },
   managerChipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 10,
+    marginTop: 12,
     columnGap: 8,
     rowGap: 8,
   },
   managerChip: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: "rgba(21,128,61,0.3)",
+    backgroundColor: "rgba(21,128,61,0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(134, 239, 172, 0.12)",
   },
   managerChipText: {
     color: "#BBF7D0",
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   managerMicrocopy: {
     color: "rgba(148, 163, 184, 0.7)",
-    fontSize: 11,
-    marginTop: 8,
-    paddingHorizontal: 4,
-    lineHeight: 15,
+    fontSize: 11.5,
+    marginTop: 10,
+    paddingHorizontal: 2,
+    lineHeight: 16,
   },
 });
