@@ -43,6 +43,7 @@ function buildSystemPrompt(opts = {}) {
   const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((status || '').toLowerCase());
   const isActive = ['won', 'active', 'in_progress', 'in-progress', 'completed'].includes((status || '').toLowerCase());
   const hasProject = !!projectId;
+  const isEstimateScreen = screen === 'Estimate Generator';
   // Global AI Assistant (center nav) and Projects screen both get portfolio/command center behavior
   const isGlobalCommandMode = screen === 'AI Assistant Tab' || screen === 'Projects';
   const scope = aiScopeOpt || (screen === 'Project Detail' || (screen === 'Estimate Generator' && projectId) ? 'project' : 'portfolio');
@@ -432,6 +433,49 @@ JUDGMENT PROMPTS (use existing get_project_health, risk data, estimate data):
 - Answer style: direct conclusion first → main reason → risk or impact → practical recommendation.
 - Use get_project_health risks, project risks, budget overruns, margin erosion. Avoid motivational or generic tone. Be specific and actionable.`;
 
+  const estimateAssistantBlock = isEstimateScreen ? `
+ESTIMATE GENERATOR MODE:
+→ You are an estimate-building assistant, NOT a field project manager.
+→ Help the user build, review, and improve the bid they are editing right now.
+→ Priorities in this mode: missing estimate info, scope gaps, line items, pricing, markup, payment schedule, and final pre-send review.
+→ Prefer the explicit estimate context fields when present: currentStepNumber, currentStepLabel, currentStepSubtitle, currentStepFields, estimateChecklist, missingEstimateItems, nextStepLabel, setupProgressPct, calcTotals, estimateData.
+→ Treat currentStepLabel/currentStepFields as the user's active workspace. Answer that step first unless the user clearly asks about another area.
+→ If the estimateChecklist shows missing items, mention the most important 1-2 missing items before offering deeper analysis.
+→ If estimateNameIsEmpty is true, encourage the user to name the estimate before sending or saving.
+→ Treat these as estimate-review commands: "review this bid", "review this estimate", "what's missing", "what should I fix first", "is this ready to send", "before I send this". For these, give a concise pre-send audit.
+→ If estimateAssistantBrief is present, treat it as the deterministic copilot state for: best next action, assumptions, risks, and dynamic follow-up suggestions.
+→ When currentStepNumber is 1-8, tailor follow-up questions to that step:
+   1. Customer Information (Step 1) → ask only for **client name**, **phone**, and **address** (one line is fine). **Optional:** any **notes** that matter for the job. Do **not** require email to start a bid; email is optional until send/proposal. Stay on Step 1 until those basics are captured.
+   2. Project Information → ask about title, scope, sqft, timeline
+   3. Materials & Supplies → suggest materials, quantities, and missing supply categories
+   4. Labor & Subs → suggest trades, crews, subs, labor assumptions
+   5. Overhead & Markup → explain markup, overhead, and margin impact
+   6. Project Analysis → explain risks, scenarios, and pricing pressure points
+   7. Payment / Work Schedule → suggest deposit, milestone, or weekly structures
+   8. Final Bid & Contract → review missing items, risk flags, and readiness before send
+→ If step is 0 / Bid Summary, act like a final bid reviewer: summarize numbers, identify gaps, and recommend the next setup step.
+→ For estimate questions, prefer calcTotals over re-deriving totals from raw line items.
+→ Action safety tiers:
+   1. Safe direct edits: rename estimate, set explicit markup %, set payment schedule type, rebalance payment totals
+   2. Confirm before apply: starter material packages, starter labor plans, starter scope packages, generated payment schedules
+   3. Explain first: "make this safer", "raise margin", "improve protection", "premium version" unless the user gives a precise edit request
+→ When user asks for budget / standard / premium versions, frame them as pricing positions built from the current estimate, not guaranteed market quotes.
+→ Support client-facing review requests like "client-ready review", "proposal wording", "send-readiness", and "check exclusions" with practical, contractor-native wording advice.
+→ "Run my bid", "final review", and "top fixes" should behave like a first-class estimate audit, not generic chat.
+→ Always distinguish between entered values, assumptions, starter placeholders, and scenario projections.
+→ For broad estimate prompts like "help me with this estimate", "what should I do next", or "make this better", answer in this order:
+   1. what is happening now
+   2. why it matters
+   3. best next action
+   4. one focused follow-up option
+→ Do NOT frame estimate advice as live job management unless the user explicitly asks about the linked project or actual costs.
+→ Strong default response format for estimate review:
+   1. Direct answer / conclusion
+   2. Missing items or risk gaps
+   3. Margin / pricing implication when relevant
+   4. One concrete next step
+→ When healthScore is present, use it as a quick readiness signal, but still explain the practical reasons behind the score.` : '';
+
   // Estimate domain
   const estimateBlock = aiPmMode ? `
 ESTIMATE RULES:
@@ -439,6 +483,10 @@ ESTIMATE RULES:
 → "add to estimate" / "add line item" → call add_estimate_line_item
 → "create an estimate for..." / "bid a kitchen" / "estimate a bathroom" → call generate_estimate
 → Always include qty, unitCost, and category (Materials/Equipment or Labor)
+→ CRITICAL PRIORITY IN ESTIMATE MODE: direct estimate mutations win before analysis. If context.screen is Estimate Generator / estimate assistant and the user gives build inputs like customer info, location, material costs, labor costs, markup, overhead, deposit, payment schedule, or line-item instructions, treat that as an estimate update first.
+→ In estimate mode, DO NOT route material/labor cost entry to project health, budget overview, dashboard analysis, or generic financial breakdown unless the user explicitly asks for health, budget status, or a breakdown.
+→ Support casual contractor phrasing for estimate updates: "tile 8k", "drywall around 3 grand", "I'm spending 8000 for tile", "framer labor is 6000", "customer is Stephen", "job is in Las Vegas".
+→ When the user gives multiple estimate inputs in one message, capture as many as you can in one pass and only ask for the truly missing fields.
 → For generate_estimate: capture project type, sqft, quality, and description from user message
 → After presenting a generated estimate, include: [DISCLAIMER]Generated estimates are starting points based on typical costs—not guarantees of actual project cost.[/DISCLAIMER]` : '';
 
@@ -612,6 +660,7 @@ RULES:
     contractorPhrasingBlock,
     findSubBlock,
     judgmentPromptsBlock,
+    estimateAssistantBlock,
     budgetBlock,
     expenseBlock,
     poBlock,
@@ -658,6 +707,7 @@ Intent rules:
 - "purchase_orders": create a PO or mark one as received
 - "timeline": milestones, schedule, payments, progress, tasks, kickoff, completion
 - "estimates": estimate line items, bid items, materials list, pricing
+- CRITICAL: If context.screen is Estimate Generator or estimate assistant and the user provides estimate-building inputs (customer info, location, material/labor amounts, markup %, overhead, payment schedule, "add this", "use this", "put this in the bid", "I'm spending"), route to "estimates" first. Do NOT route those messages to portfolio, budget, or get_project_health unless the user explicitly asks for analysis/health/breakdown.
 - "budget": remaining budget, spend breakdown (answer directly, proposed_tool = null). ONLY use this if user explicitly asks about budget/remaining/spend breakdown. DO NOT use for expense logging.
 - "daily_log": job log, site notes, daily report, crew notes, what happened on site today
   * CRITICAL: If assistant asked about daily log notes/happened today, user's next message is ALWAYS daily_log domain, even if it contains words like "inspection", "framing", "completed", etc. These are site notes, NOT expenses.

@@ -115,6 +115,8 @@ function getOrCreateSession(sessionId) {
       lastTopics: [],
       projectsDiscussed: [],
       userPreferences: {},
+      estimatePreferences: {},
+      estimateEvents: [],
     };
     conversationSessions.set(sessionId, session);
   }
@@ -152,11 +154,31 @@ function extractConversationFacts(message, aiReply, session) {
   if (/forecast|project|predict|trending/i.test(msgLower)) topics.push('forecasting');
   if (topics.length > 0) session.lastTopics = topics.slice(-3);
 
+  if (/\bweekly payment|weekly schedule\b/i.test(msgLower)) {
+    session.estimatePreferences.paymentStyle = 'weekly';
+  } else if (/\bmilestone payment|milestone schedule|deposit\b/i.test(msgLower)) {
+    session.estimatePreferences.paymentStyle = 'milestone-based';
+  }
+
+  if (/\bbudget\b/i.test(msgLower)) {
+    session.estimatePreferences.pricingTier = 'budget';
+  } else if (/\bpremium\b/i.test(msgLower)) {
+    session.estimatePreferences.pricingTier = 'premium';
+  } else if (/\bstandard\b/i.test(msgLower)) {
+    session.estimatePreferences.pricingTier = 'standard';
+  }
+
+  const markupMatch = msgLower.match(/\bmarkup(?:\s+to)?\s+(\d{1,2}(?:\.\d+)?)%/i);
+  if (markupMatch) {
+    session.estimatePreferences.markupTarget = Number(markupMatch[1]);
+  }
+
   if (session.facts.length > 20) session.facts = session.facts.slice(-15);
 }
 
-function buildMemoryContext(session) {
-  if (!session || (!session.projectsDiscussed.length && !session.lastTopics.length)) return '';
+function buildMemoryContext(session, parsedContext) {
+  const hasEstimatePrefs = session && session.estimatePreferences && Object.keys(session.estimatePreferences).length > 0;
+  if (!session || (!session.projectsDiscussed.length && !session.lastTopics.length && !hasEstimatePrefs)) return '';
   let ctx = '\n\nCONVERSATION MEMORY:';
   if (session.projectsDiscussed.length > 0) {
     ctx += `\n→ Projects discussed this session: ${session.projectsDiscussed.join(', ')}`;
@@ -164,8 +186,29 @@ function buildMemoryContext(session) {
   if (session.lastTopics.length > 0) {
     ctx += `\n→ Recent topics: ${session.lastTopics.join(', ')}`;
   }
+  if ((parsedContext?.screen || '') === 'Estimate Generator') {
+    const prefLines = [];
+    if (session.estimatePreferences?.paymentStyle) prefLines.push(`preferred payment style: ${session.estimatePreferences.paymentStyle}`);
+    if (session.estimatePreferences?.pricingTier) prefLines.push(`preferred pricing tier: ${session.estimatePreferences.pricingTier}`);
+    if (Number.isFinite(session.estimatePreferences?.markupTarget)) prefLines.push(`recent markup target: ${session.estimatePreferences.markupTarget}%`);
+    if (prefLines.length > 0) {
+      ctx += `\n→ Estimate session preferences: ${prefLines.join('; ')}`;
+    }
+  }
   ctx += '\n→ Use this context to maintain continuity — if user says "that one" or "tell me more", they likely mean the project or topic above.';
   return ctx;
+}
+
+function trackEstimateSessionEvent(session, type, data = {}) {
+  if (!session) return;
+  session.estimateEvents.push({
+    type,
+    data,
+    at: Date.now(),
+  });
+  if (session.estimateEvents.length > 25) {
+    session.estimateEvents = session.estimateEvents.slice(-20);
+  }
 }
 
 setInterval(() => {
@@ -208,7 +251,14 @@ function generateSmartSuggestions(message, reply, parsedContext, session) {
     suggestions.push({ label: 'Check all budget risks', prompt: 'Which projects have budget risks?' });
   }
 
-  if (replyLower.includes('receipt') || replyLower.includes('missing')) {
+  // Receipt follow-up only when the reply is about receipts — generic "missing" (e.g. missing customer fields on estimates) must not trigger this.
+  const replyLooksReceiptRelated =
+    replyLower.includes('receipt') ||
+    replyLower.includes('missing receipt') ||
+    replyLower.includes('missing receipts') ||
+    /\bmissing\s+receipts?\b/i.test(replyLower) ||
+    /\breceipts?\s+(is|are)\s+missing\b/i.test(replyLower);
+  if (replyLooksReceiptRelated) {
     suggestions.push({ label: 'Show all missing receipts', prompt: 'List all expenses missing receipts across my projects' });
   }
 
@@ -238,11 +288,16 @@ function generateSmartSuggestions(message, reply, parsedContext, session) {
     suggestions.push({ label: `Review ${mentionedProject} costs`, prompt: `Break down all costs on ${mentionedProject}` });
   }
 
-  if (suggestions.length < 3 && allProjects.length > 1) {
+  if (suggestions.length < 3 && allProjects.length > 1 && parsedContext?.screen !== 'Estimate Generator') {
     suggestions.push({ label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' });
   }
 
-  return suggestions.slice(0, 4);
+  let out = suggestions.slice(0, 4);
+  if (parsedContext?.screen === 'Estimate Generator') {
+    const skip = new Set(['show all missing receipts', 'portfolio overview']);
+    out = out.filter((s) => !skip.has(String(s?.label || '').trim().toLowerCase()));
+  }
+  return out;
 }
 
 // Sum line items (materialLineItems, laborLineItems) for budget fallback when materialTotal/laborTotal missing
@@ -1675,22 +1730,22 @@ function buildProjectDataSnapshot(parsedContext) {
 
     // Calendar events / inspections (active projects only — exclude completed jobs)
     if (isProjectActiveForCalendarEvents(p)) {
-      const events = Array.isArray(p?.calendarEvents) ? p.calendarEvents : [];
-      const upcoming = events
-        .filter((ev) => {
-          if (ev?.completed) return false;
-          const d = new Date(ev?.date || 0);
-          return Number.isFinite(d.getTime()) && d.getTime() >= now.getTime() - 86400000;
-        })
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .slice(0, 3);
-      if (upcoming.length > 0) {
-        const evStr = upcoming.map((ev) => {
-          const dateStr = new Date(ev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const timeStr = ev.time ? ` at ${ev.time}` : '';
-          return `${ev.title || ev.type || 'Event'}${timeStr} ${dateStr}`;
-        }).join(', ');
-        parts.push(`Events: ${evStr}`);
+    const events = Array.isArray(p?.calendarEvents) ? p.calendarEvents : [];
+    const upcoming = events
+      .filter((ev) => {
+        if (ev?.completed) return false;
+        const d = new Date(ev?.date || 0);
+        return Number.isFinite(d.getTime()) && d.getTime() >= now.getTime() - 86400000;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 3);
+    if (upcoming.length > 0) {
+      const evStr = upcoming.map((ev) => {
+        const dateStr = new Date(ev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const timeStr = ev.time ? ` at ${ev.time}` : '';
+        return `${ev.title || ev.type || 'Event'}${timeStr} ${dateStr}`;
+      }).join(', ');
+      parts.push(`Events: ${evStr}`);
       }
     }
 
@@ -1732,6 +1787,472 @@ RULES:
 → If the user asks about inspections or events, check the "Events" line.
 → For profit/margin questions, use the Contract, Spent, and Profit numbers directly.
 → Only use tools (compare_projects, get_project_health, etc.) for deeper analysis or actions — not for basic data lookups.`;
+}
+
+function isEstimateAssistantScreen(parsedContext) {
+  const screen = String(parsedContext?.screen || '').toLowerCase();
+  return screen.includes('estimate');
+}
+
+function parseLooseCurrencyAmount(rawValue) {
+  const raw = String(rawValue || '').trim().toLowerCase();
+  if (!raw) return null;
+  const hasMoneyCue = /\$|\bk\b|\bgrand\b/.test(raw);
+  let normalized = raw.replace(/[$,\s]/g, '');
+  let multiplier = 1;
+  if (normalized.endsWith('grand')) {
+    multiplier = 1000;
+    normalized = normalized.replace(/grand$/, '');
+  } else if (normalized.endsWith('k')) {
+    multiplier = 1000;
+    normalized = normalized.replace(/k$/, '');
+  }
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) return null;
+  if (!hasMoneyCue && amount < 100) return null;
+  return Math.round(amount * multiplier * 100) / 100;
+}
+
+function titleCaseEstimateText(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function cleanEstimatePhrase(text, { trailing = false } = {}) {
+  if (!text) return '';
+  let value = String(text).replace(/\s+/g, ' ').trim();
+  if (!value) return '';
+  value = trailing
+    ? (value.split(/\s*(?:,|;|\band\b|\bplus\b)\s*/i)[0] || value)
+    : (value.split(/\s*(?:,|;|\band\b|\bplus\b)\s*/i).pop() || value);
+  value = value
+    .replace(/^[\s:.\-]+|[\s:.\-]+$/g, '')
+    .replace(/^(?:for|on|in|to|toward|of|at|is|are|will be|would be|costs?|costing)\s+/i, '')
+    .replace(/^(?:i(?:'m| am)?\s+(?:gonna\s+be\s+)?spending|we(?:'re| are)?\s+spending|spending|add|use|put|include|set|update|make)\s+/i, '')
+    .replace(/\b(?:around|about|roughly|like|maybe|approximately)\b/gi, '')
+    .replace(/^[\s:.\-]+|[\s:.\-]+$/g, '')
+    .trim();
+  return value.replace(/\s+/g, ' ');
+}
+
+function normalizeEstimateLineItemName(rawName, kind = 'material') {
+  const lower = String(rawName || '').toLowerCase().trim();
+  if (!lower) return kind === 'labor' ? 'Labor' : 'Material';
+  if (/(?:framing\s+lumber|lumber\s+for\s+framing|framing\s+wood)/i.test(lower)) {
+    return kind === 'labor' ? 'Framing Labor' : 'Framing Lumber';
+  }
+  if (/\btile\b/i.test(lower)) return kind === 'labor' ? 'Tile Labor' : 'Tile Materials';
+  if (/\bdrywall\b/i.test(lower)) return kind === 'labor' ? 'Drywall Labor' : 'Drywall Materials';
+  if (/\bpaint(?:ing)?\b/i.test(lower)) return kind === 'labor' ? 'Painting Labor' : 'Paint Materials';
+  if (/\bframe|framer|framing\b/i.test(lower)) return kind === 'labor' ? 'Framing Labor' : 'Framing Materials';
+  if (/\belectric(?:al|ian)?\b/i.test(lower)) return kind === 'labor' ? 'Electrical Labor' : 'Electrical Materials';
+  if (/\bplumb(?:ing|er)?\b/i.test(lower)) return kind === 'labor' ? 'Plumbing Labor' : 'Plumbing Materials';
+  const cleaned = lower
+    .replace(/\bmaterials?\b/g, '')
+    .replace(/\blabor\b/g, '')
+    .replace(/\bsub\b/g, '')
+    .replace(/\bcrew\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const titled = titleCaseEstimateText(cleaned || lower);
+  if (kind === 'labor') {
+    return /labor$/i.test(titled) ? titled : `${titled} Labor`;
+  }
+  return /\b(material|materials|allowance|fixtures|equipment)\b/i.test(titled) ? titled : `${titled} Materials`;
+}
+
+function inferEstimateItemKind(label, fullMessage = '') {
+  const sample = `${label} ${fullMessage}`.toLowerCase();
+  const laborSignals = /\b(labor|labour|crew|sub|subcontractor|installer|setter|framer|electrician|plumber|painter|drywall\s+labor|tile\s+labor|framing\s+labor|hour|hours|rate)\b/i;
+  return laborSignals.test(sample) ? 'labor' : 'material';
+}
+
+function shouldSkipEstimateLabel(label) {
+  const lower = String(label || '').toLowerCase().trim();
+  if (!lower) return true;
+  if (lower.length < 2) return true;
+  return /\b(payment|deposit|markup|margin|overhead|health|budget|breakdown|week|weeks|schedule|client|customer|job|project|las vegas|nevada)\b/i.test(lower);
+}
+
+function extractEstimateCostItems(message) {
+  const text = String(message || '');
+  const amountRegex = /\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:k|grand))?/ig;
+  const matches = Array.from(text.matchAll(amountRegex));
+  if (!matches.length) return [];
+
+  const items = [];
+  matches.forEach((match, index) => {
+    const rawAmount = match[0];
+    const amount = parseLooseCurrencyAmount(rawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    const currentIndex = match.index || 0;
+    const previousMatch = index > 0 ? matches[index - 1] : null;
+    const nextMatch = index < matches.length - 1 ? matches[index + 1] : null;
+    const leading = text.slice(previousMatch ? (previousMatch.index || 0) + previousMatch[0].length : 0, currentIndex);
+    const trailing = text.slice(currentIndex + rawAmount.length, nextMatch ? (nextMatch.index || text.length) : text.length);
+
+    let label = '';
+    const trailingLooksLikeLabel = /^\s*(?:for|on|in|to|toward|of|at)\b/i.test(trailing);
+    const cleanedLeading = cleanEstimatePhrase(leading, { trailing: false });
+    const cleanedTrailing = cleanEstimatePhrase(trailing, { trailing: true });
+    if (trailingLooksLikeLabel || !cleanedLeading) {
+      label = cleanedTrailing || cleanedLeading;
+    } else {
+      label = cleanedLeading || cleanedTrailing;
+    }
+    if (shouldSkipEstimateLabel(label)) return;
+
+    const kind = inferEstimateItemKind(label, text);
+    const normalizedName = normalizeEstimateLineItemName(label, kind);
+    const key = `${kind}:${normalizedName.toLowerCase()}:${amount}`;
+    if (items.some((item) => item.key === key)) return;
+
+    items.push({
+      key,
+      kind,
+      rawLabel: label,
+      name: normalizedName,
+      amount,
+      quantity: 1,
+      unitCost: amount,
+      category: kind === 'labor' ? 'Labor' : 'Materials/Equipment',
+    });
+  });
+
+  return items;
+}
+
+function messageLooksLikeEstimateMutation(message, parsedItems = []) {
+  const lower = String(message || '').toLowerCase();
+  const explicitMutation =
+    /\b(add|use|put|set|update|change|apply|record|include)\b/.test(lower) ||
+    /\b(i(?:'m| am)?\s+(?:gonna\s+be\s+)?spending|we(?:'re| are)?\s+spending|it(?:'s| is)?\s+like|it(?:'s| is)?\s+around|it\s+will\s+cost|will\s+cost)\b/.test(lower);
+  if (!parsedItems.length) return explicitMutation;
+  if (explicitMutation) return true;
+  if (lower.includes('?')) return false;
+  if (parsedItems.length >= 2) return true;
+  return !/^\s*(what|how|why|when|could|would|should|is|are|does|do)\b/i.test(lower);
+}
+
+function normalizeUsPhoneForEstimate(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 11 && d[0] === '1') return normalizeUsPhoneForEstimate(d.slice(1));
+  return String(raw || '').trim();
+}
+
+/** Normalize punctuation from mobile keyboards (e.g. iOS fullwidth “．”) so parsers see ASCII. */
+function normalizeEstimateUserMessageText(input) {
+  return String(input || '')
+    .replace(/\uFF0E/g, '.')
+    .replace(/\uFF1A/g, ':')
+    .replace(/\u2018|\u2019/g, "'");
+}
+
+/** True when the user is likely submitting Step 1 customer/contact text (not a generic question). */
+function looksLikeCustomerInfoSubmission(message) {
+  const t = normalizeEstimateUserMessageText(String(message || ''));
+  if (t.length < 2) return false;
+  const lower = t.toLowerCase();
+  if (/^\s*(what|how|why|when|where|which|should|could|would|is|are|does|do|can|tell me|show me)\b/i.test(t) && t.length < 80 && !/\d{3}[-.\s]?\d{3}/.test(t)) {
+    return false;
+  }
+  if (/\b(?:client|customer)\s+(?:is|=)\s+\S+/i.test(t)) return true;
+  if (/\b(?:job|project|site)\s+(?:is\s+)?in\s+/i.test(t)) return true;
+  if (/\b(?:phone|cell|mobile|call|text)\s*[:#]?\s*\(?\d{3}/i.test(t)) return true;
+  if (/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(t)) return true;
+  if (/\bnotes?\s*:/i.test(t)) return true;
+  if (/^\s*\d+[.)]\s/m.test(t)) return true;
+  if (/\b\d{1,5}\s+[NSEW]?\s*[A-Za-z0-9.'\s-]{2,40}\s+(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct)\b/i.test(t)) return true;
+  if (/^\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s*$/i.test(t.trim())) return true;
+  if (/\b(?:^|\n)\s*(?:name|client)\s*:\s*\S+/i.test(t)) return true;
+  return false;
+}
+
+/** Strip markdown **bold** and bullets from a line of user text. */
+function stripCustomerFieldLine(value) {
+  return String(value || '')
+    .replace(/\*\*/g, '')
+    .replace(/^\*+\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Parses common contractor pattern: numbered list 1=name, 2=phone, 3=address
+ * e.g. "1. Stephen\n2. 7943456473\n3. 1436 rock road Las Vegas Nv, 89141"
+ */
+function parseNumberedCustomerStep1Lines(text) {
+  const raw = normalizeEstimateUserMessageText(String(text || '')).trim();
+  if (!raw) return null;
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const numbered = [];
+  for (const line of lines) {
+    const m = line.match(/^\s*(\d+)[.)]\s*(.+)$/);
+    if (m) numbered.push({ n: Number(m[1]), content: m[2] });
+  }
+  if (numbered.length === 0) return null;
+
+  const byNum = new Map(numbered.map((x) => [x.n, x.content]));
+  const c1 = byNum.get(1);
+  const c2 = byNum.get(2);
+  const c3 = byNum.get(3);
+  const out = {};
+
+  if (c1) {
+    const s1 = stripCustomerFieldLine(c1);
+    const digitsOnly = s1.replace(/\D/g, '');
+    const looksPhone = digitsOnly.length >= 10 && digitsOnly.length <= 11;
+    const looksStreet =
+      /^\d{1,5}\s/.test(s1) && /\b(?:road|rd|st|ave|dr|ln|way|blvd|ct|street|drive|lane)\b/i.test(s1);
+    if (!looksPhone && !looksStreet && s1.length <= 120) {
+      out.customerName = s1;
+    }
+  }
+  if (c2) {
+    const s2 = stripCustomerFieldLine(c2);
+    const digits = s2.replace(/\D/g, '');
+    if (digits.length === 10) {
+      out.phone = normalizeUsPhoneForEstimate(s2);
+    } else if (digits.length === 11 && digits[0] === '1') {
+      out.phone = normalizeUsPhoneForEstimate(digits.slice(1));
+    }
+  }
+  if (c3) {
+    const s3 = stripCustomerFieldLine(c3);
+    out.address = s3;
+    const z = s3.match(/\b(\d{5})(?:-\d{4})?\b/);
+    if (z) out.zip = z[1];
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
+/** Single-line address for Step 1 review (avoid repeating ZIP already present in the street line). */
+function formatEstimateCustomerAddressDisplay(action) {
+  if (!action || typeof action !== 'object') return '';
+  const addr = String(action.address || '').trim();
+  const zip = String(action.zip || '').trim();
+  const city = String(action.city || '').trim();
+  const state = String(action.state || '').trim();
+  if (!addr) return [city, state, zip].filter(Boolean).join(', ');
+  const parts = [addr];
+  for (const segment of [city, state]) {
+    if (segment && !addr.includes(segment)) parts.push(segment);
+  }
+  if (zip) {
+    const re = new RegExp(`\\b${zip.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+    if (!re.test(parts.join(', '))) parts.push(zip);
+  }
+  return parts.join(', ').replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Parse Step 1 fields from natural language. Returns a plain object or null.
+ */
+function parseEstimateStep1CustomerInfo(message) {
+  const text = normalizeEstimateUserMessageText(String(message || '')).trim();
+  if (!text) return null;
+  const out = {};
+
+  let work = text;
+  const notesMatch = text.match(/\bnotes?\s*:\s*([\s\S]+)$/i) || text.match(/\bnotes?\s+are\s+([\s\S]+)$/i);
+  if (notesMatch) {
+    out.notes = String(notesMatch[1] || '').trim().replace(/\s+/g, ' ');
+    work = work.slice(0, notesMatch.index).trim();
+  }
+
+  const fromNumbered = parseNumberedCustomerStep1Lines(work);
+  if (fromNumbered) {
+    Object.assign(out, fromNumbered);
+  }
+
+  const emailMatch = work.match(/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i);
+  if (emailMatch) out.email = emailMatch[1];
+
+  const phoneRe = /\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
+  if (!out.phone) {
+    const phones = work.match(phoneRe);
+    if (phones && phones[0]) out.phone = normalizeUsPhoneForEstimate(phones[0]);
+  }
+
+  let nameMatch = work.match(/\b(?:client|customer)\s+(?:is|=)\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,3})\b/);
+  if (nameMatch) out.customerName = nameMatch[1].trim();
+  if (!out.customerName) {
+    nameMatch = work.match(/\b(?:name|client)\s+is\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,3})\b/i);
+    if (nameMatch) out.customerName = nameMatch[1].trim();
+  }
+  if (!out.customerName) {
+    nameMatch = work.match(/\b(?:i(?:'m| am)|this is|my name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/);
+    if (nameMatch) out.customerName = nameMatch[1].trim();
+  }
+
+  const locationMatch = work.match(/\b(?:job|project|site)\s+(?:is\s+)?in\s+([A-Za-z ,.'-]+?)(?=$|[.!?]|\n)/i);
+  if (locationMatch) {
+    const rawLocation = String(locationMatch[1] || '')
+      .split(/(?:,\s*)?(?=\$?\d|\b(?:tile|drywall|lumber|framing|paint|electrical|plumbing|markup|deposit|labor|materials?)\b)/i)[0]
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (rawLocation.includes(',')) {
+      const parts = rawLocation.split(',').map((part) => part.trim()).filter(Boolean);
+      out.city = parts[0] || undefined;
+      out.state = parts[1] || undefined;
+    } else {
+      const words = rawLocation.split(/\s+/).filter(Boolean);
+      if (words.length >= 3) {
+        out.state = words.pop();
+        out.city = words.join(' ');
+      } else if (words.length === 2) {
+        out.city = words[0];
+        out.state = words[1];
+      } else if (words.length === 1) {
+        out.city = words[0];
+      }
+    }
+  }
+
+  const numberedName = work.match(/^\s*\d+[.)]\s*(?:the\s+)?(?:client|customer)\s+is\s+([^\n]+)/im);
+  if (numberedName && !out.customerName) {
+    const chunk = numberedName[1].split(/[.!?\n]/)[0].trim();
+    if (chunk) out.customerName = chunk.replace(/^the\s+/i, '').trim();
+  }
+
+  if (!out.address) {
+    const streetLine = work.match(
+      /\b(\d{1,5}\s+[NSEW]?\s*[A-Za-z0-9.'#\- ]{2,60}(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct)\b[^,\n]*)[, ]+\s*([^.\n]+)/i
+    );
+    if (streetLine) {
+      out.address = `${streetLine[1].trim()}, ${streetLine[2].trim()}`.replace(/\s+/g, ' ');
+    } else {
+      const streetOnly = work.match(
+        /\b(\d{1,5}\s+[NSEW]?\s*[A-Za-z0-9.'#\- ]{2,60}(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct))\b[^.\n]*/i
+      );
+      if (streetOnly) out.address = streetOnly[0].trim();
+    }
+  }
+
+  if (!out.zip) {
+    const zipMatch = work.match(/\b(\d{5})(?:-\d{4})?\b/);
+    if (zipMatch) out.zip = zipMatch[1];
+  }
+
+  const singleNameLine = text.trim().match(/^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\s*$/);
+  if (singleNameLine && !out.customerName) out.customerName = singleNameLine[1].trim();
+
+  const keys = Object.keys(out).filter((k) => out[k] != null && String(out[k]).trim() !== '');
+  if (keys.length === 0) return null;
+  return out;
+}
+
+function buildUpdateCustomerInfoAction(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const action = { type: 'update_customer_info' };
+  if (parsed.customerName) action.customerName = parsed.customerName;
+  if (parsed.phone) action.phone = parsed.phone;
+  if (parsed.email) action.email = parsed.email;
+  if (parsed.address) action.address = parsed.address;
+  if (parsed.city) action.city = parsed.city;
+  if (parsed.state) action.state = parsed.state;
+  if (parsed.zip) action.zip = parsed.zip;
+  if (parsed.notes) action.notes = parsed.notes;
+  const hasMeaningful =
+    action.customerName ||
+    action.phone ||
+    action.address ||
+    (action.city && action.state) ||
+    action.city ||
+    action.state ||
+    action.email ||
+    action.notes;
+  if (!hasMeaningful) return null;
+  return action;
+}
+
+function inferTradeSuggestionsFromEstimateItems(items = []) {
+  const trades = new Set();
+  items.forEach((item) => {
+    const lower = String(item?.name || '').toLowerCase();
+    if (lower.includes('tile')) trades.add('Tile');
+    if (lower.includes('frame') || lower.includes('lumber')) trades.add('Framing');
+    if (lower.includes('drywall')) trades.add('Drywall');
+    if (lower.includes('paint')) trades.add('Painting');
+    if (lower.includes('electric')) trades.add('Electrical');
+    if (lower.includes('plumb')) trades.add('Plumbing');
+  });
+  return Array.from(trades);
+}
+
+function buildEstimateMutationFollowUps({ projectType, hasMaterials, hasLabor, tradeSuggestions = [] }) {
+  const followUps = [];
+  if (hasMaterials && !hasLabor) {
+    followUps.push({ label: 'Add Labor Costs', prompt: 'Add labor costs to this estimate.' });
+    followUps.push({
+      label: 'Build Starter Labor',
+      prompt: tradeSuggestions.length
+        ? `Build starter labor for ${tradeSuggestions.join(', ')} on this estimate.`
+        : 'Build starter labor for this estimate.',
+    });
+  }
+  followUps.push({ label: 'Review Markup', prompt: 'Review markup against these estimate costs.' });
+  if (String(projectType || '').toLowerCase() === 'kitchen') {
+    followUps.push({ label: 'Missing Kitchen Items', prompt: 'What common kitchen cost items are still missing from this estimate?' });
+  }
+  followUps.push({ label: 'Current Cost', prompt: 'What is my current cost so far in this estimate?' });
+  return followUps.slice(0, 4);
+}
+
+function buildEstimateWorkflowSnapshot(parsedContext) {
+  if (!isEstimateAssistantScreen(parsedContext)) return '';
+
+  const checklist = Array.isArray(parsedContext?.estimateChecklist) ? parsedContext.estimateChecklist : [];
+  const missingItems = Array.isArray(parsedContext?.missingEstimateItems) ? parsedContext.missingEstimateItems : [];
+  const currentStepNumber = Number(parsedContext?.currentStepNumber ?? 0);
+  const currentStepLabel = parsedContext?.currentStepLabel || (currentStepNumber === 0 ? 'Bid Summary' : `Step ${currentStepNumber}`);
+  const currentStepSubtitle = parsedContext?.currentStepSubtitle || '';
+  const currentStepFields = Array.isArray(parsedContext?.currentStepFields) ? parsedContext.currentStepFields : [];
+  const setupProgressPct = Number(parsedContext?.setupProgressPct ?? 0);
+  const completedChecklistCount = Number(parsedContext?.completedChecklistCount ?? 0);
+  const checklistTotal = Number(parsedContext?.checklistTotal ?? checklist.length ?? 0);
+  const nextStepLabel = parsedContext?.nextStepLabel || null;
+  const readinessState = parsedContext?.readinessState || 'partial';
+  const isEstimateReady = parsedContext?.isEstimateReady === true;
+  const calcTotals = parsedContext?.calcTotals || null;
+
+  const checklistLines = checklist.length
+    ? checklist.map((item, index) => `${index + 1}. ${item?.completed ? 'DONE' : 'TODO'} — ${item?.label || item?.id || 'Checklist item'}`).join('\n')
+    : 'No checklist data provided.';
+  const missingLine = missingItems.length ? missingItems.join(', ') : 'None';
+  const fieldLine = currentStepFields.length ? currentStepFields.join(', ') : 'None provided';
+
+  return `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧾 ESTIMATE WORKFLOW SNAPSHOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Current step: ${currentStepLabel}${currentStepSubtitle ? ` — ${currentStepSubtitle}` : ''}
+Step number: ${currentStepNumber}
+Bid summary screen: ${currentStepNumber === 0 ? 'Yes' : 'No'}
+Current step fields: ${fieldLine}
+Readiness: ${readinessState}${isEstimateReady ? ' (ready)' : ''}
+Setup progress: ${setupProgressPct}% (${completedChecklistCount}/${checklistTotal})
+Next recommended setup action: ${nextStepLabel || 'Not provided'}
+Estimate name empty: ${parsedContext?.estimateNameIsEmpty ? 'Yes' : 'No'}
+Missing estimate items: ${missingLine}
+Markup low flag: ${parsedContext?.markupLow ? 'Yes' : 'No'}
+Should gate advanced analysis: ${parsedContext?.shouldGateAdvanced ? 'Yes' : 'No'}
+${calcTotals ? `Precomputed totals: materials $${Math.round(Number(calcTotals.materials || 0)).toLocaleString()}, labor $${Math.round(Number(calcTotals.labor || 0)).toLocaleString()}, overhead $${Math.round(Number(calcTotals.overhead || 0)).toLocaleString()}, subtotal $${Math.round(Number(calcTotals.subtotal || 0)).toLocaleString()}, profit $${Math.round(Number(calcTotals.profit || 0)).toLocaleString()}, total $${Math.round(Number(calcTotals.total || 0)).toLocaleString()}, margin ${Math.round(Number(calcTotals.marginPercent || 0) * 10) / 10}%` : ''}
+
+Checklist:
+${checklistLines}
+
+RULES:
+→ Use this snapshot as the source of truth for which estimate step the user is on.
+→ Answer the active step first unless the user explicitly asks about another step.
+→ If checklist items are missing, prioritize the most important 1-2 missing items in your answer.
+→ If the estimate is not ready, guide the user to the next setup action instead of acting like the bid is final.
+→ When totals are needed, prefer the Precomputed totals above over re-deriving from line items.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2772,6 +3293,634 @@ function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal
   return reply;
 }
 
+function getEstimateAssistantBrief(parsedContext) {
+  if (!parsedContext || typeof parsedContext !== 'object') return {};
+  return parsedContext.estimateAssistantBrief && typeof parsedContext.estimateAssistantBrief === 'object'
+    ? parsedContext.estimateAssistantBrief
+    : {};
+}
+
+function buildEstimateSuggestedFollowUpsFromBrief(parsedContext, fallback = []) {
+  const brief = getEstimateAssistantBrief(parsedContext);
+  if (Array.isArray(brief?.chips) && brief.chips.length > 0) {
+    return brief.chips
+      .filter((chip) => chip?.label && chip?.prompt)
+      .slice(0, 5)
+      .map((chip) => ({ label: String(chip.label), prompt: String(chip.prompt) }));
+  }
+  return fallback.slice(0, 5);
+}
+
+function buildEstimateStartBidReply({ parsedContext, estimateData }) {
+  const hasName = !!(estimateData?.customerName || estimateData?.clientName);
+  const hasPhone = !!String(estimateData?.customerPhone || '').trim();
+  const hasAddress =
+    !!String(estimateData?.customerAddress || '').trim() ||
+    (!!String(estimateData?.customerCity || '').trim() && !!String(estimateData?.customerState || '').trim());
+
+  const lines = [
+    `**Step 1 — Customer information**`,
+    '',
+    'To start this bid, I only need:',
+    '- **Client name**',
+    '- **Phone number**',
+    '- **Address** (street + city/state/ZIP, or one line)',
+    '',
+    '**Optional:** any **notes** that matter for the job.',
+    '',
+    'Email is **not** required up front — you can add it when you send the proposal.',
+  ];
+  if (hasName && hasPhone && hasAddress) {
+    lines.push('', 'You already have the basics here — next we can move to project details (Step 2) when you are ready.');
+  } else {
+    const missing = [];
+    if (!hasName) missing.push('name');
+    if (!hasPhone) missing.push('phone');
+    if (!hasAddress) missing.push('address');
+    lines.push('', `Still need: **${missing.join(', ')}**.`);
+  }
+
+  return {
+    reply: lines.join('\n'),
+    suggestedFollowUps: [
+      { label: 'Name + phone + address', prompt: 'Client name is [name], phone [phone], address [address].' },
+      { label: 'Add notes', prompt: 'Notes for this client/job: [notes].' },
+      { label: 'Skip email for now', prompt: 'I do not have their email yet — keep going with name, phone, and address only.' },
+    ],
+  };
+}
+
+function buildEstimateCopilotReply({ parsedContext, estimateData, projectName }) {
+  const brief = getEstimateAssistantBrief(parsedContext);
+  const healthScore = Number(parsedContext?.healthScore ?? 0);
+  const currentStepLabel = parsedContext?.currentStepLabel || 'Estimate';
+  const name = projectName || parsedContext?.bidTitle || parsedContext?.estimateName || 'this estimate';
+  const replyParts = [];
+  replyParts.push(`You are in **${currentStepLabel}** for **${name}**.`);
+  if (brief?.summary) {
+    replyParts.push(brief.summary);
+  }
+  if (brief?.bestNextAction?.reason) {
+    replyParts.push(`Why it matters: ${brief.bestNextAction.reason}`);
+  }
+  if (Array.isArray(brief?.risks) && brief.risks.length > 0) {
+    replyParts.push(`Biggest risk right now: ${brief.risks[0]}.`);
+  }
+  if (brief?.assumptions) {
+    replyParts.push(`Assumption check: ${brief.assumptions}`);
+  }
+  if (healthScore > 0) {
+    replyParts.push(`Health score: ${healthScore}/100.`);
+  }
+  if (brief?.bestNextAction?.label) {
+    replyParts.push(`Best next action: ${brief.bestNextAction.label}.`);
+  }
+  return {
+    reply: replyParts.join('\n\n'),
+    suggestedFollowUps: buildEstimateSuggestedFollowUpsFromBrief(parsedContext, [
+      { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+      { label: 'What’s Missing', prompt: 'What is missing from this estimate right now?' },
+    ]),
+  };
+}
+
+function buildEstimateClientReadyReview({ parsedContext, estimateData, projectName }) {
+  const calcTotals = parsedContext?.calcTotals || {};
+  const title = projectName || estimateData?.title || parsedContext?.bidTitle || 'this estimate';
+  const issues = [];
+  const strengths = [];
+  if (!estimateData?.customerName) issues.push('Customer name is missing.');
+  const hasAddrReady =
+    !!String(estimateData?.customerAddress || '').trim() ||
+    (!!String(estimateData?.customerCity || '').trim() && !!String(estimateData?.customerState || '').trim());
+  if (!hasAddrReady) issues.push('Customer address is missing, which weakens contract clarity.');
+  if (!estimateData?.title) issues.push('Estimate title is missing.');
+  if (!(estimateData?.scopeDescription || estimateData?.projectDescription)) issues.push('Scope wording is too thin for a polished client-facing bid.');
+  if (!parsedContext?.hasPaymentSchedule) issues.push('Payment schedule is incomplete.');
+  if (!calcTotals?.total) issues.push('Total price is not grounded yet.');
+
+  if (estimateData?.customerName) strengths.push('Customer identity is filled in.');
+  if (estimateData?.title) strengths.push('Estimate has a named bid.');
+  if (estimateData?.scopeDescription || estimateData?.projectDescription) strengths.push('There is scope language to refine.');
+  if (parsedContext?.hasPaymentSchedule) strengths.push('Payment structure is present.');
+
+  let reply = `CLIENT-FACING REVIEW\n${issues.length === 0 ? 'Close to client-ready' : 'Needs polish before send'}\n\n`;
+  reply += `What a client will feel:\n`;
+  reply += issues.length === 0
+    ? `- This estimate reads like it is nearly ready to send.\n`
+    : `- Right now the bid may feel incomplete or less professional because key contract-facing details are still missing.\n`;
+  reply += `\nTop wording / presentation fixes:\n`;
+  (issues.length > 0 ? issues : ['Tighten scope language and confirm exclusions before sending.']).slice(0, 4).forEach((line, index) => {
+    reply += `${index + 1}. ${line}\n`;
+  });
+  reply += `\nGood as-is:\n`;
+  (strengths.length > 0 ? strengths : ['The structure is usable, but it needs more client-facing polish.']).slice(0, 3).forEach((line, index) => {
+    reply += `${index + 1}. ${line}\n`;
+  });
+  reply += `\nNext best action:\n1. Tighten the scope wording.\n2. Confirm payment language.\n3. Run one final send-readiness review.\n`;
+  return {
+    reply,
+    suggestedFollowUps: [
+      { label: 'Proposal Wording', prompt: 'Improve the proposal wording for this estimate.' },
+      { label: 'Check Exclusions', prompt: 'What exclusions or allowance notes should I add before sending?' },
+      { label: 'Run Final Review', prompt: 'Review this bid before I send it.' },
+    ],
+  };
+}
+
+function buildEstimateProposalWordingReply({ estimateData, projectName }) {
+  const bidName = projectName || estimateData?.title || 'this project';
+  const customerName = estimateData?.customerName || 'the client';
+  const rawScope = String(estimateData?.scopeDescription || estimateData?.projectDescription || '').trim();
+  const scopeSummary = rawScope
+    ? rawScope
+        .split('\n')
+        .map((line) => line.replace(/^[-*]\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 4)
+        .join('; ')
+    : 'complete the work shown in the estimate scope and line items';
+  const wording = `Proposal summary for ${customerName}: This estimate covers ${scopeSummary} for ${bidName}. Pricing is based on the current selections, scope assumptions, and payment terms shown below. Any owner-requested scope additions, concealed conditions, or upgraded finish selections would be handled as a written change order before extra work begins.`;
+  const reply = [
+    'PROPOSAL WORDING',
+    wording,
+    '',
+    'What this does well:',
+    '1. Reads contractor-native and professional.',
+    '2. Sets expectations without sounding overly legal.',
+    '3. Leaves room for written change orders if scope expands.',
+    '',
+    'Best next action:',
+    '1. Pair this with clear exclusions and allowance notes before sending.',
+  ].join('\n');
+  return {
+    reply,
+    suggestedFollowUps: [
+      { label: 'Check Exclusions', prompt: 'What exclusions or allowance notes should I add before sending?' },
+      { label: 'Client Ready Review', prompt: 'Give this estimate a client-facing wording and send-readiness review.' },
+      { label: 'Run Final Review', prompt: 'Review this bid before I send it.' },
+    ],
+  };
+}
+
+function buildEstimateExclusionsReply({ estimateData }) {
+  const projectType = String(estimateData?.projectType || 'project').replace(/_/g, ' ');
+  const reply = [
+    'EXCLUSIONS / ALLOWANCE NOTES',
+    `For this ${projectType} estimate, I would usually call out these client-facing notes before send:`,
+    '1. Pricing is based on the current scope and visible site conditions.',
+    '2. Owner selections, finish upgrades, and specialty items above listed allowances are excluded unless noted.',
+    '3. Concealed damage, code-required upgrades, and unforeseen site conditions are excluded until verified.',
+    '4. Permit, engineering, and utility fees should be stated clearly if they are excluded or carried as allowances.',
+    '5. Any work outside the written scope should require an approved change order.',
+    '',
+    'Best next action:',
+    '1. Add only the exclusions that truly fit this job so the estimate stays clean and credible.',
+  ].join('\n');
+  return {
+    reply,
+    suggestedFollowUps: [
+      { label: 'Proposal Wording', prompt: 'Improve the proposal wording for this estimate.' },
+      { label: 'Client Ready Review', prompt: 'Give this estimate a client-facing wording and send-readiness review.' },
+      { label: 'Run Final Review', prompt: 'Review this bid before I send it.' },
+    ],
+  };
+}
+
+function buildEstimateActionResponse({ message, parsedContext, estimateData, bidTotal, projectName, session }) {
+  const msg = String(message || '').trim();
+  const lower = msg.toLowerCase();
+  const brief = getEstimateAssistantBrief(parsedContext);
+  const projectType = parsedContext?.estimateData?.projectType || parsedContext?.bidData?.projectType || estimateData?.projectType || 'other';
+  const total = Number(parsedContext?.calcTotals?.total ?? bidTotal ?? estimateData?.totalBid ?? 0);
+  const startDate = estimateData?.startDate || estimateData?.projectStartDate || null;
+  const defaultTier = session?.estimatePreferences?.pricingTier || 'standard';
+  const followUps = buildEstimateSuggestedFollowUpsFromBrief(parsedContext, []);
+  const parsedCostItems = extractEstimateCostItems(msg);
+  const customerParsed = parseEstimateStep1CustomerInfo(msg);
+  const customerUpdateAction = buildUpdateCustomerInfoAction(customerParsed);
+  const explicitClientPhrase = /\b(?:client|customer)\s+(?:is|=)\s+/i.test(msg);
+  const customerInfoIntent =
+    customerUpdateAction &&
+    (looksLikeCustomerInfoSubmission(msg) || explicitClientPhrase);
+  const markupMatch = lower.match(/\b(?:set|change|update|make)\s+(?:the\s+)?markup(?:\s+to)?\s+(\d{1,2}(?:\.\d+)?)%/i);
+  const hasDirectMutationInput =
+    messageLooksLikeEstimateMutation(msg, parsedCostItems) ||
+    !!customerInfoIntent ||
+    !!markupMatch;
+
+  if (hasDirectMutationInput && (parsedCostItems.length > 0 || customerUpdateAction || markupMatch)) {
+    const actions = [];
+    const replyLines = [];
+    const materialItems = parsedCostItems.filter((item) => item.kind !== 'labor');
+    const laborItems = parsedCostItems.filter((item) => item.kind === 'labor');
+    const addedMaterialTotal = materialItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const addedLaborTotal = laborItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const currentMaterialTotal = Number(parsedContext?.calcTotals?.materials ?? estimateData?.materialTotal ?? estimateData?.materials ?? 0);
+    const currentLaborTotal = Number(parsedContext?.calcTotals?.labor ?? estimateData?.laborTotal ?? estimateData?.labor ?? 0);
+    const tradeSuggestions = inferTradeSuggestionsFromEstimateItems(parsedCostItems);
+
+    if (customerUpdateAction && customerInfoIntent) {
+      actions.push(customerUpdateAction);
+      trackEstimateSessionEvent(session, 'update_customer_info', {
+        customerName: customerUpdateAction.customerName,
+        city: customerUpdateAction.city,
+        state: customerUpdateAction.state,
+      });
+      replyLines.push('**Step 1 — review before saving**');
+      replyLines.push('');
+      if (customerUpdateAction.customerName) replyLines.push(`- **Name:** ${customerUpdateAction.customerName}`);
+      if (customerUpdateAction.phone) replyLines.push(`- **Phone:** ${customerUpdateAction.phone}`);
+      if (customerUpdateAction.email) replyLines.push(`- **Email:** ${customerUpdateAction.email}`);
+      const addrLine = formatEstimateCustomerAddressDisplay(customerUpdateAction);
+      if (addrLine) replyLines.push(`- **Address:** ${addrLine}`);
+      if (customerUpdateAction.notes) replyLines.push(`- **Notes:** ${customerUpdateAction.notes}`);
+      replyLines.push('');
+      replyLines.push('Tap **Confirm** in the dialog to save this to Step 1 (Customer information), or **Cancel** to edit.');
+    }
+
+    if (parsedCostItems.length > 0) {
+      actions.push({
+        type: 'add_estimate_line_items',
+        items: parsedCostItems.map((item) => ({
+          name: item.name,
+          amount: item.amount,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          category: item.category,
+          kind: item.kind,
+        })),
+        projectName: projectName || estimateData?.title || 'this bid',
+        summary: {
+          addedMaterialTotal,
+          addedLaborTotal,
+          nextMaterialSubtotal: currentMaterialTotal + addedMaterialTotal,
+          nextLaborSubtotal: currentLaborTotal + addedLaborTotal,
+        },
+      });
+      trackEstimateSessionEvent(session, 'add_estimate_line_items', {
+        count: parsedCostItems.length,
+        materials: materialItems.length,
+        labor: laborItems.length,
+      });
+      replyLines.push(`I found ${parsedCostItems.length} estimate item${parsedCostItems.length === 1 ? '' : 's'} to add:`);
+      parsedCostItems.forEach((item) => {
+        replyLines.push(`- ${item.name}: $${Math.round(Number(item.amount || 0)).toLocaleString()}`);
+      });
+      replyLines.push('');
+      if (materialItems.length > 0) {
+        replyLines.push(`Material subtotal would become $${Math.round(currentMaterialTotal + addedMaterialTotal).toLocaleString()}.`);
+      }
+      if (laborItems.length > 0) {
+        replyLines.push(`Labor subtotal would become $${Math.round(currentLaborTotal + addedLaborTotal).toLocaleString()}.`);
+      }
+      if (materialItems.length > 0 && currentLaborTotal + addedLaborTotal <= 0) {
+        replyLines.push('Labor is still missing, so your current margin will still be incomplete after this update.');
+      }
+      if (materialItems.length > 0 && tradeSuggestions.length > 0) {
+        replyLines.push(`Next best step is labor for ${tradeSuggestions.join(', ')} so this bid becomes more realistic.`);
+      }
+    }
+
+    if (markupMatch) {
+      const markupPct = Number(markupMatch[1]);
+      actions.push({ type: 'set_markup_percentage', markupPct });
+      trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct });
+      replyLines.push(`I can also set markup to **${markupPct}%**.`);
+    }
+
+    const onlyCustomerStep =
+      customerUpdateAction &&
+      customerInfoIntent &&
+      parsedCostItems.length === 0 &&
+      !markupMatch;
+
+    return {
+      reply: replyLines.filter(Boolean).join('\n'),
+      actions,
+      suggestedFollowUps: onlyCustomerStep
+        ? [
+            { label: 'Add email', prompt: 'Add customer email: [email]' },
+            { label: 'What’s Step 2?', prompt: 'What do I fill in for Step 2 after customer information?' },
+            { label: 'Fix a field', prompt: 'I need to correct one customer field before saving.' },
+          ]
+        : buildEstimateMutationFollowUps({
+            projectType,
+            hasMaterials: materialItems.length > 0,
+            hasLabor: laborItems.length > 0 || currentLaborTotal > 0,
+            tradeSuggestions,
+          }),
+    };
+  }
+
+  const renameMatch = msg.match(/\brename(?:\s+this)?\s+(?:bid|estimate)(?:\s+to)?\s+["“]?([^"\n”]+)["”]?$/i);
+  if (renameMatch) {
+    const nextTitle = String(renameMatch[1] || '').trim();
+    if (nextTitle) {
+      trackEstimateSessionEvent(session, 'rename_estimate', { title: nextTitle });
+      return {
+        reply: `I can rename this bid to **${nextTitle}**.`,
+        actions: [{ type: 'rename_estimate', title: nextTitle }],
+        suggestedFollowUps: followUps,
+      };
+    }
+  }
+
+  if (markupMatch) {
+    const markupPct = Number(markupMatch[1]);
+    trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct });
+    return {
+      reply: `I can set markup to **${markupPct}%**. This is a safe direct edit.`,
+      actions: [{ type: 'set_markup_percentage', markupPct }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  const saferPricingIntent = /\bmake this safer|improve protection|raise margin|raise markup|protect profit\b/i.test(lower);
+  if (saferPricingIntent) {
+    const reply = [
+      'This sounds like a protection move, not a blind auto-edit.',
+      'Best safety levers are: improve payment timing, add missing cost coverage, and increase markup only if the scope is already grounded.',
+      `Best next action: ${brief?.bestNextAction?.label || 'run a full bid review'}.`,
+    ].join('\n\n');
+    trackEstimateSessionEvent(session, 'suggest_protection_moves', { lower });
+    return {
+      reply,
+      actions: [],
+      suggestedFollowUps: buildEstimateSuggestedFollowUpsFromBrief(parsedContext, [
+        { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+        { label: 'Safer Schedule', prompt: 'Build a safer payment schedule for this estimate.' },
+        { label: 'Review Markup', prompt: 'Review my markup and margin for this estimate.' },
+      ]),
+    };
+  }
+
+  const variantMatch =
+    lower.match(/\b(?:build|create|make|apply|show)\s+(?:a\s+)?(budget|standard|premium)\s+(?:version|variant)\b/i) ||
+    lower.match(/\b(?:budget|standard|premium)\s+(?:version|variant)\b/i);
+  if (variantMatch) {
+    const variantType = String(variantMatch[1] || '').toLowerCase();
+    trackEstimateSessionEvent(session, 'create_estimate_variant', { variantType });
+    return {
+      reply: `I can apply a **${variantType}** version to this estimate so you can compare price position quickly.`,
+      actions: [{ type: 'create_estimate_variant', variantType }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  if (/\b(safer cash flow|safer schedule|protect cash flow)\b/i.test(lower)) {
+    trackEstimateSessionEvent(session, 'create_estimate_variant', { variantType: 'safer_cashflow' });
+    return {
+      reply: 'I can apply a **safer cash-flow version** with earlier contractor protection in the payment schedule.',
+      actions: [{ type: 'create_estimate_variant', variantType: 'safer_cashflow' }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  const commonItemsIntent = /\b(add|build|create|generate)\b.*\b(common|starter)\b.*\b(line items|scope|materials?|labor|breakdown|package)\b/i.test(lower);
+  const tier = /\bpremium\b/i.test(lower) ? 'premium' : /\bbudget\b/i.test(lower) ? 'budget' : defaultTier;
+  if (commonItemsIntent || /\bcommon kitchen line items\b/i.test(lower)) {
+    const addMaterials = /\bmaterials?\b/i.test(lower);
+    const addLabor = /\blabor|crew|subs?\b/i.test(lower);
+    const scopePackageOnly = !addMaterials && !addLabor;
+    const actionType = scopePackageOnly ? 'add_common_scope_package' : addMaterials && !addLabor ? 'add_starter_materials' : addLabor && !addMaterials ? 'add_starter_labor' : 'add_common_scope_package';
+    trackEstimateSessionEvent(session, actionType, { projectType, tier });
+    return {
+      reply: actionType === 'add_common_scope_package'
+        ? `I prepared a **${tier}** starter scope package for this **${projectType.replace(/_/g, ' ')}** estimate. It uses editable placeholders instead of guessing live pricing.`
+        : actionType === 'add_starter_materials'
+          ? `I prepared editable starter materials for this **${projectType.replace(/_/g, ' ')}** estimate.`
+          : `I prepared editable starter labor placeholders for this **${projectType.replace(/_/g, ' ')}** estimate.`,
+      actions: [{ type: actionType, projectType, tier }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  const weeklyScheduleIntent = /\b(build|create|generate|make)\b.*\bweekly\b.*\b(payment|schedule)\b/i.test(lower);
+  if (weeklyScheduleIntent) {
+    const weeksMatch = lower.match(/(\d{1,2})\s+weeks?/i);
+    const weeks = Number(weeksMatch?.[1] || estimateData?.durationWeeks || 4);
+    if (!weeksMatch && !estimateData?.durationWeeks) {
+      return {
+        reply: 'I can build a weekly payment schedule. How many weeks should I assume?',
+        actions: [],
+        suggestedFollowUps: [
+          { label: '4 weeks', prompt: 'Build a weekly payment schedule for 4 weeks.' },
+          { label: '6 weeks', prompt: 'Build a weekly payment schedule for 6 weeks.' },
+          { label: '8 weeks', prompt: 'Build a weekly payment schedule for 8 weeks.' },
+        ],
+      };
+    }
+    const weeklyPayments = [];
+    const depositPct = /safer|protect|cash flow/i.test(lower) ? 25 : 20;
+    const recurringPct = (100 - depositPct) / Math.max(weeks, 1);
+    weeklyPayments.push({
+      id: `ai-weekly-deposit-${Date.now()}`,
+      name: 'Deposit / startup',
+      description: 'Deposit / startup',
+      percentage: Math.round(depositPct * 100) / 100,
+      amount: Math.round(total * (depositPct / 100) * 100) / 100,
+      weekNumber: 0,
+      scheduledDate: startDate || new Date().toISOString().split('T')[0],
+      dueDate: startDate || new Date().toISOString().split('T')[0],
+    });
+    for (let idx = 1; idx <= Math.max(weeks, 1); idx += 1) {
+      const scheduledDate = new Date((startDate || new Date().toISOString().split('T')[0]) + 'T00:00:00');
+      scheduledDate.setDate(scheduledDate.getDate() + idx * 7);
+      const day = scheduledDate.toISOString().split('T')[0];
+      weeklyPayments.push({
+        id: `ai-weekly-${Date.now()}-${idx}`,
+        name: `Week ${idx} progress payment`,
+        description: `Week ${idx} progress payment`,
+        percentage: Math.round(recurringPct * 100) / 100,
+        amount: Math.round(total * (recurringPct / 100) * 100) / 100,
+        weekNumber: idx,
+        scheduledDate: day,
+        dueDate: day,
+      });
+    }
+    trackEstimateSessionEvent(session, 'replace_payment_schedule', { paymentSchedule: 'weekly', weeks });
+    return {
+      reply: `I prepared a **weekly payment schedule** over **${weeks} weeks**${total > 0 ? ` using the current bid total of $${Math.round(total).toLocaleString()}` : ''}.`,
+      actions: [{ type: 'replace_payment_schedule', paymentSchedule: 'weekly', weeklyPayments, safer: /safer|protect|cash flow/i.test(lower) }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  const milestoneScheduleIntent = /\b(build|create|generate|make)\b.*\b(milestone|deposit)\b.*\b(payment|schedule)\b/i.test(lower);
+  if (milestoneScheduleIntent || /\bsafer schedule\b/i.test(lower)) {
+    const safer = /\bsafer|protect|cash flow\b/i.test(lower);
+    const percentages = safer ? [40, 30, 20, 10] : [30, 30, 30, 10];
+    const names = safer
+      ? ['Deposit / mobilization', 'Midpoint progress', 'Substantial completion', 'Punch list']
+      : ['Deposit', 'Rough-in / progress', 'Finish stage', 'Final completion'];
+    const paymentMilestones = names.map((name, index) => {
+      const base = new Date((startDate || new Date().toISOString().split('T')[0]) + 'T00:00:00');
+      base.setDate(base.getDate() + index * 7);
+      const scheduledDate = base.toISOString().split('T')[0];
+      const percentage = percentages[index];
+      const amount = Math.round(total * (percentage / 100) * 100) / 100;
+      return {
+        id: `ai-milestone-${Date.now()}-${index}`,
+        name,
+        percentage,
+        paymentAmount: amount,
+        amount,
+        scheduledDate,
+        dueDate: scheduledDate,
+      };
+    });
+    trackEstimateSessionEvent(session, 'replace_payment_schedule', { paymentSchedule: 'milestone-based', safer });
+    return {
+      reply: safer
+        ? 'I prepared a **safer milestone schedule** with more money pulled forward to reduce exposure.'
+        : 'I prepared a **milestone payment schedule** for this estimate.',
+      actions: [{ type: 'replace_payment_schedule', paymentSchedule: 'milestone-based', paymentMilestones, safer }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  if (/\b(rebalance|auto-?fix|fix)\b.*\b(payment|schedule|percentages?)\b/i.test(lower) || /\b100%\b/.test(lower)) {
+    trackEstimateSessionEvent(session, 'rebalance_payment_schedule');
+    return {
+      reply: 'I can rebalance the current payment schedule so the percentages and amounts line up cleanly.',
+      actions: [{ type: 'rebalance_payment_schedule' }],
+      suggestedFollowUps: followUps,
+    };
+  }
+
+  return null;
+}
+
+function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext }) {
+  const calcTotals = parsedContext?.calcTotals || {};
+  const checklist = Array.isArray(parsedContext?.estimateChecklist) ? parsedContext.estimateChecklist : [];
+  const setupProgressPct = Number(parsedContext?.setupProgressPct ?? 0);
+  const currentStepLabel = parsedContext?.currentStepLabel || 'Estimate';
+  const nextStepLabel = parsedContext?.nextStepLabel || 'Continue building the estimate';
+  const readinessState = parsedContext?.readinessState || 'partial';
+  const brief = getEstimateAssistantBrief(parsedContext);
+  const estimateNameEmpty = parsedContext?.estimateNameIsEmpty === true;
+  const markupPct = Number(estimateData?.markupPct ?? estimateData?.markup ?? 0);
+  const marginPct = Number(calcTotals?.marginPercent ?? estimateData?.marginPercent ?? estimateData?.marginPct ?? estimateData?.margin ?? 0);
+  const total = Number(calcTotals?.total ?? bidTotal ?? estimateData?.totalBid ?? 0);
+  const subtotal = Number(calcTotals?.subtotal ?? estimateData?.subtotal ?? estimateData?.totalCost ?? estimateData?.baseCost ?? 0);
+  const materialTotal = Number(calcTotals?.materials ?? estimateData?.materialTotal ?? 0);
+  const laborTotal = Number(calcTotals?.labor ?? estimateData?.laborTotal ?? 0);
+  const overheadTotal = Number(calcTotals?.overhead ?? estimateData?.overheadTotal ?? 0);
+  const healthScore = Number(parsedContext?.healthScore ?? 0);
+  const startDate = estimateData?.startDate || estimateData?.projectStartDate || null;
+  const endDate = estimateData?.endDate || estimateData?.projectEndDate || null;
+  const customerMissing = [];
+  if (!estimateData?.customerName) customerMissing.push('customer name');
+  if (!String(estimateData?.customerPhone || '').trim()) customerMissing.push('phone number');
+  const hasAddress =
+    !!String(estimateData?.customerAddress || '').trim() ||
+    (!!String(estimateData?.customerCity || '').trim() && !!String(estimateData?.customerState || '').trim());
+  if (!hasAddress) customerMissing.push('address (street + city/state, or one line)');
+  const projectMissing = [];
+  if (!estimateData?.title) projectMissing.push('estimate title');
+  if (!(estimateData?.scopeDescription || estimateData?.projectDescription)) projectMissing.push('scope description');
+  if (!startDate) projectMissing.push('start date');
+  if (!endDate) projectMissing.push('end date');
+  const paymentSchedule = estimateData?.paymentSchedule || parsedContext?.paymentSchedule || null;
+  const paymentMissing = [];
+  if (!paymentSchedule) paymentMissing.push('payment schedule type');
+  if (!parsedContext?.hasPaymentSchedule && paymentSchedule) paymentMissing.push('payment amounts / milestones');
+
+  const incompleteChecklist = checklist
+    .filter((item) => !item?.completed)
+    .map((item) => String(item?.label || item?.id || 'Checklist item'));
+  const issues = [...incompleteChecklist];
+  if (estimateNameEmpty) issues.unshift('Add a bid title');
+  if (markupPct > 0 && markupPct < 18) issues.push(`Markup is only ${Math.round(markupPct * 10) / 10}%`);
+  if (marginPct > 0 && marginPct < 15) issues.push(`Margin is only ${Math.round(marginPct * 10) / 10}%`);
+  if (!materialTotal) issues.push('Materials are still empty');
+  if (!laborTotal) issues.push('Labor is still empty');
+  if (!overheadTotal) issues.push('Overhead has little or no value');
+
+  const uniqueIssues = Array.from(new Set(issues)).slice(0, 5);
+  const titleForReply = estimateNameEmpty ? 'this estimate' : `"${projectName || 'this estimate'}"`;
+  const fixSuggestions = [];
+  if (customerMissing.length > 0) fixSuggestions.push({ label: 'Add customer info', prompt: 'Help me add the missing customer info for this estimate.' });
+  if (projectMissing.length > 0) fixSuggestions.push({ label: 'Fix project info', prompt: 'Help me fill in the missing project information for this estimate.' });
+  if (!materialTotal) fixSuggestions.push({ label: 'Add materials', prompt: 'Help me add materials to this estimate.' });
+  if (!laborTotal) fixSuggestions.push({ label: 'Add labor', prompt: 'Help me add labor to this estimate.' });
+  if (markupPct <= 0 || markupPct < 18 || marginPct < 15) fixSuggestions.push({ label: 'Review markup', prompt: 'Review my markup and margin for this estimate.' });
+  if (paymentMissing.length > 0) fixSuggestions.push({ label: 'Set payments', prompt: 'Help me set up the payment schedule for this estimate.' });
+  if (uniqueIssues.length === 0 && readinessState === 'ready') fixSuggestions.push({ label: 'Final wording review', prompt: 'Give this estimate a final client-facing wording and pricing review.' });
+
+  let overallStatus = 'Partially built';
+  if (readinessState === 'ready' && uniqueIssues.length === 0) overallStatus = 'Ready for client review';
+  else if (healthScore > 0 && healthScore < 50) overallStatus = 'High risk';
+  else if (uniqueIssues.length <= 2 && readinessState !== 'empty') overallStatus = 'Close, but needs attention';
+
+  const risks = [];
+  if (!materialTotal) risks.push('Material coverage is missing, so pricing is still incomplete.');
+  if (!laborTotal) risks.push('Labor is missing, so profit is not reliable yet.');
+  if (paymentMissing.length > 0) risks.push('Payment timing is incomplete, which can leave cash flow exposed.');
+  if (markupPct > 0 && markupPct < 18) risks.push(`Markup is only ${Math.round(markupPct * 10) / 10}%, which may be thin for friction.`);
+  if (marginPct > 0 && marginPct < 15) risks.push(`Current margin is only ${Math.round(marginPct * 10) / 10}%, so there is limited cushion.`);
+
+  const goodAsIs = [];
+  if (estimateData?.customerName && estimateData?.title) goodAsIs.push('Core estimate identity is in place.');
+  if (materialTotal > 0) goodAsIs.push('Materials are populated.');
+  if (laborTotal > 0) goodAsIs.push('Labor is populated.');
+  if (paymentMissing.length === 0 && parsedContext?.hasPaymentSchedule) goodAsIs.push('Payment structure is present.');
+  if (healthScore >= 80) goodAsIs.push(`Health score is strong at ${healthScore}/100.`);
+
+  // Use markdown bold for section labels so the app renders body-sized type (not giant ALL-CAPS section headers).
+  let reply = `**Overall status**\n${overallStatus}\n\n`;
+  reply += `**Snapshot**\n`;
+  reply += `- Current step: ${currentStepLabel}\n`;
+  reply += `- Setup progress: ${setupProgressPct}%\n`;
+  if (total > 0) reply += `- Bid total: $${Math.round(total).toLocaleString()}\n`;
+  if (subtotal > 0) reply += `- Estimated cost: $${Math.round(subtotal).toLocaleString()}\n`;
+  if (marginPct > 0) reply += `- Margin: ${Math.round(marginPct * 10) / 10}%\n`;
+  if (markupPct > 0) reply += `- Markup: ${Math.round(markupPct * 10) / 10}%\n`;
+  if (healthScore > 0) reply += `- Health score: ${healthScore}/100\n`;
+  reply += `- Readiness: ${readinessState}\n\n`;
+
+  if (uniqueIssues.length === 0 && readinessState === 'ready') {
+    reply += `**Good as-is**\n`;
+    reply += `${goodAsIs.length > 0 ? goodAsIs.map((line, index) => `${index + 1}. ${line}`).join('\n') : '1. The estimate is structurally ready for review.'}\n\n`;
+    reply += `**Next best fixes**\n1. Do one final wording and pricing pass.\n2. Confirm payment timing matches your risk tolerance.\n\n`;
+    reply += `**Optional improvements**\n1. Run a last friction scenario before sending.\n`;
+    return { reply, suggestedFollowUps: fixSuggestions.slice(0, 4) };
+  }
+
+  reply += `**Missing**\n`;
+  uniqueIssues.forEach((issue, index) => {
+    reply += `${index + 1}. ${issue}\n`;
+  });
+  const detailSections = [];
+  if (customerMissing.length > 0) detailSections.push(`Customer info missing: ${customerMissing.join(', ')}`);
+  if (projectMissing.length > 0) detailSections.push(`Project info missing: ${projectMissing.join(', ')}`);
+  if (paymentMissing.length > 0) detailSections.push(`Payment setup missing: ${paymentMissing.join(', ')}`);
+  if (detailSections.length > 0) {
+    reply += `\n`;
+    detailSections.forEach((line, index) => {
+      reply += `${index + 1}. ${line}\n`;
+    });
+  }
+  reply += `\n**Risks**\n`;
+  (risks.length > 0 ? risks : [brief?.assumptions || 'Entered data is still incomplete, so keep assumptions visible.']).slice(0, 4).forEach((line, index) => {
+    reply += `${index + 1}. ${line}\n`;
+  });
+  reply += `\n**Good as-is**\n`;
+  (goodAsIs.length > 0 ? goodAsIs : ['You already have enough context to keep building this bid.']).slice(0, 3).forEach((line, index) => {
+    reply += `${index + 1}. ${line}\n`;
+  });
+  reply += `\n**Next best fixes**\n`;
+  fixSuggestions.slice(0, 4).forEach((item, index) => {
+    reply += `${index + 1}. ${item.label}\n`;
+  });
+  reply += `\n**Optional improvements**\n`;
+  reply += `1. ${brief?.bestNextAction?.label || nextStepLabel}\n`;
+  reply += `2. Run one scenario review before sending if margin protection is thin.\n`;
+  return { reply, suggestedFollowUps: fixSuggestions.slice(0, 4) };
+}
+
 /**
  * POST /api/ai-assistant/scan-missing-costs
  * Dedicated endpoint for Missing Costs — bypasses router/CO flow entirely.
@@ -3366,7 +4515,7 @@ router.post('/stream', async (req, res) => {
       }
     }
 
-    const memoryBlock = buildMemoryContext(session);
+    const memoryBlock = buildMemoryContext(session, parsedContext);
     if (memoryBlock) streamSystemPrompt += memoryBlock;
 
     // When user asks about margin, inject exact original + current margin so AI always states both
@@ -3841,7 +4990,7 @@ router.post('/', async (req, res) => {
       console.log('✅ FIRST-PRIORITY CALENDAR LIST:', upcomingCal.length, 'events', typeFilter || 'all', '+ timeline payments');
       return res.json({ reply: replyCalList, actions: [] });
     }
-
+    
     // Extract other context
     const status = parsedContext.status || currentProjectData?.status || 'estimate';
     const location = parsedContext.location || currentProjectData?.location || '';
@@ -4067,8 +5216,111 @@ router.post('/', async (req, res) => {
       /profit decay|break-even delay|extra labor for \d+ weeks|materials are excluded from delay cost/i.test(
         String(recentAssistantMessages.slice(-1)[0] || '')
       );
+    const isEstimateReviewEarly =
+      isEstimateAssistantScreen(parsedContext) && (
+        msgLowerEarly.includes('review this bid') ||
+        msgLowerEarly.includes('review this estimate') ||
+        msgLowerEarly.includes('review my estimate') ||
+        msgLowerEarly.includes('review my bid') ||
+        msgLowerEarly.includes('run my bid') ||
+        msgLowerEarly.includes('final review') ||
+        msgLowerEarly.includes('top fixes') ||
+        msgLowerEarly.includes('audit this estimate') ||
+        msgLowerEarly.includes('audit this bid') ||
+        msgLowerEarly.includes('before i send') ||
+        msgLowerEarly.includes('before sending') ||
+        msgLowerEarly.includes('is this ready to send') ||
+        msgLowerEarly.includes('is this estimate ready') ||
+        msgLowerEarly.includes('is this bid ready') ||
+        msgLowerEarly.includes('what should i fix first') ||
+        msgLowerEarly.includes("what's missing") ||
+        msgLowerEarly.includes('what is missing')
+      );
+    if (isEstimateReviewEarly) {
+      const reviewResult = runEstimateReview({
+        projectName,
+        estimateData,
+        bidTotal,
+        parsedContext,
+      });
+      console.log('✅ EARLY estimate review — returning immediately (bypassing router/CO flow)');
+      return res.json({ reply: reviewResult.reply, actions: [], suggestedFollowUps: reviewResult.suggestedFollowUps || [] });
+    }
+    if (isEstimateAssistantScreen(parsedContext)) {
+      const isStartBidIntent =
+        /\b(?:let'?s\s+)?(?:start|create|begin)\s+(?:a\s+)?bid\b/i.test(msgLowerEarly) ||
+        /\bok\s*,?\s*(?:let'?s\s+)?(?:start|create)\s+(?:a\s+)?bid\b/i.test(msgLowerEarly);
+      if (isStartBidIntent) {
+        const stepNumEarly = Number(parsedContext?.currentStepNumber ?? -1);
+        const startBidResult = buildEstimateStartBidReply({ parsedContext, estimateData });
+        trackEstimateSessionEvent(session, 'estimate_start_bid', { step: stepNumEarly });
+        console.log('✅ EARLY estimate start bid — returning immediately');
+        return res.json({
+          reply: startBidResult.reply,
+          actions: [],
+          suggestedFollowUps: startBidResult.suggestedFollowUps || [],
+        });
+      }
+
+      const estimateActionResult = buildEstimateActionResponse({
+        message,
+        parsedContext,
+        estimateData,
+        bidTotal,
+        projectName,
+        session,
+      });
+      if (estimateActionResult) {
+        console.log('✅ EARLY estimate action/copilot response — returning immediately');
+        return res.json(estimateActionResult);
+      }
+
+      const isEstimateGuideQuery =
+        msgLowerEarly.includes('help me with this estimate') ||
+        msgLowerEarly.includes('help me with this bid') ||
+        msgLowerEarly.includes('what should i do next') ||
+        msgLowerEarly.includes('what do i do next') ||
+        msgLowerEarly.includes('what should i fix next') ||
+        msgLowerEarly.includes('help me with this bid') ||
+        msgLowerEarly.includes('make this better') ||
+        msgLowerEarly === 'help me with this' ||
+        msgLowerEarly === 'help me with this estimate';
+      if (isEstimateGuideQuery) {
+        const guideResult = buildEstimateCopilotReply({ parsedContext, estimateData, projectName });
+        trackEstimateSessionEvent(session, 'estimate_copilot_guide', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate copilot guide — returning immediately');
+        return res.json({ reply: guideResult.reply, actions: [], suggestedFollowUps: guideResult.suggestedFollowUps || [] });
+      }
+
+      const isClientFacingEstimateReview =
+        msgLowerEarly.includes('client-facing') ||
+        msgLowerEarly.includes('client facing') ||
+        msgLowerEarly.includes('send-readiness') ||
+        msgLowerEarly.includes('send readiness') ||
+        msgLowerEarly.includes('professional wording');
+      if (isClientFacingEstimateReview) {
+        const clientReview = buildEstimateClientReadyReview({ parsedContext, estimateData, projectName });
+        trackEstimateSessionEvent(session, 'estimate_client_review', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate client-facing review — returning immediately');
+        return res.json({ reply: clientReview.reply, actions: [], suggestedFollowUps: clientReview.suggestedFollowUps || [] });
+      }
+
+      if (msgLowerEarly.includes('proposal wording') || msgLowerEarly.includes('proposal summary')) {
+        const wordingReview = buildEstimateProposalWordingReply({ estimateData, projectName });
+        trackEstimateSessionEvent(session, 'estimate_proposal_wording', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate proposal wording — returning immediately');
+        return res.json({ reply: wordingReview.reply, actions: [], suggestedFollowUps: wordingReview.suggestedFollowUps || [] });
+      }
+
+      if (msgLowerEarly.includes('check exclusions') || msgLowerEarly.includes('allowance notes') || msgLowerEarly.includes('what exclusions')) {
+        const exclusionsReview = buildEstimateExclusionsReply({ estimateData });
+        trackEstimateSessionEvent(session, 'estimate_exclusions_review', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate exclusions review — returning immediately');
+        return res.json({ reply: exclusionsReview.reply, actions: [], suggestedFollowUps: exclusionsReview.suggestedFollowUps || [] });
+      }
+    }
     const isMissingCostScanEarly = msgLowerEarly.includes('missing cost') || msgLowerEarly.includes('missing costs') ||
-      (msgLowerEarly.includes('scan') && msgLowerEarly.includes('cost')) || msgLowerEarly.includes('cost gaps') || msgLowerEarly.includes('what am i missing');
+      (msgLowerEarly.includes('scan') && msgLowerEarly.includes('cost')) || msgLowerEarly.includes('cost gaps');
     if (isMissingCostScanEarly) {
       const reply = runMissingCostScan({
         projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses,
@@ -4801,6 +6053,8 @@ router.post('/', async (req, res) => {
       // for the current project so AI has context for specific questions
       const dataSnapshot = buildProjectDataSnapshot(parsedContext);
       if (dataSnapshot) systemPrompt += dataSnapshot;
+      const estimateWorkflowSnapshot = buildEstimateWorkflowSnapshot(parsedContext);
+      if (estimateWorkflowSnapshot) systemPrompt += estimateWorkflowSnapshot;
     }
 
     // Inject conversation memory
@@ -7841,7 +9095,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
         projectId: fallbackArgs.projectId,
       });
     }
-
+    
     // CRITICAL FALLBACK: If router selected daily_log but executor ignored the tool call,
     // force add_daily_log using the current user message as noteText.
     // This prevents "daily log" follow-ups from drifting into expense prompts.
@@ -9786,7 +11040,7 @@ RULES:
         reply = scenarioAnalysisReply;
         if (process.env.DEBUG_AI_CONTEXT) console.log('🛡️ Scenario: using tool result as reply (all three scenarios)');
       }
-
+      
       // Check if AI responded without calling function when it should have
       const toolCallsAfter = completion.choices[0].message.tool_calls || [];
       const userMessage = messages.find(m => m.role === 'user');
@@ -9855,7 +11109,13 @@ RULES:
     // CRITICAL: Exclude expense logging requests - they should NOT trigger health check
     const isExpenseLogging = currentMsg.includes('log') && (currentMsg.includes('expense') || currentMsg.includes('spent') || currentMsg.includes('bought') || currentMsg.includes('purchased')) ||
                              lastUserMsg.includes('log') && (lastUserMsg.includes('expense') || lastUserMsg.includes('spent') || lastUserMsg.includes('bought') || lastUserMsg.includes('purchased'));
-    const isHealthCheck = !isExpenseLogging && (
+    const parsedStep1 = parseEstimateStep1CustomerInfo(message);
+    const step1Action = buildUpdateCustomerInfoAction(parsedStep1);
+    const isEstimateMutationInput =
+      isEstimateAssistantScreen(parsedContext) &&
+      (messageLooksLikeEstimateMutation(message, extractEstimateCostItems(message)) ||
+        (looksLikeCustomerInfoSubmission(message) && !!step1Action));
+    const isHealthCheck = !isExpenseLogging && !isEstimateMutationInput && (
       currentMsg.includes('health') || currentMsg.includes('analyze') || currentMsg.includes('analysis') || currentMsg.includes('status') || currentMsg.includes('how is') ||
       lastUserMsg.includes('health') || lastUserMsg.includes('analyze') || lastUserMsg.includes('analysis') || lastUserMsg.includes('status') || lastUserMsg.includes('how is')
     );

@@ -882,12 +882,26 @@ const AIAssistantModal: React.FC<Props> = ({
       // When job has live actuals or linked project, show Project context — not Estimate phase
       const hasLiveProject = parsedContext.hasLiveProjectContext === true ||
         (typeof parsedContext.actualCost === 'number' && parsedContext.actualCost > 0);
-      const phaseLabel = hasLiveProject ? (parsedContext.phase || 'Project') : (parsedContext.stepTitle || 'Estimate phase');
+      const isEstimateScreen = parsedContext.screen === 'Estimate Generator';
+      const estimateNameRaw = String(
+        parsedContext.estimateName ??
+          parsedContext.bidTitle ??
+          (parsedContext.bidData?.title != null ? parsedContext.bidData.title : '')
+      ).trim();
+      const estimateNameMissing = isEstimateScreen && !estimateNameRaw;
+      const phaseLabel = isEstimateScreen
+        ? (parsedContext.stepTitle || 'Estimate')
+        : hasLiveProject
+          ? (parsedContext.phase || 'Project')
+          : (parsedContext.stepTitle || 'Estimate phase');
       const spendToDatePct = typeof parsedContext.spendToDateMarginPct === 'number' && Number.isFinite(parsedContext.spendToDateMarginPct)
         ? parsedContext.spendToDateMarginPct
         : undefined;
       projectInfo = {
-        title: parsedContext.bidTitle || parsedContext.projectName || "Current Project",
+        title: isEstimateScreen
+          ? (estimateNameRaw || 'Untitled estimate')
+          : (parsedContext.bidTitle || parsedContext.projectName || "Current Project"),
+        estimateNameMissing: isEstimateScreen ? estimateNameMissing : false,
         phase: phaseLabel,
         total: bidTotal,
         overhead: parsedContext.overheadPct || 12,
@@ -903,6 +917,37 @@ const AIAssistantModal: React.FC<Props> = ({
 
   // Missing Costs is for Estimates AI only — not shown in Projects AI
   const isEstimateContext = parsedContext?.screen === 'Estimate Generator';
+  const estimateAssistantBrief = parsedContext?.estimateAssistantBrief || null;
+  /** Short label for copilot header — long strings beside titles caused layout squeeze (vertical glyphs). */
+  const estimateCopilotConfidenceLabel = useMemo(() => {
+    const raw = String(estimateAssistantBrief?.confidence || "").trim();
+    if (!raw) return "";
+    const tier = raw.match(/\b(high|medium|low)\b/i);
+    if (tier) {
+      const w = tier[1];
+      return `${w.charAt(0).toUpperCase()}${w.slice(1).toLowerCase()} confidence`;
+    }
+    return raw.length > 42 ? `${raw.slice(0, 39)}…` : raw;
+  }, [estimateAssistantBrief?.confidence]);
+  const estimateCopilotPrimaryLabel = useMemo(() => {
+    const raw = String(estimateAssistantBrief?.bestNextAction?.label || "").trim();
+    if (!raw) return "Fix This";
+    if (raw.length <= 24) return raw;
+    const shortened = raw
+      .replace(/^review\s+/i, "Review ")
+      .replace(/^fix\s+/i, "Fix ")
+      .replace(/^add\s+/i, "Add ")
+      .replace(/^set\s+/i, "Set ")
+      .replace(/^complete\s+/i, "Complete ")
+      .trim();
+    return shortened.length <= 24 ? shortened : `${shortened.slice(0, 21)}...`;
+  }, [estimateAssistantBrief?.bestNextAction?.label]);
+  /** Portfolio/receipt chips are irrelevant on Estimate; backend also filters, this hides any stale payloads. */
+  const displayChatSuggestions = useMemo(() => {
+    if (!isEstimateContext) return chatSuggestions;
+    const skip = new Set(["show all missing receipts", "portfolio overview"]);
+    return chatSuggestions.filter((s) => !skip.has((s.label || "").trim().toLowerCase()));
+  }, [isEstimateContext, chatSuggestions]);
   const isProjectsScreenContext = parsedContext?.screen === 'Projects';
   const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
   const selectedProjectHintId = portfolioScopeOverrideRef.current
@@ -1005,6 +1050,20 @@ const AIAssistantModal: React.FC<Props> = ({
     if (content.includes('expense') && (content.includes('materials') || content.includes('labor') || content.includes('vendor') || content.includes('amount') || content.includes('category'))) return 'log_expense';
     return null;
   }, [messages]);
+
+  const estimateQuickActionChips = useMemo(() => {
+    if (!isEstimateContext) return [];
+    if (Array.isArray(estimateAssistantBrief?.chips) && estimateAssistantBrief.chips.length > 0) {
+      return estimateAssistantBrief.chips.slice(0, 6);
+    }
+    return [
+      { label: 'Missing Costs', prompt: 'Scan this estimate for missing costs and gaps.' },
+      { label: 'Markup & Margin', prompt: 'Explain my bid margin and markup in plain terms for this estimate.' },
+      { label: 'Line Items', prompt: 'Summarize my materials and labor line items and any risks.' },
+      { label: 'Add to Bid', prompt: 'Help me add a line item to this estimate.' },
+      { label: 'Health Check', prompt: 'Give me a quick health check on this bid before I send it.' },
+    ];
+  }, [estimateAssistantBrief, isEstimateContext]);
 
   // Build enhanced context with allProjects if not present
   const enhancedContext = useMemo(() => {
@@ -1690,6 +1749,40 @@ const AIAssistantModal: React.FC<Props> = ({
     if (!action || !action.type) return null;
 
     switch (action.type) {
+      case 'rename_estimate':
+        return `Rename this estimate to "${action.title || action.estimateName || 'Untitled Bid'}"?`;
+
+      case 'set_markup_percentage':
+        return `Set markup to ${action.markupPct}%?`;
+
+      case 'replace_payment_schedule':
+        return `Replace the current payment schedule with a ${action.paymentSchedule === 'weekly' ? 'weekly' : action.paymentSchedule === 'hybrid' ? 'hybrid' : 'milestone-based'} schedule${action.safer ? ' with earlier cash protection' : ''}?`;
+
+      case 'rebalance_payment_schedule':
+        return 'Rebalance the current payment schedule so it totals 100%?';
+
+      case 'add_starter_materials':
+        return `Add editable starter material placeholders${action.projectType ? ` for this ${String(action.projectType).replace(/_/g, ' ')}` : ''}?`;
+
+      case 'add_starter_labor':
+        return `Add editable starter labor placeholders${action.projectType ? ` for this ${String(action.projectType).replace(/_/g, ' ')}` : ''}?`;
+
+      case 'add_common_scope_package':
+        return `Add a ${action.tier || 'standard'} starter scope package with editable materials and labor placeholders?`;
+
+      case 'create_estimate_variant':
+        return `Apply the ${String(action.variantType || 'standard').replace(/_/g, ' ')} version to the current estimate?`;
+
+      case 'add_estimate_line_items': {
+        const items = Array.isArray(action.items) ? action.items : [];
+        if (items.length === 0) return 'Add these estimate items to this bid?';
+        const lines = items
+          .slice(0, 6)
+          .map((item: any) => `- ${item.name || 'Line item'} — $${Number(item.amount || item.unitCost || 0).toLocaleString()}`);
+        const moreLine = items.length > 6 ? `\n- plus ${items.length - 6} more item${items.length - 6 === 1 ? '' : 's'}` : '';
+        return `Add these ${items.every((item: any) => item.kind === 'labor') ? 'labor' : items.every((item: any) => item.kind !== 'labor') ? 'material' : 'estimate'} items to ${action.projectName || 'this bid'}?\n\n${lines.join('\n')}${moreLine}`;
+      }
+
       case 'update_estimate_item':
         if (action.newDescription && action.newAmount) {
           return `Add new ${action.itemDescription || 'item'}: "${action.newDescription}" for $${action.newAmount.toLocaleString()}?`;
@@ -1735,12 +1828,24 @@ const AIAssistantModal: React.FC<Props> = ({
         if (action.customerName) fields.push(`Name: ${action.customerName}`);
         if (action.email) fields.push(`Email: ${action.email}`);
         if (action.phone) fields.push(`Phone: ${action.phone}`);
-        if (action.address || action.city || action.state) {
-          const addressParts = [action.address, action.city, action.state, action.zip].filter(Boolean);
-          fields.push(`Address: ${addressParts.join(', ')}`);
+        if (action.address || action.city || action.state || action.zip) {
+          const addrStr = String(action.address || '').trim();
+          const zipStr = String(action.zip || '').trim();
+          const cityStr = String(action.city || '').trim();
+          const stateStr = String(action.state || '').trim();
+          const addressParts = addrStr ? [addrStr] : [];
+          for (const seg of [cityStr, stateStr]) {
+            if (seg && !addrStr.includes(seg)) addressParts.push(seg);
+          }
+          if (zipStr) {
+            const zre = new RegExp(`\\b${zipStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+            if (!zre.test(addressParts.join(', '))) addressParts.push(zipStr);
+          }
+          if (addressParts.length) fields.push(`Address: ${addressParts.join(', ')}`);
         }
         if (action.company) fields.push(`Company: ${action.company}`);
-        return `Update customer information: ${fields.join(', ')}?`;
+        if (action.notes) fields.push(`Notes: ${action.notes}`);
+        return `Save this to Step 1 (Customer information)${fields.length > 0 ? `?\n\n- ${fields.join('\n- ')}` : '?'}`;
       
       case 'update_project_details':
         const projectFields = [];
@@ -2037,6 +2142,7 @@ const AIAssistantModal: React.FC<Props> = ({
   const sendMessage = async (messageOverride?: string) => {
     const messageToSend = messageOverride || input.trim();
     if (!messageToSend || loading) return;
+    let urlsToTry: string[] = [];
 
     // Haptic feedback on send
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2092,7 +2198,7 @@ const AIAssistantModal: React.FC<Props> = ({
       const primaryUrl = `${AI_API_BASE}/api/ai-assistant`;
       
       // Build fallback URLs: only use localhost for simulators/web, not physical devices
-      const urlsToTry = [primaryUrl];
+      urlsToTry = [primaryUrl];
       const isSimulator = Platform.OS === "ios" && Constants.isDevice === false;
       const isWeb = Platform.OS === "web";
       const isAndroidEmulator = Platform.OS === "android" && Constants.isDevice === false;
@@ -2930,7 +3036,10 @@ const AIAssistantModal: React.FC<Props> = ({
         
         data.actions.forEach((action: any) => {
           // Create a unique key based on action type and key parameters
-          const actionKey = `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;
+          const actionKey =
+            action.type === 'update_customer_info'
+              ? `${action.type}-${action.customerName || ''}-${action.phone || ''}-${action.address || ''}-${action.zip || ''}`
+              : `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;
           if (!seenActions.has(actionKey)) {
             seenActions.add(actionKey);
             uniqueActions.push(action);
@@ -2957,7 +3066,8 @@ const AIAssistantModal: React.FC<Props> = ({
           if (actionDescription) {
             // Show confirmation alert - use "Approve" for change orders
             const isChangeOrder = action.type === 'create_change_order';
-            const alertTitle = isChangeOrder ? 'Approve Change Order?' : 'Confirm AI Action';
+            const isEstimateEdit = ['add_estimate_line_items', 'update_customer_info', 'set_markup_percentage', 'replace_payment_schedule', 'rebalance_payment_schedule', 'add_starter_materials', 'add_starter_labor', 'add_common_scope_package', 'create_estimate_variant'].includes(action.type);
+            const alertTitle = isChangeOrder ? 'Approve Change Order?' : isEstimateEdit ? 'Confirm Estimate Update' : 'Confirm AI Action';
             const confirmText = isChangeOrder ? 'Approve' : 'Confirm';
             const cancelText = isChangeOrder ? 'Not Now' : 'Cancel';
             
@@ -3041,6 +3151,29 @@ const AIAssistantModal: React.FC<Props> = ({
                         console.log('📤 AIAssistantModal: Calling onAction handler...');
                         const result = await onAction(action);
                         console.log('📥 AIAssistantModal: onAction handler returned:', result);
+                        if (result?.message) {
+                          setMessages((prev) => [
+                            ...prev,
+                            {
+                              id: Date.now().toString() + '-action-result',
+                              role: 'assistant',
+                              content: result.message,
+                              timestamp: new Date(),
+                            },
+                          ]);
+                        }
+                        if (Array.isArray(result?.suggestedFollowUps)) {
+                          const nextSuggestions = result.undoable
+                            ? [
+                                { label: 'Undo last AI change', prompt: 'Undo last AI change' },
+                                ...result.suggestedFollowUps,
+                              ]
+                            : result.suggestedFollowUps;
+                          const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
+                            index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
+                          );
+                          setChatSuggestions(deduped.slice(0, 5));
+                        }
                         // If show_contract action returns a PDF URI, add it to the last message
                         if (action.type === 'show_contract' && result?.pdfUri) {
                           setMessages((prev) => {
@@ -3068,6 +3201,29 @@ const AIAssistantModal: React.FC<Props> = ({
             if (onAction) {
               (async () => {
                 const result = await onAction(action);
+                if (result?.message) {
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: Date.now().toString() + '-action-result',
+                      role: 'assistant',
+                      content: result.message,
+                      timestamp: new Date(),
+                    },
+                  ]);
+                }
+                if (Array.isArray(result?.suggestedFollowUps)) {
+                  const nextSuggestions = result.undoable
+                    ? [
+                        { label: 'Undo last AI change', prompt: 'Undo last AI change' },
+                        ...result.suggestedFollowUps,
+                      ]
+                    : result.suggestedFollowUps;
+                  const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
+                    index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
+                  );
+                  setChatSuggestions(deduped.slice(0, 5));
+                }
                 // If show_contract action returns a PDF URI, add it to the last message
                 if (action.type === 'show_contract' && result?.pdfUri) {
                   setMessages((prev) => {
@@ -3148,6 +3304,27 @@ const AIAssistantModal: React.FC<Props> = ({
     if (labelOrPrompt === "Find Subcontractors") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setShowContractorModal(true);
+      return;
+    }
+
+    if (isEstimateContext && /^undo last ai change$/i.test(labelOrPrompt.trim())) {
+      if (onAction) {
+        const result = await onAction({ type: 'undo_last_estimate_ai_action' });
+        if (result?.message) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString() + '-undo-result',
+              role: 'assistant',
+              content: result.message,
+              timestamp: new Date(),
+            },
+          ]);
+        }
+        if (Array.isArray(result?.suggestedFollowUps)) {
+          setChatSuggestions(result.suggestedFollowUps.slice(0, 5));
+        }
+      }
       return;
     }
 
@@ -3286,7 +3463,10 @@ const AIAssistantModal: React.FC<Props> = ({
     if (line.length > 42) return false;
     if (/[.?!]/.test(line)) return false;
     if (/^(here'?s|your|i'll|i can|no |payments? are|numbers reflect)/i.test(line)) return false;
-    return /^[A-Za-z0-9&/()' -]+$/.test(line);
+    if (!/^[A-Za-z0-9&/()' -]+$/.test(line)) return false;
+    const lettersOnly = line.replace(/[^A-Za-z]/g, '');
+    if (!lettersOnly) return false;
+    return lettersOnly === lettersOnly.toUpperCase();
   };
 
   const looksLikeSectionBanner = (line: string) => {
@@ -3394,9 +3574,12 @@ const AIAssistantModal: React.FC<Props> = ({
       }
 
       if (looksLikeSectionHeader(cleanedLine)) {
+        const humanized = cleanedLine
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
         elements.push(
           <View key={`section-${index}`} style={styles.messageSectionHeaderWrap}>
-            <Text style={styles.messageSectionHeader}>{cleanedLine}</Text>
+            <Text style={styles.messageSectionHeader}>{humanized}</Text>
           </View>
         );
         return;
@@ -3757,6 +3940,8 @@ const AIAssistantModal: React.FC<Props> = ({
                                 return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
                               })()
                             : 'Portfolio View • All Projects')
+                        : isEstimateContext
+                        ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
                         : `${projectInfo!.title} • ${projectInfo!.phase}`}
                     </Text>
                     {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
@@ -3799,10 +3984,10 @@ const AIAssistantModal: React.FC<Props> = ({
               ListFooterComponent={() => (
                 <>
                   {renderTypingIndicator()}
-                  {!isTyping && chatSuggestions.length > 0 && messages.length > 0 && (
+                  {!isTyping && displayChatSuggestions.length > 0 && messages.length > 0 && (
                     <View style={styles.footerSuggestionsWrap}>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.footerSuggestionsContent}>
-                        {chatSuggestions.map((s, i) => (
+                        {displayChatSuggestions.map((s, i) => (
                           <TouchableOpacity
                             key={`suggestion-${i}`}
                             onPress={() => {
@@ -3999,8 +4184,8 @@ const AIAssistantModal: React.FC<Props> = ({
                       </ScrollView>
                     </>
                   )}
-                  {/* AI Project Manager Mode card - hidden on Projects screen and Global Assistant */}
-                  {!isProjectsScreenContext && !isGlobalAssistantContext && (
+                  {/* AI Project Manager Mode card - hidden on Projects, Global Assistant, and Estimate Generator (field-PM framing) */}
+                  {!isProjectsScreenContext && !isGlobalAssistantContext && !isEstimateContext && (
                   <View style={styles.managerCardContainer}>
                     <LinearGradient
                       colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -4096,11 +4281,22 @@ const AIAssistantModal: React.FC<Props> = ({
                         <View style={[styles.projectStrip, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
                       <View>
                         <Text style={[styles.projectEyebrow, !darkMode && { color: ThemeColors.sub }]}>
-                          Current project
+                          {isEstimateContext ? 'Current bid' : 'Current project'}
                         </Text>
                         <Text style={[styles.projectTitle, !darkMode && { color: ThemeColors.text }]}>
                           {projectInfo.title}
                         </Text>
+                        {isEstimateContext && projectInfo.estimateNameMissing && (
+                          <Text
+                            style={[
+                              styles.projectSubtitle,
+                              !darkMode && { color: ThemeColors.sub },
+                              { fontSize: 12, marginTop: 4, lineHeight: 16 },
+                            ]}
+                          >
+                            Fill in the bid title field to name this estimate.
+                          </Text>
+                        )}
                         <Text style={[styles.projectSubtitle, !darkMode && { color: ThemeColors.sub }]}>
                           {projectInfo.phase} • ${(projectInfo.total || 0).toLocaleString()}
                         </Text>
@@ -4131,11 +4327,98 @@ const AIAssistantModal: React.FC<Props> = ({
                       </LinearGradient>
                     </View>
                   )}
+
+                  {/* Estimate: AI Copilot — same shell + gradient typography as Today Brief */}
+                  {isEstimateContext && estimateAssistantBrief && (
+                    <View style={{ alignSelf: 'stretch' }}>
+                      <View
+                        style={[styles.todayBriefCard, { marginTop: 8, marginBottom: 12 }, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                        accessibilityLabel="AI Copilot"
+                        accessibilityRole="summary"
+                      >
+                        <LinearGradient
+                          colors={['rgba(0, 100, 90, 0.22)', 'rgba(0, 70, 65, 0.12)']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.todayBriefGradient}
+                        >
+                          <Text style={[styles.todayBriefCardTitle, !darkMode && { color: ThemeColors.sub }]}>
+                            AI Copilot
+                          </Text>
+                          <Text
+                            style={[styles.todayBriefGreeting, !darkMode && { color: ThemeColors.text }]}
+                            numberOfLines={2}
+                          >
+                            {estimateAssistantBrief.bestNextAction?.label || 'Best next action'}
+                          </Text>
+                          {!!estimateCopilotConfidenceLabel && (
+                            <Text
+                              style={[styles.todayBriefSubGreeting, !darkMode && { color: ThemeColors.sub }]}
+                              numberOfLines={2}
+                            >
+                              {estimateCopilotConfidenceLabel}
+                            </Text>
+                          )}
+                          <View style={styles.todayBriefInsights}>
+                            <View style={styles.todayBriefInsightRow}>
+                              <View style={styles.todayBriefInsightDot} />
+                              <Text
+                                style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}
+                                numberOfLines={5}
+                              >
+                                {estimateAssistantBrief.bestNextAction?.reason || estimateAssistantBrief.summary}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.estimateCopilotActionsRow}>
+                            <TouchableOpacity
+                              activeOpacity={0.9}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                handleQuickAction(estimateAssistantBrief.bestNextAction?.prompt || '');
+                              }}
+                              style={[styles.estimateCopilotPrimaryOnBrief, !darkMode && { backgroundColor: '#16a34a' }]}
+                            >
+                              <Text style={styles.estimateCopilotPrimaryOnBriefText} numberOfLines={1}>
+                                {estimateCopilotPrimaryLabel}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.88}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                handleQuickAction('Review this bid before I send it.');
+                              }}
+                              style={[styles.estimateCopilotSecondaryOnBrief, !darkMode && { borderColor: ThemeColors.line }]}
+                            >
+                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, !darkMode && { color: ThemeColors.text }]}>Run My Bid</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              activeOpacity={0.88}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                handleQuickAction('Give this estimate a client-facing wording and send-readiness review.');
+                              }}
+                              style={[styles.estimateCopilotSecondaryOnBrief, !darkMode && { borderColor: ThemeColors.line }]}
+                            >
+                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, !darkMode && { color: ThemeColors.text }]}>Client Ready</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </LinearGradient>
+                      </View>
+                    </View>
+                  )}
                 </>
               }
               ListEmptyComponent={
                 isGlobalAssistantContext && displayBrief ? (
                   <View style={{ height: 24 }} />
+                ) : isEstimateContext ? (
+                  <View style={{ paddingVertical: 10, paddingHorizontal: 20 }}>
+                    <Text style={{ textAlign: 'center', fontSize: 13, lineHeight: 18, color: darkMode ? Colors.sub : ThemeColors.sub }}>
+                      AI Copilot is above. Ask for budget, standard, or premium pricing in chat if you want scenario comparisons.
+                    </Text>
+                  </View>
                 ) : (
                 <View style={[styles.greetingWrapper, !darkMode && { backgroundColor: ThemeColors.bg }, isProjectsScreenContext && { marginBottom: 8 }]}>
                   <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
@@ -4152,7 +4435,11 @@ const AIAssistantModal: React.FC<Props> = ({
                   </View>
 
                   <Text style={[styles.greetingTitle, !darkMode && { color: ThemeColors.text }]}>
-                    {(isProjectsScreenContext || isGlobalAssistantContext) ? "Your AI command center" : "Your AI project manager"}
+                    {(isProjectsScreenContext || isGlobalAssistantContext)
+                      ? "Your AI command center"
+                      : isEstimateContext
+                        ? "Your AI estimate assistant"
+                        : "Your AI project manager"}
                   </Text>
 
                   <Text style={[styles.greetingSubtitle, !darkMode && { color: ThemeColors.sub }]}>
@@ -4161,6 +4448,10 @@ const AIAssistantModal: React.FC<Props> = ({
                         Compare projects, spot risks, review budgets, and act on schedule or payment issues.
                         {'\n\n'}
                         Ask anything or use a quick action below.
+                      </>
+                    ) : isEstimateContext ? (
+                      <>
+                        Ask about line items, markup, scope, and pricing for this bid. Use the chips below or type your own question.
                       </>
                     ) : (
                       <>Ask about <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text> to review health, update costs, manage schedules, and protect profit.</>
@@ -4224,8 +4515,8 @@ const AIAssistantModal: React.FC<Props> = ({
                     </View>
                   )}
 
-                  {/* Primary AI actions - hidden on Projects screen (quick actions row covers these) */}
-                  {!isProjectsScreenContext && (
+                  {/* Primary AI actions — hidden on Projects; hidden on Estimate (chips + rail cover this) */}
+                  {!isProjectsScreenContext && !isEstimateContext && (
                   <View style={styles.primaryActions}>
                     <View style={styles.primaryButtonWrapper}>
                       <LinearGradient
@@ -4248,29 +4539,6 @@ const AIAssistantModal: React.FC<Props> = ({
                         </TouchableOpacity>
                       </LinearGradient>
                     </View>
-                    {isEstimateContext && (
-                    <View style={styles.primaryButtonWrapper}>
-                      <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
-                        style={styles.primaryButtonBorder}
-                      >
-                        <TouchableOpacity
-                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            handleQuickAction("Scan this estimate for missing costs.");
-                          }}
-                        >
-                          <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
-                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
-                            Scan for missing costs
-                          </Text>
-                        </TouchableOpacity>
-                      </LinearGradient>
-                    </View>
-                    )}
                   </View>
                   )}
                 </View>
@@ -4393,6 +4661,21 @@ const AIAssistantModal: React.FC<Props> = ({
                       ));
                     }
 
+                    // Estimate Generator — bid-building context (not field project management)
+                    if (isEstimateContext) {
+                      return estimateQuickActionChips.map((chip: { label: string; prompt: string }) => (
+                        <TouchableOpacity
+                          key={chip.label}
+                          onPress={() => {
+                            handleQuickAction(chip.prompt);
+                          }}
+                          style={styles.bottomRailChip}
+                        >
+                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
+                        </TouchableOpacity>
+                      ));
+                    }
+
                     // Default project quick actions
                     return [
                       { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
@@ -4429,10 +4712,10 @@ const AIAssistantModal: React.FC<Props> = ({
                 >
                   {(() => {
                     if (isEstimateContext) {
-                      return [
-                        { label: 'Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
-                        { label: 'Missing Costs', prompt: 'Scan this estimate for missing costs.' },
-                      ];
+                      return estimateQuickActionChips.map((chip: { label: string; prompt: string }, index: number) => ({
+                        ...chip,
+                        primary: index === 0,
+                      }));
                     }
                     // Flow-specific chips for projects
                     const flowChips: Array<{ label: string; prompt: string; primary?: boolean }> = (() => {
@@ -4483,7 +4766,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       }
                     })();
                     return flowChips;
-                  })().map((chip) => (
+                  })().map((chip: { label: string; prompt: string; primary?: boolean }) => (
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
@@ -4538,7 +4821,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     ) : (
                       <TextInput
                         style={[styles.input, !darkMode && { color: "#6B7280" }]}
-                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : "Ask anything about this project…")}
+                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : isEstimateContext ? "Ask about this estimate, line items, or margins…" : "Ask anything about this project…")}
                         placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
                         value={input}
                         onChangeText={setInput}
@@ -4698,6 +4981,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginVertical: 6,
     paddingHorizontal: 0,
+    width: "100%",
+    alignSelf: "stretch",
   },
   messageBubble: {
     maxWidth: "100%",
@@ -4711,17 +4996,24 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.green,
     borderBottomRightRadius: 4,
   },
+  /** ~90% of chat column — small side margins like Project AI (not edge-to-edge, not a skinny column) */
   assistantBubbleWrapper: {
-    maxWidth: "86%",
+    alignSelf: "flex-start",
+    width: "90%",
+    maxWidth: "90%",
+    minWidth: 0,
     marginVertical: 4,
   },
   assistantBubbleBorder: {
+    width: "100%",
+    alignSelf: "stretch",
     borderRadius: 20,
     padding: 1,
     overflow: "hidden",
     borderBottomLeftRadius: 6,
   },
   assistantBubble: {
+    width: "100%",
     backgroundColor: "#040608",
     borderBottomLeftRadius: 6,
     paddingHorizontal: 18,
@@ -4751,6 +5043,8 @@ const styles = StyleSheet.create({
   },
   formattedContent: {
     gap: 0,
+    width: "100%",
+    alignSelf: "stretch",
   },
   userMessageContainer: {
     alignItems: "flex-end",
@@ -4874,13 +5168,15 @@ const styles = StyleSheet.create({
   },
   messageSectionHeaderWrap: {
     marginTop: 6,
-    marginBottom: 8,
+    marginBottom: 6,
   },
+  /** Fallback for legacy ALL-CAPS one-line labels; prefer `**Bold label**` in reply text for body-sized type. */
   messageSectionHeader: {
-    color: "#F8FAFC",
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.3,
+    color: "#E2E8F0",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.15,
+    textTransform: "none",
   },
   messageSectionBanner: {
     marginTop: 4,
@@ -5606,5 +5902,39 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 2,
     lineHeight: 16,
+  },
+  estimateCopilotActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 18,
+    alignItems: "center",
+    width: "100%",
+  },
+  estimateCopilotPrimaryOnBrief: {
+    alignSelf: "flex-start",
+    backgroundColor: "#22c55e",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  estimateCopilotPrimaryOnBriefText: {
+    color: "#04110b",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  estimateCopilotSecondaryOnBrief: {
+    alignSelf: "flex-start",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.32)",
+    backgroundColor: "rgba(0, 0, 0, 0.12)",
+  },
+  estimateCopilotSecondaryOnBriefText: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

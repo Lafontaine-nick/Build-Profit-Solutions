@@ -2285,6 +2285,485 @@ const money = (n) => {
   });
 };
 
+const ESTIMATE_AI_PACKAGES = {
+  kitchen: {
+    scopeSections: ['Demo & protection', 'Cabinetry & Tops', 'Fixtures', 'Flooring', 'Electrical', 'Paint & trim'],
+    materials: [
+      { description: 'Cabinetry allowance', section: 'Cabinetry & Tops', category: 'Cabinetry', unit: 'allowance' },
+      { description: 'Countertop allowance', section: 'Cabinetry & Tops', category: 'Countertops', unit: 'allowance' },
+      { description: 'Sink and faucet allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
+      { description: 'Backsplash / finish allowance', section: 'Paint & trim', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Demo & protection labor', section: 'Demo & protection', category: 'Demo' },
+      { description: 'Cabinet install labor', section: 'Cabinetry & Tops', category: 'Cabinetry' },
+      { description: 'Electrical trim labor', section: 'Electrical', category: 'Electrical' },
+      { description: 'Paint & finish labor', section: 'Paint & trim', category: 'Finishes' },
+    ],
+  },
+  bathroom: {
+    scopeSections: ['Demo & protection', 'Waterproofing', 'Tile', 'Fixtures', 'Plumbing', 'Paint & trim'],
+    materials: [
+      { description: 'Tile allowance', section: 'Tile', category: 'Tile', unit: 'allowance' },
+      { description: 'Waterproofing allowance', section: 'Waterproofing', category: 'Waterproofing', unit: 'allowance' },
+      { description: 'Vanity / fixtures allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
+      { description: 'Plumbing trim allowance', section: 'Plumbing', category: 'Plumbing', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Demo labor', section: 'Demo & protection', category: 'Demo' },
+      { description: 'Tile install labor', section: 'Tile', category: 'Tile' },
+      { description: 'Plumbing labor', section: 'Plumbing', category: 'Plumbing' },
+      { description: 'Finish labor', section: 'Paint & trim', category: 'Finishes' },
+    ],
+  },
+  room_addition: {
+    scopeSections: ['Sitework', 'Framing', 'Roofing', 'Electrical', 'Insulation', 'Drywall & Paint'],
+    materials: [
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'Roofing tie-in allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
+      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
+      { description: 'Drywall / finish allowance', section: 'Drywall & Paint', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Site prep labor', section: 'Sitework', category: 'Sitework' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'Roofing labor', section: 'Roofing', category: 'Roofing' },
+      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
+    ],
+  },
+  home_addition: {
+    scopeSections: ['Sitework', 'Foundation', 'Framing', 'MEP Rough', 'Insulation', 'Exterior'],
+    materials: [
+      { description: 'Foundation allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'MEP rough allowance', section: 'MEP Rough', category: 'MEP Rough', unit: 'allowance' },
+      { description: 'Exterior finish allowance', section: 'Exterior', category: 'Exterior', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Foundation labor', section: 'Foundation', category: 'Foundation' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'MEP coordination labor', section: 'MEP Rough', category: 'MEP Rough' },
+      { description: 'Exterior finish labor', section: 'Exterior', category: 'Exterior' },
+    ],
+  },
+  new_build: {
+    scopeSections: ['Sitework', 'Foundation', 'Framing', 'Roofing', 'MEP Rough', 'Finishes'],
+    materials: [
+      { description: 'Foundation package allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'Roofing allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
+      { description: 'Finish package allowance', section: 'Finishes', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Sitework labor', section: 'Sitework', category: 'Sitework' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'Roofing labor', section: 'Roofing', category: 'Roofing' },
+      { description: 'Finish labor', section: 'Finishes', category: 'Finishes' },
+    ],
+  },
+  landscaping: {
+    scopeSections: ['Hardscape', 'Softscape & Plants', 'Irrigation', 'Lighting'],
+    materials: [
+      { description: 'Hardscape allowance', section: 'Hardscape', category: 'Hardscape', unit: 'allowance' },
+      { description: 'Planting allowance', section: 'Softscape & Plants', category: 'Softscape', unit: 'allowance' },
+      { description: 'Irrigation allowance', section: 'Irrigation', category: 'Irrigation', unit: 'allowance' },
+      { description: 'Lighting allowance', section: 'Lighting', category: 'Lighting', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Site prep labor', section: 'Hardscape', category: 'Hardscape' },
+      { description: 'Planting labor', section: 'Softscape & Plants', category: 'Softscape' },
+      { description: 'Irrigation labor', section: 'Irrigation', category: 'Irrigation' },
+      { description: 'Lighting labor', section: 'Lighting', category: 'Lighting' },
+    ],
+  },
+  other: {
+    scopeSections: ['Scope setup', 'Materials', 'Labor', 'Pricing', 'Payments'],
+    materials: [
+      { description: 'Primary material allowance', section: 'Materials', category: 'Materials', unit: 'allowance' },
+      { description: 'Finish material allowance', section: 'Materials', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Core production labor', section: 'Labor', category: 'Labor' },
+      { description: 'Finish labor', section: 'Labor', category: 'Finishes' },
+    ],
+  },
+};
+
+const normalizeEstimateAiProjectType = (projectType) => {
+  const key = String(projectType || 'other').trim().toLowerCase().replace(/\s+/g, '_');
+  return ESTIMATE_AI_PACKAGES[key] ? key : 'other';
+};
+
+const getEstimateAiPackage = (projectType) =>
+  ESTIMATE_AI_PACKAGES[normalizeEstimateAiProjectType(projectType)] || ESTIMATE_AI_PACKAGES.other;
+
+const makeEstimateAiId = (prefix, index) => `${prefix}-${Date.now()}-${index}`;
+
+const buildEstimateStarterMaterialItems = (projectType, tier = 'standard') => {
+  const packageDef = getEstimateAiPackage(projectType);
+  const tierLabel = tier === 'budget' ? 'Budget' : tier === 'premium' ? 'Premium' : 'Standard';
+  return packageDef.materials.map((item, index) => ({
+    id: makeEstimateAiId(`ai-material-${tier}`, index),
+    name: item.description,
+    description: `${tierLabel} starter allowance - verify selections, quantities, and local pricing.`,
+    quantity: 1,
+    unit: item.unit || 'allowance',
+    unitPrice: 0,
+    total: 0,
+    vendor: '',
+    section: item.section,
+    category: item.category,
+    scope: normalizeEstimateAiProjectType(projectType),
+    source: 'ai',
+    isManual: true,
+  }));
+};
+
+const buildEstimateStarterLaborItems = (projectType, tier = 'standard') => {
+  const packageDef = getEstimateAiPackage(projectType);
+  const tierLabel = tier === 'budget' ? 'Budget' : tier === 'premium' ? 'Premium' : 'Standard';
+  return packageDef.labor.map((item, index) => ({
+    id: makeEstimateAiId(`ai-labor-${tier}`, index),
+    name: item.description,
+    description: `${tierLabel} starter labor placeholder - verify hours, crew mix, and rates.`,
+    hours: 0,
+    rate: 0,
+    total: 0,
+    category: item.category,
+    section: item.section,
+  }));
+};
+
+const addDaysToDateString = (dateString, daysToAdd) => {
+  const base = dateString ? new Date(`${dateString}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return new Date().toISOString().split('T')[0];
+  base.setDate(base.getDate() + daysToAdd);
+  return base.toISOString().split('T')[0];
+};
+
+const roundEstimateAiMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const buildEstimateMilestoneSchedule = (total, { startDate, safer = false } = {}) => {
+  const percentages = safer ? [40, 30, 20, 10] : [30, 30, 30, 10];
+  const labels = safer
+    ? ['Deposit / mobilization', 'Midpoint progress', 'Substantial completion', 'Punch list']
+    : ['Deposit', 'Rough-in / progress', 'Finish stage', 'Final completion'];
+  return labels.map((name, index) => {
+    const percentage = percentages[index] || 0;
+    const amount = roundEstimateAiMoney((Number(total) || 0) * (percentage / 100));
+    const scheduledDate = addDaysToDateString(startDate, index * 7);
+    return {
+      id: makeEstimateAiId('ai-milestone', index),
+      name,
+      percentage,
+      paymentAmount: amount,
+      amount,
+      scheduledDate,
+      dueDate: scheduledDate,
+    };
+  });
+};
+
+const buildEstimateWeeklySchedule = (total, weeks = 4, { startDate, safer = false } = {}) => {
+  const safeWeeks = Math.max(2, Math.min(12, Number(weeks) || 4));
+  const depositPct = safer ? 25 : 20;
+  const remainingPct = 100 - depositPct;
+  const recurringPct = safeWeeks > 0 ? remainingPct / safeWeeks : remainingPct;
+  const payments = [
+    {
+      id: makeEstimateAiId('ai-weekly', 0),
+      name: 'Deposit / startup',
+      description: 'Deposit / startup',
+      percentage: depositPct,
+      amount: roundEstimateAiMoney((Number(total) || 0) * (depositPct / 100)),
+      weekNumber: 0,
+      scheduledDate: startDate || new Date().toISOString().split('T')[0],
+      dueDate: startDate || new Date().toISOString().split('T')[0],
+    },
+  ];
+  for (let index = 1; index <= safeWeeks; index += 1) {
+    const scheduledDate = addDaysToDateString(startDate, index * 7);
+    payments.push({
+      id: makeEstimateAiId('ai-weekly', index),
+      name: `Week ${index} progress payment`,
+      description: `Week ${index} progress payment`,
+      percentage: roundEstimateAiMoney(recurringPct),
+      amount: roundEstimateAiMoney((Number(total) || 0) * (recurringPct / 100)),
+      weekNumber: index,
+      scheduledDate,
+      dueDate: scheduledDate,
+    });
+  }
+  return payments;
+};
+
+const buildEstimateAssistantBrief = ({
+  step,
+  projectType,
+  readinessState,
+  nextStepLabel,
+  currentStepLabel,
+  healthScore,
+  missingEstimateItems,
+  setupProgressPct,
+  estimateNameIsEmpty,
+  hasClientInfo,
+  hasJobInfo,
+  hasMaterials,
+  hasLabor,
+  hasReviewedMarkup,
+  hasPaymentSchedule,
+  hasReviewedTotal,
+  markupLow,
+  markupPct,
+  total,
+}) => {
+  const normalizedProjectType = normalizeEstimateAiProjectType(projectType);
+  const projectTypeLabel = normalizedProjectType.replace(/_/g, ' ');
+  const chips = [];
+  const pushChip = (label, prompt) => {
+    if (!label || !prompt) return;
+    if (!chips.some((chip) => chip.label === label || chip.prompt === prompt)) {
+      chips.push({ label, prompt });
+    }
+  };
+
+  let bestNextAction = {
+    label: 'Review this bid',
+    prompt: 'Review this bid and tell me the best next fix.',
+    reason: 'A quick audit will surface the highest-value fix first.',
+  };
+
+  if (!hasClientInfo) {
+    bestNextAction = {
+      label: 'Fix customer info',
+      prompt: 'What customer fields are still missing (name, phone, address)?',
+      reason: 'Name, phone, and address are enough to start; email can wait until you send the proposal.',
+    };
+  } else if (!hasJobInfo || estimateNameIsEmpty) {
+    bestNextAction = {
+      label: 'Finish project setup',
+      prompt: 'Help me finish the project information for this estimate.',
+      reason: 'Project setup drives scope suggestions, timing, and cleaner bid presentation.',
+    };
+  } else if (!hasMaterials) {
+    bestNextAction = {
+      label: 'Build starter materials',
+      prompt: `Build a starter materials list for this ${projectTypeLabel} estimate.`,
+      reason: 'Without material coverage, the price and margin are not grounded yet.',
+    };
+  } else if (!hasLabor) {
+    bestNextAction = {
+      label: 'Build labor breakdown',
+      prompt: `Build a starter labor breakdown for this ${projectTypeLabel} estimate.`,
+      reason: 'Labor is still missing, so your profit picture is incomplete.',
+    };
+  } else if (!hasReviewedMarkup || markupLow) {
+    bestNextAction = {
+      label: 'Review markup',
+      prompt: 'Review my markup and tell me if this bid is protected enough.',
+      reason: markupLow
+        ? `Markup is only ${Math.round((Number(markupPct) || 0) * 10) / 10}%, which may leave thin cushion.`
+        : 'Markup and overhead should be checked before send readiness.',
+    };
+  } else if (!hasPaymentSchedule) {
+    bestNextAction = {
+      label: 'Build payment schedule',
+      prompt: 'Build a safer payment schedule for this estimate.',
+      reason: 'Payment timing protects cash flow and startup exposure.',
+    };
+  } else if (!hasReviewedTotal) {
+    bestNextAction = {
+      label: 'Run final review',
+      prompt: 'Review this bid before I send it.',
+      reason: 'A final review catches remaining blockers before the bid goes out.',
+    };
+  } else if (healthScore < 75) {
+    bestNextAction = {
+      label: 'Improve protection',
+      prompt: 'Make this estimate safer and explain the top protection moves.',
+      reason: 'The estimate is mostly built, but risk and margin protection can still improve.',
+    };
+  }
+
+  const stage =
+    readinessState === 'empty' || setupProgressPct <= 15
+      ? 'mostly_empty'
+      : readinessState === 'ready' || setupProgressPct >= 80
+        ? 'near_complete'
+        : 'partially_built';
+
+  const riskLines = [];
+  if (!hasMaterials) riskLines.push('material coverage is still empty');
+  if (!hasLabor) riskLines.push('labor coverage is still empty');
+  if (!hasPaymentSchedule) riskLines.push('payment timing is not protecting cash flow yet');
+  if (markupLow) riskLines.push('markup looks thin for friction');
+
+  const missingPreview = Array.isArray(missingEstimateItems) ? missingEstimateItems.slice(0, 3) : [];
+  const summary =
+    stage === 'mostly_empty'
+      ? `This estimate is still in setup. ${missingPreview.length ? `Largest gaps: ${missingPreview.join(', ')}.` : 'You need core job, cost, and payment inputs before pricing is reliable.'}`
+      : stage === 'near_complete'
+        ? `This bid is close. ${riskLines.length ? `Main watchout: ${riskLines[0]}.` : 'You are mostly in final review territory.'}`
+        : `This bid is in progress. ${missingPreview.length ? `Still missing: ${missingPreview.join(', ')}.` : 'A few important setup items still need attention.'}`;
+
+  const assumptions =
+    !hasMaterials || !hasLabor
+      ? 'Starter guidance only until real material and labor values are entered.'
+      : !hasPaymentSchedule
+        ? 'Pricing can look fine while cash flow risk is still exposed.'
+        : total > 0
+          ? 'Recommendations are grounded in the current estimate values on screen.'
+          : 'Totals are still incomplete, so suggestions stay directional.';
+
+  const confidence =
+    !hasMaterials || !hasLabor
+      ? 'Low confidence until cost inputs are entered'
+      : healthScore >= 80
+        ? 'High confidence from entered estimate data'
+        : 'Medium confidence from current estimate setup';
+
+  if (stage === 'mostly_empty') {
+    pushChip(bestNextAction.label, bestNextAction.prompt);
+    pushChip('Build Starter Scope', `Build a starter scope for this ${projectTypeLabel} estimate.`);
+    pushChip('Add Common Items', `Add common line items for this ${projectTypeLabel} estimate.`);
+    pushChip('What’s Missing', 'What is missing from this estimate right now?');
+    pushChip('Set Safe Markup', 'Set a safer markup for this estimate.');
+    pushChip('Build Payment Schedule', 'Build a payment schedule for this estimate.');
+  } else if (stage === 'near_complete') {
+    pushChip(bestNextAction.label, bestNextAction.prompt);
+    pushChip('Ready to Send?', 'Is this estimate ready to send?');
+    pushChip('Stress Test Profit', 'Run a friction scenario on this estimate.');
+    pushChip('Improve Protection', 'Make this estimate safer.');
+    pushChip('Final Review', 'Review this bid before I send it.');
+    pushChip('Safer Schedule', 'Generate a safer payment schedule for this estimate.');
+  } else {
+    pushChip(bestNextAction.label, bestNextAction.prompt);
+    pushChip('Review This Bid', 'Review this bid and tell me the biggest gaps.');
+    pushChip('Missing Costs', 'Scan this estimate for missing costs and gaps.');
+    pushChip('Check Margin', 'What is my margin on this estimate?');
+    pushChip('Add Line Items', 'Help me add line items to this estimate.');
+    pushChip('Build Schedule', 'Build a payment schedule for this estimate.');
+  }
+
+  switch (step) {
+    case 1:
+      pushChip('Missing Fields', 'Which customer fields are still missing?');
+      pushChip('Contract Readiness', 'Is the customer setup ready for contract use?');
+      pushChip('Summarize Notes', 'Summarize the customer notes into a clean scope summary.');
+      break;
+    case 2:
+      pushChip('Build Starter Scope', 'Build a starter scope for this estimate.');
+      pushChip('Common Line Items', `Add common line items for this ${projectTypeLabel} estimate.`);
+      pushChip('Timeline Help', 'Help me set realistic timeline assumptions for this estimate.');
+      break;
+    case 3:
+      pushChip('Starter Material List', `Build a starter materials list for this ${projectTypeLabel} estimate.`);
+      pushChip('Missing Material Categories', 'What material categories are still missing?');
+      pushChip('Budget vs Premium', 'Compare budget vs premium material packages for this estimate.');
+      break;
+    case 4:
+      pushChip('Add Labor Breakdown', `Build a starter labor breakdown for this ${projectTypeLabel} estimate.`);
+      pushChip('In-House vs Subs', 'How should I split this between in-house labor and subs?');
+      pushChip('Check Labor Coverage', 'Check whether this estimate has enough labor coverage.');
+      break;
+    case 5:
+      pushChip('Is My Markup Safe?', 'Is my markup safe for this estimate?');
+      pushChip('Raise Margin', 'How can I raise margin on this estimate?');
+      pushChip('Explain Break-Even', 'Explain my break-even and cushion on this estimate.');
+      break;
+    case 7:
+      pushChip('Build Weekly Schedule', 'Build a weekly payment schedule for this estimate.');
+      pushChip('Build Milestones', 'Build a milestone payment schedule for this estimate.');
+      pushChip('Improve Cash Flow', 'Improve cash flow protection on this estimate.');
+      pushChip('Auto-Fix 100%', 'Rebalance this payment schedule to 100%.');
+      break;
+    case 8:
+    case 0:
+      pushChip('Review This Bid', 'Review this bid before I send it.');
+      pushChip('Ready to Send?', 'Is this estimate ready to send?');
+      pushChip('Why Is Health Low?', 'Why is the health score low on this estimate?');
+      pushChip('Top Fixes', 'What should I fix first on this estimate?');
+      break;
+    default:
+      break;
+  }
+
+  return {
+    stage,
+    currentStepLabel,
+    nextStepLabel,
+    summary,
+    assumptions,
+    confidence,
+    risks: riskLines,
+    bestNextAction,
+    chips: chips.slice(0, 6),
+  };
+};
+
+const buildEstimateTrustSignals = ({
+  hasMaterials,
+  hasLabor,
+  hasPaymentSchedule,
+  healthScore,
+  setupProgressPct,
+}) => {
+  const labels = [];
+  labels.push(hasMaterials && hasLabor ? 'Entered cost data' : 'Starter / incomplete cost data');
+  labels.push(hasPaymentSchedule ? 'Cash flow structure entered' : 'Cash flow assumptions still incomplete');
+  labels.push(healthScore >= 80 && setupProgressPct >= 80 ? 'High confidence' : healthScore >= 55 ? 'Medium confidence' : 'Low confidence');
+  return labels;
+};
+
+const buildEstimateVariantPreviews = ({ calc, bid, readinessState }) => {
+  const subtotal = Number(calc?.subtotal || 0);
+  const currentMarkup = Number(bid?.markupPct || 0);
+  const startDate = bid?.startDate || bid?.projectStartDate || new Date().toISOString().split('T')[0];
+  const totalForMarkup = (markupPct) => roundEstimateAiMoney(subtotal + subtotal * ((Number(markupPct) || 0) / 100));
+  const standardMarkup = currentMarkup > 0 ? currentMarkup : 20;
+  return [
+    {
+      id: 'budget',
+      label: 'Budget',
+      title: 'Budget version',
+      note: 'Lean presentation with thinner cushion. Best when the user wants a price-sensitive option.',
+      markupPct: 16,
+      total: totalForMarkup(16),
+      trustLabel: readinessState === 'ready' ? 'Based on entered cost data' : 'Directional until cost inputs are complete',
+    },
+    {
+      id: 'standard',
+      label: 'Standard',
+      title: 'Standard version',
+      note: 'Balanced default for most bids with normal contractor protection.',
+      markupPct: Math.max(standardMarkup, 20),
+      total: totalForMarkup(Math.max(standardMarkup, 20)),
+      trustLabel: readinessState === 'ready' ? 'Closest to current bid' : 'Starter guidance',
+    },
+    {
+      id: 'premium',
+      label: 'Premium',
+      title: 'Premium version',
+      note: 'More cushion for complexity, finish quality, and change-order resistance.',
+      markupPct: Math.max(standardMarkup, 28),
+      total: totalForMarkup(Math.max(standardMarkup, 28)),
+      trustLabel: readinessState === 'ready' ? 'Higher finish / higher cushion' : 'Preview until estimate is more complete',
+    },
+    {
+      id: 'safer_cashflow',
+      label: 'Safer Cash Flow',
+      title: 'Safer cash-flow version',
+      note: 'Keeps more money earlier through deposit + stronger milestone timing.',
+      markupPct: Math.max(standardMarkup, 20),
+      total: totalForMarkup(Math.max(standardMarkup, 20)),
+      paymentSchedule: 'milestone-based',
+      paymentMilestones: buildEstimateMilestoneSchedule(totalForMarkup(Math.max(standardMarkup, 20)), { startDate, safer: true }),
+      trustLabel: 'Focused on payment protection, not just price',
+    },
+  ];
+};
+
 // Compute total from saved bid data (for Restore list when stored total is 0)
 const computeTotalFromBidData = (bidData) => {
   if (!bidData) return 0;
@@ -3047,6 +3526,7 @@ export default function EstimateGeneratorScreen() {
   const [activeNavButton, setActiveNavButton] = useState('summary'); // 'back', 'summary', or 'next'
   const [bid, setBid] = useState(blankState());
   const bidRef = useRef(bid);
+  const lastEstimateAiUndoRef = useRef(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [savedEstimates, setSavedEstimates] = useState([]);
@@ -3063,6 +3543,7 @@ export default function EstimateGeneratorScreen() {
   const [hasCreatedFirstEstimate, setHasCreatedFirstEstimate] = useState(false);
   const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
   const [isOnboardingReset, setIsOnboardingReset] = useState(false);
+  const [estimateAiInitialQuestion, setEstimateAiInitialQuestion] = useState('');
 
   useEffect(() => {
     bidRef.current = bid;
@@ -3255,7 +3736,15 @@ export default function EstimateGeneratorScreen() {
   //   !hasCreatedFirstEstimate && 
   //   !hasSubmittedFirstEstimate && 
   //   !hasAnySubmittedEstimates;
-  const hasClientInfo = Boolean(bid.customerName || bid.clientName);
+  /** Step 1 complete when we have name + phone + address (one line or city+state). Email optional. */
+  const hasClientInfo = Boolean(
+    (bid.customerName || bid.clientName) &&
+    String(bid.customerPhone || '').trim() &&
+    (
+      String(bid.customerAddress || '').trim() ||
+      (String(bid.customerCity || '').trim() && String(bid.customerState || '').trim())
+    )
+  );
   const hasJobInfo = Boolean(bid.title && bid.title !== 'Untitled Bid');
   const hasLabor = (bid.laborLineItems?.length || 0) > 0;
   const hasMaterialInputs =
@@ -3415,6 +3904,107 @@ export default function EstimateGeneratorScreen() {
 
   const guidedSteps = [1, 2, 3, 4, 5];
   const guidedStepIndex = guidedSteps.indexOf(step) >= 0 ? guidedSteps.indexOf(step) + 1 : 1;
+  const currentEstimateStepMeta =
+    step === 0
+      ? { id: 0, title: 'Bid Summary', subtitle: 'Totals, health score, and final actions' }
+      : (STEPS.find((s) => s.id === step) || null);
+  const estimateChecklist = useMemo(() => ([
+    { id: 'client_and_job', label: 'Client and job info added', completed: hasClientInfo && hasJobInfo },
+    { id: 'materials', label: 'Materials added', completed: hasMaterials },
+    { id: 'labor', label: 'Labor added', completed: hasLabor },
+    { id: 'markup', label: 'Markup reviewed', completed: hasReviewedMarkup },
+    { id: 'payment_schedule', label: 'Payment schedule set', completed: hasPaymentSchedule },
+    { id: 'review_total', label: 'Final total reviewed', completed: hasReviewedTotal },
+  ]), [
+    hasClientInfo,
+    hasJobInfo,
+    hasMaterials,
+    hasLabor,
+    hasReviewedMarkup,
+    hasPaymentSchedule,
+    hasReviewedTotal,
+  ]);
+  const missingEstimateItems = useMemo(
+    () => estimateChecklist.filter((item) => !item.completed).map((item) => item.label),
+    [estimateChecklist]
+  );
+  const estimateStepFields = useMemo(() => {
+    switch (step) {
+      case 0:
+        return ['total', 'unitPrice', 'marginPercent', 'healthScore', 'saveOrSubmit'];
+      case 1:
+        return ['customerName', 'customerPhone', 'customerAddress', 'customerNotes'];
+      case 2:
+        return ['title', 'projectType', 'sqft', 'scopeDescription', 'startDate', 'endDate'];
+      case 3:
+        return ['materialLineItems', 'materialsCart', 'unitPrice', 'quantity'];
+      case 4:
+        return ['laborLineItems', 'subcontractors', 'hours', 'trade'];
+      case 5:
+        return ['markupPct', 'insuranceOverhead', 'equipment', 'facilities', 'planCost', 'permitCost'];
+      case 6:
+        return ['scenarioAnalysis', 'projectAnalysis', 'marketRates', 'laborRates'];
+      case 7:
+        return ['paymentSchedule', 'paymentMilestones', 'weeklyPayments'];
+      case 8:
+        return ['healthScore', 'contract', 'export', 'finalReview'];
+      default:
+        return [];
+    }
+  }, [step]);
+  const estimateAssistantBrief = useMemo(() => buildEstimateAssistantBrief({
+    step,
+    projectType: bid.projectType,
+    readinessState,
+    nextStepLabel,
+    currentStepLabel: currentEstimateStepMeta?.title || (step === 0 ? 'Bid Summary' : `Step ${step}`),
+    healthScore,
+    missingEstimateItems,
+    setupProgressPct,
+    estimateNameIsEmpty: !(typeof bid?.title === 'string' && bid.title.trim()),
+    hasClientInfo,
+    hasJobInfo,
+    hasMaterials,
+    hasLabor,
+    hasReviewedMarkup,
+    hasPaymentSchedule,
+    hasReviewedTotal,
+    markupLow,
+    markupPct,
+    total: calc?.total || 0,
+  }), [
+    step,
+    bid.projectType,
+    bid?.title,
+    readinessState,
+    nextStepLabel,
+    currentEstimateStepMeta,
+    healthScore,
+    missingEstimateItems,
+    setupProgressPct,
+    hasClientInfo,
+    hasJobInfo,
+    hasMaterials,
+    hasLabor,
+    hasReviewedMarkup,
+    hasPaymentSchedule,
+    hasReviewedTotal,
+    markupLow,
+    markupPct,
+    calc?.total,
+  ]);
+  const estimateTrustSignals = useMemo(() => buildEstimateTrustSignals({
+    hasMaterials,
+    hasLabor,
+    hasPaymentSchedule,
+    healthScore,
+    setupProgressPct,
+  }), [hasLabor, hasMaterials, hasPaymentSchedule, healthScore, setupProgressPct]);
+  const estimateVariantPreviews = useMemo(() => buildEstimateVariantPreviews({
+    calc,
+    bid,
+    readinessState,
+  }), [calc, bid, readinessState]);
   
   // Local state for markup percentage input to prevent glitching while typing
   const [markupPctText, setMarkupPctText] = useState('');
@@ -5189,16 +5779,61 @@ export default function EstimateGeneratorScreen() {
   }, [bid, rentalCart, materialsCart]);
 
   const estimateContext = useMemo(() => {
+    const estimateNameTrimmed =
+      typeof bid?.title === 'string' ? bid.title.trim() : '';
     const base = {
     screen: 'Estimate Generator',
     aiScope: 'project',
     projectId: bid.id,
-    projectName: bid.title || 'Current Estimate',
-    bidTitle: bid.title || 'Current Estimate',
+    /** Raw name for AI Assistant strip — can be empty so UI can prompt to add a name */
+    projectName: estimateNameTrimmed || 'Current Estimate',
+    bidTitle: estimateNameTrimmed,
+    estimateName: estimateNameTrimmed,
+    estimateNameIsEmpty: !estimateNameTrimmed,
+    currentStepNumber: step,
+    currentStepLabel: currentEstimateStepMeta?.title || (step === 0 ? 'Bid Summary' : `Step ${step}`),
+    currentStepSubtitle: currentEstimateStepMeta?.subtitle || '',
+    currentStepFields: estimateStepFields,
+    estimateAssistantBrief,
+    estimateTrustSignals,
+    estimateVariantPreviews,
+    isBidSummary: step === 0,
+    guidedStepIndex,
+    readinessState,
+    isEstimateReady,
+    shouldGateAdvanced,
+    nextStepLabel,
+    completedChecklistCount,
+    checklistTotal,
+    setupProgressPct,
+    markupLow,
+    healthScore,
+    estimateChecklist,
+    missingEstimateItems,
     bidTotal: calc?.total || 0,
     total: calc?.total || 0,
     status: 'estimate',
     bidData: bid,
+    /** Explicit alias for AI / prompts that look for estimateData (same shape as bid in editor) */
+    estimateData: bid,
+    /** Precomputed totals so the model does not have to infer from raw line items */
+    calcTotals: calc
+      ? {
+          materials: calc.materials,
+          labor: calc.labor,
+          rentals: calc.rentals,
+          overhead: calc.overhead,
+          permitCosts: calc.permitCosts,
+          contingency: calc.contingency,
+          subtotal: calc.subtotal,
+          profit: calc.profit,
+          total: calc.total,
+          marginPercent: calc.marginPercent,
+          unitPrice: calc.unitPrice,
+        }
+      : null,
+    customerName: bid.customerName || '',
+    customerLocation: [bid.customerCity, bid.customerState, bid.customerZip].filter(Boolean).join(', ') || '',
     // Include real projects so AI can resolve actual IDs/statuses for expense actions
     allProjects: [...activeProjects, ...estimates].map((p) => ({
       id: p.id,
@@ -5215,17 +5850,99 @@ export default function EstimateGeneratorScreen() {
       customerName: p.client || p.customerName || '',
       location: p.location || '',
     })),
-    stepTitle: step === 0 ? 'Bid Summary' : `Step ${step + 1}`,
+    stepTitle: step === 0 ? 'Bid Summary' : `Step ${step}`,
     };
     // CRITICAL: When viewing an existing project with live actuals, inject Projects data so AI uses spend-to-date margin, NOT estimate margin
     const withLive = projectLiveMetrics && typeof projectLiveMetrics.actualCost === 'number' && projectLiveMetrics.actualCost >= 0
       ? { ...base, ...projectLiveMetrics }
       : base;
     return JSON.stringify(withLive);
-  }, [bid, calc?.total, step, activeProjects, estimates, projectLiveMetrics]);
+  }, [bid, calc, step, currentEstimateStepMeta, estimateStepFields, estimateAssistantBrief, estimateTrustSignals, estimateVariantPreviews, guidedStepIndex, readinessState, isEstimateReady, shouldGateAdvanced, nextStepLabel, completedChecklistCount, checklistTotal, setupProgressPct, markupLow, healthScore, estimateChecklist, missingEstimateItems, activeProjects, estimates, projectLiveMetrics]);
+
+  const openEstimateCopilot = useCallback((prompt = '') => {
+    if (prompt) {
+      setEstimateAiInitialQuestion(prompt);
+    } else {
+      setEstimateAiInitialQuestion('');
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowAIAssistant(true);
+  }, []);
+
+  const storeEstimateAiUndoSnapshot = useCallback((label) => {
+    lastEstimateAiUndoRef.current = {
+      label,
+      bid: JSON.parse(JSON.stringify(bidRef.current || {})),
+      materialsCart: JSON.parse(JSON.stringify(materialsCart || [])),
+      capturedAt: Date.now(),
+    };
+  }, [materialsCart]);
+
+  const applyEstimateVariant = useCallback((variant) => {
+    if (!variant) return;
+    storeEstimateAiUndoSnapshot(`apply ${variant.title || variant.label || 'variant'}`);
+    setBid((prev) => ({
+      ...prev,
+      markupPct: variant.markupPct ?? prev.markupPct,
+      paymentSchedule: variant.paymentSchedule ?? prev.paymentSchedule,
+      paymentMilestones: variant.paymentMilestones ?? prev.paymentMilestones,
+      weeklyPayments: variant.weeklyPayments ?? prev.weeklyPayments,
+    }));
+    if (variant.markupPct !== undefined) {
+      setHasReviewedMarkup(true);
+    }
+    setForceRefresh((prev) => prev + 1);
+    Alert.alert(
+      'Variant Applied',
+      `${variant.title || variant.label || 'Variant'} is now applied to the current estimate. You can undo it from the AI assistant.`,
+      [{ text: 'OK' }]
+    );
+  }, [storeEstimateAiUndoSnapshot]);
 
   const handleEstimateAIAction = useCallback(async (action) => {
     if (!action || !action.type) return;
+
+    const resultWithUndo = (message, extra = {}) => ({
+      message,
+      undoable: true,
+      suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
+      ...extra,
+    });
+
+    if (action.type === 'undo_last_estimate_ai_action') {
+      const snapshot = lastEstimateAiUndoRef.current;
+      if (!snapshot) {
+        return {
+          message: 'There is no recent AI estimate change to undo yet.',
+          suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
+        };
+      }
+      setBid(snapshot.bid || blankState());
+      setMaterialsCart(snapshot.materialsCart || []);
+      setForceRefresh(prev => prev + 1);
+      lastEstimateAiUndoRef.current = null;
+      return {
+        message: `Undid the last AI estimate change${snapshot.label ? `: ${snapshot.label}` : ''}.`,
+        suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
+      };
+    }
+
+    if (action.type === 'create_estimate_variant') {
+      const variantType = action.variantType || 'standard';
+      const variant = estimateVariantPreviews.find((item) => item.id === variantType) || estimateVariantPreviews.find((item) => item.id === 'standard');
+      if (!variant) {
+        return { message: 'I could not build that estimate variant yet.' };
+      }
+      applyEstimateVariant(variant);
+      return {
+        message: `Applied the ${variant.title.toLowerCase()} to the current estimate.`,
+        undoable: true,
+        suggestedFollowUps: [
+          { label: 'Undo last AI change', prompt: 'Undo last AI change' },
+          ...(estimateAssistantBrief?.chips?.slice(0, 3) || []),
+        ],
+      };
+    }
 
     // CRITICAL: Check if this is a PROJECT expense action (not estimate action)
     // If action has projectId and projectName, it's for a PROJECT, not the current estimate
@@ -5479,7 +6196,31 @@ export default function EstimateGeneratorScreen() {
     // --- Estimate-page specific commands ---
     // The backend may return structured actions; apply them directly to the local bid state
     // so the UI updates immediately (materials/labor, customer info, payment schedule, etc.).
+    if (action.type === 'rename_estimate') {
+      const nextTitle = String(action.title || action.estimateName || '').trim();
+      if (!nextTitle) {
+        return { message: 'I need a name before I can rename this bid.' };
+      }
+      storeEstimateAiUndoSnapshot('rename estimate');
+      setBid(prev => ({ ...prev, title: nextTitle }));
+      setForceRefresh(prev => prev + 1);
+      return resultWithUndo(`Renamed this bid to "${nextTitle}".`);
+    }
+
+    if (action.type === 'set_markup_percentage') {
+      const nextMarkup = Number(action.markupPct);
+      if (!Number.isFinite(nextMarkup)) {
+        return { message: 'I could not read the markup percentage to apply.' };
+      }
+      storeEstimateAiUndoSnapshot('update markup');
+      setBid(prev => ({ ...prev, markupPct: nextMarkup }));
+      setHasReviewedMarkup(true);
+      setForceRefresh(prev => prev + 1);
+      return resultWithUndo(`Set markup to ${Math.round(nextMarkup * 10) / 10}%.`);
+    }
+
     if (action.type === 'update_customer_info') {
+      storeEstimateAiUndoSnapshot('update customer info');
       setBid(prev => ({
         ...prev,
         customerName: action.customerName ?? prev.customerName,
@@ -5490,39 +6231,88 @@ export default function EstimateGeneratorScreen() {
         customerCity: action.city ?? prev.customerCity,
         customerState: action.state ?? prev.customerState,
         customerZip: action.zip ?? prev.customerZip,
+        customerNotes: action.notes ?? prev.customerNotes,
       }));
       setForceRefresh(prev => prev + 1);
-      return;
+      return resultWithUndo('Saved Step 1 — customer name, phone, address, and notes on this bid.');
     }
 
     if (action.type === 'set_payment_schedule_type') {
+      storeEstimateAiUndoSnapshot('change payment schedule type');
       setBid(prev => ({
         ...prev,
         paymentSchedule: action.paymentSchedule ?? prev.paymentSchedule,
       }));
       setForceRefresh(prev => prev + 1);
-      return;
+      return resultWithUndo(`Set the payment schedule to ${action.paymentSchedule === 'weekly' ? 'weekly' : action.paymentSchedule === 'hybrid' ? 'hybrid' : 'milestone-based'}.`);
     }
 
     if (action.type === 'add_payment_milestone' && action.milestone) {
+      storeEstimateAiUndoSnapshot('add payment milestone');
       setBid(prev => ({
         ...prev,
         paymentMilestones: [...(prev.paymentMilestones || []), action.milestone],
       }));
       setForceRefresh(prev => prev + 1);
-      return;
+      return resultWithUndo(`Added the "${action.milestone.name || 'payment'}" milestone.`);
     }
 
     if (action.type === 'add_weekly_payment' && action.payment) {
+      storeEstimateAiUndoSnapshot('add weekly payment');
       setBid(prev => ({
         ...prev,
         weeklyPayments: [...(prev.weeklyPayments || []), action.payment],
       }));
       setForceRefresh(prev => prev + 1);
-      return;
+      return resultWithUndo('Added a weekly payment entry.');
+    }
+
+    if (action.type === 'replace_payment_schedule') {
+      storeEstimateAiUndoSnapshot(action.safer ? 'generate safer payment schedule' : 'generate payment schedule');
+      const effectiveStartDate = bid.startDate || bid.projectStartDate || new Date().toISOString().split('T')[0];
+      const fallbackMilestones = action.paymentSchedule === 'milestone-based'
+        ? buildEstimateMilestoneSchedule(calc?.total || 0, { startDate: effectiveStartDate, safer: !!action.safer })
+        : [];
+      const fallbackWeekly = action.paymentSchedule === 'weekly'
+        ? buildEstimateWeeklySchedule(calc?.total || 0, action.weeks || 4, { startDate: effectiveStartDate, safer: !!action.safer })
+        : [];
+      setBid(prev => ({
+        ...prev,
+        paymentSchedule: action.paymentSchedule ?? prev.paymentSchedule,
+        paymentMilestones: action.paymentMilestones ?? fallbackMilestones,
+        weeklyPayments: action.weeklyPayments ?? fallbackWeekly,
+      }));
+      setForceRefresh(prev => prev + 1);
+      return resultWithUndo(action.safer
+        ? 'Generated a safer payment schedule with earlier cash protection.'
+        : 'Generated a payment schedule for this estimate.');
+    }
+
+    if (action.type === 'rebalance_payment_schedule') {
+      const totalValue = Number(calc?.total || 0);
+      storeEstimateAiUndoSnapshot('rebalance payment schedule');
+      setBid(prev => {
+        if (prev.paymentSchedule === 'weekly') {
+          const normalizedWeekly = normalizePaymentsToExactTotal(prev.weeklyPayments || [], totalValue, false);
+          return { ...prev, weeklyPayments: normalizedWeekly };
+        }
+        if (prev.paymentSchedule === 'hybrid') {
+          const normalized = normalizeHybridPaymentsToExactTotal(prev.paymentMilestones || [], prev.weeklyPayments || [], totalValue);
+          return {
+            ...prev,
+            paymentMilestones: normalized.milestones,
+            weeklyPayments: normalized.weeklyPayments,
+          };
+        }
+        const normalizedMilestones = normalizePaymentsToExactTotal(prev.paymentMilestones || [], totalValue, true);
+        return { ...prev, paymentMilestones: normalizedMilestones };
+      });
+      setForceRefresh(prev => prev + 1);
+      return resultWithUndo('Rebalanced the payment schedule so it adds up cleanly.');
     }
 
     if (action.type === 'update_overhead_markup') {
+      storeEstimateAiUndoSnapshot('update overhead / markup');
       setBid(prev => ({
         ...prev,
         insuranceOverhead: action.insuranceOverhead ?? prev.insuranceOverhead,
@@ -5531,8 +6321,174 @@ export default function EstimateGeneratorScreen() {
         otherOverhead: action.otherOverhead ?? prev.otherOverhead,
         markupPct: action.markupPct ?? prev.markupPct,
       }));
+      if (action.markupPct !== undefined) {
+        setHasReviewedMarkup(true);
+      }
       setForceRefresh(prev => prev + 1);
-      return;
+      return resultWithUndo('Updated overhead and markup settings.');
+    }
+
+    if (action.type === 'add_starter_materials' || action.type === 'add_starter_labor' || action.type === 'add_common_scope_package') {
+      storeEstimateAiUndoSnapshot(action.type === 'add_common_scope_package' ? 'add starter scope package' : action.type === 'add_starter_materials' ? 'add starter materials' : 'add starter labor');
+
+      const materialItems = Array.isArray(action.materialItems) && action.materialItems.length > 0
+        ? action.materialItems
+        : (action.type !== 'add_starter_labor'
+          ? buildEstimateStarterMaterialItems(action.projectType || bid.projectType, action.tier || 'standard')
+          : []);
+      const laborItems = Array.isArray(action.laborItems) && action.laborItems.length > 0
+        ? action.laborItems
+        : (action.type !== 'add_starter_materials'
+          ? buildEstimateStarterLaborItems(action.projectType || bid.projectType, action.tier || 'standard')
+          : []);
+      const scopeSections = Array.isArray(action.scopeSections) && action.scopeSections.length > 0
+        ? action.scopeSections
+        : getEstimateAiPackage(action.projectType || bid.projectType).scopeSections;
+
+      if (materialItems.length > 0) {
+        setMaterialsCart(prev => {
+          const existingKeys = new Set(prev.map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
+          const additions = materialItems.filter(item => !existingKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
+          return [...prev, ...additions];
+        });
+      }
+
+      setBid(prev => {
+        const existingMaterialKeys = new Set((prev.materialLineItems || []).map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
+        const mergedMaterials = [
+          ...(prev.materialLineItems || []),
+          ...materialItems.filter(item => !existingMaterialKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`)),
+        ];
+        const existingLaborKeys = new Set((prev.laborLineItems || []).map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
+        const mergedLabor = [
+          ...(prev.laborLineItems || []),
+          ...laborItems.filter(item => !existingLaborKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`)),
+        ];
+        const existingScope = String(prev.scopeDescription || '').trim();
+        const missingScopeLines = scopeSections.filter((section) => !existingScope.toLowerCase().includes(section.toLowerCase()));
+        const nextScopeDescription = missingScopeLines.length > 0
+          ? [existingScope, ...missingScopeLines.map((section) => `- ${section}`)].filter(Boolean).join('\n')
+          : prev.scopeDescription;
+        return {
+          ...prev,
+          projectType: action.projectType || prev.projectType,
+          materialLineItems: mergedMaterials,
+          laborLineItems: mergedLabor,
+          scopeDescription: nextScopeDescription,
+        };
+      });
+
+      setForceRefresh(prev => prev + 1);
+      const packageLabel = action.projectType
+        ? `${String(action.projectType).replace(/_/g, ' ')} ${action.tier || 'standard'}`
+        : `${action.tier || 'standard'} starter`;
+      return resultWithUndo(
+        action.type === 'add_common_scope_package'
+          ? `Added a ${packageLabel} starter scope package with editable placeholder line items.`
+          : action.type === 'add_starter_materials'
+            ? `Added editable starter material placeholders for this estimate.`
+            : `Added editable starter labor placeholders for this estimate.`,
+        {
+          suggestedFollowUps: [
+            { label: 'Undo last AI change', prompt: 'Undo last AI change' },
+            ...(estimateAssistantBrief?.chips?.slice(0, 3) || []),
+          ],
+        }
+      );
+    }
+
+    if (action.type === 'add_estimate_line_items') {
+      const incomingItems = Array.isArray(action.items) ? action.items : [];
+      if (incomingItems.length === 0) {
+        return { message: 'I could not find any estimate items to add.' };
+      }
+
+      storeEstimateAiUndoSnapshot('add estimate line items');
+
+      const materialItems = incomingItems
+        .filter((item) => String(item.kind || item.category || '').toLowerCase() !== 'labor')
+        .map((item, index) => ({
+          id: `ai-material-${Date.now()}-${index}`,
+          name: item.name || 'Material',
+          description: item.name || 'Material',
+          quantity: Number(item.quantity || 1) || 1,
+          unit: item.unit || 'lot',
+          unitPrice: Number(item.unitCost ?? item.amount ?? 0) || 0,
+          total: Number(item.amount ?? item.unitCost ?? 0) || 0,
+          vendor: item.vendor || '',
+          section: item.section || item.name || 'Materials',
+          category: item.category || item.name || 'Materials',
+          scope: item.scope || activeScope,
+          source: 'ai',
+          isManual: true,
+        }));
+
+      const laborItems = incomingItems
+        .filter((item) => String(item.kind || item.category || '').toLowerCase() === 'labor')
+        .map((item, index) => ({
+          id: `ai-labor-${Date.now()}-${index}`,
+          name: item.name || 'Labor',
+          description: item.name || 'Labor',
+          hours: Number(item.quantity || 1) || 1,
+          rate: Number(item.unitCost ?? item.amount ?? 0) || 0,
+          total: Number(item.amount ?? item.unitCost ?? 0) || 0,
+          category: item.category || 'Labor',
+          section: item.section || 'Labor',
+        }));
+
+      const upsertByName = (existing, additions) => {
+        const next = [...existing];
+        additions.forEach((entry) => {
+          const nameKey = String(entry.name || entry.description || '').trim().toLowerCase();
+          const matchIndex = next.findIndex((item) => String(item.name || item.description || '').trim().toLowerCase() === nameKey);
+          if (matchIndex >= 0) {
+            next[matchIndex] = { ...next[matchIndex], ...entry };
+          } else {
+            next.push(entry);
+          }
+        });
+        return next;
+      };
+
+      if (materialItems.length > 0) {
+        setMaterialsCart((prev) => upsertByName(prev, materialItems));
+      }
+
+      setBid((prev) => ({
+        ...prev,
+        materialLineItems: materialItems.length > 0 ? upsertByName(prev.materialLineItems || [], materialItems) : (prev.materialLineItems || []),
+        laborLineItems: laborItems.length > 0 ? upsertByName(prev.laborLineItems || [], laborItems) : (prev.laborLineItems || []),
+      }));
+
+      setForceRefresh(prev => prev + 1);
+
+      const addedMaterialTotal = materialItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+      const addedLaborTotal = laborItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+      const nextMaterialSubtotal = Number(action.summary?.nextMaterialSubtotal ?? ((bid.materialLineItems || []).reduce((sum, item) => sum + Number(item.total || item.totalCost || 0), 0) + addedMaterialTotal));
+      const nextLaborSubtotal = Number(action.summary?.nextLaborSubtotal ?? ((bid.laborLineItems || []).reduce((sum, item) => sum + Number(item.total || item.totalCost || 0), 0) + addedLaborTotal));
+
+      const lines = [
+        `Added ${incomingItems.length} item${incomingItems.length === 1 ? '' : 's'} to this bid:`,
+        ...incomingItems.map((item) => `- ${item.name || 'Line item'}: $${Number(item.amount || item.unitCost || 0).toLocaleString()}`),
+      ];
+      if (materialItems.length > 0) {
+        lines.push('', `Material subtotal is now $${Math.round(nextMaterialSubtotal).toLocaleString()}.`);
+      }
+      if (laborItems.length > 0) {
+        lines.push(`Labor subtotal is now $${Math.round(nextLaborSubtotal).toLocaleString()}.`);
+      }
+      if (materialItems.length > 0 && nextLaborSubtotal <= 0) {
+        lines.push('', 'Labor is still missing, so the current margin is not fully meaningful yet.');
+      }
+
+      return resultWithUndo(lines.join('\n'), {
+        suggestedFollowUps: [
+          { label: 'Add Labor Costs', prompt: 'Add labor costs to this estimate.' },
+          { label: 'Build Starter Labor', prompt: 'Build starter labor for this estimate.' },
+          { label: 'Review Markup', prompt: 'Review markup against these estimate costs.' },
+          { label: 'Current Cost', prompt: 'What is my current cost so far in this estimate?' },
+        ],
+      });
     }
 
     const rawDescription =
@@ -5566,6 +6522,7 @@ export default function EstimateGeneratorScreen() {
     }
     
     if (action.type === 'update_estimate_item' || action.type === 'add_material' || action.type === 'add_labor_expense') {
+      storeEstimateAiUndoSnapshot(isLabor ? 'add / update labor item' : 'add / update material item');
       if (isLabor) {
         const nextLabor = {
           id: itemId,
@@ -5589,7 +6546,7 @@ export default function EstimateGeneratorScreen() {
             : [...existing, nextLabor];
           return { ...prev, laborLineItems: updated };
         });
-        return;
+        return resultWithUndo(`Updated labor coverage with "${description}".`);
       }
 
       const nextMaterial = {
@@ -5630,8 +6587,9 @@ export default function EstimateGeneratorScreen() {
           : [...existing, nextMaterial];
         return { ...prev, materialLineItems: updated };
       });
+      return resultWithUndo(`Updated materials with "${description}".`);
     }
-  }, [activeScope, setMaterialsCart, setBid]);
+  }, [activeProjects, activeScope, applyEstimateVariant, bid.projectType, calc?.total, estimateAssistantBrief, estimateVariantPreviews, getToken, materialsCart, setMaterialsCart, setBid, updateProject, storeEstimateAiUndoSnapshot]);
 
   // Auto-adjust payment amounts when total bid price changes
   useEffect(() => {
@@ -14847,6 +15805,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
             )}
+
             {renderStepContent()}
             {/* Coach Flags - Only show one at a time, positioned after content */}
             {(() => {
@@ -15226,8 +16185,7 @@ export default function EstimateGeneratorScreen() {
       <Pressable
         style={s.aiFloatingWrapper}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setShowAIAssistant(true);
+          openEstimateCopilot('');
         }}
       >
         <LinearGradient
@@ -15247,9 +16205,13 @@ export default function EstimateGeneratorScreen() {
 
       <AIAssistantModal
         visible={showAIAssistant}
-        onClose={() => setShowAIAssistant(false)}
+        onClose={() => {
+          setShowAIAssistant(false);
+          setEstimateAiInitialQuestion('');
+        }}
         context={estimateContext}
         onAction={handleEstimateAIAction}
+        initialQuestion={estimateAiInitialQuestion}
       />
     </SafeAreaView>
   );
