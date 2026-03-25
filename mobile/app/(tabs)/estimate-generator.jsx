@@ -20,6 +20,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Animated,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -56,6 +57,7 @@ import { getColors } from '../../theme/getColors';
 import api from '../../services/BackendAPI';
 import { useAuth } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
+import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
 
 // Colors will be defined inside the component using theme
 
@@ -2141,6 +2143,23 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   );
 };
 
+/** Match `calc` grand total so saved draft totals stay correct without waiting for the next render. */
+function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
+  if (!bid) return 0;
+  const materials = (cart || []).reduce((sum, r) => sum + (r.total || 0), 0);
+  const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+  const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
+  const overhead =
+    (bid.insuranceOverhead || 0) +
+    (bid.equipment || 0) +
+    (bid.facilities || 0) +
+    (bid.otherOverhead || 0) +
+    permitCosts;
+  const subtotal = materials + labor + overhead;
+  const profit = (subtotal * (Number(bid.markupPct) || 0)) / 100;
+  return subtotal + profit;
+}
+
 const blankState = (isFirstTime = false) => ({
   id: String(Date.now()),
   title: 'Untitled Bid',
@@ -3526,6 +3545,7 @@ export default function EstimateGeneratorScreen() {
   const [activeNavButton, setActiveNavButton] = useState('summary'); // 'back', 'summary', or 'next'
   const [bid, setBid] = useState(blankState());
   const bidRef = useRef(bid);
+  const materialsCartRef = useRef([]);
   const lastEstimateAiUndoRef = useRef(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
@@ -3935,7 +3955,8 @@ export default function EstimateGeneratorScreen() {
       case 1:
         return ['customerName', 'customerPhone', 'customerAddress', 'customerNotes'];
       case 2:
-        return ['title', 'projectType', 'sqft', 'scopeDescription', 'startDate', 'endDate'];
+        // sqft stays on the form but is not a field the AI should chase in chat
+        return ['title', 'projectType', 'scopeDescription', 'startDate', 'endDate'];
       case 3:
         return ['materialLineItems', 'materialsCart', 'unitPrice', 'quantity'];
       case 4:
@@ -4641,6 +4662,10 @@ export default function EstimateGeneratorScreen() {
   const [materialSelectedVendor, setMaterialSelectedVendor] = useState({});
   const [materialsCart, setMaterialsCart] = useState([]);
   const [isCartExpanded, setIsCartExpanded] = useState(true);
+
+  useEffect(() => {
+    materialsCartRef.current = materialsCart;
+  }, [materialsCart]);
   const [isLaborCartExpanded, setIsLaborCartExpanded] = useState(true);
   const [editingCartItem, setEditingCartItem] = useState(null);
 
@@ -4706,16 +4731,31 @@ export default function EstimateGeneratorScreen() {
           
           // If it's a blank/untitled bid, try to find the Haim bid in other storage keys
           // BUT: Skip this if it's a new bid (don't restore old data for new bids)
+          const hasRealEstimateContent =
+            (Array.isArray(parsed.laborLineItems) && parsed.laborLineItems.length > 0) ||
+            (Array.isArray(parsed.materialLineItems) && parsed.materialLineItems.length > 0) ||
+            !!(String(parsed.scopeDescription || '').trim()) ||
+            (parsed.title && parsed.title !== 'Untitled Bid' && String(parsed.title).trim()) ||
+            !!(parsed.customerName || parsed.customerPhone || parsed.customerAddress || parsed.customerEmail);
+
+          // _isNewBid was never cleared after "New bid" — fix persisted bids that already have line items / Step 2 data
+          if (parsed._isNewBid && hasRealEstimateContent) {
+            parsed._isNewBid = false;
+            try {
+              await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
+            } catch (_) {
+              /* ignore */
+            }
+          }
+
           const isNewBid =
             parsed._isNewBid ||
             (parsed._createdAt && Date.now() - parsed._createdAt < 5000) ||
             isCreatingNewBidRef.current;
-          
-          // CRITICAL: Don't restore old bid data if this is a new bid
-          // This prevents customer info from old bids appearing in new bids
-          if (isNewBid) {
-            console.log('🆕 This is a new bid - skipping Haim bid restore to prevent old data from appearing');
-            // Ensure customer fields are cleared even if they somehow got into the parsed data
+
+          // Only wipe customer fields for a truly blank new bid — not after materials/labor/scope/customer were saved
+          if (isNewBid && !hasRealEstimateContent) {
+            console.log('🆕 Blank new bid — clearing stray customer fields');
             parsed.customerName = '';
             parsed.customerEmail = '';
             parsed.customerPhone = '';
@@ -4727,7 +4767,7 @@ export default function EstimateGeneratorScreen() {
             parsed.customerNotes = '';
             parsed.clientName = '';
             parsed.clientEmail = '';
-          } else if (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '') {
+          } else if (!isNewBid && (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '')) {
             console.log('🔍 Current bid is blank, searching for Haim bid...');
             
             // Try different possible storage keys
@@ -5035,15 +5075,30 @@ export default function EstimateGeneratorScreen() {
           const saved = await AsyncStorage.getItem(BID_STORAGE_KEY);
           if (saved) {
             const parsed = JSON.parse(saved);
-            
-            // CRITICAL: Don't reload old customer data if this is a new bid
-            const isNewBid = parsed._isNewBid || 
+
+            const hasRealEstimateContent =
+              (Array.isArray(parsed.laborLineItems) && parsed.laborLineItems.length > 0) ||
+              (Array.isArray(parsed.materialLineItems) && parsed.materialLineItems.length > 0) ||
+              !!(String(parsed.scopeDescription || '').trim()) ||
+              (parsed.title && parsed.title !== 'Untitled Bid' && String(parsed.title).trim()) ||
+              !!(parsed.customerName || parsed.customerPhone || parsed.customerAddress || parsed.customerEmail);
+
+            if (parsed._isNewBid && hasRealEstimateContent) {
+              parsed._isNewBid = false;
+              try {
+                await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
+              } catch (_) {
+                /* ignore */
+              }
+            }
+
+            // CRITICAL: Only treat as "blank new bid" for customer wipes — same as loadBid
+            const isNewBid = parsed._isNewBid ||
                             (parsed._createdAt && Date.now() - parsed._createdAt < 10000) ||
                             isCreatingNewBidRef.current;
-            
-            if (isNewBid) {
-              console.log('🆕 New bid detected in reloadBid - skipping customer data restore');
-              // Ensure customer fields are cleared even if they somehow got into storage
+
+            if (isNewBid && !hasRealEstimateContent) {
+              console.log('🆕 Blank new bid in reloadBid — clearing stray customer fields');
               if (parsed.customerName || parsed.customerEmail || parsed.customerPhone) {
                 parsed.customerName = '';
                 parsed.customerEmail = '';
@@ -5056,7 +5111,6 @@ export default function EstimateGeneratorScreen() {
                 parsed.customerNotes = '';
                 parsed.clientName = '';
                 parsed.clientEmail = '';
-                // Save the cleared bid back to storage
                 await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
                 setBid(parsed);
               }
@@ -5089,9 +5143,8 @@ export default function EstimateGeneratorScreen() {
               setBid(parsed);
             }
             
-            // CRITICAL: If it's a new bid but has customer data in storage, clear it
-            if (isNewBid && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
-              console.log('🧹 Clearing customer data from new bid in storage');
+            if (isNewBid && !hasRealEstimateContent && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
+              console.log('🧹 Clearing customer data from blank new bid in storage');
               parsed.customerName = '';
               parsed.customerEmail = '';
               parsed.customerPhone = '';
@@ -5672,7 +5725,7 @@ export default function EstimateGeneratorScreen() {
       await persistSnapshot(pendingSaveRef.current);
       pendingSaveRef.current = null;
       console.log('✅ Bid useEffect completed successfully');
-    }, 2000);
+    }, 800);
 
     return () => {
       clearTimeout(timeoutId);
@@ -5777,6 +5830,69 @@ export default function EstimateGeneratorScreen() {
     
     return { materials, labor, rentals, overhead, permitCosts, contingency, profit, total, subtotal, unitPrice, marginRatio, marginPercent };
   }, [bid, rentalCart, materialsCart]);
+
+  /** Persists current bid + materials cart to AsyncStorage and the restore-bids list (same as Save Bid, without alert). */
+  const silentPersistEstimateDraft = useCallback(async () => {
+    if (!isLoaded) return;
+    const b = bidRef.current;
+    if (!b?.id) return;
+    const cart = materialsCartRef.current || [];
+    try {
+      const bidDataToSave = {
+        ...b,
+        // Once we persist, this bid is no longer a blank "new bid" — otherwise loadBid wipes Step 1/2 fields on every reopen.
+        _isNewBid: false,
+        materialLineItems:
+          cart.length > 0
+            ? cart.map((item) => ({
+                id: item.id,
+                name: item.name || item.description,
+                description: item.description || item.name,
+                quantity: item.quantity || item.qty || 1,
+                qty: item.quantity || item.qty || 1,
+                unit: item.unit || 'ea',
+                unitPrice: item.unitPrice || item.cost,
+                cost: item.cost || item.unitPrice,
+                total: Number(item.total) || 0,
+                section: item.section || 'General Materials',
+              }))
+            : b.materialLineItems || [],
+      };
+      await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(bidDataToSave));
+      const totalVal = computeEstimateGrandTotalFromBidAndCart(b, cart);
+      const estimateData = {
+        id: b.id,
+        title: b.title || 'Untitled Bid',
+        timestamp: new Date().toISOString(),
+        data: bidDataToSave,
+        total: totalVal,
+        customer: b.customerName || 'Unknown Customer',
+      };
+      setSavedEstimates((prev) => {
+        const next = [estimateData, ...prev.filter((e) => e.id !== b.id)];
+        AsyncStorage.setItem('savedEstimates', JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+      console.log('💾 Draft auto-saved (bps.currentBid.v2 + savedEstimates)');
+    } catch (e) {
+      console.warn('silentPersistEstimateDraft failed', e);
+    }
+  }, [isLoaded]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        void silentPersistEstimateDraft();
+      }
+    });
+    return () => sub.remove();
+  }, [isLoaded, silentPersistEstimateDraft]);
+
+  useEffect(() => {
+    if (!isLoaded || forceRefresh === 0) return;
+    void silentPersistEstimateDraft();
+  }, [forceRefresh, isLoaded, silentPersistEstimateDraft]);
 
   const estimateContext = useMemo(() => {
     const estimateNameTrimmed =
@@ -6221,20 +6337,144 @@ export default function EstimateGeneratorScreen() {
 
     if (action.type === 'update_customer_info') {
       storeEstimateAiUndoSnapshot('update customer info');
-      setBid(prev => ({
+      // Step 1 TextInputs are bound to localCustomer* state, which only syncs from bid when bid.id changes.
+      // Merge using bidRef so we apply AI updates to both bid and locals in one shot.
+      const prev = bidRef.current || {};
+      const nextPhoneRaw = action.phone != null && String(action.phone).trim()
+        ? formatPhoneNumber(String(action.phone).trim())
+        : prev.customerPhone;
+      const next = {
         ...prev,
+        _isNewBid: false,
         customerName: action.customerName ?? prev.customerName,
         customerEmail: action.email ?? prev.customerEmail,
-        customerPhone: action.phone ?? prev.customerPhone,
+        customerPhone: nextPhoneRaw,
         customerCompany: action.company ?? prev.customerCompany,
         customerAddress: action.address ?? prev.customerAddress,
         customerCity: action.city ?? prev.customerCity,
         customerState: action.state ?? prev.customerState,
         customerZip: action.zip ?? prev.customerZip,
         customerNotes: action.notes ?? prev.customerNotes,
-      }));
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo('Saved Step 1 — customer name, phone, address, and notes on this bid.');
+      };
+      if (action.customerName != null && String(action.customerName).trim()) {
+        next.clientName = String(action.customerName).trim();
+      }
+      bidRef.current = next;
+      setBid(next);
+      setLocalCustomerName(next.customerName || '');
+      setLocalCustomerEmail(next.customerEmail || '');
+      setLocalCustomerPhone(next.customerPhone || '');
+      setLocalCustomerAddress(next.customerAddress || '');
+      setLocalCustomerCity(next.customerCity || '');
+      setLocalCustomerState(next.customerState || '');
+      setLocalCustomerZip(next.customerZip || '');
+      setLocalCustomerCompany(next.customerCompany || '');
+      setForceRefresh(prevCount => prevCount + 1);
+      void silentPersistEstimateDraft();
+      return resultWithUndo(
+        '✅ **Step 1 saved** — customer name, phone, address, and notes are on this bid.\n\n' +
+          'Want to move on to **Step 2 — Project information**? I’ll ask for **project title**, **project type**, and **project description**. **Start and end dates** are optional—you can skip them and still keep going. (We won’t ask for square footage unless you want per‑sq‑ft help.)\n\n' +
+          'Tap **Start Step 2** below, or tell me what you want to do next.',
+        {
+          suggestedFollowUps: [
+            {
+              label: 'Start Step 2',
+              prompt:
+                'Help me fill in Step 2 project information: project title, project type, project description, and optional start/end dates (dates are not required to continue). Do not ask for square footage unless I bring it up.',
+            },
+            {
+              label: 'Name this bid',
+              prompt: 'Suggest a short, professional bid title based on the customer and job we have so far.',
+            },
+            {
+              label: 'What’s Step 2?',
+              prompt: 'What do I fill in for Step 2 after customer information?',
+            },
+            { label: 'Fix customer info', prompt: 'What customer fields are still missing (name, phone, address)?' },
+          ],
+        }
+      );
+    }
+
+    if (action.type === 'update_project_info') {
+      storeEstimateAiUndoSnapshot('update project info');
+      const prev = bidRef.current || {};
+      const next = { ...prev, _isNewBid: false };
+      if (action.title != null && String(action.title).trim()) {
+        next.title = String(action.title).trim();
+      }
+      if (action.projectType != null && String(action.projectType).trim()) {
+        const pt = String(action.projectType).trim();
+        next.projectType = pt;
+        next.projectCategory = PROJECT_CATEGORY_SLUGS[pt] || prev.projectCategory || 'other';
+        next.category = PROJECT_CATEGORY_SLUGS[pt] || prev.category || 'other';
+      }
+      if (action.scopeDescription != null) {
+        next.scopeDescription = String(action.scopeDescription).trim();
+      }
+      if (action.sqft != null && Number.isFinite(Number(action.sqft))) {
+        next.sqft = Number(action.sqft);
+      }
+      if (action.startDate != null && String(action.startDate).trim()) {
+        const sd = String(action.startDate).trim();
+        next.startDate = sd;
+        next.projectStartDate = sd;
+      }
+      if (action.endDate != null && String(action.endDate).trim()) {
+        const ed = String(action.endDate).trim();
+        next.endDate = ed;
+        next.projectEndDate = ed;
+      }
+      bidRef.current = next;
+      setBid(next);
+      setForceRefresh((c) => c + 1);
+      void silentPersistEstimateDraft();
+      const t = next.title || prev.title || 'this bid';
+      const typeLabel = (next.projectType || prev.projectType || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const onlyScheduleFields =
+        (action.startDate || action.endDate) &&
+        !action.title &&
+        !action.projectType &&
+        !action.scopeDescription &&
+        action.sqft == null;
+      if (onlyScheduleFields) {
+        const parts = [];
+        if (action.startDate) {
+          parts.push(`start **${formatIsoDateMMDDYYYY(String(action.startDate).trim())}**`);
+        }
+        if (action.endDate) {
+          parts.push(`end **${formatIsoDateMMDDYYYY(String(action.endDate).trim())}**`);
+        }
+        return resultWithUndo(
+          `✅ **Schedule saved** — ${parts.join(' and ')}. Same values as the start/end date fields (calendar pickers) on this estimate.\n\n` +
+            'Want to adjust the other side of the schedule or keep building this bid?',
+          {
+            suggestedFollowUps: [
+              { label: 'Set other date', prompt: 'I need to set or change the other project date (start or end).' },
+              { label: 'Start Step 3', prompt: "Let's add materials and supplies to this bid." },
+              { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+              { label: 'Fix project info', prompt: 'I need to correct title, type, or description.' },
+            ],
+          }
+        );
+      }
+      return resultWithUndo(
+        `✅ **Step 2 saved** — project title, type, and description are now set on **${t}**${typeLabel ? ` (${typeLabel})` : ''}.\n\n` +
+          'Want to move on to **Step 3 — Materials & Supplies**? You can suggest materials, quantities, or categories you want to include.',
+        {
+          suggestedFollowUps: [
+            {
+              label: 'Start Step 3',
+              prompt: "Let's start with step three — add materials and supplies to this bid.",
+            },
+            { label: 'Add drywall allowance', prompt: 'Add a drywall materials line to this estimate with a rough allowance.' },
+            { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+            { label: 'Fix project info', prompt: 'I need to correct one project field (title, type, or description).' },
+          ],
+        }
+      );
     }
 
     if (action.type === 'set_payment_schedule_type') {
@@ -6456,6 +6696,7 @@ export default function EstimateGeneratorScreen() {
 
       setBid((prev) => ({
         ...prev,
+        _isNewBid: false,
         materialLineItems: materialItems.length > 0 ? upsertByName(prev.materialLineItems || [], materialItems) : (prev.materialLineItems || []),
         laborLineItems: laborItems.length > 0 ? upsertByName(prev.laborLineItems || [], laborItems) : (prev.laborLineItems || []),
       }));
@@ -6546,6 +6787,7 @@ export default function EstimateGeneratorScreen() {
             : [...existing, nextLabor];
           return { ...prev, laborLineItems: updated };
         });
+        setForceRefresh((prev) => prev + 1);
         return resultWithUndo(`Updated labor coverage with "${description}".`);
       }
 
@@ -6587,9 +6829,10 @@ export default function EstimateGeneratorScreen() {
           : [...existing, nextMaterial];
         return { ...prev, materialLineItems: updated };
       });
+      setForceRefresh((prev) => prev + 1);
       return resultWithUndo(`Updated materials with "${description}".`);
     }
-  }, [activeProjects, activeScope, applyEstimateVariant, bid.projectType, calc?.total, estimateAssistantBrief, estimateVariantPreviews, getToken, materialsCart, setMaterialsCart, setBid, updateProject, storeEstimateAiUndoSnapshot]);
+  }, [activeProjects, activeScope, applyEstimateVariant, bid.projectType, calc?.total, estimateAssistantBrief, estimateVariantPreviews, getToken, materialsCart, setMaterialsCart, setBid, silentPersistEstimateDraft, updateProject, storeEstimateAiUndoSnapshot]);
 
   // Auto-adjust payment amounts when total bid price changes
   useEffect(() => {

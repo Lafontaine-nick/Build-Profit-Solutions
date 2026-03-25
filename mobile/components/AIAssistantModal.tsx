@@ -35,6 +35,7 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
+import { formatIsoDateMMDDYYYY } from "@/utils/formatIsoDateMMDDYYYY";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
 import { 
   resolveProjectContext, 
@@ -566,13 +567,18 @@ const AIAssistantModal: React.FC<Props> = ({
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Calculate minimum content height to ensure scrolling is always possible
+  // Minimum list content height when keyboard is closed (short threads still scroll).
+  // When keyboard is open, do NOT set minHeight — KeyboardAvoidingView already shrinks the list; a large minHeight + extra paddingBottom created huge dead scroll space.
   const minContentHeight = useMemo(() => {
     const screenHeight = Dimensions.get('window').height;
-    const headerHeight = 120; // Approximate header height
-    const inputHeight = keyboardHeight > 0 ? 100 + keyboardHeight : 120; // Input container + keyboard
-    return screenHeight - headerHeight - inputHeight + 50; // Add 50px extra to ensure scrollability
-  }, [keyboardHeight]);
+    const headerHeight = 120;
+    const inputBarReserve = 120;
+    return screenHeight - headerHeight - inputBarReserve + 50;
+  }, []);
+  /** Bottom padding for FlatList content: input bar + safe inset only. Keyboard inset is handled by KeyboardAvoidingView — do not add keyboardHeight here. */
+  const listPaddingBottomKeyboardOpen = useMemo(() => {
+    return Math.max(96, 72 + Math.max(insets.bottom, 8));
+  }, [insets.bottom]);
   
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -1571,7 +1577,7 @@ const AIAssistantModal: React.FC<Props> = ({
       /\bshow\s+me\s+(the\s+)?(worst|best)\s+case\b/i.test(query) ||
       /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(query) ||
       SCENARIO_SELECTION_ID_PATTERN.test(query.trim());
-    if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && !isScenarioQuery && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+    if (!isExpenseLikeQuery && !isChangeOrderQuery && !isMakingEnoughOrMarginQuery && !isScenarioQuery && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
       setPendingAnalysisType({
         query,
         projectId,
@@ -1846,6 +1852,25 @@ const AIAssistantModal: React.FC<Props> = ({
         if (action.company) fields.push(`Company: ${action.company}`);
         if (action.notes) fields.push(`Notes: ${action.notes}`);
         return `Save this to Step 1 (Customer information)${fields.length > 0 ? `?\n\n- ${fields.join('\n- ')}` : '?'}`;
+
+      case 'update_project_info': {
+        const fields: string[] = [];
+        if (action.title) fields.push(`Title: ${action.title}`);
+        if (action.projectType) {
+          fields.push(`Type: ${String(action.projectType).replace(/_/g, ' ')}`);
+        }
+        if (action.scopeDescription) {
+          const desc =
+            action.scopeDescription.length > 120
+              ? `${action.scopeDescription.substring(0, 117)}...`
+              : action.scopeDescription;
+          fields.push(`Description: ${desc}`);
+        }
+        if (action.sqft != null) fields.push(`Sq ft: ${action.sqft}`);
+        if (action.startDate) fields.push(`Start: ${formatIsoDateMMDDYYYY(action.startDate)}`);
+        if (action.endDate) fields.push(`End: ${formatIsoDateMMDDYYYY(action.endDate)}`);
+        return `Save this to Step 2 (Project information)${fields.length > 0 ? `?\n\n- ${fields.join('\n- ')}` : '?'}`;
+      }
       
       case 'update_project_details':
         const projectFields = [];
@@ -2359,7 +2384,8 @@ const AIAssistantModal: React.FC<Props> = ({
               /\b(what is my profit scenarios?|what are my profit scenarios?|(show me\s+)(the\s+)?profit scenarios?|profit scenarios?)\b/i.test(newMessage.content) ||
               SCENARIO_SELECTION_ID_PATTERN.test(newMessage.content.trim());
             // CRITICAL: Skip analysis-type flow when resuming from payment card tap — bind to mark_payment_completed, not health check
-            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            // CRITICAL: On Estimate Generator, messages often say "project title / Step 2" — those match project_analysis but are bid workflow, not PM health checks
+            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -3039,7 +3065,9 @@ const AIAssistantModal: React.FC<Props> = ({
           const actionKey =
             action.type === 'update_customer_info'
               ? `${action.type}-${action.customerName || ''}-${action.phone || ''}-${action.address || ''}-${action.zip || ''}`
-              : `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;
+              : action.type === 'update_project_info'
+                ? `${action.type}-${action.title || ''}-${action.projectType || ''}-${action.scopeDescription || ''}-${action.sqft ?? ''}`
+                : `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;
           if (!seenActions.has(actionKey)) {
             seenActions.add(actionKey);
             uniqueActions.push(action);
@@ -3053,197 +3081,184 @@ const AIAssistantModal: React.FC<Props> = ({
           uniqueCount: uniqueActions.length,
           uniqueActions: uniqueActions.map((a: any) => ({ type: a.type, projectId: a.projectId }))
         });
-        
-        // Show confirmation for each unique action (only once)
-        uniqueActions.forEach((action: any) => {
+
+        const confirmOrder: Record<string, number> = {
+          update_customer_info: 0,
+          update_project_info: 1,
+          add_estimate_line_items: 2,
+          set_markup_percentage: 3,
+          replace_payment_schedule: 4,
+          rebalance_payment_schedule: 5,
+          add_starter_materials: 6,
+          add_starter_labor: 7,
+          add_common_scope_package: 8,
+          create_estimate_variant: 9,
+          create_change_order: 10,
+        };
+        uniqueActions.sort(
+          (a: any, b: any) => (confirmOrder[a.type] ?? 50) - (confirmOrder[b.type] ?? 50)
+        );
+
+        const runConfirmedAction = async (action: any) => {
+          if (action.type === 'create_calendar_event' && action.projectId && action.event) {
+            try {
+              const key = `calendar_events_${action.projectId}`;
+              const existing = await AsyncStorage.getItem(key);
+              const arr = existing ? JSON.parse(existing) : [];
+              const validTypes = ['inspection', 'delivery', 'work', 'payment', 'deadline', 'other'] as const;
+              const rawType = action.event.type;
+              const evtType = rawType && validTypes.includes(rawType as any) ? rawType : 'work';
+              const t = action.event.time && String(action.event.time).trim();
+              const now = new Date().toISOString();
+              const newEvent = {
+                id: `event-${Date.now()}`,
+                title: String(action.event.title || 'Event').slice(0, 200),
+                date: String(action.event.date),
+                type: evtType,
+                time: t ? String(t) : undefined,
+                notes: action.event.notes ? String(action.event.notes) : undefined,
+                completed: false,
+                createdAt: now,
+                updatedAt: now,
+              };
+              await AsyncStorage.setItem(key, JSON.stringify([...arr, newEvent]));
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString() + '-cal-saved',
+                  role: 'assistant',
+                  content: `✅ Saved **${newEvent.title}** to **Project Calendar** (${action.projectName || 'project'}). Open the project → **Calendar** tab to edit or add more.`,
+                  timestamp: new Date(),
+                },
+              ]);
+              if (onAction) {
+                await onAction({ type: 'calendar_event_created', projectId: action.projectId, projectName: action.projectName, event: newEvent });
+              }
+            } catch (e) {
+              console.warn('Calendar save failed', e);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString() + '-cal-err',
+                  role: 'assistant',
+                  content: 'Could not save the calendar event. Try again from **Project → Calendar**.',
+                  timestamp: new Date(),
+                },
+              ]);
+            }
+            return;
+          }
+          if (onAction) {
+            console.log('📤 AIAssistantModal: Calling onAction handler...');
+            const result = await onAction(action);
+            console.log('📥 AIAssistantModal: onAction handler returned:', result);
+            // Avoid a second nearly-identical bubble: the main reply already previews line items ("would become");
+            // after Confirm, applying state is enough without repeating the same bullets.
+            const skipEchoDuplicate =
+              action.type === 'add_estimate_line_items' && Boolean(result?.message);
+            if (result?.message && !skipEchoDuplicate) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString() + '-action-result',
+                  role: 'assistant',
+                  content: result.message,
+                  timestamp: new Date(),
+                },
+              ]);
+            }
+            if (Array.isArray(result?.suggestedFollowUps)) {
+              const nextSuggestions = result.undoable
+                ? [
+                    { label: 'Undo last AI change', prompt: 'Undo last AI change' },
+                    ...result.suggestedFollowUps,
+                  ]
+                : result.suggestedFollowUps;
+              const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
+                index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
+              );
+              setChatSuggestions(deduped.slice(0, 5));
+            }
+            if (action.type === 'show_contract' && result?.pdfUri) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastMessage = updated[updated.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  lastMessage.pdfUri = result.pdfUri;
+                  lastMessage.attachment = {
+                    type: 'pdf',
+                    uri: result.pdfUri,
+                    name: `${result.projectName || 'Contract'} - Estimate.pdf`,
+                  };
+                }
+                return updated;
+              });
+            }
+          }
+        };
+
+        const showSequentialConfirm = (index: number) => {
+          if (index >= uniqueActions.length) return;
+          const action = uniqueActions[index];
           const actionDescription = getActionDescription(action);
           console.log('🔍 AIAssistantModal: Action description:', {
             type: action.type,
             hasDescription: !!actionDescription,
-            description: actionDescription
+            description: actionDescription,
           });
-          
-          if (actionDescription) {
-            // Show confirmation alert - use "Approve" for change orders
-            const isChangeOrder = action.type === 'create_change_order';
-            const isEstimateEdit = ['add_estimate_line_items', 'update_customer_info', 'set_markup_percentage', 'replace_payment_schedule', 'rebalance_payment_schedule', 'add_starter_materials', 'add_starter_labor', 'add_common_scope_package', 'create_estimate_variant'].includes(action.type);
-            const alertTitle = isChangeOrder ? 'Approve Change Order?' : isEstimateEdit ? 'Confirm Estimate Update' : 'Confirm AI Action';
-            const confirmText = isChangeOrder ? 'Approve' : 'Confirm';
-            const cancelText = isChangeOrder ? 'Not Now' : 'Cancel';
-            
-            setTimeout(() => {
-              Alert.alert(
-                alertTitle,
-                actionDescription,
-                [
-                  {
-                    text: cancelText,
-                    style: 'cancel',
-                    onPress: () => {
-                      // Add a message that action was cancelled
-                      setMessages((prev) => [
-                        ...prev,
-                        {
-                          id: Date.now().toString() + '-cancelled',
-                          role: 'assistant',
-                          content: isChangeOrder ? 'Change order not approved.' : 'Action cancelled.',
-                        },
-                      ]);
-                    },
-                  },
-                  {
-                    text: confirmText,
-                    style: 'default',
-                    onPress: async () => {
-                      console.log('✅ AIAssistantModal: User confirmed action:', {
-                        type: action.type,
-                        action: action
-                      });
-                      if (action.type === 'create_calendar_event' && action.projectId && action.event) {
-                        try {
-                          const key = `calendar_events_${action.projectId}`;
-                          const existing = await AsyncStorage.getItem(key);
-                          const arr = existing ? JSON.parse(existing) : [];
-                          const validTypes = ['inspection', 'delivery', 'work', 'payment', 'deadline', 'other'] as const;
-                          const rawType = action.event.type;
-                          const evtType = rawType && validTypes.includes(rawType as any) ? rawType : 'work';
-                          const t = action.event.time && String(action.event.time).trim();
-                          const now = new Date().toISOString();
-                          const newEvent = {
-                            id: `event-${Date.now()}`,
-                            title: String(action.event.title || 'Event').slice(0, 200),
-                            date: String(action.event.date),
-                            type: evtType,
-                            time: t ? String(t) : undefined,
-                            notes: action.event.notes ? String(action.event.notes) : undefined,
-                            completed: false,
-                            createdAt: now,
-                            updatedAt: now,
-                          };
-                          await AsyncStorage.setItem(key, JSON.stringify([...arr, newEvent]));
-                          setMessages((prev) => [
-                            ...prev,
-                            {
-                              id: Date.now().toString() + '-cal-saved',
-                              role: 'assistant',
-                              content: `✅ Saved **${newEvent.title}** to **Project Calendar** (${action.projectName || 'project'}). Open the project → **Calendar** tab to edit or add more.`,
-                              timestamp: new Date(),
-                            },
-                          ]);
-                          if (onAction) {
-                            await onAction({ type: 'calendar_event_created', projectId: action.projectId, projectName: action.projectName, event: newEvent });
-                          }
-                        } catch (e) {
-                          console.warn('Calendar save failed', e);
-                          setMessages((prev) => [
-                            ...prev,
-                            {
-                              id: Date.now().toString() + '-cal-err',
-                              role: 'assistant',
-                              content: 'Could not save the calendar event. Try again from **Project → Calendar**.',
-                              timestamp: new Date(),
-                            },
-                          ]);
-                        }
-                        return;
-                      }
-                      if (onAction) {
-                        console.log('📤 AIAssistantModal: Calling onAction handler...');
-                        const result = await onAction(action);
-                        console.log('📥 AIAssistantModal: onAction handler returned:', result);
-                        if (result?.message) {
-                          setMessages((prev) => [
-                            ...prev,
-                            {
-                              id: Date.now().toString() + '-action-result',
-                              role: 'assistant',
-                              content: result.message,
-                              timestamp: new Date(),
-                            },
-                          ]);
-                        }
-                        if (Array.isArray(result?.suggestedFollowUps)) {
-                          const nextSuggestions = result.undoable
-                            ? [
-                                { label: 'Undo last AI change', prompt: 'Undo last AI change' },
-                                ...result.suggestedFollowUps,
-                              ]
-                            : result.suggestedFollowUps;
-                          const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
-                            index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
-                          );
-                          setChatSuggestions(deduped.slice(0, 5));
-                        }
-                        // If show_contract action returns a PDF URI, add it to the last message
-                        if (action.type === 'show_contract' && result?.pdfUri) {
-                          setMessages((prev) => {
-                            const updated = [...prev];
-                            const lastMessage = updated[updated.length - 1];
-                            if (lastMessage && lastMessage.role === 'assistant') {
-                              lastMessage.pdfUri = result.pdfUri;
-                              lastMessage.attachment = {
-                                type: 'pdf',
-                                uri: result.pdfUri,
-                                name: `${result.projectName || 'Contract'} - Estimate.pdf`,
-                              };
-                            }
-                            return updated;
-                          });
-                        }
-                      }
-                    },
-                  },
-                ]
-              );
-            }, 100);
-          } else {
-            // No description, execute immediately (for non-destructive actions like show_contract)
-            if (onAction) {
-              (async () => {
-                const result = await onAction(action);
-                if (result?.message) {
-                  setMessages((prev) => [
-                    ...prev,
-                    {
-                      id: Date.now().toString() + '-action-result',
-                      role: 'assistant',
-                      content: result.message,
-                      timestamp: new Date(),
-                    },
-                  ]);
-                }
-                if (Array.isArray(result?.suggestedFollowUps)) {
-                  const nextSuggestions = result.undoable
-                    ? [
-                        { label: 'Undo last AI change', prompt: 'Undo last AI change' },
-                        ...result.suggestedFollowUps,
-                      ]
-                    : result.suggestedFollowUps;
-                  const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
-                    index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
-                  );
-                  setChatSuggestions(deduped.slice(0, 5));
-                }
-                // If show_contract action returns a PDF URI, add it to the last message
-                if (action.type === 'show_contract' && result?.pdfUri) {
-                  setMessages((prev) => {
-                    const updated = [...prev];
-                    const lastMessage = updated[updated.length - 1];
-                    if (lastMessage && lastMessage.role === 'assistant') {
-                      lastMessage.pdfUri = result.pdfUri;
-                      lastMessage.attachment = {
-                        type: 'pdf',
-                        uri: result.pdfUri,
-                        name: `${result.projectName || 'Contract'} - Estimate.pdf`,
-                      };
-                    }
-                    return updated;
-                  });
-                }
-              })();
-            }
+
+          if (!actionDescription) {
+            (async () => {
+              await runConfirmedAction(action);
+              showSequentialConfirm(index + 1);
+            })();
+            return;
           }
-        });
+
+          const isChangeOrder = action.type === 'create_change_order';
+          const isEstimateEdit = ['add_estimate_line_items', 'update_customer_info', 'update_project_info', 'set_markup_percentage', 'replace_payment_schedule', 'rebalance_payment_schedule', 'add_starter_materials', 'add_starter_labor', 'add_common_scope_package', 'create_estimate_variant'].includes(action.type);
+          const alertTitle = isChangeOrder ? 'Approve Change Order?' : isEstimateEdit ? 'Confirm Estimate Update' : 'Confirm AI Action';
+          const confirmText = isChangeOrder ? 'Approve' : 'Confirm';
+          const cancelText = isChangeOrder ? 'Not Now' : 'Cancel';
+          const delayMs = index === 0 ? 450 : 0;
+
+          setTimeout(() => {
+            Alert.alert(
+              alertTitle,
+              actionDescription,
+              [
+                {
+                  text: cancelText,
+                  style: 'cancel',
+                  onPress: () => {
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        id: Date.now().toString() + '-cancelled',
+                        role: 'assistant',
+                        content: isChangeOrder ? 'Change order not approved.' : 'Action cancelled.',
+                      },
+                    ]);
+                  },
+                },
+                {
+                  text: confirmText,
+                  style: 'default',
+                  onPress: async () => {
+                    console.log('✅ AIAssistantModal: User confirmed action:', {
+                      type: action.type,
+                      action: action,
+                    });
+                    await runConfirmedAction(action);
+                    showSequentialConfirm(index + 1);
+                  },
+                },
+              ]
+            );
+          }, delayMs);
+        };
+
+        showSequentialConfirm(0);
       }
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -3887,6 +3902,8 @@ const AIAssistantModal: React.FC<Props> = ({
     );
   };
 
+  const keyboardOpen = keyboardHeight > 0;
+
   return (
     <Modal visible={visible} animationType={Platform.OS === "ios" ? "slide" : "fade"} onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -3898,8 +3915,14 @@ const AIAssistantModal: React.FC<Props> = ({
       >
         <View style={[styles.gradient, !darkMode && { backgroundColor: ThemeColors.bg }]}>
           <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-            {/* Header */}
-            <View style={[styles.header, !darkMode && { backgroundColor: ThemeColors.bg }]}>
+            {/* Header — full title strip when idle; back-only when keyboard is open */}
+            <View
+              style={[
+                styles.header,
+                keyboardOpen && styles.headerKeyboardCompact,
+                !darkMode && { backgroundColor: ThemeColors.bg },
+              ]}
+            >
               <View style={styles.backButtonWrapper}>
                 <LinearGradient
                   colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -3921,38 +3944,44 @@ const AIAssistantModal: React.FC<Props> = ({
                   </TouchableOpacity>
                 </LinearGradient>
               </View>
-              <View style={styles.headerContent}>
-              <View style={styles.headerTitleRow}>
-                <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
-                <Text style={[styles.headerTitle, !darkMode && { color: ThemeColors.text }]}>
-                  AI Assistant
-                </Text>
-              </View>
-                {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
-                  <>
-                    <Text style={[styles.headerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
-                      {isGlobalAssistantContext
-                        ? 'Command Center • All Projects'
-                        : isProjectsScreenContext
-                        ? (selectedProjectHintId
-                            ? (() => {
-                                const sel = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
-                                return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
-                              })()
-                            : 'Portfolio View • All Projects')
-                        : isEstimateContext
-                        ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
-                        : `${projectInfo!.title} • ${projectInfo!.phase}`}
-                    </Text>
-                    {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
-                      <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
-                        Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup {projectInfo.markup}%
+              {!keyboardOpen && (
+                <>
+                  <View style={styles.headerContent}>
+                    <View style={styles.headerTitleRow}>
+                      <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
+                      <Text style={[styles.headerTitle, !darkMode && { color: ThemeColors.text }]}>
+                        AI Assistant
                       </Text>
+                    </View>
+                    {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
+                      <>
+                        <Text style={[styles.headerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                          {isGlobalAssistantContext
+                            ? 'Command Center • All Projects'
+                            : isProjectsScreenContext
+                              ? selectedProjectHintId
+                                ? (() => {
+                                    const sel = projectSelectionOptions.find((p: any) => p.id === selectedProjectHintId);
+                                    return sel ? `${sel.title} • ${sel.status || 'Project'}` : 'Portfolio View • All Projects';
+                                  })()
+                                : 'Portfolio View • All Projects'
+                              : isEstimateContext
+                                ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
+                                : `${projectInfo!.title} • ${projectInfo!.phase}`}
+                        </Text>
+                        {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
+                          <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
+                            Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
+                            {projectInfo.markup}%
+                          </Text>
+                        )}
+                      </>
                     )}
-                  </>
-                )}
-              </View>
-              <View style={styles.headerSpacer} />
+                  </View>
+                  <View style={styles.headerSpacer} />
+                </>
+              )}
+              {keyboardOpen && <View style={{ flex: 1 }} />}
             </View>
 
             {/* Messages - Everything scrolls together */}
@@ -3964,13 +3993,11 @@ const AIAssistantModal: React.FC<Props> = ({
               keyExtractor={(item) => item.id}
               renderItem={renderMessage}
                 contentContainerStyle={[
-                  styles.messagesContainer, 
-                  { 
-                    paddingBottom: keyboardHeight > 0 
-                      ? (messages.length <= 1 ? 110 : 90) + keyboardHeight + 30
-                      : 200,
-                    minHeight: minContentHeight
-                  }
+                  styles.messagesContainer,
+                  {
+                    paddingBottom: keyboardHeight > 0 ? listPaddingBottomKeyboardOpen : 200,
+                    ...(keyboardHeight > 0 ? {} : { minHeight: minContentHeight }),
+                  },
                 ]}
                 showsVerticalScrollIndicator={true}
               scrollEnabled={true}
@@ -4558,7 +4585,7 @@ const AIAssistantModal: React.FC<Props> = ({
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }]}>
               {/* Global AI & Projects: Smart Quick Actions */}
-              {(isGlobalAssistantContext || isProjectsScreenContext) && (
+              {!keyboardOpen && (isGlobalAssistantContext || isProjectsScreenContext) && (
                 <View style={styles.bottomRailSection}>
                   {/* Projects screen only: project chips. Command Center: no Select Project row. */}
                   {isProjectsScreenContext && projectSelectionOptions.length > 0 && (
@@ -4617,7 +4644,9 @@ const AIAssistantModal: React.FC<Props> = ({
                 </View>
               )}
               {/* ── QUICK ACTION CHIPS ── (Projects screen has its own row above, skip default & flow chips when empty) */}
-              {messages.length <= 1 && !isProjectsScreenContext && !isGlobalAssistantContext ? (
+              {keyboardOpen
+                ? null
+                : messages.length <= 1 && !isProjectsScreenContext && !isGlobalAssistantContext ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -4917,6 +4946,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 10,
     backgroundColor: Colors.bg,
+  },
+  headerKeyboardCompact: {
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   headerContent: {
     flex: 1,

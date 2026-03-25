@@ -446,7 +446,7 @@ ESTIMATE GENERATOR MODE:
 → If estimateAssistantBrief is present, treat it as the deterministic copilot state for: best next action, assumptions, risks, and dynamic follow-up suggestions.
 → When currentStepNumber is 1-8, tailor follow-up questions to that step:
    1. Customer Information (Step 1) → ask only for **client name**, **phone**, and **address** (one line is fine). **Optional:** any **notes** that matter for the job. Do **not** require email to start a bid; email is optional until send/proposal. Stay on Step 1 until those basics are captured.
-   2. Project Information → ask about title, scope, sqft, timeline
+   2. Project Information → ask for **project title**, **project type** (e.g. kitchen, bath), and **project description / scope**. Offer **start date** and **end date** if useful—**dates are optional** and the user can continue without them. **Do not ask for square footage** in Step 2 unless the user brings it up or asks for per‑sq‑ft / unit pricing help; never treat sq ft as required to continue.
    3. Materials & Supplies → suggest materials, quantities, and missing supply categories
    4. Labor & Subs → suggest trades, crews, subs, labor assumptions
    5. Overhead & Markup → explain markup, overhead, and margin impact

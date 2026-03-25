@@ -1794,6 +1794,70 @@ function isEstimateAssistantScreen(parsedContext) {
   return screen.includes('estimate');
 }
 
+/** Broad "let's start this bid" phrasing — deterministic Step 1 reply (matches in-app copy). */
+function isEstimateBuildBidStarterMessage(rawMsg) {
+  const t = String(rawMsg || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!t || t.length > 120) return false;
+  const starters = [
+    /\blet'?s\s+build\s+(?:a\s+)?bid\b/,
+    /\blet\s+us\s+build\s+(?:a\s+)?bid\b/,
+    /\bbuild\s+(?:a\s+)?(?:new\s+)?bid\b/,
+    /\bstart\s+(?:a\s+)?(?:new\s+)?bid\b/,
+    /\bcreate\s+(?:a\s+)?(?:new\s+)?bid\b/,
+    /\bnew\s+bid\b/,
+    /\bbegin\s+(?:a\s+)?bid\b/,
+    /\bhelp\s+me\s+(?:build|start|create)\s+(?:a\s+)?bid\b/,
+    /\blet'?s\s+start\s+(?:a\s+)?bid\b/,
+    /\bstart\s+this\s+bid\b/,
+    /\bbuild\s+this\s+bid\b/,
+  ];
+  return starters.some((re) => re.test(t));
+}
+
+function estimateMissingStep1CustomerBasics(parsedContext) {
+  const ed = parsedContext?.estimateData || parsedContext?.bidData || {};
+  const hasName = !!(ed.customerName || ed.clientName);
+  const hasPhone = !!String(ed.customerPhone || ed.phone || '').trim();
+  const hasAddr =
+    !!String(ed.customerAddress || '').trim() ||
+    (!!String(ed.customerCity || '').trim() && !!String(ed.customerState || '').trim());
+  return !(hasName && hasPhone && hasAddr);
+}
+
+function buildEstimateStep1BuildBidStarterReply(parsedContext) {
+  const missing = estimateMissingStep1CustomerBasics(parsedContext);
+  const footer = missing
+    ? 'Still need: **name, phone, address.**'
+    : '**Customer name, phone, and address are already on this estimate.** Add **notes** if you want, or continue with **project information** (title, type, description—**start/end dates optional**).';
+  return (
+    '## Step 1 — Customer information\n\n' +
+    'To start this bid, I only need:\n\n' +
+    '• **Client name**\n' +
+    '• **Phone number**\n' +
+    '• **Address** (street + city/state/ZIP, or one line)\n\n' +
+    '**Optional:** any **notes** that matter for the job.\n\n' +
+    'Email is **not** required up front — you can add it when you send the proposal.\n\n' +
+    footer
+  );
+}
+
+function buildEstimateBuildBidStarterFollowUps() {
+  return [
+    {
+      label: 'Name + phone + address',
+      prompt: 'What customer fields are still missing (name, phone, address)?',
+    },
+    { label: 'Add notes', prompt: 'Help me add optional customer or job notes for this estimate.' },
+    {
+      label: 'Skip',
+      prompt: 'I will add customer details later. What is the next step to build this estimate?',
+    },
+  ];
+}
+
 function parseLooseCurrencyAmount(rawValue) {
   const raw = String(rawValue || '').trim().toLowerCase();
   if (!raw) return null;
@@ -1877,6 +1941,22 @@ function shouldSkipEstimateLabel(label) {
   return /\b(payment|deposit|markup|margin|overhead|health|budget|breakdown|week|weeks|schedule|client|customer|job|project|las vegas|nevada)\b/i.test(lower);
 }
 
+/** Leading clause like "OK, let's add" — not a line-item name; prefer text after the dollar amount. */
+function isGenericEstimateAddPhrase(s) {
+  const t = String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .trim();
+  if (!t) return false;
+  return (
+    /^(ok[,']?\s*)?let'?s\s+add$/i.test(t) ||
+    /^let'?s\s+add$/i.test(t) ||
+    /^add$/i.test(t) ||
+    /^(ok[,']?\s*)?let'?s\s+go$/i.test(t)
+  );
+}
+
 function extractEstimateCostItems(message) {
   const text = String(message || '');
   const amountRegex = /\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:k|grand))?/ig;
@@ -1896,13 +1976,26 @@ function extractEstimateCostItems(message) {
     const trailing = text.slice(currentIndex + rawAmount.length, nextMatch ? (nextMatch.index || text.length) : text.length);
 
     let label = '';
-    const trailingLooksLikeLabel = /^\s*(?:for|on|in|to|toward|of|at)\b/i.test(trailing);
-    const cleanedLeading = cleanEstimatePhrase(leading, { trailing: false });
-    const cleanedTrailing = cleanEstimatePhrase(trailing, { trailing: true });
-    if (trailingLooksLikeLabel || !cleanedLeading) {
-      label = cleanedTrailing || cleanedLeading;
+    const tri = String(trailing || '');
+    // e.g. "let's add $3000 labor for drywall installation" — name the work, not "let's add"
+    const laborForM = tri.match(/\blabor\s+for\s+([\s\S]+)$/i);
+    const materialForM = tri.match(/\bmaterials?\s+for\s+([\s\S]+)$/i);
+    if (laborForM) {
+      label = cleanEstimatePhrase(laborForM[1], { trailing: true });
+    } else if (materialForM) {
+      label = cleanEstimatePhrase(materialForM[1], { trailing: true });
     } else {
-      label = cleanedLeading || cleanedTrailing;
+      const trailingLooksLikeLabel = /^\s*(?:for|on|in|to|toward|of|at)\b/i.test(trailing);
+      const cleanedLeading = cleanEstimatePhrase(leading, { trailing: false });
+      const cleanedTrailing = cleanEstimatePhrase(trailing, { trailing: true });
+      if (trailingLooksLikeLabel || !cleanedLeading) {
+        label = cleanedTrailing || cleanedLeading;
+      } else {
+        label = cleanedLeading || cleanedTrailing;
+      }
+      if (isGenericEstimateAddPhrase(cleanedLeading) && cleanedTrailing) {
+        label = cleanedTrailing;
+      }
     }
     if (shouldSkipEstimateLabel(label)) return;
 
@@ -1924,6 +2017,642 @@ function extractEstimateCostItems(message) {
   });
 
   return items;
+}
+
+/**
+ * When the user pastes Step 1 customer + phone + address, extractEstimateCostItems often mis-reads
+ * phone segments (e.g. 735, 2536) and street numbers (7030) as dollar amounts. Drop those rows.
+ */
+function filterSpuriousCostItemsForCustomerStep1(message, items) {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const text = String(message || '');
+  const phoneMatch = text.match(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/);
+  const phoneDigits = phoneMatch ? phoneMatch[0].replace(/\D/g, '') : '';
+  const streetNumMatch = text.match(
+    /\b(\d{3,5})\s+[NSEW]?\s*(?:[A-Za-z0-9.'#-]+\s+){0,3}(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct)\b/i
+  );
+  const streetNum = streetNumMatch ? Number(streetNumMatch[1]) : null;
+
+  return items.filter((item) => {
+    const amt = Math.round(Number(item.amount || 0));
+    if (!Number.isFinite(amt) || amt <= 0) return false;
+    if (phoneDigits.length >= 10) {
+      const d = phoneDigits;
+      for (let i = 0; i <= d.length - 3; i++) {
+        for (const len of [3, 4]) {
+          if (i + len <= d.length) {
+            const slice = parseInt(d.slice(i, i + len), 10);
+            if (slice === amt) return false;
+          }
+        }
+      }
+    }
+    if (streetNum != null && amt === streetNum) return false;
+    const lower = String(item.name || item.rawLabel || '').toLowerCase();
+    const looksLikeContactNarrative =
+      /\bphone\b|\baddress\b|\bclient\s+name\b|\bcustomer\b|\bmaterials?\s*$/i.test(lower) &&
+      !/\b(?:tile|lumber|drywall|paint|concrete|framing|fixture|cabinet|roof|siding|hvac|electrical|plumbing|insulation|flooring)\b/i.test(
+        lower
+      );
+    if (looksLikeContactNarrative) return false;
+    return true;
+  });
+}
+
+function sanitizeStep1CustomerName(name) {
+  let s = String(name || '').trim();
+  s = s.replace(/\.\s*the\s+phone\s+number.*$/i, '').trim();
+  s = s.replace(/\s+the\s+phone\s+number\s+is\s+.*$/i, '').trim();
+  s = s.replace(/\s+phone\s+number\s+is\b.*$/i, '').trim();
+  s = s.replace(/\s+phone\s+is\b.*$/i, '').trim();
+  s = s.replace(/\s+and\s+the\s+address\s+is\s+.*$/i, '').trim();
+  const phoneCue = /\b(phone|cell|mobile|address)\b/i.exec(s);
+  if (phoneCue && phoneCue.index > 0) {
+    s = s.slice(0, phoneCue.index).replace(/[,\s]+$/g, '').trim();
+  }
+  if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\.$/i.test(s)) s = s.replace(/\.$/, '').trim();
+  return s;
+}
+
+function sanitizeStep1AddressLine(addr) {
+  let s = String(addr || '').trim();
+  s = s.replace(/^\d{3,4}\s+and\s+the\s+address\s+is\s+/i, '');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/** US state abbreviations for trailing-token detection (e.g. "Las Vegas nv"). */
+const US_STATE_ABBR = new Set([
+  'AL',
+  'AK',
+  'AZ',
+  'AR',
+  'CA',
+  'CO',
+  'CT',
+  'DE',
+  'FL',
+  'GA',
+  'HI',
+  'ID',
+  'IL',
+  'IN',
+  'IA',
+  'KS',
+  'KY',
+  'LA',
+  'ME',
+  'MD',
+  'MA',
+  'MI',
+  'MN',
+  'MS',
+  'MO',
+  'MT',
+  'NE',
+  'NV',
+  'NH',
+  'NJ',
+  'NM',
+  'NY',
+  'NC',
+  'ND',
+  'OH',
+  'OK',
+  'OR',
+  'PA',
+  'RI',
+  'SC',
+  'SD',
+  'TN',
+  'TX',
+  'UT',
+  'VT',
+  'VA',
+  'WA',
+  'WV',
+  'WI',
+  'WY',
+  'DC',
+]);
+
+const US_STATE_NAME_TO_ABBR = {
+  alabama: 'AL',
+  alaska: 'AK',
+  arizona: 'AZ',
+  arkansas: 'AR',
+  california: 'CA',
+  colorado: 'CO',
+  connecticut: 'CT',
+  delaware: 'DE',
+  florida: 'FL',
+  georgia: 'GA',
+  hawaii: 'HI',
+  idaho: 'ID',
+  illinois: 'IL',
+  indiana: 'IN',
+  iowa: 'IA',
+  kansas: 'KS',
+  kentucky: 'KY',
+  louisiana: 'LA',
+  maine: 'ME',
+  maryland: 'MD',
+  massachusetts: 'MA',
+  michigan: 'MI',
+  minnesota: 'MN',
+  mississippi: 'MS',
+  missouri: 'MO',
+  montana: 'MT',
+  nebraska: 'NE',
+  nevada: 'NV',
+  'new hampshire': 'NH',
+  'new jersey': 'NJ',
+  'new mexico': 'NM',
+  'new york': 'NY',
+  'north carolina': 'NC',
+  'north dakota': 'ND',
+  ohio: 'OH',
+  oklahoma: 'OK',
+  oregon: 'OR',
+  pennsylvania: 'PA',
+  'rhode island': 'RI',
+  'south carolina': 'SC',
+  'south dakota': 'SD',
+  tennessee: 'TN',
+  texas: 'TX',
+  utah: 'UT',
+  vermont: 'VT',
+  virginia: 'VA',
+  washington: 'WA',
+  'west virginia': 'WV',
+  wisconsin: 'WI',
+  wyoming: 'WY',
+  'district of columbia': 'DC',
+};
+
+function normalizeUsStateToken(token) {
+  if (!token) return '';
+  const t = String(token).trim();
+  if (t.length === 2 && US_STATE_ABBR.has(t.toUpperCase())) return t.toUpperCase();
+  const lower = t.toLowerCase();
+  if (US_STATE_NAME_TO_ABBR[lower]) return US_STATE_NAME_TO_ABBR[lower];
+  return '';
+}
+
+function titleCaseCityName(s) {
+  return String(s || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ');
+}
+
+function peelUsStateTokensFromEnd(tokens) {
+  if (!tokens.length) return { state: '', tokens };
+  const last = tokens[tokens.length - 1];
+  const st1 = normalizeUsStateToken(last);
+  if (st1) return { state: st1, tokens: tokens.slice(0, -1) };
+  if (tokens.length >= 2) {
+    const two = `${tokens[tokens.length - 2]} ${tokens[tokens.length - 1]}`.toLowerCase();
+    if (US_STATE_NAME_TO_ABBR[two]) {
+      return { state: US_STATE_NAME_TO_ABBR[two], tokens: tokens.slice(0, -2) };
+    }
+  }
+  return { state: '', tokens };
+}
+
+const STEP1_STREET_THROUGH_SUFFIX_RE =
+  /^(\d{1,6}\s+.+?\b(?:drive|dr|street|st|road|rd|lane|ln|avenue|ave|boulevard|blvd|way|court|ct|circle|cir|place|pl|trail|trl|pkwy|parkway|terrace|ter|run|highway|hwy)\b)\s*/i;
+
+function splitStep1StreetLineAndCityTail(remainder) {
+  const r = String(remainder || '').trim();
+  if (!r) return { street: '', rest: '' };
+  const sm = r.match(STEP1_STREET_THROUGH_SUFFIX_RE);
+  if (!sm) return { street: '', rest: r };
+  return {
+    street: sm[1].trim(),
+    rest: r.slice(sm[0].length).trim().replace(/^,\s*/, ''),
+  };
+}
+
+/**
+ * Split a single-line US address blob into street / city / state / zip when possible
+ * (e.g. "456 red drive Las Vegas nv" → street, Las Vegas, NV).
+ */
+function splitUsAddressBlob(raw) {
+  let s = String(raw || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!s) return { address: '', city: '', state: '', zip: '' };
+
+  let zip = '';
+  const zm = s.match(/\b(\d{5})(?:-\d{4})?\b\s*$/);
+  if (zm) {
+    zip = zm[1];
+    s = s.slice(0, zm.index).trim().replace(/,\s*$/, '');
+  }
+
+  const commaParts = s.split(',').map((p) => p.trim()).filter(Boolean);
+  if (commaParts.length >= 3) {
+    const maybeState = commaParts[commaParts.length - 1];
+    const maybeCity = commaParts[commaParts.length - 2];
+    const st = normalizeUsStateToken(maybeState);
+    if (st) {
+      const street = commaParts.slice(0, -2).join(', ');
+      return { address: street.trim(), city: titleCaseCityName(maybeCity), state: st, zip };
+    }
+  }
+  if (commaParts.length === 2) {
+    const first = commaParts[0];
+    const second = commaParts[1];
+    const stOnly = normalizeUsStateToken(second);
+    if (stOnly) {
+      const { street, rest } = splitStep1StreetLineAndCityTail(first);
+      if (street && rest) {
+        return { address: street, city: titleCaseCityName(rest), state: stOnly, zip };
+      }
+      return { address: first.trim(), city: '', state: stOnly, zip };
+    }
+    const rtokens = second.split(/\s+/).filter(Boolean);
+    const peeledR = peelUsStateTokensFromEnd(rtokens);
+    if (peeledR.state && first) {
+      const cityFromRight = titleCaseCityName(peeledR.tokens.join(' '));
+      const { street, rest } = splitStep1StreetLineAndCityTail(first);
+      if (street && rest) {
+        return {
+          address: street,
+          city: titleCaseCityName(`${rest} ${cityFromRight}`),
+          state: peeledR.state,
+          zip,
+        };
+      }
+      if (street && !rest) {
+        return { address: street, city: cityFromRight, state: peeledR.state, zip };
+      }
+      return { address: first.trim(), city: cityFromRight, state: peeledR.state, zip };
+    }
+  }
+
+  let tokens = s.split(/\s+/).filter(Boolean);
+  const peeled = peelUsStateTokensFromEnd(tokens);
+  if (!peeled.state) {
+    return { address: s, city: '', state: '', zip };
+  }
+  tokens = peeled.tokens;
+  const state = peeled.state;
+  const remainder = tokens.join(' ');
+  const { street, rest } = splitStep1StreetLineAndCityTail(remainder);
+  if (street && rest) {
+    return { address: street, city: titleCaseCityName(rest), state, zip };
+  }
+  if (tokens.length >= 4 && /^\d/.test(tokens[0])) {
+    const cityWords = tokens.slice(-2).join(' ');
+    const addrFallback = tokens.slice(0, -2).join(' ');
+    return { address: addrFallback.trim(), city: titleCaseCityName(cityWords), state, zip };
+  }
+  if (tokens.length === 3 && /^\d/.test(tokens[0])) {
+    const addrFallback = tokens.slice(0, -1).join(' ');
+    return {
+      address: addrFallback.trim(),
+      city: titleCaseCityName(tokens[tokens.length - 1]),
+      state,
+      zip,
+    };
+  }
+
+  return { address: s, city: '', state: '', zip };
+}
+
+function refineStep1AddressFields(out) {
+  if (!out || typeof out !== 'object') return;
+  const raw = String(out.address || '').trim();
+  if (!raw) return;
+
+  const split = splitUsAddressBlob(raw);
+  if (!split) return;
+
+  const hadCity = String(out.city || '').trim();
+  const hadState = String(out.state || '').trim();
+
+  if (split.city && split.state) {
+    out.address = split.address;
+    if (!hadCity) out.city = split.city;
+    if (!hadState) out.state = split.state;
+    if (split.zip && !out.zip) out.zip = split.zip;
+    return;
+  }
+
+  if (split.state && !hadState) {
+    out.state = split.state;
+    if (split.address && split.address !== raw) out.address = split.address;
+  }
+  if (split.city && !hadCity) {
+    out.city = split.city;
+    if (split.address && split.address !== raw) out.address = split.address;
+  }
+  if (split.zip && !out.zip) out.zip = split.zip;
+}
+
+/** Natural-language Step 2 (project title / type / description) for Estimate Generator. */
+function looksLikeProjectInfoSubmission(message) {
+  const t = normalizeEstimateUserMessageText(String(message || ''));
+  const lower = t.toLowerCase();
+  if (/\bproject\s+(title|type|description)\s+is\b/.test(lower)) return true;
+  if (/\b(?:bid|estimate)\s+title\s+is\b/.test(lower)) return true;
+  if (/\b(?:the\s+)?title\s+is\s+\S+/.test(lower) && /\b(type|description|scope)\s+is\b/.test(lower)) return true;
+  if (/\bkitchen\s+remodel|bathroom\s+remodel|room\s+addition\b/.test(lower) && /\b(description|scope)\s+is\b/.test(lower)) {
+    return true;
+  }
+  return false;
+}
+
+const ESTIMATE_SCHEDULE_MONTH_MAP = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sep: 9,
+  sept: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
+function estimatePad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/** Validate Y-M-D and return YYYY-MM-DD or null. */
+function estimateToIsoDate(y, m, d) {
+  const yi = Number(y);
+  const mi = Number(m);
+  const di = Number(d);
+  if (!Number.isFinite(yi) || !Number.isFinite(mi) || !Number.isFinite(di)) return null;
+  if (mi < 1 || mi > 12 || di < 1 || di > 31) return null;
+  const dt = new Date(Date.UTC(yi, mi - 1, di));
+  if (dt.getUTCFullYear() !== yi || dt.getUTCMonth() !== mi - 1 || dt.getUTCDate() !== di) return null;
+  return `${yi}-${estimatePad2(mi)}-${estimatePad2(di)}`;
+}
+
+/**
+ * Parse start/end dates for estimate project info (YYYY-MM-DD for app pickers).
+ * Supports ISO, US M/D/YYYY, and "March 31, 2026" / "Mar 31 2026".
+ * @param {object} [estimateData] — current bid; used so a lone date after start exists maps to end, not start.
+ */
+function parseEstimateScheduleDates(message, estimateData) {
+  const text = normalizeEstimateUserMessageText(String(message || '').trim());
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const out = {};
+  const found = [];
+
+  const pushIso = (iso, index) => {
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) found.push({ iso, index });
+  };
+
+  let m;
+  const isoRe = /\b(20\d{2}-\d{2}-\d{2})\b/g;
+  while ((m = isoRe.exec(text)) !== null) {
+    pushIso(m[1], m.index);
+  }
+
+  const namedRe =
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}|\d{4}))?\b/gi;
+  while ((m = namedRe.exec(text)) !== null) {
+    const mon = ESTIMATE_SCHEDULE_MONTH_MAP[m[1].toLowerCase()];
+    const day = parseInt(m[2], 10);
+    let year = m[3] ? parseInt(m[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    const iso = estimateToIsoDate(year, mon, day);
+    if (iso) pushIso(iso, m.index);
+  }
+
+  const slashRe = /\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/g;
+  while ((m = slashRe.exec(text)) !== null) {
+    const mon = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    const iso = estimateToIsoDate(year, mon, day);
+    if (iso) pushIso(iso, m.index);
+  }
+
+  if (!found.length) return null;
+
+  const seen = new Set();
+  const unique = [];
+  for (const x of found.sort((a, b) => a.index - b.index)) {
+    if (seen.has(x.iso)) continue;
+    seen.add(x.iso);
+    unique.push(x);
+  }
+
+  const startCue = /\b(?:start\s*date|project\s*start|job\s*start|begin(?:ning)?(?:\s+on|\s+date)?)\b/i;
+  const endCue = /\b(?:end\s*date|project\s*end|job\s*end|finish(?:ing)?\s*date|completion\s*date|deadline)\b/i;
+  const idxStart = text.search(startCue);
+  const idxEnd = text.search(endCue);
+
+  if (idxStart >= 0 && idxEnd >= 0 && unique.length >= 2) {
+    const afterS = unique.filter((u) => u.index >= idxStart);
+    const afterE = unique.filter((u) => u.index >= idxEnd);
+    if (afterS.length && afterE.length) {
+      out.startDate = afterS[0].iso;
+      out.endDate = afterE[0].iso;
+    }
+  } else if (idxStart >= 0 && unique.length >= 1) {
+    const after = unique.filter((u) => u.index >= idxStart);
+    out.startDate = (after[0] || unique[0]).iso;
+    const second = unique.find((u) => u.iso !== out.startDate);
+    if (second && !out.endDate) out.endDate = second.iso;
+  } else if (idxEnd >= 0 && unique.length >= 1) {
+    const after = unique.filter((u) => u.index >= idxEnd);
+    out.endDate = (after[0] || unique[0]).iso;
+  } else if (unique.length === 1) {
+    const iso = unique[0].iso;
+    const existingStart = String(estimateData?.startDate || estimateData?.projectStartDate || '').trim();
+    const existingEnd = String(estimateData?.endDate || estimateData?.projectEndDate || '').trim();
+    const prefersEnd =
+      /\b(end(?:ing)?\s*date|project\s*end|job\s*end|finish|completion|deadline)\b/i.test(text) &&
+      !/\bstart(?:ing)?\s*date\b/i.test(lower);
+    const prefersStart =
+      /\b(start(?:ing)?\s*date|project\s*start|job\s*start|begin(?:ning)?)\b/i.test(lower) &&
+      !/\bend(?:ing)?\s*date\b/i.test(lower);
+    if (prefersEnd) {
+      out.endDate = iso;
+    } else if (prefersStart) {
+      out.startDate = iso;
+    } else if (existingStart && !existingEnd) {
+      out.endDate = iso;
+    } else if (!existingStart) {
+      out.startDate = iso;
+    } else {
+      out.endDate = iso;
+    }
+  } else {
+    out.startDate = unique[0].iso;
+    out.endDate = unique[1].iso;
+  }
+
+  const keys = Object.keys(out).filter((k) => out[k]);
+  return keys.length ? out : null;
+}
+
+function mergeEstimateProjectInfoParsed(base, schedule) {
+  if (!base && !schedule) return null;
+  const o = { ...(base && typeof base === 'object' ? base : {}) };
+  if (schedule && typeof schedule === 'object') {
+    if (schedule.startDate) o.startDate = schedule.startDate;
+    if (schedule.endDate) o.endDate = schedule.endDate;
+  }
+  const keys = Object.keys(o).filter((k) => {
+    const v = o[k];
+    if (v == null) return false;
+    if (typeof v === 'number' && Number.isFinite(v)) return true;
+    return String(v).trim() !== '';
+  });
+  return keys.length ? o : null;
+}
+
+/** Chat copy only — bid storage stays YYYY-MM-DD for date pickers. */
+function formatEstimateDateForDisplay(isoDate) {
+  const s = String(isoDate || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  return `${m[2]}-${m[3]}-${m[1]}`;
+}
+
+/** User wants to set estimate start/end (any step); includes short replies that are just a date. */
+function looksLikeProjectDateUpdate(message) {
+  const t = normalizeEstimateUserMessageText(String(message || ''));
+  const lower = t.toLowerCase();
+  if (/\b(start\s*date|end\s*date|project\s*start|project\s*end|job\s*start|job\s*end)\b/.test(lower)) return true;
+  if (/\b(set|add|change|update|pick|choose|put)\b.*\b(start|end)\s*date\b/.test(lower)) return true;
+  if (/\bcalendar\b.*\b(start|end|date)\b/.test(lower)) return true;
+  const sched = parseEstimateScheduleDates(t, null);
+  if (sched && t.trim().length <= 72) {
+    const wc = t.trim().split(/\s+/).length;
+    if (
+      wc <= 10 &&
+      !/\b(payment|deposit|invoice|due|balance|mileston|delivery|ship|order)\b/i.test(lower)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Stop title at ". The project type/description" so "Rick. The project type..." → "Rick". */
+function sanitizeStep2Title(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return s;
+  const parts = s.split(/\.\s+(?=The\s+project\s+(?:type|description)\b)/i);
+  s = parts[0].trim();
+  const parts2 = s.split(/\.\s+(?=The\s+(?:type|description)\b)/i);
+  if (parts2.length > 1) s = parts2[0].trim();
+  return s.replace(/\.$/, '').trim();
+}
+
+function normalizeStep2ProjectType(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (/kitchen/.test(s)) return 'kitchen';
+  if (/bath/.test(s)) return 'bathroom';
+  if (/room\s*add/.test(s)) return 'room_addition';
+  if (/home\s*add|whole\s*home|second\s+story/.test(s)) return 'home_addition';
+  if (/new\s*build|ground\s*up|new\s+construction/.test(s)) return 'new_build';
+  if (/land|yard|outdoor|paver|irrigation/.test(s)) return 'landscaping';
+  return 'other';
+}
+
+function parseEstimateStep2ProjectInfo(message) {
+  const text = normalizeEstimateUserMessageText(String(message || '').trim());
+  if (!text) return null;
+  const out = {};
+  const lower = text.toLowerCase();
+  const typeKey = 'project type is';
+  const descKey = 'project description is';
+  const titleKey = 'project title is';
+
+  const ti = lower.indexOf(titleKey);
+  const tyi = lower.indexOf(typeKey);
+  const di = lower.indexOf(descKey);
+
+  if (di >= 0) {
+    const rest = text.slice(di + descKey.length).trim();
+    out.scopeDescription = rest.replace(/\s+/g, ' ').replace(/\.$/, '').trim();
+  }
+
+  if (tyi >= 0) {
+    const end = di >= 0 ? di : text.length;
+    let segment = text.slice(tyi + typeKey.length, end).trim();
+    segment = segment.replace(/\s+and\s+the\s+project\s+description\s*$/i, '').trim();
+    segment = segment.replace(/\.$/, '').trim();
+    if (segment) out.rawProjectType = segment;
+  }
+
+  if (ti >= 0) {
+    const end = tyi >= 0 ? tyi : di >= 0 ? di : text.length;
+    let segment = text.slice(ti + titleKey.length, end).trim();
+    segment = sanitizeStep2Title(segment);
+    if (segment) out.title = segment.replace(/^the\s+/i, '').trim();
+  }
+
+  const sqftMatch = text.match(/\b(\d{2,5})\s*(?:sq\.?\s*ft|square\s*feet)\b/i);
+  if (sqftMatch) out.sqft = Number(sqftMatch[1]);
+
+  // Fallbacks when user omits the word "project" (e.g. "The title is X. The type is kitchen...")
+  if (!out.title) {
+    const tm = text.match(/\b(?:the\s+)?title\s+is\s+(.+?)(?=\.\s*(?:the\s+)?(?:type|description|project)|\s+and\s+the\s+|\s*$)/is);
+    if (tm) {
+      out.title = sanitizeStep2Title(String(tm[1] || '')).replace(/^the\s+/i, '').trim();
+    }
+  }
+  if (!out.rawProjectType) {
+    const typ = text.match(/\b(?:the\s+)?type\s+is\s+(.+?)(?=\.\s*(?:the\s+)?(?:description|project)|\s+and\s+the\s+|\s*$)/is);
+    if (typ) {
+      let seg = String(typ[1] || '').trim().replace(/\.$/, '').trim();
+      seg = seg.replace(/\s+and\s+the\s+project\s+description\s*$/i, '').trim();
+      if (seg) out.rawProjectType = seg;
+    }
+  }
+  if (!out.scopeDescription) {
+    const dm = text.match(/\b(?:scope|description)\s+is\s+([\s\S]+?)(?:\.(?:\s|$)|$)/i);
+    if (dm) out.scopeDescription = String(dm[1] || '').trim().replace(/\s+/g, ' ');
+  }
+
+  const keys = Object.keys(out).filter((k) => out[k] != null && String(out[k]).trim() !== '');
+  return keys.length ? out : null;
+}
+
+function buildUpdateProjectInfoAction(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const action = { type: 'update_project_info' };
+  if (parsed.title) action.title = sanitizeStep2Title(String(parsed.title).trim());
+  if (parsed.rawProjectType) action.projectType = normalizeStep2ProjectType(parsed.rawProjectType);
+  if (parsed.scopeDescription) action.scopeDescription = String(parsed.scopeDescription).trim();
+  if (parsed.sqft != null && Number.isFinite(Number(parsed.sqft))) action.sqft = Number(parsed.sqft);
+  if (parsed.startDate) action.startDate = String(parsed.startDate).trim();
+  if (parsed.endDate) action.endDate = String(parsed.endDate).trim();
+  const meaningful =
+    action.title ||
+    action.projectType ||
+    action.scopeDescription ||
+    action.sqft != null ||
+    action.startDate ||
+    action.endDate;
+  return meaningful ? action : null;
 }
 
 function messageLooksLikeEstimateMutation(message, parsedItems = []) {
@@ -1970,6 +2699,9 @@ function looksLikeCustomerInfoSubmission(message) {
   if (/\b\d{1,5}\s+[NSEW]?\s*[A-Za-z0-9.'\s-]{2,40}\s+(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct)\b/i.test(t)) return true;
   if (/^\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s*$/i.test(t.trim())) return true;
   if (/\b(?:^|\n)\s*(?:name|client)\s*:\s*\S+/i.test(t)) return true;
+  if (/\b(?:the\s+)?address\s+is\s+\S+/i.test(t)) return true;
+  if (/\b(?:mailing|shipping|billing|service)\s+address\b/i.test(t)) return true;
+  if (/\blocated\s+at\s+\d/i.test(t)) return true;
   return false;
 }
 
@@ -2122,6 +2854,22 @@ function parseEstimateStep1CustomerInfo(message) {
   }
 
   if (!out.address) {
+    const addrIs = work.match(
+      /\b(?:the\s+)?address\s+is\s+([^.]+?)(?=\.\s+(?:The\s+)?(?:phone|email|name|customer|client|city|state|zip|notes)\b|$)/i
+    );
+    if (addrIs) {
+      let chunk = String(addrIs[1] || '').trim();
+      chunk = chunk.replace(/\s+and\s+the\s+(?:phone|email|name)\s+is\b.*$/i, '').trim();
+      if (chunk) out.address = chunk;
+    }
+  }
+  if (!out.address) {
+    const addrLine = work.match(/\b(?:the\s+)?address\s+is\s+([^\n]+)/i);
+    if (addrLine && String(addrLine[1] || '').trim().length >= 4) {
+      out.address = String(addrLine[1] || '').trim();
+    }
+  }
+  if (!out.address) {
     const streetLine = work.match(
       /\b(\d{1,5}\s+[NSEW]?\s*[A-Za-z0-9.'#\- ]{2,60}(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct)\b[^,\n]*)[, ]+\s*([^.\n]+)/i
     );
@@ -2143,6 +2891,8 @@ function parseEstimateStep1CustomerInfo(message) {
   const singleNameLine = text.trim().match(/^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\s*$/);
   if (singleNameLine && !out.customerName) out.customerName = singleNameLine[1].trim();
 
+  refineStep1AddressFields(out);
+
   const keys = Object.keys(out).filter((k) => out[k] != null && String(out[k]).trim() !== '');
   if (keys.length === 0) return null;
   return out;
@@ -2159,6 +2909,9 @@ function buildUpdateCustomerInfoAction(parsed) {
   if (parsed.state) action.state = parsed.state;
   if (parsed.zip) action.zip = parsed.zip;
   if (parsed.notes) action.notes = parsed.notes;
+  if (action.customerName) action.customerName = sanitizeStep1CustomerName(action.customerName);
+  if (action.address) action.address = sanitizeStep1AddressLine(action.address);
+  refineStep1AddressFields(action);
   const hasMeaningful =
     action.customerName ||
     action.phone ||
@@ -2250,7 +3003,8 @@ ${checklistLines}
 RULES:
 → Use this snapshot as the source of truth for which estimate step the user is on.
 → Answer the active step first unless the user explicitly asks about another step.
-→ If checklist items are missing, prioritize the most important 1-2 missing items in your answer.
+→ **Project start/end dates:** When the user states a real date (e.g. "March 31, 2026" or "03-31-2026"), the app saves it through an in-app **Confirm** action that updates the same fields as the date pickers. Do **not** say you cannot set dates or that they must only use separate settings—unless no date was provided yet, in which case ask for one (natural language or **MM-DD-YYYY**). When you echo dates in chat, prefer **MM-DD-YYYY** (not raw ISO).
+${currentStepNumber === 2 ? `→ **Step 2 (Project Information):** Prompt for **project title**, **project type**, and **project description/scope**. Mention **start date** and **end date** if helpful—**dates are optional**. **Do not ask for square footage** unless the user volunteers it or asks for unit-rate / per‑sq‑ft pricing; never block the flow on sq ft.\n` : ''}→ If checklist items are missing, prioritize the most important 1-2 missing items in your answer.
 → If the estimate is not ready, guide the user to the next setup action instead of acting like the bid is final.
 → When totals are needed, prefer the Precomputed totals above over re-deriving from line items.`;
 }
@@ -3311,6 +4065,40 @@ function buildEstimateSuggestedFollowUpsFromBrief(parsedContext, fallback = []) 
   return fallback.slice(0, 5);
 }
 
+/**
+ * User wants to begin a new bid/estimate (Step 1 onboarding card), in natural phrasing.
+ * Synonyms: bid, estimate, proposal, quote. Excludes a blunt "don't create…" refusal.
+ */
+function messageLooksLikeStartNewBidOrEstimateIntent(msgLower) {
+  const t = String(msgLower || '').trim();
+  if (t.length < 6) return false;
+  if (/^(?:no|never|stop|cancel)\b/i.test(t)) return false;
+  if (/\bdon'?t\s+(?:create|start|make|begin|open|build|draft)\b/i.test(t)) return false;
+
+  const noun = '(?:bid|estimate|proposal|quote)';
+  const verbs = 'create|start|begin|make|open|build|draft';
+
+  const patterns = [
+    new RegExp(`\\b(?:let['']?s|let\\s+us)\\s+(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|me\\s+(?:a|an)\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(`\\b(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|me\\s+(?:a|an)\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(
+      `\\b(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?(?:help\\s+me\\s+)?(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|me\\s+(?:a|an)\\s+)?(?:new\\s+)?${noun}\\b`,
+      'i'
+    ),
+    new RegExp(
+      `\\b(?:i|we)\\s+(?:need|want|would\\s+like)\\s+to\\s+(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|me\\s+(?:a|an)\\s+)?(?:new\\s+)?${noun}\\b`,
+      'i'
+    ),
+    new RegExp(`\\b(?:i|we)\\s+(?:need|want)\\s+(?:a\\s+|an\\s+|to\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(`\\b(?:need|want|trying)\\s+to\\s+(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(`\\b(?:start|begin)\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|on\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(`\\btime\\s+to\\s+(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    new RegExp(`\\bok\\s*,?\\s*(?:let['']?s\\s+)?(?:${verbs})\\s+(?:a\\s+|an\\s+|my\\s+|the\\s+|me\\s+(?:a|an)\\s+)?(?:new\\s+)?${noun}\\b`, 'i'),
+    /\bhelp\s+me\s+(?:with\s+)?(?:a\s+|an\s+|my\s+|the\s+)?(?:new\s+)?(?:bid|estimate|proposal|quote)\b/i,
+  ];
+  return patterns.some((re) => re.test(t));
+}
+
 function buildEstimateStartBidReply({ parsedContext, estimateData }) {
   const hasName = !!(estimateData?.customerName || estimateData?.clientName);
   const hasPhone = !!String(estimateData?.customerPhone || '').trim();
@@ -3496,22 +4284,126 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
   const startDate = estimateData?.startDate || estimateData?.projectStartDate || null;
   const defaultTier = session?.estimatePreferences?.pricingTier || 'standard';
   const followUps = buildEstimateSuggestedFollowUpsFromBrief(parsedContext, []);
-  const parsedCostItems = extractEstimateCostItems(msg);
+  let parsedCostItems = extractEstimateCostItems(msg);
   const customerParsed = parseEstimateStep1CustomerInfo(msg);
   const customerUpdateAction = buildUpdateCustomerInfoAction(customerParsed);
   const explicitClientPhrase = /\b(?:client|customer)\s+(?:is|=)\s+/i.test(msg);
   const customerInfoIntent =
     customerUpdateAction &&
     (looksLikeCustomerInfoSubmission(msg) || explicitClientPhrase);
+  if (customerInfoIntent && customerUpdateAction && parsedCostItems.length > 0) {
+    parsedCostItems = filterSpuriousCostItemsForCustomerStep1(msg, parsedCostItems);
+  }
   const markupMatch = lower.match(/\b(?:set|change|update|make)\s+(?:the\s+)?markup(?:\s+to)?\s+(\d{1,2}(?:\.\d+)?)%/i);
   const hasDirectMutationInput =
     messageLooksLikeEstimateMutation(msg, parsedCostItems) ||
     !!customerInfoIntent ||
     !!markupMatch;
 
+  const currentStepNumber = Number(parsedContext?.currentStepNumber ?? 0);
+  const projectInfoParsed = mergeEstimateProjectInfoParsed(
+    parseEstimateStep2ProjectInfo(msg),
+    parseEstimateScheduleDates(msg, estimateData)
+  );
+  const projectUpdateAction = buildUpdateProjectInfoAction(projectInfoParsed);
+  const onEstimateBuildStep = currentStepNumber >= 2;
+  const projectInfoIntent =
+    projectUpdateAction &&
+    (onEstimateBuildStep || looksLikeProjectInfoSubmission(msg) || looksLikeProjectDateUpdate(msg));
+
+  if (projectInfoIntent && projectUpdateAction && !hasDirectMutationInput) {
+    const scheduleOnly =
+      !projectUpdateAction.title &&
+      !projectUpdateAction.projectType &&
+      !projectUpdateAction.scopeDescription &&
+      projectUpdateAction.sqft == null &&
+      (projectUpdateAction.startDate || projectUpdateAction.endDate);
+    const reviewHeader = scheduleOnly
+      ? '**Project schedule — review before saving**'
+      : currentStepNumber === 2
+        ? '**Step 2 — review before saving**'
+        : '**Project information — review before saving**';
+    const reviewFooter = scheduleOnly
+      ? 'Tap **Confirm** to save these dates to your estimate (they update the start/end fields used by the date pickers).'
+      : 'Tap **Confirm** in the dialog to save this to Step 2 (Project information), or **Cancel** to edit.';
+    const replyLines = [
+      reviewHeader,
+      '',
+      ...(projectUpdateAction.title ? [`- **Title:** ${projectUpdateAction.title}`] : []),
+      ...(projectUpdateAction.projectType
+        ? [
+            `- **Type:** ${String(projectUpdateAction.projectType)
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c) => c.toUpperCase())}`,
+          ]
+        : []),
+      ...(projectUpdateAction.scopeDescription ? [`- **Description:** ${projectUpdateAction.scopeDescription}`] : []),
+      ...(projectUpdateAction.sqft != null ? [`- **Sq ft:** ${projectUpdateAction.sqft}`] : []),
+      ...(projectUpdateAction.startDate
+        ? [`- **Start:** ${formatEstimateDateForDisplay(projectUpdateAction.startDate)}`]
+        : []),
+      ...(projectUpdateAction.endDate
+        ? [`- **End:** ${formatEstimateDateForDisplay(projectUpdateAction.endDate)}`]
+        : []),
+      '',
+      reviewFooter,
+    ];
+    trackEstimateSessionEvent(session, 'update_project_info', {
+      hasTitle: !!projectUpdateAction.title,
+      hasType: !!projectUpdateAction.projectType,
+    });
+    return {
+      reply: replyLines.filter(Boolean).join('\n'),
+      actions: [projectUpdateAction],
+      suggestedFollowUps: scheduleOnly
+        ? [
+            { label: 'Set end date too', prompt: 'Set the project end date as well (give me the date).' },
+            { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+            { label: 'Fix project info', prompt: 'I need to correct title, type, or description.' },
+          ]
+        : [
+            {
+              label: 'Start Step 3',
+              prompt: "Let's start with step three — add materials and supplies to this bid.",
+            },
+            { label: 'Fix project info', prompt: 'I need to correct one project field (title, type, or description).' },
+            { label: 'Name this bid', prompt: 'Suggest a short professional bid title for this job.' },
+          ],
+    };
+  }
+
   if (hasDirectMutationInput && (parsedCostItems.length > 0 || customerUpdateAction || markupMatch)) {
     const actions = [];
     const replyLines = [];
+    if (projectInfoIntent && projectUpdateAction) {
+      actions.push(projectUpdateAction);
+      replyLines.push('**Step 2 — review before saving**');
+      replyLines.push('');
+      if (projectUpdateAction.title) replyLines.push(`- **Title:** ${projectUpdateAction.title}`);
+      if (projectUpdateAction.projectType) {
+        const ptLabel = String(projectUpdateAction.projectType).replace(/_/g, ' ');
+        replyLines.push(`- **Type:** ${ptLabel.replace(/\b\w/g, (c) => c.toUpperCase())}`);
+      }
+      if (projectUpdateAction.scopeDescription) {
+        replyLines.push(`- **Description:** ${projectUpdateAction.scopeDescription}`);
+      }
+      if (projectUpdateAction.sqft != null) replyLines.push(`- **Sq ft:** ${projectUpdateAction.sqft}`);
+      if (projectUpdateAction.startDate) {
+        replyLines.push(`- **Start:** ${formatEstimateDateForDisplay(projectUpdateAction.startDate)}`);
+      }
+      if (projectUpdateAction.endDate) {
+        replyLines.push(`- **End:** ${formatEstimateDateForDisplay(projectUpdateAction.endDate)}`);
+      }
+      replyLines.push('');
+      replyLines.push(
+        'Tap **Confirm** in the dialog to save this to Step 2 (Project information), or **Cancel** to edit.'
+      );
+      replyLines.push('');
+      trackEstimateSessionEvent(session, 'update_project_info', {
+        hasTitle: !!projectUpdateAction.title,
+        hasType: !!projectUpdateAction.projectType,
+      });
+    }
     const materialItems = parsedCostItems.filter((item) => item.kind !== 'labor');
     const laborItems = parsedCostItems.filter((item) => item.kind === 'labor');
     const addedMaterialTotal = materialItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
@@ -4697,6 +5589,19 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // ── RUN-FIRST: Estimate Generator — "let's build a bid" → fixed Step 1 copy (avoids LLM asking for unrelated fields)
+    const screenStr = String(parsedContext?.screen || '');
+    if (
+      isEstimateAssistantScreen(parsedContext) &&
+      /generator/i.test(screenStr) &&
+      isEstimateBuildBidStarterMessage(userMsgTrim)
+    ) {
+      const reply = buildEstimateStep1BuildBidStarterReply(parsedContext);
+      const suggestedFollowUps = buildEstimateBuildBidStarterFollowUps();
+      if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST estimate build-bid starter');
+      return res.json({ reply, actions: [], suggestedFollowUps });
+    }
+
     // Build system prompt based on context and settings
     const aiPmMode = user_settings.ai_project_manager_mode || false;
     
@@ -5247,9 +6152,7 @@ router.post('/', async (req, res) => {
       return res.json({ reply: reviewResult.reply, actions: [], suggestedFollowUps: reviewResult.suggestedFollowUps || [] });
     }
     if (isEstimateAssistantScreen(parsedContext)) {
-      const isStartBidIntent =
-        /\b(?:let'?s\s+)?(?:start|create|begin)\s+(?:a\s+)?bid\b/i.test(msgLowerEarly) ||
-        /\bok\s*,?\s*(?:let'?s\s+)?(?:start|create)\s+(?:a\s+)?bid\b/i.test(msgLowerEarly);
+      const isStartBidIntent = messageLooksLikeStartNewBidOrEstimateIntent(msgLowerEarly);
       if (isStartBidIntent) {
         const stepNumEarly = Number(parsedContext?.currentStepNumber ?? -1);
         const startBidResult = buildEstimateStartBidReply({ parsedContext, estimateData });
