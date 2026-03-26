@@ -1684,7 +1684,7 @@ const styles = StyleSheet.create({
   },
   performanceSnapshotLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     textAlign: 'center',
     fontWeight: '500',
   },
@@ -1699,7 +1699,7 @@ const styles = StyleSheet.create({
   },
   analyticsSectionSubtitle: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -1744,7 +1744,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   perfLabel: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 11,
     marginBottom: 4,
   },
@@ -1766,7 +1766,7 @@ const styles = StyleSheet.create({
     color: '#EF4444',
   },
   trendFlat: {
-    color: '#94A3B8',
+    color: '#FFFFFF',
   },
   metricsScroll: {
     marginBottom: 20,

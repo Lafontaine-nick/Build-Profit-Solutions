@@ -141,7 +141,7 @@ export default function AccountSettingsScreen() {
         ],
         card: '#142850',
         text: '#fff',
-        subtext: '#aaa',
+        subtext: '#FFFFFF',
         accent: '#43cea2',
       }
     : {

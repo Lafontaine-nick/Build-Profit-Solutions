@@ -1638,7 +1638,7 @@ export default function ProfileScreen() {
               borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
             }]}>
               <View style={[styles.certificationIconContainer, { backgroundColor: 'rgba(156, 163, 175, 0.15)' }]}>
-                <MaterialIcons name='verified' size={18} color='#9CA3AF' />
+                <MaterialIcons name='verified' size={18} color={theme.subtext} />
               </View>
               <Text style={[styles.certificationText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                 No licenses added
@@ -1764,7 +1764,7 @@ export default function ProfileScreen() {
                     <MaterialIcons
                       name='add'
                       size={20}
-                      color={newLicenseText.trim() ? '#000' : '#9CA3AF'}
+                      color={newLicenseText.trim() ? '#000' : theme.subtext}
                     />
                   </TouchableOpacity>
                 </View>
@@ -1818,7 +1818,7 @@ export default function ProfileScreen() {
                   <MaterialIcons
                     name={covered ? 'check-circle' : 'radio-button-unchecked'}
                     size={18}
-                    color={covered ? '#4CAF50' : '#9CA3AF'}
+                    color={covered ? '#4CAF50' : theme.subtext}
                   />
                 </View>
                 <Text style={[styles.insuranceText, { 
@@ -1866,7 +1866,7 @@ export default function ProfileScreen() {
               {text}
             </Text>
           </View>
-          {rightComponent || (showChevron && <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />)}
+          {rightComponent || (showChevron && <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />)}
         </TouchableOpacity>
       );
     };
@@ -1893,7 +1893,7 @@ export default function ProfileScreen() {
       return (
         <View key={title} style={[styles.settingsGroupContainer, isFirst && { marginTop: 0 }]}>
           {title && (
-            <Text style={[styles.settingsGroupTitle, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
+            <Text style={[styles.settingsGroupTitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
               {title.toUpperCase()}
             </Text>
           )}
@@ -1923,7 +1923,7 @@ export default function ProfileScreen() {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            <MaterialIcons name='search' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
+            <MaterialIcons name='search' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
             <TextInput
               style={[styles.searchInput, { color: theme.text }]}
               placeholder="Search settings"
@@ -1944,7 +1944,7 @@ export default function ProfileScreen() {
                 }}
                 style={styles.searchClearButton}
               >
-                <MaterialIcons name='close' size={18} color={theme.subtext} style={{ opacity: darkMode ? 0.85 : 0.85 }} />
+                <MaterialIcons name='close' size={18} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
               </TouchableOpacity>
             )}
           </View>
@@ -2031,7 +2031,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={{ flex: 1, maxWidth: '62%' }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Push Notifications</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
+                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                       Leads, updates, reminders
                     </Text>
                   </View>
@@ -2176,10 +2176,10 @@ export default function ProfileScreen() {
                   <Text style={[styles.settingText, { color: theme.text }]}>{t('profile.language')}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.settingText, { color: theme.subtext, fontSize: 14, opacity: darkMode ? 0.85 : 0.85 }]}>
+                  <Text style={[styles.settingText, { color: theme.subtext, fontSize: 14, opacity: darkMode ? 1 : 0.85 }]}>
                     {getLanguageLabel(selectedLanguage)}
                   </Text>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
+                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
                 </View>
               </TouchableOpacity>
             )}
@@ -2204,11 +2204,11 @@ export default function ProfileScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Payment Methods</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
+                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                       Payouts & client payments
                     </Text>
                   </View>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
+                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
                 </View>
               </TouchableOpacity>
             </View>
@@ -2246,12 +2246,12 @@ export default function ProfileScreen() {
                 </View>
                 <View style={{ flex: 1, maxWidth: '70%' }}>
                   <Text style={[styles.settingText, { color: theme.text }]}>About</Text>
-                  <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
+                  <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                     {`Version ${Constants.expoConfig?.version || '1.0.0'}`}
                   </Text>
                 </View>
               </View>
-              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 0.7 : 0.7 }} />
+              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
             </TouchableOpacity>
           </>
         ))}

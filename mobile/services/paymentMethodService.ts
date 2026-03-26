@@ -1,5 +1,5 @@
-import Constants from 'expo-constants';
 import { apiService } from './api';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 
 export interface PaymentMethod {
   id: string;
@@ -20,24 +20,8 @@ export interface PaymentMethod {
 }
 
 class PaymentMethodService {
-  // Use a getter so it always gets the current value, not cached at class instantiation
   private get baseUrl(): string {
-    const configUrl = Constants.expoConfig?.extra?.apiBaseUrl;
-    if (configUrl) {
-      const url = configUrl.endsWith('/api') ? configUrl : `${configUrl}/api`;
-      console.log('🔧 PaymentMethodService using API URL from Constants:', url);
-      return url;
-    }
-    
-    const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
-    if (envUrl) {
-      const url = envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
-      console.log('🔧 PaymentMethodService using API URL from env:', url);
-      return url;
-    }
-    
-    console.warn('⚠️ PaymentMethodService defaulting to production URL - Constants.expoConfig?.extra?.apiBaseUrl not available');
-    return 'https://build-profit-solutions-backend.onrender.com/api';
+    return resolveBackendRestApiBaseUrl();
   }
 
   async getPaymentMethods(email?: string | null): Promise<PaymentMethod[]> {

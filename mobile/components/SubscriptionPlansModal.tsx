@@ -21,15 +21,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
-
-// Try to import Clerk hooks
-let useUser: any = null;
-try {
-  const clerkModule = require('@clerk/clerk-expo');
-  useUser = clerkModule.useUser;
-} catch (e) {
-  // Clerk not available
-}
+import { useUser } from '@clerk/clerk-expo';
 
 interface SubscriptionPlan {
   id: string;
@@ -54,28 +46,19 @@ export default function SubscriptionPlansModal({
   onClose,
   mode = 'modal',
 }: SubscriptionPlansModalProps) {
-  console.log('🎭 SubscriptionPlansModal rendered with visible:', visible);
   const router = useRouter();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const { user: clerkUser } = useUser();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
-  console.log('🔄 Loading state:', loading);
 
-  // Get user email from Clerk if available
-  let userEmail: string | null = null;
-  if (useUser) {
-    try {
-      const { user } = useUser();
-      userEmail = user?.emailAddresses?.[0]?.emailAddress || 
-                  user?.primaryEmailAddress?.emailAddress || 
-                  null;
-    } catch (e) {
-      // Not in ClerkProvider or Clerk not available
-    }
-  }
+  const userEmail: string | null =
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    null;
 
   // Fallback to clerkAuthService
   if (!userEmail) {
@@ -185,14 +168,15 @@ export default function SubscriptionPlansModal({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      // Create success and cancel URLs - use current origin for web
-      const baseUrl =
-        Platform.OS === 'web'
-          ? window.location.origin
-          : 'https://build-profit-solutions.com';
-
-      const successUrl = `${baseUrl}/payment/success`;
-      const cancelUrl = `${baseUrl}/payment/cancel`;
+      // Stripe requires https:// URLs. Native cannot use the marketing domain unless it hosts this app.
+      // Use our API “bridge” pages that redirect to the app scheme (see backend /api/stripe/checkout-return).
+      const { successUrl, cancelUrl } =
+        Platform.OS === 'web' && typeof window !== 'undefined'
+          ? {
+              successUrl: `${window.location.origin}/payment/success`,
+              cancelUrl: `${window.location.origin}/payment/cancel`,
+            }
+          : stripeService.getCheckoutRedirectUrls();
 
       try {
         // Get email to use for checkout
@@ -225,25 +209,24 @@ export default function SubscriptionPlansModal({
             // On web, open in same tab
             window.location.href = session.url;
           } else {
-            // On mobile, use WebBrowser
+            // Clear loading BEFORE opening checkout: openBrowserAsync only resolves when the
+            // user closes Safari/Chrome — otherwise the button spins the entire checkout session.
+            setLoading(false);
+            setSelectedPlan(null);
             const result = await WebBrowser.openBrowserAsync(session.url);
 
             if (result.type === 'dismiss') {
               Alert.alert('Cancelled', 'Subscription was cancelled.');
             } else {
-              // User completed checkout - subscription should be created
-              // Wait a moment for Stripe to process, then show success
               setTimeout(() => {
                 Alert.alert(
                   'Success!',
-                  `Welcome to ${plan.name}! Your subscription is now active. Please refresh the payment page to see your active plan.`,
+                  `Welcome to ${plan.name}! Your subscription is now active. Open Payment & Billing to confirm your plan.`,
                   [
                     {
                       text: 'OK',
                       onPress: () => {
                         handleClose();
-                        // Trigger a refresh event that the payment page can listen to
-                        // This will be handled by useFocusEffect when navigating back
                       },
                     },
                   ]
@@ -251,6 +234,8 @@ export default function SubscriptionPlansModal({
               }, 1000);
             }
           }
+        } else {
+          throw new Error('Stripe did not return a checkout URL.');
         }
       } catch (error: any) {
         console.error('Subscription error:', error);

@@ -4391,7 +4391,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   statusChipCompactDot: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
+    color: '#FFFFFF',
     fontWeight: '400',
   },
   statusChip: {

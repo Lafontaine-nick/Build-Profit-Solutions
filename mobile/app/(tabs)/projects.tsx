@@ -855,7 +855,7 @@ export default function ProjectsScreen() {
               
               {projects.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Ionicons name="folder-outline" size={48} color={darkMode ? "#7C8BA0" : "#475569"} />
+                  <Ionicons name="folder-outline" size={48} color={darkMode ? "#FFFFFF" : "#475569"} />
                   <Text style={styles.emptyStateText}>{t('dashboard.noProjects')}</Text>
                   <Text style={styles.emptyStateSubtext}>
                     {t('dashboard.createFirstProject')}
@@ -893,7 +893,7 @@ export default function ProjectsScreen() {
                         <Ionicons
                           name="location-outline"
                           size={14}
-                          color={darkMode ? "#7C8BA0" : "#475569"}
+                          color={darkMode ? "#FFFFFF" : "#475569"}
                         />
                         <Text style={styles.projectLocationText}>
                           {project.location}
@@ -904,7 +904,7 @@ export default function ProjectsScreen() {
                         <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           {(project.rawProject?.client || project.rawProject?.estimateData?.customerName) && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                              <Ionicons name="person-outline" size={12} color={darkMode ? "#7C8BA0" : "#475569"} />
+                              <Ionicons name="person-outline" size={12} color={darkMode ? "#FFFFFF" : "#475569"} />
                               <Text style={{ color: darkMode ? Colors.sub : "#475569", fontSize: 11 }}>
                                 {project.rawProject?.client || project.rawProject?.estimateData?.customerName}
                               </Text>
@@ -912,7 +912,7 @@ export default function ProjectsScreen() {
                           )}
                           {(project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail) && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                              <Ionicons name="mail-outline" size={12} color={darkMode ? "#7C8BA0" : "#475569"} />
+                              <Ionicons name="mail-outline" size={12} color={darkMode ? "#FFFFFF" : "#475569"} />
                               <Text style={{ color: darkMode ? Colors.sub : "#475569", fontSize: 11 }}>
                                 {project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail}
                               </Text>
@@ -920,7 +920,7 @@ export default function ProjectsScreen() {
                           )}
                           {(project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone) && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                              <Ionicons name="call-outline" size={12} color={darkMode ? "#7C8BA0" : "#475569"} />
+                              <Ionicons name="call-outline" size={12} color={darkMode ? "#FFFFFF" : "#475569"} />
                               <Text style={{ color: darkMode ? Colors.sub : "#475569", fontSize: 11 }}>
                                 {project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone}
                               </Text>
@@ -931,8 +931,8 @@ export default function ProjectsScreen() {
                       {/* Waiting for client decision - only for submitted projects */}
                       {project.status === 'Submitted' && (
                         <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name="time-outline" size={12} color={darkMode ? "#94a3b8" : "#64748b"} />
-                          <Text style={{ color: darkMode ? "#94a3b8" : "#64748b", fontSize: 12, fontStyle: 'italic' }}>
+                          <Ionicons name="time-outline" size={12} color={darkMode ? "#FFFFFF" : "#64748b"} />
+                          <Text style={{ color: darkMode ? "#FFFFFF" : "#64748b", fontSize: 12, fontStyle: 'italic' }}>
                             Waiting for client decision
                           </Text>
                         </View>
@@ -998,7 +998,7 @@ export default function ProjectsScreen() {
                         </View>
                       )}
                       </View>
-                      <Text style={styles.projectMetaText}>
+                      <Text style={styles.projectMarginProfitText}>
                         {project.marginDisplay}
                       </Text>
                     </View>
@@ -1269,14 +1269,19 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: '700',
     color: darkMode ? Colors.text : Colors.text,
   },
+  projectMarginProfitText: {
+    marginTop: 2,
+    fontSize: 13,
+    color: darkMode ? '#FFFFFF' : '#475569',
+  },
   projectMetaText: {
     marginTop: 2,
     fontSize: 13,
-    color: darkMode ? "#9BB2C8" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   projectMetaLabel: {
     fontSize: 12,
-    color: darkMode ? "#7C8BA0" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   progressRow: {
     flexDirection: 'row',
@@ -1336,7 +1341,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   emptyStateSubtext: {
     fontSize: 13,
-    color: darkMode ? "#8DA0B8" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
     marginTop: 4,
     textAlign: 'center',
   },

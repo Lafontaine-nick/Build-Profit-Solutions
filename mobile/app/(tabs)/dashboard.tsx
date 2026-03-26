@@ -2205,10 +2205,10 @@ const DashboardScreen: React.FC = () => {
               const isDark = darkMode;
               const aiStatusColor = aiPmMode 
                 ? (isDark ? "#6ee7b7" : "#16a34a") 
-                : (isDark ? "#F3F4F6" : "#94A3B8");
+                : (isDark ? "#FFFFFF" : "#94A3B8");
               const dotColor = aiPmMode 
                 ? "#22c55e" 
-                : (isDark ? "#9CA3AF" : "#94A3B8");
+                : (isDark ? "#FFFFFF" : "#94A3B8");
               // Format timestamps
               const ruleBasedTime = aiData?.ruleBasedUpdatedAt 
                 ? new Date(aiData.ruleBasedUpdatedAt).toLocaleTimeString()
@@ -2668,7 +2668,7 @@ const InsightItem = ({
             marginBottom: 4,
           }}>
             <Text style={{
-              color: darkMode ? '#d1d5db' : '#374151',
+              color: darkMode ? '#FFFFFF' : '#374151',
               fontSize: 11,
               lineHeight: 16,
             }}>
@@ -4258,7 +4258,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   insightTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#e5e7eb" : Colors.text,
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
   },
   insightBody: {
     fontSize: 12,

@@ -3,6 +3,63 @@ const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const stripeService = require('../services/stripeService');
 
+/**
+ * Stripe Checkout only allows http(s) success/cancel URLs — not custom schemes.
+ * After payment, the in-app browser loads this page; we redirect into the native app.
+ * Placeholder {CHECKOUT_SESSION_ID} is replaced by Stripe on redirect.
+ */
+const DEEP_LINK_SCHEME = process.env.MOBILE_APP_DEEP_LINK_SCHEME || 'buildprofitsolutions';
+
+function sendDeepLinkHtml(res, { path, stripeQuery }) {
+  const query = stripeQuery || '';
+  const deep = `${DEEP_LINK_SCHEME}://${path.replace(/^\//, '')}${query}`;
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Build Profit Solutions</title>
+  <style>body{font-family:system-ui,-apple-system,sans-serif;padding:24px;text-align:center;color:#0f172a;background:#f8fafc}</style>
+</head>
+<body>
+  <p>Returning to the app…</p>
+  <p style="margin-top:16px"><a id="open" href="${deep.replace(/"/g, '&quot;')}">Open app</a></p>
+  <script>
+    (function(){
+      var deep = ${JSON.stringify(deep)};
+      try { window.location.replace(deep); } catch (e) {}
+    })();
+  </script>
+</body>
+</html>`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+}
+
+router.get('/checkout-return', (req, res) => {
+  const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  sendDeepLinkHtml(res, { path: 'payment/success', stripeQuery: q });
+});
+
+router.get('/checkout-cancel', (req, res) => {
+  sendDeepLinkHtml(res, { path: 'payment/cancel', stripeQuery: '' });
+});
+
+/** Payment method setup (Stripe Customer Portal / setup mode) — same https → app bridge */
+router.get('/checkout-return-manage-cards', (req, res) => {
+  let q = '';
+  if (req.url.includes('?')) {
+    q = `${req.url.slice(req.url.indexOf('?'))}&setup=success`;
+  } else {
+    q = '?setup=success';
+  }
+  sendDeepLinkHtml(res, { path: 'payment/manage-cards', stripeQuery: q });
+});
+
+router.get('/checkout-cancel-manage-cards', (req, res) => {
+  sendDeepLinkHtml(res, { path: 'payment/manage-cards', stripeQuery: '?setup=cancel' });
+});
+
 // Get subscription plans
 router.get('/plans', async (req, res) => {
   try {
@@ -113,7 +170,10 @@ router.post('/create-checkout-session', async (req, res) => {
     res.json({ success: true, sessionId: session.id, url: session.url });
   } catch (error) {
     console.error('Error creating checkout session:', error);
-    res.status(500).json({ success: false, error: 'Failed to create checkout session' });
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to create checkout session',
+    });
   }
 });
 
@@ -161,6 +221,14 @@ router.get('/customer/:customerId/subscriptions', async (req, res) => {
 // Get subscriptions for current user (by email from auth token)
 router.get('/subscriptions', async (req, res) => {
   try {
+    if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('your_stripe_secret_key')) {
+      return res.status(503).json({
+        success: false,
+        error:
+          'Stripe is not configured on this server. Set STRIPE_SECRET_KEY in backend/.env (see backend/env.example). Restart the backend after saving.',
+      });
+    }
+
     // Get user email from auth token or request
     const authHeader = req.headers.authorization;
     let email = null;
@@ -229,6 +297,13 @@ router.get('/subscriptions', async (req, res) => {
     res.json({ success: true, subscriptions: formattedSubscriptions });
   } catch (error) {
     console.error('Error fetching subscriptions:', error);
+    if (error.type === 'StripeAuthenticationError') {
+      return res.status(503).json({
+        success: false,
+        error:
+          'Stripe API key is invalid or revoked. Update STRIPE_SECRET_KEY in backend/.env (test key: Dashboard → Developers → API keys). Restart the backend.',
+      });
+    }
     res.status(500).json({ success: false, error: 'Failed to fetch subscriptions' });
   }
 });

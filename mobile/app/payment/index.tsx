@@ -19,19 +19,12 @@ import { useMemo } from 'react';
 import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Try to import Clerk hooks
-let useUser: any = null;
-try {
-  const clerkModule = require('@clerk/clerk-expo');
-  useUser = clerkModule.useUser;
-} catch (e) {
-  // Clerk not available
-}
+import { useUser } from '@clerk/clerk-expo';
 
 export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const { user: clerkUser } = useUser();
   const [currentPlan, setCurrentPlan] = useState<{
     name: string;
     features: string[];
@@ -41,26 +34,15 @@ export default function PaymentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Get user email from Clerk if available - use hooks properly
-  let userEmail: string | null = null;
-  if (useUser) {
-    try {
-      const { user } = useUser();
-      userEmail = user?.emailAddresses?.[0]?.emailAddress || 
-                  user?.primaryEmailAddress?.emailAddress || 
-                  null;
-    } catch (e) {
-      // Not in ClerkProvider or Clerk not available
-    }
-  }
-
-  // Fallback to clerkAuthService
+  let userEmail: string | null =
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    null;
   if (!userEmail) {
     try {
-      const authState = clerkAuthService.getAuthState();
-      userEmail = authState?.user?.email || null;
-    } catch (e) {
-      // Could not get email
+      userEmail = clerkAuthService.getAuthState()?.user?.email || null;
+    } catch {
+      userEmail = null;
     }
   }
 
@@ -70,21 +52,31 @@ export default function PaymentScreen() {
   
   useEffect(() => {
     let mounted = true;
-    AsyncStorage.getItem('bps.contractorProfile').then((profileData) => {
-      if (!mounted) return;
-      if (profileData) {
-        try {
-          const profile = JSON.parse(profileData);
-          if (profile.email) {
-            setStoredEmail(profile.email);
+    const failSafe = setTimeout(() => {
+      if (mounted) setEmailLoaded(true);
+    }, 4000);
+    AsyncStorage.getItem('bps.contractorProfile')
+      .then((profileData) => {
+        if (!mounted) return;
+        if (profileData) {
+          try {
+            const profile = JSON.parse(profileData);
+            if (profile.email) {
+              setStoredEmail(profile.email);
+            }
+          } catch {
+            // Invalid JSON
           }
-        } catch (e) {
-          // Invalid JSON
         }
-      }
-      setEmailLoaded(true);
-    });
-    return () => { mounted = false; };
+      })
+      .finally(() => {
+        clearTimeout(failSafe);
+        if (mounted) setEmailLoaded(true);
+      });
+    return () => {
+      mounted = false;
+      clearTimeout(failSafe);
+    };
   }, []);
 
   // Use same theme system as profile page
@@ -136,7 +128,6 @@ export default function PaymentScreen() {
   };
 
   const fetchCurrentPlan = async () => {
-    let loadingCleared = false;
     try {
       console.log('🚀 fetchCurrentPlan called');
       setLoading(true);
@@ -150,8 +141,6 @@ export default function PaymentScreen() {
         console.log('⚠️ No email available, skipping subscription fetch');
         setCurrentPlan(null);
         setError('No email found. Please ensure you are logged in.');
-        setLoading(false);
-        loadingCleared = true;
         return;
       }
       
@@ -273,31 +262,31 @@ export default function PaymentScreen() {
       setCurrentPlan(null);
       console.error('❌ Error details:', errorMessage);
     } finally {
-      if (!loadingCleared) {
-        console.log('✅ Clearing loading state (finally block)');
-        setLoading(false);
-        loadingCleared = true;
-      }
+      // Always clear loading so the UI never sticks on "Loading plan..." (success, error, or early return)
+      setLoading(false);
     }
   };
 
-  // Fetch plan on mount and when screen comes into focus
-  // Only fetch once email is loaded to avoid infinite loops
+  // Wait for AsyncStorage profile read (max ~4s fail-safe). Do not gate on Clerk `isLoaded` — if Clerk
+  // never flips loaded, we would never fetch and "Loading plan..." would never clear.
   useFocusEffect(
     React.useCallback(() => {
-      // Only fetch if we have an email OR if email has finished loading (even if null)
+      if (!emailLoaded) {
+        setLoading(true);
+        return;
+      }
       const emailToUse = userEmail || storedEmail;
-      if (emailToUse || emailLoaded) {
-        console.log('🔄 useFocusEffect triggered - fetching plan with email:', emailToUse || 'none');
+      if (emailToUse) {
+        console.log('🔄 useFocusEffect triggered - fetching plan with email:', emailToUse);
         fetchCurrentPlan().catch((error) => {
-          // Ensure loading is cleared even if there's an unexpected error
           console.error('❌ Unexpected error in fetchCurrentPlan:', error);
           setLoading(false);
         });
       } else {
-        // Email not loaded yet, set loading to false so we don't show spinner
-        console.log('⏳ Waiting for email to load...');
+        console.log('⏳ No email after profile load — show message without hanging');
         setLoading(false);
+        setCurrentPlan(null);
+        setError('No email found. Please sign in again.');
       }
     }, [userEmail, storedEmail, emailLoaded])
   );

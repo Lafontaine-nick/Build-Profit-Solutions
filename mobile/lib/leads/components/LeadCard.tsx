@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     fontWeight: '600' 
   },
   sub: { 
-    color: '#9CA3AF', 
+    color: '#FFFFFF', 
     marginTop: 4 
   },
   badge: { 

@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { ProjectListProvider } from '../contexts/ProjectListContext';
@@ -40,6 +40,8 @@ function AuthGateWithClerk() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
   const { user } = useUser();
   const { userRole, isLoading } = useUserRole();
+  /** Re-run onboarding storage check after navigation (e.g. completing onboarding → tabs) */
+  const segments = useSegments();
 
   // IMPORTANT: All hooks must be declared BEFORE any conditional returns
   // Check if profile setup is needed
@@ -157,14 +159,13 @@ function AuthGateWithClerk() {
     };
   }, [isLoaded, isSignedIn, getToken]);
 
-  // Check onboarding status (only when authenticated, profile complete, and role is set)
+  // Check onboarding as soon as the user is signed in (before profile / role gates)
   useEffect(() => {
     const checkOnboardingStatus = async () => {
-      // Add timeout to prevent hanging
       const timeoutId = setTimeout(() => {
         console.warn('Onboarding check timeout - defaulting to show onboarding');
         setNeedsOnboarding(true);
-      }, 2000); // 2 second timeout
+      }, 2000);
 
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -172,24 +173,22 @@ function AuthGateWithClerk() {
           AsyncStorage.getItem('bps.onboardingComplete'),
           new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500))
         ]);
-        
+
         clearTimeout(timeoutId);
         setNeedsOnboarding(onboardingComplete !== 'true');
       } catch (error) {
         clearTimeout(timeoutId);
         console.error('Error checking onboarding status:', error);
-        // Default to showing onboarding if check fails
         setNeedsOnboarding(true);
       }
     };
 
-    // Only check onboarding if user is signed in, profile is complete, and role is set
-    if (isSignedIn && user && needsProfileSetup === false && userRole) {
+    if (isSignedIn && user) {
       checkOnboardingStatus();
     } else {
       setNeedsOnboarding(null);
     }
-  }, [isSignedIn, user, needsProfileSetup, userRole]);
+  }, [isSignedIn, user, segments]);
 
   // Debug logging
   console.log('AuthGate - isLoaded:', isLoaded, 'isSignedIn:', isSignedIn, 'user:', !!user, 'userId:', user?.id);
@@ -233,47 +232,15 @@ function AuthGateWithClerk() {
     );
   }
 
-  // Show profile setup if needed (wait for check to complete)
-  if (needsProfileSetup === true) {
-    console.log('AuthGate - Showing profile setup (missing profile information)');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="auth/profile-setup" />
-    </Stack>;
-  }
-
-  // Don't proceed until profile check is complete (only show loading if we're checking)
-  if (needsProfileSetup === null) {
-    console.log('AuthGate - Checking profile completeness...');
+  // Wait for profile + onboarding AsyncStorage checks
+  if (needsProfileSetup === null || needsOnboarding === null) {
+    console.log('AuthGate - Checking profile and/or onboarding...');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
 
-  // Show loading while user role is loading
-  if (isLoading) {
-    console.log('AuthGate - Showing loading for user role');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="loading" />
-    </Stack>;
-  }
-
-  // Show role selection if no role is set
-  if (!userRole) {
-    console.log('AuthGate - Showing role selection');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="role-selection" />
-    </Stack>;
-  }
-
-  // Check onboarding status (wait for check to complete)
-  if (needsOnboarding === null) {
-    console.log('AuthGate - Checking onboarding status...');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="loading" />
-    </Stack>;
-  }
-
-  // Show onboarding if needed
+  // Flow: sign in → onboarding (first-time) → profile setup (if needed) → role → main app
   if (needsOnboarding === true) {
     console.log('AuthGate - Showing onboarding');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
@@ -281,7 +248,27 @@ function AuthGateWithClerk() {
     </Stack>;
   }
 
-  // User is fully authenticated and set up
+  if (needsProfileSetup === true) {
+    console.log('AuthGate - Showing profile setup (missing profile information)');
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+      <Stack.Screen name="auth/profile-setup" />
+    </Stack>;
+  }
+
+  if (isLoading) {
+    console.log('AuthGate - Showing loading for user role');
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+      <Stack.Screen name="loading" />
+    </Stack>;
+  }
+
+  if (!userRole) {
+    console.log('AuthGate - Showing role selection');
+    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+      <Stack.Screen name="role-selection" />
+    </Stack>;
+  }
+
   console.log('AuthGate - Showing main app');
   return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />;
 }
@@ -290,6 +277,7 @@ function AuthGateWithoutClerk() {
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [needsOnboarding, setNeedsOnboarding] = React.useState<boolean | null>(null);
+  const segments = useSegments();
 
   // Initialize notification service
   useEffect(() => {
@@ -335,7 +323,7 @@ function AuthGateWithoutClerk() {
     } else {
       setNeedsOnboarding(null);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, segments]);
 
   // Show loading while checking auth state
   if (isLoading || isAuthenticated === null) {

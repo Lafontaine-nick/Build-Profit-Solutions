@@ -20,6 +20,7 @@ import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
 import { paymentMethodService, PaymentMethod } from '@/services/paymentMethodService';
+import { stripeService } from '@/services/stripeService';
 import * as Haptics from 'expo-haptics';
 
 interface PaymentMethodsListProps {
@@ -133,13 +134,13 @@ export default function PaymentMethodsList({
       setAddingPaymentMethod(true);
       setShowAddModal(false); // Close the modal
 
-      const successUrl = Platform.OS === 'web' 
-        ? `${(window as any).location.origin}/payment/manage-cards?setup=success`
-        : 'build-profit-solutions://payment/manage-cards?setup=success';
-      
-      const cancelUrl = Platform.OS === 'web'
-        ? `${(window as any).location.origin}/payment/manage-cards?setup=cancel`
-        : 'build-profit-solutions://payment/manage-cards?setup=cancel';
+      const { successUrl, cancelUrl } =
+        Platform.OS === 'web'
+          ? {
+              successUrl: `${(window as any).location.origin}/payment/manage-cards?setup=success`,
+              cancelUrl: `${(window as any).location.origin}/payment/manage-cards?setup=cancel`,
+            }
+          : stripeService.getPaymentMethodCheckoutRedirectUrls();
 
       console.log('💳 Creating checkout session for payment method');
       const { url } = await paymentMethodService.createCheckoutSessionForPaymentMethod(

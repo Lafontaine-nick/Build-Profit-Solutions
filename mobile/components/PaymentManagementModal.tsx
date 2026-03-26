@@ -19,15 +19,7 @@ import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-
-// Try to import Clerk hooks
-let useUser: any = null;
-try {
-  const clerkModule = require('@clerk/clerk-expo');
-  useUser = clerkModule.useUser;
-} catch (e) {
-  // Clerk not available
-}
+import { useUser } from '@clerk/clerk-expo';
 
 interface Subscription {
   id: string;
@@ -56,6 +48,7 @@ export default function PaymentManagementModal({
   const router = useRouter();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const { user: clerkUser } = useUser();
   const isScreenMode = mode === 'screen';
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
@@ -70,18 +63,10 @@ export default function PaymentManagementModal({
     }
   };
 
-  // Get user email from Clerk if available
-  let userEmail: string | null = null;
-  if (useUser) {
-    try {
-      const { user } = useUser();
-      userEmail = user?.emailAddresses?.[0]?.emailAddress || 
-                  user?.primaryEmailAddress?.emailAddress || 
-                  null;
-    } catch (e) {
-      // Not in ClerkProvider or Clerk not available
-    }
-  }
+  const userEmail: string | null =
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    null;
 
   // Fallback to clerkAuthService
   if (!userEmail) {

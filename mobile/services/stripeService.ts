@@ -1,6 +1,6 @@
 import { clerkAuthService } from './clerkAuth';
 import * as SecureStore from 'expo-secure-store';
-import Constants from 'expo-constants';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 
 interface CheckoutSession {
   sessionId: string;
@@ -19,29 +19,39 @@ interface SubscriptionPlan {
   recommended?: boolean;
 }
 
+/** Render cold start + Stripe can exceed 30s; align with checkout timeout expectations. */
+const SUBSCRIPTION_FETCH_TIMEOUT_MS = 60000;
+/** Customer + checkout-session are two sequential fetches — abort if either hangs (wrong API URL / offline). */
+const CHECKOUT_FETCH_TIMEOUT_MS = 60000;
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  ms: number,
+  label: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => {
+    controller.abort();
+  }, ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error(
+        `${label} timed out after ${ms / 1000}s. Check EXPO_PUBLIC_API_BASE_URL matches a running backend (LAN IP on device, not localhost).`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 class StripeService {
-  // Use a getter so it always gets the current value, not cached at class instantiation
+  /** Same host as AI / REST; avoids defaulting to Render when only EXPO_PUBLIC_AI_API_URL is set. */
   private get baseUrl(): string {
-    // Get base URL from Constants (same as other services)
-    const configUrl = Constants.expoConfig?.extra?.apiBaseUrl;
-    if (configUrl) {
-      // If it already includes /api, use as is, otherwise add it
-      const url = configUrl.endsWith('/api') ? configUrl : `${configUrl}/api`;
-      console.log('🔧 StripeService using API URL from Constants:', url);
-      return url;
-    }
-    
-    // Fallback to env variable
-    const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
-    if (envUrl) {
-      const url = envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
-      console.log('🔧 StripeService using API URL from env:', url);
-      return url;
-    }
-    
-    // Default to production URL
-    console.warn('⚠️ StripeService defaulting to production URL - Constants.expoConfig?.extra?.apiBaseUrl not available');
-    return 'https://build-profit-solutions-backend.onrender.com/api';
+    return resolveBackendRestApiBaseUrl();
   }
 
   async createCheckoutSession(
@@ -91,7 +101,7 @@ class StripeService {
       }
 
       // First, create or get Stripe customer
-      const customerResponse = await fetch(
+      const customerResponse = await fetchWithTimeout(
         `${this.baseUrl}/stripe/customer`,
         {
           method: 'POST',
@@ -100,18 +110,20 @@ class StripeService {
             ...(token && { Authorization: `Bearer ${token}` }),
           },
           body: JSON.stringify({ email, name }),
-        }
+        },
+        CHECKOUT_FETCH_TIMEOUT_MS,
+        'Stripe customer request',
       );
 
       if (!customerResponse.ok) {
-        const error = await customerResponse.json();
+        const error = await customerResponse.json().catch(() => ({}));
         throw new Error(error.error || 'Failed to create customer');
       }
 
       const { customerId } = await customerResponse.json();
 
       // Then create checkout session
-      const sessionResponse = await fetch(
+      const sessionResponse = await fetchWithTimeout(
         `${this.baseUrl}/stripe/create-checkout-session`,
         {
           method: 'POST',
@@ -125,12 +137,14 @@ class StripeService {
             successUrl,
             cancelUrl,
           }),
-        }
+        },
+        CHECKOUT_FETCH_TIMEOUT_MS,
+        'Stripe checkout session',
       );
 
       if (!sessionResponse.ok) {
-        const error = await sessionResponse.json();
-        const errorMessage = error.error || 'Failed to create checkout session';
+        const error = await sessionResponse.json().catch(() => ({}));
+        const errorMessage = (error as { error?: string }).error || 'Failed to create checkout session';
         console.error('❌ Checkout session error:', errorMessage);
         
         // Check if it's a price not found error
@@ -202,13 +216,14 @@ class StripeService {
         headers.Authorization = `Bearer ${token}`;
       }
       
-      // Create an AbortController for timeout - shorter timeout for better UX
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.error('⏱️ Subscription fetch timeout after 10 seconds - aborting request');
+        console.error(
+          `⏱️ Subscription fetch timeout after ${SUBSCRIPTION_FETCH_TIMEOUT_MS / 1000}s — aborting (host may be cold-starting or unreachable)`,
+        );
         controller.abort();
-      }, 10000); // 10 second timeout
-      
+      }, SUBSCRIPTION_FETCH_TIMEOUT_MS);
+
       try {
         console.log('📡 Making fetch request...');
         const response = await fetch(url, {
@@ -216,7 +231,7 @@ class StripeService {
           headers,
           signal: controller.signal,
         });
-        
+
         clearTimeout(timeoutId);
         console.log('📡 Response received - status:', response.status);
 
@@ -234,12 +249,16 @@ class StripeService {
         
         if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
           console.error('⏱️ Subscription fetch was aborted/timed out');
-          throw new Error('Request timed out. Please check your network connection and ensure the backend is accessible.');
+          throw new Error(
+            `Request timed out after ${SUBSCRIPTION_FETCH_TIMEOUT_MS / 1000}s. If you use a local backend from a phone, set EXPO_PUBLIC_API_BASE_URL to your Mac’s LAN URL (same as the AI API). Hosted APIs may need a moment to wake up — try again.`,
+          );
         }
-        
+
         if (fetchError.message?.includes('Network') || fetchError.message?.includes('Failed to connect')) {
           console.error('🌐 Network connection error:', fetchError.message);
-          throw new Error(`Cannot connect to backend at ${this.baseUrl}. Please check: 1) Backend is running 2) Correct IP address 3) Device/simulator can reach backend`);
+          throw new Error(
+            `Cannot connect to backend at ${this.baseUrl}. Check the server is running, firewall/VPN, and on a real device use your LAN IP (not localhost).`,
+          );
         }
         
         console.error('❌ Fetch error details:', {
@@ -300,6 +319,26 @@ class StripeService {
       console.error('Error canceling subscription:', error);
       throw error;
     }
+  }
+
+  /**
+   * Stripe Checkout only allows https:// success/cancel URLs (not custom schemes).
+   * These hit our API, which returns HTML that opens `buildprofitsolutions://payment/…`.
+   * Include Stripe’s session placeholder on success so the app can verify if needed later.
+   */
+  getCheckoutRedirectUrls(): { successUrl: string; cancelUrl: string } {
+    return {
+      successUrl: `${this.baseUrl}/stripe/checkout-return?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${this.baseUrl}/stripe/checkout-cancel`,
+    };
+  }
+
+  /** Same as getCheckoutRedirectUrls but for payment-method setup flows (manage-cards screen). */
+  getPaymentMethodCheckoutRedirectUrls(): { successUrl: string; cancelUrl: string } {
+    return {
+      successUrl: `${this.baseUrl}/stripe/checkout-return-manage-cards?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${this.baseUrl}/stripe/checkout-cancel-manage-cards`,
+    };
   }
 
   getMockSubscriptionPlans(): SubscriptionPlan[] {

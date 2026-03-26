@@ -17,28 +17,47 @@ export interface NetworkInfo {
  * Auto-detect the local network IP from Expo/Metro
  * This prevents IP mismatch issues when network changes
  */
+function extractIpFromSource(src: string): string | null {
+  const cleaned = String(src)
+    .trim()
+    .replace(/^[a-z]+:\/\//i, '')
+    .split(/[/?#]/)[0]
+    .split(':')[0];
+
+  if (
+    cleaned &&
+    (/^192\.168\./.test(cleaned) || /^10\./.test(cleaned) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(cleaned))
+  ) {
+    return cleaned;
+  }
+
+  return null;
+}
+
 function getAutoDetectedIP(): string | null {
   try {
-    // Expo Go exposes the debugger host like "192.168.1.23:19000"
+    // Expo Go / Metro may expose values like:
+    // - "192.168.0.11:8081"
+    // - "exp://192.168.0.11:8081"
+    // - "http://192.168.0.11:8081/index.bundle?platform=ios"
     const expoHost =
       (Constants as any)?.expoGoConfig?.debuggerHost ||
       (Constants as any)?.expoConfig?.hostUri ||
+      (Constants as any)?.linkingUri ||
       "";
 
-    // Plain React Native / Metro: scriptURL looks like "http://192.168.1.23:8081/index.bundle?..."
+    // Plain React Native / Metro: scriptURL looks like
+    // "http://192.168.0.11:8081/index.bundle?..."
     const rnURL = (NativeModules as any)?.SourceCode?.scriptURL || "";
+    const sources = [expoHost, rnURL].filter(Boolean);
 
-    const src = expoHost || rnURL;
-    if (!src) return null;
-
-    const withoutProtocol = String(src).replace(/^https?:\/\//, "");
-    const host = withoutProtocol.split(":")[0];
-    
-    // Only return if it's a valid local network IP
-    if (host && (host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.'))) {
-      return host;
+    for (const source of sources) {
+      const ip = extractIpFromSource(source);
+      if (ip) {
+        return ip;
+      }
     }
-    
+
     return null;
   } catch (error) {
     console.warn('⚠️ Failed to auto-detect IP:', error);
@@ -77,12 +96,17 @@ export const getNetworkInfo = (): NetworkInfo => {
   // AUTO-DETECT IP from Expo/Metro (prevents IP mismatch issues)
   const autoDetectedIP = getAutoDetectedIP();
   
-  // Fallback IP if auto-detection fails (can be overridden via env)
-  // Updated to current network IP: 192.168.0.142
-  const FALLBACK_LOCAL_IP = process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.replace(/^https?:\/\//, '').replace(/:\d+$/, '') || '192.168.0.142';
-  const LOCAL_BACKEND_IP = autoDetectedIP 
+  // Optional explicit override for physical devices when auto-detection fails.
+  const configuredDevUrl =
+    process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
+    (Constants.expoConfig?.extra?.devApiBaseUrl as string | undefined) ||
+    '';
+  const configuredDevIp = configuredDevUrl ? extractIpFromSource(configuredDevUrl) : null;
+  const localBackendUrl = autoDetectedIP
     ? `http://${autoDetectedIP}:3001`
-    : `http://${FALLBACK_LOCAL_IP}:3001`;
+    : configuredDevIp
+      ? `http://${configuredDevIp}:3001`
+      : null;
   
   // FORCE: In Expo Go on physical devices, always use local IP (not localhost)
   // Expo Go on physical devices cannot reach localhost, must use LAN IP
@@ -110,16 +134,16 @@ export const getNetworkInfo = (): NetworkInfo => {
     if (Platform.OS === 'ios') {
       // iOS Simulator: Use network IP instead of localhost (more reliable)
       // localhost sometimes doesn't work in iOS Simulator depending on network configuration
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('✅ iOS Simulator detected - using network IP:', LOCAL_BACKEND_IP, '(more reliable than localhost)');
+      recommendedApiUrl = localBackendUrl || 'http://localhost:3001';
+      console.log('✅ iOS Simulator detected - using:', recommendedApiUrl);
     } else if (Platform.OS === 'android') {
       // Android emulator needs special IP
       recommendedApiUrl = 'http://10.0.2.2:3001';
       console.log('✅ Android Emulator detected - using 10.0.2.2:3001');
     } else {
       // Fallback for other platforms - try network IP
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('✅ Simulator/Emulator detected - using network IP:', LOCAL_BACKEND_IP);
+      recommendedApiUrl = localBackendUrl || 'http://localhost:3001';
+      console.log('✅ Simulator/Emulator detected - using:', recommendedApiUrl);
     }
   } else if (Platform.OS === 'web') {
     // Web browser - can use localhost
@@ -132,27 +156,30 @@ export const getNetworkInfo = (): NetworkInfo => {
   } else if (isExpoGo || isPhysicalDevice) {
     // Expo Go or physical device - use auto-detected or configured local IP
     const envUrl = Constants.expoConfig?.extra?.devApiBaseUrl;
-    if (envUrl && (envUrl.includes('192.168') || envUrl.includes('10.0.2.2'))) {
+    if (envUrl && (envUrl.includes('192.168') || envUrl.includes('10.0.2.2') || envUrl.includes('172.'))) {
       recommendedApiUrl = envUrl;
       console.log('✅ Using LOCAL backend from config:', envUrl);
     } else if (autoDetectedIP) {
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('✅ Using AUTO-DETECTED LOCAL backend:', LOCAL_BACKEND_IP, '(IP from Expo/Metro)');
+      recommendedApiUrl = `http://${autoDetectedIP}:3001`;
+      console.log('✅ Using AUTO-DETECTED LOCAL backend:', recommendedApiUrl, '(IP from Expo/Metro)');
+    } else if (configuredDevIp) {
+      recommendedApiUrl = `http://${configuredDevIp}:3001`;
+      console.log('✅ Using configured LOCAL backend:', recommendedApiUrl);
     } else {
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('⚠️ Using FALLBACK LOCAL backend:', LOCAL_BACKEND_IP, '(auto-detection failed, using fallback)');
+      recommendedApiUrl = 'https://build-profit-solutions-backend.onrender.com';
+      console.warn('⚠️ Could not detect LAN IP; falling back to Render backend:', recommendedApiUrl);
     }
   } else {
     // Final fallback - for iOS/Android, default to network IP (iOS) or 10.0.2.2 (Android)
     if (Platform.OS === 'ios') {
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('⚠️ Final fallback: Using network IP for iOS:', LOCAL_BACKEND_IP);
+      recommendedApiUrl = localBackendUrl || 'http://localhost:3001';
+      console.log('⚠️ Final fallback for iOS:', recommendedApiUrl);
     } else if (Platform.OS === 'android') {
       recommendedApiUrl = 'http://10.0.2.2:3001';
       console.log('⚠️ Final fallback: Using 10.0.2.2:3001 for Android (assuming emulator)');
     } else {
-      recommendedApiUrl = LOCAL_BACKEND_IP;
-      console.log('⚠️ Final fallback: Using LOCAL_BACKEND_IP:', LOCAL_BACKEND_IP);
+      recommendedApiUrl = localBackendUrl || 'https://build-profit-solutions-backend.onrender.com';
+      console.log('⚠️ Final fallback:', recommendedApiUrl);
     }
   }
   

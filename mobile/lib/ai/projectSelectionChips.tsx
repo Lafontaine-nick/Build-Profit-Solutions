@@ -44,7 +44,7 @@ export default function ProjectSelectionChips({
   if (compact) {
     return (
       <View style={styles.compactContainer}>
-        <Text style={[styles.compactLabel, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+        <Text style={[styles.compactLabel, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
           {clarificationLabel ?? 'Select Project'}
         </Text>
         <ScrollView
@@ -82,7 +82,7 @@ export default function ProjectSelectionChips({
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+      <Text style={[styles.label, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
         {label}
       </Text>
       <View style={styles.chipsContainer}>
@@ -106,7 +106,7 @@ export default function ProjectSelectionChips({
                 {option.title}
               </Text>
               {option.status && (
-                <Text style={[styles.chipStatus, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+                <Text style={[styles.chipStatus, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
                   {option.status}
                 </Text>
               )}

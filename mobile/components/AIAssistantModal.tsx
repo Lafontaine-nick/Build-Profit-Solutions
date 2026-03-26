@@ -18,6 +18,8 @@ import {
   Keyboard,
   Dimensions,
   RefreshControl,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -489,9 +491,16 @@ const AIAssistantModal: React.FC<Props> = ({
   projectOptionsOverride,
   isContextReady = true,
 }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
-  const darkMode = theme.bg === '#000000';
+  /** Light-mode-only style overrides. In dark mode, always returns `undefined` so base `StyleSheet` values apply unchanged. */
+  const light = useCallback(
+    (style: ViewStyle | TextStyle | undefined): ViewStyle | TextStyle | undefined => {
+      if (darkMode || style == null) return undefined;
+      return style;
+    },
+    [darkMode],
+  );
   const { getToken } = useAuth();
   const { user } = useUser();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -958,6 +967,26 @@ const AIAssistantModal: React.FC<Props> = ({
   }, [isEstimateContext, chatSuggestions]);
   const isProjectsScreenContext = parsedContext?.screen === 'Projects';
   const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
+  /** Dark mode + Estimate screen: base styles use Colors.sub (grey); bump to white for readability */
+  const estimateDarkWhiteSubtext = useMemo(
+    () => (darkMode && isEstimateContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
+    [darkMode, isEstimateContext],
+  );
+  /** Command Center (Global AI tab): Today Brief + muted labels */
+  const commandCenterDarkWhiteSubtext = useMemo(
+    () => (darkMode && isGlobalAssistantContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
+    [darkMode, isGlobalAssistantContext],
+  );
+  /** Dark mode (non–Estimate Generator): headers, cards, greeting, project strip — single-project + portfolio + Command Center */
+  const portfolioHeaderDarkWhiteSubtext = useMemo(
+    () => (darkMode && !isEstimateContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
+    [darkMode, isEstimateContext],
+  );
+  /** Dark mode: reply body, footer suggestions, timestamps — all contexts including Estimate */
+  const darkModeChatMutedWhite = useMemo(
+    () => (darkMode ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
+    [darkMode],
+  );
   const selectedProjectHintId = portfolioScopeOverrideRef.current
     ? null
     : (selectedProjectId ||
@@ -3518,14 +3547,14 @@ const AIAssistantModal: React.FC<Props> = ({
     return parts.map((part, index) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return (
-          <Text key={`${keyPrefix}-bold-${index}`} style={[baseStyle, styles.messageBold, !darkMode && { color: ThemeColors.text }]}>
+          <Text key={`${keyPrefix}-bold-${index}`} style={[baseStyle, styles.messageBold, light({ color: ThemeColors.text })]}>
             {part.slice(2, -2)}
           </Text>
         );
       }
       if (part.startsWith('_') && part.endsWith('_')) {
         return (
-          <Text key={`${keyPrefix}-italic-${index}`} style={[baseStyle, styles.messageItalic, !darkMode && { color: ThemeColors.sub }]}>
+          <Text key={`${keyPrefix}-italic-${index}`} style={[baseStyle, styles.messageItalic, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
             {part.slice(1, -1)}
           </Text>
         );
@@ -3574,8 +3603,8 @@ const AIAssistantModal: React.FC<Props> = ({
     valueStyle: any,
   ) => (
     <>
-      <Text style={[styles.messageMetricLabel, !darkMode && { color: ThemeColors.text }]}>{label}: </Text>
-      {renderInlineMarkdown(value, `${keyPrefix}-value`, [valueStyle, !darkMode && { color: ThemeColors.sub }])}
+      <Text style={[styles.messageMetricLabel, light({ color: ThemeColors.text })]}>{label}: </Text>
+      {renderInlineMarkdown(value, `${keyPrefix}-value`, [valueStyle, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])}
     </>
   );
 
@@ -3597,10 +3626,10 @@ const AIAssistantModal: React.FC<Props> = ({
       const grouped = [...metadataBuffer];
       metadataBuffer.length = 0;
       elements.push(
-        <View key={`${keyBase}-meta`} style={[styles.messageMetaBlock, !darkMode && { borderTopColor: ThemeColors.line }]}>
+        <View key={`${keyBase}-meta`} style={[styles.messageMetaBlock, light({ borderTopColor: ThemeColors.line })]}>
           {grouped.map((metaLine, index) => (
-            <Text key={`${keyBase}-meta-${index}`} style={[styles.messageMetaText, !darkMode && { color: ThemeColors.sub }]}>
-              {renderInlineMarkdown(metaLine, `${keyBase}-meta-inline-${index}`, [styles.messageMetaText, !darkMode && { color: ThemeColors.sub }])}
+            <Text key={`${keyBase}-meta-${index}`} style={[styles.messageMetaText, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
+              {renderInlineMarkdown(metaLine, `${keyBase}-meta-inline-${index}`, [styles.messageMetaText, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])}
             </Text>
           ))}
         </View>
@@ -3615,8 +3644,8 @@ const AIAssistantModal: React.FC<Props> = ({
       if (disclaimerMatch) {
         flushMetadata(`line-${index}`);
         elements.push(
-          <View key={`disclaimer-wrap-${index}`} style={[styles.messageMetaBlock, !darkMode && { borderTopColor: ThemeColors.line }]}>
-            <Text key={`disclaimer-${index}`} style={[styles.messageMetaText, !darkMode && { color: ThemeColors.sub }]}>
+          <View key={`disclaimer-wrap-${index}`} style={[styles.messageMetaBlock, light({ borderTopColor: ThemeColors.line })]}>
+            <Text key={`disclaimer-${index}`} style={[styles.messageMetaText, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
               {disclaimerMatch[1].trim()}
             </Text>
           </View>
@@ -3641,7 +3670,7 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (/^#{2,3}\s+/.test(trimmedLine)) {
         elements.push(
-          <Text key={`heading-${index}`} style={[styles.messageHeading, !darkMode && { color: ThemeColors.text }]}>
+          <Text key={`heading-${index}`} style={[styles.messageHeading, light({ color: ThemeColors.text })]}>
             {trimmedLine.replace(/^#{2,3}\s*/, '')}
           </Text>
         );
@@ -3650,8 +3679,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (looksLikeSectionBanner(cleanedLine)) {
         elements.push(
-          <View key={`banner-${index}`} style={[styles.messageSectionBanner, !darkMode && { backgroundColor: "rgba(22,163,74,0.08)", borderColor: ThemeColors.line }]}>
-            <Text style={[styles.messageSectionBannerText, !darkMode && { color: ThemeColors.text }]}>
+          <View key={`banner-${index}`} style={[styles.messageSectionBanner, light({ backgroundColor: "rgba(22,163,74,0.08)", borderColor: ThemeColors.line })]}>
+            <Text style={[styles.messageSectionBannerText, light({ color: ThemeColors.text })]}>
               {cleanedLine.replace(/:$/, '')}
             </Text>
           </View>
@@ -3665,7 +3694,7 @@ const AIAssistantModal: React.FC<Props> = ({
           .replace(/\b\w/g, (c) => c.toUpperCase());
         elements.push(
           <View key={`section-${index}`} style={styles.messageSectionHeaderWrap}>
-            <Text style={[styles.messageSectionHeader, !darkMode && { color: ThemeColors.text }]}>{humanized}</Text>
+            <Text style={[styles.messageSectionHeader, light({ color: ThemeColors.text })]}>{humanized}</Text>
           </View>
         );
         return;
@@ -3674,10 +3703,10 @@ const AIAssistantModal: React.FC<Props> = ({
       const warningMatch = cleanedLine.match(/^(⚠️|➡️)\s*(.+)$/);
       if (warningMatch) {
         elements.push(
-          <View key={`callout-${index}`} style={[styles.messageCallout, !darkMode && { backgroundColor: "rgba(0,0,0,0.04)", borderColor: ThemeColors.line }]}>
-            <Text style={[styles.messageCalloutIcon, !darkMode && { color: "#16a34a" }]}>{warningMatch[1]}</Text>
-            <Text style={[styles.messageCalloutText, !darkMode && { color: ThemeColors.text }]}>
-              {renderInlineMarkdown(warningMatch[2], `callout-${index}`, [styles.messageCalloutText, !darkMode && { color: ThemeColors.text }])}
+          <View key={`callout-${index}`} style={[styles.messageCallout, light({ backgroundColor: "rgba(0,0,0,0.04)", borderColor: ThemeColors.line })]}>
+            <Text style={[styles.messageCalloutIcon, light({ color: "#16a34a" })]}>{warningMatch[1]}</Text>
+            <Text style={[styles.messageCalloutText, light({ color: ThemeColors.text })]}>
+              {renderInlineMarkdown(warningMatch[2], `callout-${index}`, [styles.messageCalloutText, light({ color: ThemeColors.text })])}
             </Text>
           </View>
         );
@@ -3689,11 +3718,11 @@ const AIAssistantModal: React.FC<Props> = ({
         const metric = splitMetricText(bulletMatch[1]);
         elements.push(
           <View key={`bullet-${index}`} style={[styles.messageBulletRow, metric && styles.messageMetricRow]}>
-            <Text style={[styles.messageBullet, !darkMode && { color: "#16a34a" }]}>•</Text>
-            <Text style={[styles.messageListItem, !darkMode && { color: ThemeColors.text }]}>
+            <Text style={[styles.messageBullet, light({ color: "#16a34a" })]}>•</Text>
+            <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, [styles.messageMetricValue, !darkMode && { color: ThemeColors.sub }])
-                : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, [styles.messageListItem, !darkMode && { color: ThemeColors.text }])}
+                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, [styles.messageMetricValue, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])
+                : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, [styles.messageListItem, light({ color: ThemeColors.text })])}
             </Text>
           </View>
         );
@@ -3705,11 +3734,11 @@ const AIAssistantModal: React.FC<Props> = ({
         const metric = splitMetricText(numberMatch[2]);
         elements.push(
           <View key={`number-${index}`} style={[styles.messageNumberRow, metric && styles.messageMetricRow]}>
-            <Text style={[styles.messageNumberIndex, !darkMode && { color: ThemeColors.sub }]}>{numberMatch[1]}.</Text>
-            <Text style={[styles.messageListItem, !darkMode && { color: ThemeColors.text }]}>
+            <Text style={[styles.messageNumberIndex, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>{numberMatch[1]}.</Text>
+            <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `number-${index}`, [styles.messageMetricValue, !darkMode && { color: ThemeColors.sub }])
-                : renderInlineMarkdown(numberMatch[2], `number-${index}`, [styles.messageListItem, !darkMode && { color: ThemeColors.text }])}
+                ? renderMetricInline(metric.label, metric.value, `number-${index}`, [styles.messageMetricValue, light({ color: ThemeColors.sub }), darkModeChatMutedWhite])
+                : renderInlineMarkdown(numberMatch[2], `number-${index}`, [styles.messageListItem, light({ color: ThemeColors.text })])}
             </Text>
           </View>
         );
@@ -3717,8 +3746,8 @@ const AIAssistantModal: React.FC<Props> = ({
       }
 
       elements.push(
-        <Text key={`line-${index}`} style={[styles.messageText, !darkMode && { color: ThemeColors.text }]}>
-          {renderInlineMarkdown(cleanedLine, `line-${index}`, [styles.messageText, !darkMode && { color: ThemeColors.text }])}
+        <Text key={`line-${index}`} style={[styles.messageText, light({ color: ThemeColors.text })]}>
+          {renderInlineMarkdown(cleanedLine, `line-${index}`, [styles.messageText, light({ color: ThemeColors.text })])}
         </Text>
       );
     });
@@ -3772,7 +3801,7 @@ const AIAssistantModal: React.FC<Props> = ({
               </Text>
             </View>
             {item.timestamp && (
-              <Text style={styles.messageTimestamp}>{formatTimestamp(item.timestamp)}</Text>
+              <Text style={[styles.messageTimestamp, darkModeChatMutedWhite]}>{formatTimestamp(item.timestamp)}</Text>
             )}
             {(item.pdfUri || item.attachment) && (
               <TouchableOpacity
@@ -3816,12 +3845,12 @@ const AIAssistantModal: React.FC<Props> = ({
                 style={[
                   styles.messageBubble,
                   styles.assistantBubble,
-                  !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 },
+                  light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
                 ]}
               >
                 <View style={styles.assistantLabelRow}>
                   <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                  <Text style={[styles.assistantLabelText, !darkMode && { color: "#16a34a" }]}>AI Assistant</Text>
+                  <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>AI Assistant</Text>
                 </View>
                 {/* Text-first rendering (keeps classic chat format) */}
                 {renderFormattedText(item.content)}
@@ -3835,7 +3864,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       style={styles.pdfAttachmentBorder}
                     >
                       <TouchableOpacity
-                        style={[styles.pdfAttachment, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                        style={[styles.pdfAttachment, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}
                         onPress={async () => {
                           const uri = item.pdfUri || item.attachment?.uri;
                           if (uri) {
@@ -3867,7 +3896,7 @@ const AIAssistantModal: React.FC<Props> = ({
               </View>
             </LinearGradient>
             {item.timestamp && (
-              <Text style={[styles.messageTimestamp, styles.assistantTimestamp]}>
+              <Text style={[styles.messageTimestamp, styles.assistantTimestamp, darkModeChatMutedWhite]}>
                 {formatTimestamp(item.timestamp)}
               </Text>
             )}
@@ -3954,12 +3983,12 @@ const AIAssistantModal: React.FC<Props> = ({
                 styles.messageBubble,
                 styles.assistantBubble,
                 styles.typingBubble,
-                !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 },
+                light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
               ]}
             >
               <View style={styles.assistantLabelRow}>
                 <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                <Text style={[styles.assistantLabelText, !darkMode && { color: "#16a34a" }]}>AI Assistant</Text>
+                <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>AI Assistant</Text>
               </View>
               <View style={styles.typingDots}>
                 <Animated.View style={[styles.typingDot, { opacity: dotAnim1 }]} />
@@ -3984,14 +4013,14 @@ const AIAssistantModal: React.FC<Props> = ({
         enabled={true}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.gradient, !darkMode && { backgroundColor: ThemeColors.bg }]}>
+        <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg })]}>
           <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
             {/* Header — full title strip when idle; back-only when keyboard is open */}
             <View
               style={[
                 styles.header,
                 keyboardOpen && styles.headerKeyboardCompact,
-                !darkMode && { backgroundColor: ThemeColors.bg },
+                light({ backgroundColor: ThemeColors.bg }),
               ]}
             >
               <View style={styles.backButtonWrapper}>
@@ -4007,7 +4036,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       onClose();
                     }}
-                    style={[styles.backButton, !darkMode && { backgroundColor: "#FFFFFF" }]}
+                    style={[styles.backButton, light({ backgroundColor: "#FFFFFF" })]}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     activeOpacity={0.7}
                   >
@@ -4020,13 +4049,13 @@ const AIAssistantModal: React.FC<Props> = ({
                   <View style={styles.headerContent}>
                     <View style={styles.headerTitleRow}>
                       <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
-                      <Text style={[styles.headerTitle, !darkMode && { color: ThemeColors.text }]}>
+                      <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
                         AI Assistant
                       </Text>
                     </View>
                     {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
                       <>
-                        <Text style={[styles.headerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
                           {isGlobalAssistantContext
                             ? 'Command Center • All Projects'
                             : isProjectsScreenContext
@@ -4041,7 +4070,7 @@ const AIAssistantModal: React.FC<Props> = ({
                                 : `${projectInfo!.title} • ${projectInfo!.phase}`}
                         </Text>
                         {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
-                          <Text style={[styles.headerMeta, !darkMode && { color: ThemeColors.sub }]}>
+                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
                             Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
                             {projectInfo.markup}%
                           </Text>
@@ -4096,7 +4125,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             style={styles.footerSuggestionChip}
                             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                           >
-                            <Text style={styles.footerSuggestionChipText}>{s.label}</Text>
+                            <Text style={[styles.footerSuggestionChipText, darkModeChatMutedWhite]}>{s.label}</Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
@@ -4142,7 +4171,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   {isGlobalAssistantContext && displayBrief && (
                     <>
                       <View
-                        style={[styles.todayBriefCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                        style={[styles.todayBriefCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
                         accessibilityLabel="Today Brief"
                         accessibilityRole="summary"
                       >
@@ -4152,13 +4181,13 @@ const AIAssistantModal: React.FC<Props> = ({
                           end={{ x: 1, y: 1 }}
                           style={styles.todayBriefGradient}
                         >
-                          <Text style={[styles.todayBriefCardTitle, !darkMode && { color: ThemeColors.sub }]}>
+                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
                             Today Brief
                           </Text>
-                          <Text style={[styles.todayBriefGreeting, !darkMode && { color: ThemeColors.text }]}>
+                          <Text style={[styles.todayBriefGreeting, light({ color: ThemeColors.text })]}>
                             {displayBrief.reply.split('\n\n')[0]}
                           </Text>
-                          <Text style={[styles.todayBriefSubGreeting, !darkMode && { color: ThemeColors.sub }]}>
+                          <Text style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
                             Here's what needs attention today.
                           </Text>
                           {displayBrief.insights.length > 0 ? (
@@ -4166,14 +4195,14 @@ const AIAssistantModal: React.FC<Props> = ({
                               {displayBrief.insights.map((insight, i) => (
                                 <View key={i} style={styles.todayBriefInsightRow}>
                                   <View style={styles.todayBriefInsightDot} />
-                                  <Text style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}>
+                                  <Text style={[styles.todayBriefInsightItem, light({ color: ThemeColors.text })]}>
                                     {insight}
                                   </Text>
                                 </View>
                               ))}
                             </View>
                           ) : (
-                            <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, !darkMode && { color: ThemeColors.sub }]}>
+                            <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
                               Your portfolio looks quiet — no urgent items.
                             </Text>
                           )}
@@ -4182,17 +4211,17 @@ const AIAssistantModal: React.FC<Props> = ({
 
                       {/* Biggest Risk card — or All clear when no risks */}
                       {displayBrief.biggestRisk ? (
-                        <View style={[styles.biggestRiskCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}>
+                        <View style={[styles.biggestRiskCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}>
                           <View style={styles.biggestRiskHeader}>
                             <Ionicons name="warning" size={20} color="#F97316" />
-                            <Text style={[styles.biggestRiskTitle, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={[styles.biggestRiskTitle, light({ color: ThemeColors.text })]}>
                               Biggest Risk
                             </Text>
                           </View>
-                          <Text style={[styles.biggestRiskMessage, !darkMode && { color: ThemeColors.text }]}>
+                          <Text style={[styles.biggestRiskMessage, light({ color: ThemeColors.text })]}>
                             {displayBrief.biggestRisk.message}
                           </Text>
-                          <Text style={[styles.biggestRiskDetail, !darkMode && { color: ThemeColors.sub }]}>
+                          <Text style={[styles.biggestRiskDetail, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
                             {displayBrief.biggestRisk.detail}
                           </Text>
                           <TouchableOpacity
@@ -4203,25 +4232,25 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             accessibilityLabel={(displayBrief.biggestRisk as { cta?: string })?.cta || "Review Project"}
                             accessibilityRole="button"
-                            style={[styles.biggestRiskButton, !darkMode && { borderColor: ThemeColors.line }]}
+                            style={[styles.biggestRiskButton, light({ borderColor: ThemeColors.line })]}
                           >
-                            <Text style={[styles.biggestRiskButtonText, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={[styles.biggestRiskButtonText, light({ color: ThemeColors.text })]}>
                               {(displayBrief.biggestRisk as { cta?: string })?.cta || "Review Project"}
                             </Text>
                           </TouchableOpacity>
                         </View>
                       ) : (
                         <View
-                          style={[styles.allClearCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                          style={[styles.allClearCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
                           accessibilityLabel="All clear. No critical risks across your projects."
                           accessibilityRole="summary"
                         >
                           <Ionicons name="checkmark-circle" size={20} color="rgba(34, 197, 94, 0.8)" />
                           <View>
-                            <Text style={[styles.allClearTitle, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={[styles.allClearTitle, light({ color: ThemeColors.text })]}>
                               All clear
                             </Text>
-                            <Text style={[styles.allClearSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                            <Text style={[styles.allClearSubtitle, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
                               No critical risks across your projects.
                             </Text>
                           </View>
@@ -4247,9 +4276,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={qa.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }, !darkMode && { borderColor: "#16a34a", backgroundColor: "rgba(22,163,74,0.08)" }]}
+                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }, light({ borderColor: "#16a34a", backgroundColor: "rgba(22,163,74,0.08)" })]}
                           >
-                            <Text style={[styles.todayBriefQuickChipText, !darkMode && { color: "#16a34a" }]}>
+                            <Text style={[styles.todayBriefQuickChipText, light({ color: "#16a34a" })]}>
                               {qa.label}
                             </Text>
                           </TouchableOpacity>
@@ -4272,9 +4301,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={sf.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefFollowChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
+                            style={[styles.todayBriefFollowChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
                           >
-                            <Text style={[styles.todayBriefFollowChipText, !darkMode && { color: ThemeColors.text }]}>
+                            <Text style={[styles.todayBriefFollowChipText, light({ color: ThemeColors.text })]}>
                               {sf.label}
                             </Text>
                           </TouchableOpacity>
@@ -4291,16 +4320,16 @@ const AIAssistantModal: React.FC<Props> = ({
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.managerCardBorder}
                     >
-                      <View style={[styles.managerCard, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                      <View style={[styles.managerCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                     <View style={styles.managerHeaderRow}>
                       <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={[styles.managerEyebrow, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.managerEyebrow, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
                           Project automation
                         </Text>
-                        <Text style={[styles.managerTitle, !darkMode && { color: ThemeColors.text }]}>
+                        <Text style={[styles.managerTitle, light({ color: ThemeColors.text })]}>
                           AI Project Manager Mode
                         </Text>
-                        <Text style={[styles.managerSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.managerSubtitle, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
                           AI monitors cost, schedule, and margin so you can act faster.
                         </Text>
                       </View>
@@ -4311,11 +4340,14 @@ const AIAssistantModal: React.FC<Props> = ({
                         <View
                           style={[
                             styles.managerToggleWrapper,
-                            !darkMode &&
-                              !aiManagerEnabled && {
-                                backgroundColor: ThemeColors.surface2,
-                                borderColor: ThemeColors.line,
-                              },
+                            light(
+                              !aiManagerEnabled
+                                ? {
+                                    backgroundColor: ThemeColors.surface2,
+                                    borderColor: ThemeColors.line,
+                                  }
+                                : undefined,
+                            ),
                           ]}
                         >
                           <Switch
@@ -4341,23 +4373,23 @@ const AIAssistantModal: React.FC<Props> = ({
                     {aiManagerEnabled && (
                       <>
                         <View style={styles.managerChipRow}>
-                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                          <View style={[styles.managerChip, light({ backgroundColor: "rgba(34,197,94,0.18)" })]}>
+                            <Text style={[styles.managerChipText, light({ color: Colors.green })]}>
                               Costs
                             </Text>
                           </View>
-                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                          <View style={[styles.managerChip, light({ backgroundColor: "rgba(34,197,94,0.18)" })]}>
+                            <Text style={[styles.managerChipText, light({ color: Colors.green })]}>
                               Schedule
                             </Text>
                           </View>
-                          <View style={[styles.managerChip, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                            <Text style={[styles.managerChipText, !darkMode && { color: Colors.green }]}>
+                          <View style={[styles.managerChip, light({ backgroundColor: "rgba(34,197,94,0.18)" })]}>
+                            <Text style={[styles.managerChipText, light({ color: Colors.green })]}>
                               Margin
                             </Text>
                           </View>
                         </View>
-                        <Text style={[styles.managerMicrocopy, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.managerMicrocopy, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
                           Checks run when you open AI or update this project.
                         </Text>
                       </>
@@ -4376,36 +4408,37 @@ const AIAssistantModal: React.FC<Props> = ({
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.projectStripBorder}
                       >
-                        <View style={[styles.projectStrip, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                        <View style={[styles.projectStrip, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                       <View>
-                        <Text style={[styles.projectEyebrow, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.projectEyebrow, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
                           {isEstimateContext ? 'Current bid' : 'Current project'}
                         </Text>
-                        <Text style={[styles.projectTitle, !darkMode && { color: ThemeColors.text }]}>
+                        <Text style={[styles.projectTitle, light({ color: ThemeColors.text })]}>
                           {projectInfo.title}
                         </Text>
                         {isEstimateContext && projectInfo.estimateNameMissing && (
                           <Text
                             style={[
                               styles.projectSubtitle,
-                              !darkMode && { color: ThemeColors.sub },
+                              light({ color: ThemeColors.sub }),
+                              estimateDarkWhiteSubtext,
                               { fontSize: 12, marginTop: 4, lineHeight: 16 },
                             ]}
                           >
                             Fill in the bid title field to name this estimate.
                           </Text>
                         )}
-                        <Text style={[styles.projectSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                        <Text style={[styles.projectSubtitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
                           {projectInfo.phase} • ${(projectInfo.total || 0).toLocaleString()}
                         </Text>
                       </View>
 
                       <View style={styles.projectRight}>
-                        <View style={[styles.marginBadge, !darkMode && { backgroundColor: "rgba(34,197,94,0.18)" }]}>
-                          <Text style={[styles.marginBadgeLabel, !darkMode && { color: Colors.green }]}>
+                        <View style={[styles.marginBadge, light({ backgroundColor: "rgba(34,197,94,0.18)" })]}>
+                          <Text style={[styles.marginBadgeLabel, light({ color: Colors.green }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
                             {projectInfo.hasLiveProjectContext ? 'Spend-to-date' : 'Bid margin'}
                           </Text>
-                          <Text style={[styles.marginBadgeValue, !darkMode && { color: Colors.green }]}>
+                          <Text style={[styles.marginBadgeValue, light({ color: Colors.green })]}>
                             {projectInfo.hasLiveProjectContext && projectInfo.spendToDateMarginPct != null
                               ? `${Number(projectInfo.spendToDateMarginPct).toFixed(1)}%`
                               : projectInfo.bidMarginPct != null ? `${Number(projectInfo.bidMarginPct).toFixed(1)}%` : projectInfo.markup ? `${projectInfo.markup}%` : "—"}
@@ -4415,7 +4448,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         {aiManagerEnabled && (
                           <View style={styles.aiWatchingRow}>
                             <Ionicons name="sparkles-outline" size={13} color={Colors.green} />
-                            <Text style={[styles.aiWatchingText, !darkMode && { color: Colors.green }]}>
+                            <Text style={[styles.aiWatchingText, light({ color: Colors.green })]}>
                               AI watching
                             </Text>
                           </View>
@@ -4430,7 +4463,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   {isEstimateContext && estimateAssistantBrief && (
                     <View style={{ alignSelf: 'stretch' }}>
                       <View
-                        style={[styles.todayBriefCard, { marginTop: 8, marginBottom: 12 }, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line }]}
+                        style={[styles.todayBriefCard, { marginTop: 8, marginBottom: 12 }, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
                         accessibilityLabel="AI Copilot"
                         accessibilityRole="summary"
                       >
@@ -4440,18 +4473,18 @@ const AIAssistantModal: React.FC<Props> = ({
                           end={{ x: 1, y: 1 }}
                           style={styles.todayBriefGradient}
                         >
-                          <Text style={[styles.todayBriefCardTitle, !darkMode && { color: ThemeColors.sub }]}>
+                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext]}>
                             AI Copilot
                           </Text>
                           <Text
-                            style={[styles.todayBriefGreeting, !darkMode && { color: ThemeColors.text }]}
+                            style={[styles.todayBriefGreeting, light({ color: ThemeColors.text })]}
                             numberOfLines={2}
                           >
                             {estimateAssistantBrief.bestNextAction?.label || 'Best next action'}
                           </Text>
                           {!!estimateCopilotConfidenceLabel && (
                             <Text
-                              style={[styles.todayBriefSubGreeting, !darkMode && { color: ThemeColors.sub }]}
+                              style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext]}
                               numberOfLines={2}
                             >
                               {estimateCopilotConfidenceLabel}
@@ -4461,7 +4494,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             <View style={styles.todayBriefInsightRow}>
                               <View style={styles.todayBriefInsightDot} />
                               <Text
-                                style={[styles.todayBriefInsightItem, !darkMode && { color: ThemeColors.text }]}
+                                style={[styles.todayBriefInsightItem, light({ color: ThemeColors.text })]}
                                 numberOfLines={5}
                               >
                                 {estimateAssistantBrief.bestNextAction?.reason || estimateAssistantBrief.summary}
@@ -4475,7 +4508,7 @@ const AIAssistantModal: React.FC<Props> = ({
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                 handleQuickAction(estimateAssistantBrief.bestNextAction?.prompt || '');
                               }}
-                              style={[styles.estimateCopilotPrimaryOnBrief, !darkMode && { backgroundColor: '#16a34a' }]}
+                              style={[styles.estimateCopilotPrimaryOnBrief, light({ backgroundColor: '#16a34a' })]}
                             >
                               <Text style={styles.estimateCopilotPrimaryOnBriefText} numberOfLines={1}>
                                 {estimateCopilotPrimaryLabel}
@@ -4487,9 +4520,9 @@ const AIAssistantModal: React.FC<Props> = ({
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                 handleQuickAction('Review this bid before I send it.');
                               }}
-                              style={[styles.estimateCopilotSecondaryOnBrief, !darkMode && { borderColor: ThemeColors.line }]}
+                              style={[styles.estimateCopilotSecondaryOnBrief, light({ borderColor: ThemeColors.line })]}
                             >
-                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, !darkMode && { color: ThemeColors.text }]}>Run My Bid</Text>
+                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, light({ color: ThemeColors.text })]}>Run My Bid</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               activeOpacity={0.88}
@@ -4497,9 +4530,9 @@ const AIAssistantModal: React.FC<Props> = ({
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                 handleQuickAction('Give this estimate a client-facing wording and send-readiness review.');
                               }}
-                              style={[styles.estimateCopilotSecondaryOnBrief, !darkMode && { borderColor: ThemeColors.line }]}
+                              style={[styles.estimateCopilotSecondaryOnBrief, light({ borderColor: ThemeColors.line })]}
                             >
-                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, !darkMode && { color: ThemeColors.text }]}>Client Ready</Text>
+                              <Text style={[styles.estimateCopilotSecondaryOnBriefText, light({ color: ThemeColors.text })]}>Client Ready</Text>
                             </TouchableOpacity>
                           </View>
                         </LinearGradient>
@@ -4513,12 +4546,19 @@ const AIAssistantModal: React.FC<Props> = ({
                   <View style={{ height: 24 }} />
                 ) : isEstimateContext ? (
                   <View style={{ paddingVertical: 10, paddingHorizontal: 20 }}>
-                    <Text style={{ textAlign: 'center', fontSize: 13, lineHeight: 18, color: darkMode ? Colors.sub : ThemeColors.sub }}>
+                    <Text
+                      style={{
+                        textAlign: 'center',
+                        fontSize: 13,
+                        lineHeight: 18,
+                        color: darkMode ? (isEstimateContext ? '#FFFFFF' : Colors.sub) : ThemeColors.sub,
+                      }}
+                    >
                       AI Copilot is above. Ask for budget, standard, or premium pricing in chat if you want scenario comparisons.
                     </Text>
                   </View>
                 ) : (
-                <View style={[styles.greetingWrapper, !darkMode && { backgroundColor: ThemeColors.bg }, isProjectsScreenContext && { marginBottom: 8 }]}>
+                <View style={[styles.greetingWrapper, light({ backgroundColor: ThemeColors.bg }), isProjectsScreenContext && { marginBottom: 8 }]}>
                   <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
                     <LinearGradient
                       colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -4526,13 +4566,13 @@ const AIAssistantModal: React.FC<Props> = ({
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.greetingIconCircleBorder}
                     >
-                      <View style={[styles.greetingIconCircle, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                      <View style={[styles.greetingIconCircle, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                         <Ionicons name="sparkles-outline" size={26} color={Colors.green} />
                       </View>
                     </LinearGradient>
                   </View>
 
-                  <Text style={[styles.greetingTitle, !darkMode && { color: ThemeColors.text }]}>
+                  <Text style={[styles.greetingTitle, light({ color: ThemeColors.text })]}>
                     {(isProjectsScreenContext || isGlobalAssistantContext)
                       ? "Your AI command center"
                       : isEstimateContext
@@ -4540,7 +4580,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         : "Your AI project manager"}
                   </Text>
 
-                  <Text style={[styles.greetingSubtitle, !darkMode && { color: ThemeColors.sub }]}>
+                  <Text style={[styles.greetingSubtitle, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
                     {(isProjectsScreenContext || isGlobalAssistantContext) ? (
                       <>
                         Compare projects, spot risks, review budgets, and act on schedule or payment issues.
@@ -4552,7 +4592,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         Ask about line items, markup, scope, and pricing for this bid. Use the chips below or type your own question.
                       </>
                     ) : (
-                      <>Ask about <Text style={[styles.greetingHighlight, !darkMode && { color: ThemeColors.text }]}>{projectInfo?.title || "Current Project"}</Text> to review health, update costs, manage schedules, and protect profit.</>
+                      <>Ask about <Text style={[styles.greetingHighlight, light({ color: ThemeColors.text })]}>{projectInfo?.title || "Current Project"}</Text> to review health, update costs, manage schedules, and protect profit.</>
                     )}
                   </Text>
 
@@ -4564,7 +4604,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.recentSummaryBorder}
                       >
-                        <View style={[styles.recentSummaryInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                        <View style={[styles.recentSummaryInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                           <TouchableOpacity
                             style={styles.recentSummaryHeaderRow}
                             onPress={() => {
@@ -4573,22 +4613,22 @@ const AIAssistantModal: React.FC<Props> = ({
                             }}
                           >
                             <View style={{ flex: 1 }}>
-                              <Text style={[styles.recentSummaryTitle, !darkMode && { color: ThemeColors.text }]}>
+                              <Text style={[styles.recentSummaryTitle, light({ color: ThemeColors.text })]}>
                                 AI Insights
                               </Text>
-                              <Text style={[styles.recentSummaryMeta, !darkMode && { color: ThemeColors.sub }]}>
+                              <Text style={[styles.recentSummaryMeta, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
                                 {recentSummary.timestamp ? formatTimestamp(recentSummary.timestamp) : "Just now"}
                               </Text>
                             </View>
                             <Ionicons
                               name={recentSummaryExpanded ? "chevron-up" : "chevron-down"}
                               size={18}
-                              color={darkMode ? Colors.sub : ThemeColors.sub}
+                              color={darkMode ? '#FFFFFF' : ThemeColors.sub}
                             />
                           </TouchableOpacity>
 
                           {!recentSummaryExpanded ? (
-                            <Text style={[styles.recentSummaryPreview, !darkMode && { color: ThemeColors.sub }]}>
+                            <Text style={[styles.recentSummaryPreview, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>
                               {(recentSummary.content || "").replace(/\s+/g, " ").trim().slice(0, 150)}
                               {(recentSummary.content || "").length > 150 ? "..." : ""}
                             </Text>
@@ -4624,14 +4664,14 @@ const AIAssistantModal: React.FC<Props> = ({
                         style={styles.primaryButtonBorder}
                       >
                         <TouchableOpacity
-                          style={[styles.primaryButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                          style={[styles.primaryButtonInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             handleQuickAction("Give me a project health check.");
                           }}
                         >
                           <Ionicons name="sparkles-outline" size={16} color={Colors.green} />
-                          <Text style={[styles.primaryButtonText, !darkMode && { color: ThemeColors.text }]}>
+                          <Text style={[styles.primaryButtonText, light({ color: ThemeColors.text })]}>
                             Check project health
                           </Text>
                         </TouchableOpacity>
@@ -4654,7 +4694,7 @@ const AIAssistantModal: React.FC<Props> = ({
               paddingBottom: Math.max(insets.bottom, 8) + 8,
               paddingTop: 4,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
-            }, !darkMode && { borderTopColor: ThemeColors.line, shadowOpacity: 0.05 }]}>
+            }, light({ borderTopColor: ThemeColors.line, shadowOpacity: 0.05 })]}>
               {/* Global AI & Projects: Smart Quick Actions */}
               {!keyboardOpen && (isGlobalAssistantContext || isProjectsScreenContext) && (
                 <View style={styles.bottomRailSection}>
@@ -4704,9 +4744,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             }
                             handleQuickAction(message);
                           }}
-                          style={[styles.bottomRailChip, chipDisabled && { opacity: 0.5 }, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
+                          style={[styles.bottomRailChip, chipDisabled && { opacity: 0.5 }, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
                         >
-                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, light({ color: "#16a34a" })]}>{chip.label}</Text>
                         </TouchableOpacity>
                         );
                       })}
@@ -4754,9 +4794,9 @@ const AIAssistantModal: React.FC<Props> = ({
                           onPress={() => {
                             handleQuickAction(chip.prompt);
                           }}
-                          style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
+                          style={[styles.bottomRailChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
                         >
-                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, light({ color: "#16a34a" })]}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
@@ -4769,9 +4809,9 @@ const AIAssistantModal: React.FC<Props> = ({
                           onPress={() => {
                             handleQuickAction(chip.prompt);
                           }}
-                          style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
+                          style={[styles.bottomRailChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
                         >
-                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, light({ color: "#16a34a" })]}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
@@ -4793,9 +4833,9 @@ const AIAssistantModal: React.FC<Props> = ({
                       onPress={() => {
                         handleQuickAction(chip.prompt);
                       }}
-                      style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
+                      style={[styles.bottomRailChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
                     >
-                      <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
+                      <Text style={[styles.bottomRailChipText, light({ color: "#16a34a" })]}>{chip.label}</Text>
                     </TouchableOpacity>
                   ));
                   })()}
@@ -4875,14 +4915,14 @@ const AIAssistantModal: React.FC<Props> = ({
                       style={[
                         styles.bottomRailChip,
                         chip.primary && styles.compactInsightChipPrimary,
-                        !darkMode && { borderColor: ThemeColors.line },
+                        light({ borderColor: ThemeColors.line }),
                       ]}
                     >
                       <Text
                         style={[
                           styles.bottomRailChipText,
                           chip.primary && styles.compactInsightChipTextPrimary,
-                          !darkMode && { color: ThemeColors.text },
+                          light({ color: ThemeColors.text }),
                         ]}
                       >
                         {chip.label}
@@ -4899,11 +4939,11 @@ const AIAssistantModal: React.FC<Props> = ({
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.inputInnerBorder}
                 >
-                  <View style={[styles.inputInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}>
+                  <View style={[styles.inputInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                     <Ionicons
                       name="chatbox-ellipses-outline"
                       size={18}
-                      color={Colors.sub}
+                      color={darkMode ? '#FFFFFF' : Colors.sub}
                       style={styles.inputLeadIcon}
                     />
                     {isRecording ? (
@@ -4913,16 +4953,16 @@ const AIAssistantModal: React.FC<Props> = ({
                             styles.recordingDot,
                             { opacity: recordingDuration % 2 === 0 ? 1 : 0.5 }
                           ]} />
-                          <Text style={[styles.recordingText, !darkMode && { color: "#ef4444" }]}>
+                          <Text style={[styles.recordingText, light({ color: "#ef4444" })]}>
                             Recording... {recordingDuration}s
                           </Text>
                         </View>
                       </View>
                     ) : (
                       <TextInput
-                        style={[styles.input, !darkMode && { color: ThemeColors.text }]}
+                        style={[styles.input, light({ color: ThemeColors.text })]}
                         placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : isEstimateContext ? "Ask about this estimate, line items, or margins…" : "Ask anything about this project…")}
-                        placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
+                        placeholderTextColor={darkMode ? '#FFFFFF' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
                         multiline
@@ -4963,7 +5003,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   style={styles.sendButtonBorder}
                 >
                   <TouchableOpacity
-                    style={[styles.sendButtonInner, !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }]}
+                    style={[styles.sendButtonInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}
                     onPress={() => sendMessage()}
                     disabled={!input.trim() || loading || !isContextReady}
                     activeOpacity={0.7}
@@ -5052,7 +5092,7 @@ const styles = StyleSheet.create({
     color: Colors.sub,
     fontSize: 12,
     marginTop: 3,
-    opacity: 0.8,
+    opacity: 1,
   },
   backButtonWrapper: {
     marginRight: 12,
@@ -5243,7 +5283,7 @@ const styles = StyleSheet.create({
     color: Colors.sub,
     fontSize: 11.5,
     lineHeight: 17,
-    opacity: 0.8,
+    opacity: 1,
     marginBottom: 3,
   },
   messageCallout: {

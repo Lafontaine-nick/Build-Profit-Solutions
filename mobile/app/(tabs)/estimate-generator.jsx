@@ -3271,7 +3271,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   screenSubtitle: {
     fontSize: 14,
-    color: '#9ca3af',
+    color: '#FFFFFF',
     marginTop: 4,
   },
   // + New pill (Dashboard profile glow style)
@@ -15580,7 +15580,7 @@ export default function EstimateGeneratorScreen() {
         <View style={{ marginBottom: 10 }}>
           {guidedMode && shouldShowGuidance && (
             <View style={{ marginBottom: 10 }}>
-              <Text style={{ color: '#9ca3af', fontSize: 12, fontWeight: '600' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
                 Guided Setup ({guidedStepIndex} of 5)
               </Text>
             </View>
@@ -15819,7 +15819,7 @@ export default function EstimateGeneratorScreen() {
                     }}
                     style={{ paddingVertical: 10, paddingHorizontal: 12 }}
                   >
-                    <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
+                    <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -16435,7 +16435,7 @@ export default function EstimateGeneratorScreen() {
                   <Text style={{ color: '#f9fafb', fontSize: 34, fontWeight: '900', letterSpacing: -0.3 }}>
                     Restore
                   </Text>
-                  <Text style={{ color: '#9ca3af', fontSize: 14, marginTop: 6 }}>
+                  <Text style={{ color: '#FFFFFF', fontSize: 14, marginTop: 6 }}>
                     {savedEstimates.length} {savedEstimates.length === 1 ? 'saved bid' : 'saved bids'}
                   </Text>
                 </View>
@@ -16463,7 +16463,7 @@ export default function EstimateGeneratorScreen() {
                 <Text style={{ color: '#f9fafb', fontSize: 18, fontWeight: '700', marginBottom: 8, textAlign: 'center' }}>
                   No saved bids found
                 </Text>
-                <Text style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center' }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center' }}>
                   Save a bid to restore it later
                 </Text>
               </View>
@@ -16473,7 +16473,7 @@ export default function EstimateGeneratorScreen() {
                   <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 2 }}>
                     Saved Bids
                   </Text>
-                  <Text style={{ marginTop: 2, fontSize: 13, color: '#8DA0B8' }}>
+                  <Text style={{ marginTop: 2, fontSize: 13, color: '#FFFFFF' }}>
                     Tap to restore a saved bid
                   </Text>
                 </View>
@@ -16513,14 +16513,14 @@ export default function EstimateGeneratorScreen() {
                             {item.title || 'Untitled Bid'}
                           </Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                            <Ionicons name="person-outline" size={14} color="#8DA0B8" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#8DA0B8', fontSize: 13 }}>
+                            <Ionicons name="person-outline" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                            <Text style={{ color: '#FFFFFF', fontSize: 13 }}>
                               {item.customer || item.customerName || 'Unknown Customer'}
                             </Text>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="calendar-outline" size={14} color="#8DA0B8" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#8DA0B8', fontSize: 13 }}>
+                            <Ionicons name="calendar-outline" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                            <Text style={{ color: '#FFFFFF', fontSize: 13 }}>
                               {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : (item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown date')}
                             </Text>
                           </View>

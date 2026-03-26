@@ -54,7 +54,7 @@ export default function AnalyticsScreen() {
         ],
         card: '#142850',
         text: '#fff',
-        subtext: '#aaa',
+        subtext: '#FFFFFF',
         accent: '#43cea2',
       }
     : {

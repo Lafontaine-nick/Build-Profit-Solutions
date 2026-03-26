@@ -211,13 +211,13 @@ export default function SearchSuggestions({
   return (
     <View style={styles.container}>
       <View style={styles.searchContainer}>
-        <MaterialIcons name="search" size={20} color="#999" />
+        <MaterialIcons name="search" size={20} color="#FFFFFF" />
         <TextInput
           style={styles.searchInput}
           value={query}
           onChangeText={handleQueryChange}
           placeholder={placeholder}
-          placeholderTextColor="#666"
+          placeholderTextColor="#FFFFFF"
           onFocus={() => setShowSuggestions(query.length >= 2)}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
         />
@@ -229,7 +229,7 @@ export default function SearchSuggestions({
               setShowSuggestions(false);
             }}
           >
-            <MaterialIcons name="clear" size={20} color="#999" />
+            <MaterialIcons name="clear" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         )}
       </View>
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   suggestionSubtitle: {
-    color: '#999',
+    color: '#FFFFFF',
     fontSize: 12,
     marginTop: 2,
   },

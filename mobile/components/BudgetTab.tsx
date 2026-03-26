@@ -760,6 +760,12 @@ export default function BudgetTab({
         accent: '#1976d2',
       };
 
+  /** Budget Totals rows use Row() which reads theme.subtext for labels — white in dark mode for readability */
+  const budgetTotalsTheme = {
+    ...theme,
+    subtext: darkMode ? '#FFFFFF' : theme.subtext,
+  };
+
   const hasExpenses = (projectData?.expenses || []).length > 0;
   const hasEverLoggedCosts = useMemo(() => {
     const currentProjectHasCosts = (projectData?.expenses || []).some((exp: any) => Number(exp?.amount || 0) > 0);
@@ -924,27 +930,27 @@ export default function BudgetTab({
           <Row
             label='Planned Budget'
             value={money(planned, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
           />
           <Row
             label='Approved Change Orders'
             value={`+ ${money(coApproved, currency)}`}
-            theme={theme}
+            theme={budgetTotalsTheme}
           />
           <Row
             label='Adjusted Budget'
             value={money(adjustedBudget, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
           />
           <Row
             label='Actual Expenses'
             value={money(actual, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
           />
           <Row
             label='Committed POs'
             value={money(purchaseOrdersTotal, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
           />
           <Row
             label='Forecast Final Cost'
@@ -956,37 +962,37 @@ export default function BudgetTab({
                 : undefined
             }
             value={money(profitForecast.forecastFinalCost, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
             valueColor='#ef4444'
           />
           <Row
             label='Projected Profit'
             value={money(profitForecast.projectedProfit, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
             valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
           />
           <Row
             label='Spend-to-Date Margin'
             sublabel='Based on costs logged so far'
             value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
-            theme={theme}
+            theme={budgetTotalsTheme}
             valueColor={profitStatusColor}
           />
           <Row
             label='Projected Margin'
             sublabel='Based on current spend vs completion progress'
             value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
-            theme={theme}
+            theme={budgetTotalsTheme}
             valueColor={profitStatusColor}
           />
           <Row
             label='Profit Variance vs Estimate'
             value={money(profitForecast.profitVarianceVsEstimate, currency)}
-            theme={theme}
+            theme={budgetTotalsTheme}
             valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
           />
           <View style={styles.remainingSection}>
-            <Text style={[styles.remainingLabel, { color: theme.subtext }]}>
+            <Text style={[styles.remainingLabel, { color: budgetTotalsTheme.subtext }]}>
               Remaining
             </Text>
           <Bar

@@ -25,7 +25,7 @@ export default function AnalysisTypeChips({
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+      <Text style={[styles.label, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
         Do you want a quick health check or full breakdown?
       </Text>
       <View style={styles.chipsContainer}>
@@ -46,7 +46,7 @@ export default function AnalysisTypeChips({
             <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
               Quick Health Check
             </Text>
-            <Text style={[styles.chipSubtext, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+            <Text style={[styles.chipSubtext, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
               Status, budget, progress
             </Text>
           </LinearGradient>
@@ -69,7 +69,7 @@ export default function AnalysisTypeChips({
             <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
               Full Breakdown
             </Text>
-            <Text style={[styles.chipSubtext, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+            <Text style={[styles.chipSubtext, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
               Detailed analysis & insights
             </Text>
           </LinearGradient>

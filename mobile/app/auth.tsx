@@ -1366,16 +1366,9 @@ const AuthScreen: React.FC = () => {
                 </LinearGradient>
               </TouchableOpacity>
 
-              {/* Divider + OAuth */}
+              {/* OAuth (OAuthButtons includes the OR divider) */}
               {isClerkEnabled && (
                 <>
-                  <View style={styles.dividerRow}>
-                    <View style={styles.divider} />
-                    <Text style={styles.dividerText}>OR</Text>
-                    <View style={styles.divider} />
-                  </View>
-
-                  {/* OAuth buttons */}
                   <OAuthButtons
                     onGooglePress={handleGoogleSignIn}
                     onApplePress={handleAppleSignIn}
@@ -1637,22 +1630,6 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     color: "#022C22",
     fontSize: 16,
     fontWeight: "700",
-  },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 16,
-  },
-  divider: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: isDark ? "#374151" : Colors.line,
-  },
-  dividerText: {
-    marginHorizontal: 10,
-    color: isDark ? "#FFFFFF" : "#475569",
-    fontSize: 12,
-    fontWeight: "500",
   },
   footerRow: {
     flexDirection: "row",
