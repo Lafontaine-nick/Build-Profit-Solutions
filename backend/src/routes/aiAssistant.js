@@ -1036,6 +1036,18 @@ function inferPOFieldsFromUserMessages(userMessages = []) {
   return { amount, vendor, category, expectedDelivery };
 }
 
+/**
+ * True when the assistant is actively collecting change-order details.
+ * False when "change order(s)" appears only in passing (e.g. margin tips listing CO as an option).
+ */
+function assistantMessageIsChangeOrderCollectionPrompt(content) {
+  const t = String(content || '').toLowerCase();
+  if (!/\bchange\s+orders?\b/.test(t)) return false;
+  if (/\bwhat\s+is\s+(the\s+)?change\s+order\b/.test(t)) return true;
+  if (t.includes('change order') && t.includes('amount') && t.includes('vendor')) return true;
+  return false;
+}
+
 function getCOFlowUserMessages(messages = []) {
   const coIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|client wants to add|extra work)\b/i;
   let startIdx = -1;
@@ -1051,7 +1063,7 @@ function getCOFlowUserMessages(messages = []) {
   if (startIdx < 0) {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m?.role === 'assistant' && /\bchange\s+order\b/i.test(String(m?.content || ''))) {
+      if (m?.role === 'assistant' && assistantMessageIsChangeOrderCollectionPrompt(String(m?.content || ''))) {
         startIdx = i + 1;
         break;
       }
@@ -1790,8 +1802,59 @@ RULES:
 }
 
 function isEstimateAssistantScreen(parsedContext) {
-  const screen = String(parsedContext?.screen || '').toLowerCase();
-  return screen.includes('estimate');
+  if (!parsedContext || typeof parsedContext !== 'object') return false;
+  const screen = String(parsedContext.screen || '').toLowerCase();
+  if (screen.includes('estimate')) return true;
+  // Estimate Generator always sends status: 'estimate'; some clients omit or rename screen
+  if (String(parsedContext.status || '').toLowerCase() === 'estimate') return true;
+  return false;
+}
+
+/**
+ * Phrases that must get deterministic estimate price guidance (not LLM clarifying questions).
+ * Used by POST / and POST /stream so streaming clients match non-stream behavior.
+ */
+function matchesEstimatePriceGuidanceQuery(msgLower) {
+  const t = String(msgLower || '').toLowerCase();
+  const isEnoughChargeQuestion =
+    /\bcharging\s+(?:her|him|them|the\s+client|my\s+customer|the\s+customer)\s+enough\b/.test(t) ||
+    /\b(?:am i|are we)\s+charging\s+enough\b/.test(t) ||
+    (/\b(?:am i|are we)\s+charging\b/.test(t) && t.includes('enough')) ||
+    t.includes('charging enough') ||
+    t.includes('charge enough') ||
+    t.includes('is this enough') ||
+    t.includes('is that enough') ||
+    t.includes('is my bid enough') ||
+    t.includes('is my price enough') ||
+    t.includes('is this bid enough') ||
+    t.includes('is this price enough') ||
+    t.includes('am i too cheap') ||
+    t.includes('are we too cheap') ||
+    t.includes('is this too cheap') ||
+    t.includes('am i underbidding') ||
+    t.includes('are we underbidding') ||
+    t.includes('is this underbid') ||
+    t.includes('is this underpriced') ||
+    t.includes('should i raise this') ||
+    t.includes('should i raise the price') ||
+    t.includes('should i charge more') ||
+    t.includes('leaving money on the table');
+  return (
+    isEnoughChargeQuestion ||
+    t.includes('what should i charge') ||
+    t.includes('how much should i charge') ||
+    t.includes('how much do i charge') ||
+    t.includes('how much to charge') ||
+    t.includes('how much should i bid') ||
+    t.includes('what should i bid') ||
+    t.includes('what should the bid price be') ||
+    t.includes('what price should i charge') ||
+    t.includes('is this bid too low') ||
+    t.includes('is this price too low') ||
+    t.includes('what should i price this at') ||
+    /\bhow much\b.*\b(?:charge|bid|price)\b/.test(t) ||
+    /\b(?:charge|bid|price)\b.*\b(?:enough|too low|fair)\b/.test(t)
+  );
 }
 
 /** Broad "let's start this bid" phrasing — deterministic Step 1 reply (matches in-app copy). */
@@ -1832,15 +1895,15 @@ function buildEstimateStep1BuildBidStarterReply(parsedContext) {
   const footer = missing
     ? 'Still need: **name, phone, address.**'
     : '**Customer name, phone, and address are already on this estimate.** Add **notes** if you want, or continue with **project information** (title, type, description—**start/end dates optional**).';
-  return (
+  return appendEstimateAssistantDisclaimer(
     '## Step 1 — Customer information\n\n' +
-    'To start this bid, I only need:\n\n' +
-    '• **Client name**\n' +
-    '• **Phone number**\n' +
-    '• **Address** (street + city/state/ZIP, or one line)\n\n' +
-    '**Optional:** any **notes** that matter for the job.\n\n' +
-    'Email is **not** required up front — you can add it when you send the proposal.\n\n' +
-    footer
+      'To start this bid, I only need:\n\n' +
+      '• **Client name**\n' +
+      '• **Phone number**\n' +
+      '• **Address** (street + city/state/ZIP, or one line)\n\n' +
+      '**Optional:** any **notes** that matter for the job.\n\n' +
+      'Email is **not** required up front — you can add it when you send the proposal.\n\n' +
+      footer
   );
 }
 
@@ -1938,6 +2001,7 @@ function shouldSkipEstimateLabel(label) {
   const lower = String(label || '').toLowerCase().trim();
   if (!lower) return true;
   if (lower.length < 2) return true;
+  if (/\b(other\s+overhead|insurance\s+overhead|equipment\s+maintenance|other\s+direct)\b/i.test(lower)) return false;
   return /\b(payment|deposit|markup|margin|overhead|health|budget|breakdown|week|weeks|schedule|client|customer|job|project|las vegas|nevada)\b/i.test(lower);
 }
 
@@ -2682,10 +2746,16 @@ function normalizeEstimateUserMessageText(input) {
     .replace(/\u2018|\u2019/g, "'");
 }
 
+function isShortEstimateAffirmative(message) {
+  const t = normalizeEstimateUserMessageText(String(message || '')).trim().toLowerCase();
+  return /^(yes|y|yeah|yep|ok|okay|sure|confirm|confirmed|do it|go ahead|sounds good|correct|right|exactly|apply)$/i.test(t);
+}
+
 /** True when the user is likely submitting Step 1 customer/contact text (not a generic question). */
 function looksLikeCustomerInfoSubmission(message) {
   const t = normalizeEstimateUserMessageText(String(message || ''));
   if (t.length < 2) return false;
+  if (isShortEstimateAffirmative(t)) return false;
   const lower = t.toLowerCase();
   if (/^\s*(what|how|why|when|where|which|should|could|would|is|are|does|do|can|tell me|show me)\b/i.test(t) && t.length < 80 && !/\d{3}[-.\s]?\d{3}/.test(t)) {
     return false;
@@ -2789,6 +2859,7 @@ function formatEstimateCustomerAddressDisplay(action) {
 function parseEstimateStep1CustomerInfo(message) {
   const text = normalizeEstimateUserMessageText(String(message || '')).trim();
   if (!text) return null;
+  if (isShortEstimateAffirmative(text)) return null;
   const out = {};
 
   let work = text;
@@ -3006,7 +3077,8 @@ RULES:
 → **Project start/end dates:** When the user states a real date (e.g. "March 31, 2026" or "03-31-2026"), the app saves it through an in-app **Confirm** action that updates the same fields as the date pickers. Do **not** say you cannot set dates or that they must only use separate settings—unless no date was provided yet, in which case ask for one (natural language or **MM-DD-YYYY**). When you echo dates in chat, prefer **MM-DD-YYYY** (not raw ISO).
 ${currentStepNumber === 2 ? `→ **Step 2 (Project Information):** Prompt for **project title**, **project type**, and **project description/scope**. Mention **start date** and **end date** if helpful—**dates are optional**. **Do not ask for square footage** unless the user volunteers it or asks for unit-rate / per‑sq‑ft pricing; never block the flow on sq ft.\n` : ''}→ If checklist items are missing, prioritize the most important 1-2 missing items in your answer.
 → If the estimate is not ready, guide the user to the next setup action instead of acting like the bid is final.
-→ When totals are needed, prefer the Precomputed totals above over re-deriving from line items.`;
+→ When totals are needed, prefer the Precomputed totals above over re-deriving from line items.
+${currentStepNumber === 7 ? `→ **Step 7 (Payment schedule):** If you offer payment-structure choices, use: **(1) Deposit + milestone payments**, **(2) Deposit + weekly progress payments** (weekly schedules here include a deposit plus weekly splits of the remainder), **(3) Custom schedule**. When the user states a **deposit as a percentage of the bid total**, use **Precomputed totals → total** to show the **exact dollar deposit**, then ask them to **confirm** before applying. **Never** ask for an expense **vendor** or **category** for estimate payment setup — those belong to job expenses, not the bid payment schedule.\n` : ''}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3986,11 +4058,7 @@ function matchPendingPaymentByName(pendingPayments = [], rawName = '') {
   }) || null;
 }
 
-/**
- * Run the deterministic missing cost scan — no router, no CO flow.
- * Used by both the dedicated endpoint and the early check in the main handler.
- */
-function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses, parsedContext, currentProjectData }) {
+function computeEstimateMissingCostScan({ estimatedCost, estimateData, bidTotal, actualCost, expenses, parsedContext, currentProjectData }) {
   const baseEstimateCost = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || bidTotal || 0);
   const materialLineItems = Array.isArray(estimateData?.materialLineItems) ? estimateData.materialLineItems : [];
   const laborLineItems = Array.isArray(estimateData?.laborLineItems) ? estimateData.laborLineItems : [];
@@ -4009,10 +4077,11 @@ function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal
   const hasMaterials = materialBudgetEarly > 0 || materialLineItems.length > 0 || hasKeyword(['material', 'equipment', 'lumber', 'tile', 'drywall']);
   const hasLabor = laborBudgetEarly > 0 || laborLineItems.length > 0 || laborSpentEarly > 0 || hasKeyword(['labor', 'framing', 'electrical', 'plumbing', 'paint']);
   const hasPermits = Number(estimateData?.permitCost || 0) > 0 || Number(estimateData?.planCost || 0) > 0 || hasKeyword(['permit', 'permits', 'inspection', 'plan', 'plans', 'plan check', 'city fee']);
-  const hasOverhead = Number(estimateData?.overheadTotal || 0) > 0 || Number(estimateData?.insuranceOverhead || 0) > 0 || Number(estimateData?.facilities || 0) > 0 || Number(estimateData?.equipment || 0) > 0 || Number(estimateData?.otherOverhead || 0) > 0 || hasKeyword(['overhead', 'insurance', 'supervision', 'mobilization']);
+  const hasOverhead = Number(estimateData?.overheadTotal || 0) > 0 || Number(estimateData?.insuranceOverhead || 0) > 0 || Number(estimateData?.facilities || 0) > 0 || Number(estimateData?.equipmentMaintenance || 0) > 0 || Number(estimateData?.otherOverhead || 0) > 0 || hasKeyword(['overhead', 'insurance', 'supervision', 'mobilization']);
   const hasContingency = Number(estimateData?.contingency || 0) > 0 || Number(estimateData?.contingencyAmount || 0) > 0 || Number(estimateData?.contingencyPct || 0) > 0 || hasKeyword(['contingency', 'allowance', 'unexpected']);
   const hasDeliveryOrDisposal = hasKeyword(['delivery', 'freight', 'shipping', 'dumpster', 'disposal', 'haul']);
   const hasTaxesOrFees = hasKeyword(['tax', 'sales tax', 'fee', 'processing fee']);
+  const projectType = String(estimateData?.projectType || parsedContext?.estimateData?.projectType || parsedContext?.bidData?.projectType || '').toLowerCase();
   const basis = baseEstimateCost > 0 ? baseEstimateCost : (bidTotal > 0 ? bidTotal : 0);
   const toRange = (minPct, maxPct) => ({ min: Math.round(basis * minPct), max: Math.round(basis * maxPct) });
   const gaps = [];
@@ -4023,14 +4092,47 @@ function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal
   if (!hasContingency) gaps.push({ title: 'Contingency reserve', reason: 'No contingency buffer found', range: toRange(0.05, 0.1) });
   if (!hasDeliveryOrDisposal) gaps.push({ title: 'Delivery, disposal, haul-away', reason: 'Logistics/waste costs not found', range: toRange(0.01, 0.04) });
   if (!hasTaxesOrFees) gaps.push({ title: 'Taxes & processing fees', reason: 'Tax/fee line items not found', range: toRange(0.01, 0.03) });
+  if (projectType === 'kitchen' && !hasKeyword(['appliance', 'cabinet hardware', 'backsplash', 'countertop', 'demo', 'protection'])) {
+    gaps.push({ title: 'Kitchen finish / protection allowances', reason: 'Typical kitchen demo, protection, appliance or finish accessories are not obvious', range: toRange(0.03, 0.08) });
+  }
+  if (projectType === 'bathroom' && !hasKeyword(['waterproof', 'waterproofing', 'shower pan', 'glass', 'fixture', 'accessory'])) {
+    gaps.push({ title: 'Bathroom waterproofing / fixture accessories', reason: 'Typical bath waterproofing, shower glass, or fixture accessories are not obvious', range: toRange(0.03, 0.09) });
+  }
+  if ((projectType.includes('addition') || projectType === 'new_build') && !hasKeyword(['foundation', 'framing', 'sheathing', 'roof', 'insulation'])) {
+    gaps.push({ title: 'Structural shell scope', reason: 'Addition/new-build shell costs are not obvious in the estimate data', range: toRange(0.08, 0.2) });
+  }
   const totalMin = gaps.reduce((s, g) => s + Number(g.range?.min || 0), 0);
   const totalMax = gaps.reduce((s, g) => s + Number(g.range?.max || 0), 0);
   const totalLineItems = materialLineItems.length + laborLineItems.length + genericLineItems.length;
+  return {
+    baseEstimateCost,
+    actualCost: Number(actualCost || 0),
+    totalLineItems,
+    gaps,
+    totalMin,
+    totalMax,
+  };
+}
+
+/**
+ * Run the deterministic missing cost scan — no router, no CO flow.
+ * Used by both the dedicated endpoint and the early check in the main handler.
+ */
+function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal, actualCost, expenses, parsedContext, currentProjectData }) {
+  const {
+    baseEstimateCost,
+    actualCost: safeActualCost,
+    totalLineItems,
+    gaps,
+    totalMin,
+    totalMax,
+  } = computeEstimateMissingCostScan({ estimatedCost, estimateData, bidTotal, actualCost, expenses, parsedContext, currentProjectData });
+  const basis = baseEstimateCost > 0 ? baseEstimateCost : (Number(bidTotal || 0) > 0 ? Number(bidTotal || 0) : 0);
   let reply = `✅ Scanned ${projectName ? `"${projectName}"` : 'this project'} for missing costs.\n\n`;
   reply += `📊 Estimate snapshot:\n`;
   reply += `- Line items found: ${totalLineItems}\n`;
   reply += `- Estimated Cost: $${Math.round(baseEstimateCost).toLocaleString()}\n`;
-  reply += `- Actual Spent: $${Math.round(actualCost).toLocaleString()}\n\n`;
+  reply += `- Actual Spent: $${Math.round(safeActualCost).toLocaleString()}\n\n`;
   if (basis === 0) {
     reply += `⚠️ I can't run a reliable gap scan yet because no estimate total or line items are in context.\n`;
     reply += `➡️ Add estimate line items first, then run "Scan for missing costs" again.`;
@@ -4129,7 +4231,7 @@ function buildEstimateStartBidReply({ parsedContext, estimateData }) {
   }
 
   return {
-    reply: lines.join('\n'),
+    reply: appendEstimateAssistantDisclaimer(lines.join('\n')),
     suggestedFollowUps: [
       { label: 'Name + phone + address', prompt: 'Client name is [name], phone [phone], address [address].' },
       { label: 'Add notes', prompt: 'Notes for this client/job: [notes].' },
@@ -4164,7 +4266,7 @@ function buildEstimateCopilotReply({ parsedContext, estimateData, projectName })
     replyParts.push(`Best next action: ${brief.bestNextAction.label}.`);
   }
   return {
-    reply: replyParts.join('\n\n'),
+    reply: appendEstimateAssistantDisclaimer(replyParts.join('\n\n')),
     suggestedFollowUps: buildEstimateSuggestedFollowUpsFromBrief(parsedContext, [
       { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
       { label: 'What’s Missing', prompt: 'What is missing from this estimate right now?' },
@@ -4207,11 +4309,335 @@ function buildEstimateClientReadyReview({ parsedContext, estimateData, projectNa
   });
   reply += `\nNext best action:\n1. Tighten the scope wording.\n2. Confirm payment language.\n3. Run one final send-readiness review.\n`;
   return {
-    reply,
+    reply: appendEstimateAssistantDisclaimer(reply),
     suggestedFollowUps: [
       { label: 'Proposal Wording', prompt: 'Improve the proposal wording for this estimate.' },
       { label: 'Check Exclusions', prompt: 'What exclusions or allowance notes should I add before sending?' },
       { label: 'Run Final Review', prompt: 'Review this bid before I send it.' },
+    ],
+  };
+}
+
+const ESTIMATE_ASSISTANT_DISCLAIMER_SNIP = 'illustrative, not live market pricing';
+
+/** Appended to estimate-assistant replies; mobile renders [DISCLAIMER]...[/DISCLAIMER] as footer meta. */
+function appendEstimateAssistantDisclaimer(reply) {
+  const base = String(reply || '');
+  if (base.includes(ESTIMATE_ASSISTANT_DISCLAIMER_SNIP)) return base;
+  return (
+    base +
+    '\n\n[DISCLAIMER]Guidance only, not legal, tax, or professional advice. Numbers and benchmarks are illustrative, not live market pricing. Verify scope, pricing, and contract terms before sending.[/DISCLAIMER]'
+  );
+}
+
+const ESTIMATE_PRICING_BENCHMARKS = {
+  kitchen: {
+    label: 'kitchen remodel',
+    markup: { min: 18, max: 30, optimal: 22 },
+    sqft: { min: 85, max: 140, avg: 112 },
+  },
+  bathroom: {
+    label: 'bathroom remodel',
+    markup: { min: 18, max: 28, optimal: 22 },
+    sqft: { min: 120, max: 200, avg: 160 },
+  },
+  room_addition: {
+    label: 'room addition',
+    markup: { min: 15, max: 24, optimal: 19 },
+    sqft: { min: 100, max: 180, avg: 140 },
+  },
+  home_addition: {
+    label: 'home addition',
+    markup: { min: 15, max: 24, optimal: 19 },
+    sqft: { min: 100, max: 180, avg: 140 },
+  },
+  new_build: {
+    label: 'new build',
+    markup: { min: 10, max: 20, optimal: 15 },
+    sqft: { min: 80, max: 150, avg: 115 },
+  },
+  landscaping: {
+    label: 'landscaping',
+    markup: { min: 15, max: 28, optimal: 20 },
+    sqft: null,
+  },
+  other: {
+    label: 'general residential project',
+    markup: { min: 15, max: 30, optimal: 20 },
+    sqft: { min: 75, max: 125, avg: 100 },
+  },
+};
+
+const ESTIMATE_REGION_MULTIPLIERS = {
+  ca: 1.25,
+  california: 1.25,
+  wa: 1.2,
+  washington: 1.2,
+  or: 1.15,
+  oregon: 1.15,
+  nv: 1.0,
+  nevada: 1.0,
+  az: 0.95,
+  arizona: 0.95,
+  co: 1.15,
+  colorado: 1.15,
+  tx: 0.9,
+  texas: 0.9,
+  ga: 0.95,
+  georgia: 0.95,
+  il: 1.1,
+  illinois: 1.1,
+  fl: 1.05,
+  florida: 1.05,
+  ny: 1.15,
+  'new york': 1.15,
+  national: 1.0,
+};
+
+function getEstimatePricingBenchmarkContext({ estimateData, parsedContext }) {
+  const projectType = String(
+    estimateData?.projectType ||
+    parsedContext?.estimateData?.projectType ||
+    parsedContext?.bidData?.projectType ||
+    'other'
+  ).toLowerCase();
+  const benchmark = ESTIMATE_PRICING_BENCHMARKS[projectType] || ESTIMATE_PRICING_BENCHMARKS.other;
+
+  const rawState = String(
+    estimateData?.customerState ||
+    parsedContext?.state ||
+    parsedContext?.estimateData?.customerState ||
+    ''
+  ).trim().toLowerCase();
+  const regionMultiplier = ESTIMATE_REGION_MULTIPLIERS[rawState] || 1.0;
+
+  const sqft = Number(
+    estimateData?.squareFootage ||
+    estimateData?.sqft ||
+    parsedContext?.squareFootage ||
+    parsedContext?.sqft ||
+    0
+  );
+
+  return {
+    projectType,
+    benchmark,
+    stateKey: rawState || 'national',
+    regionMultiplier,
+    squareFootage: Number.isFinite(sqft) && sqft > 0 ? sqft : 0,
+  };
+}
+
+function computeEstimatePriceTargets(totalCost) {
+  const baseCost = Number(totalCost || 0);
+  const targets = [15, 20, 25]
+    .map((marginPct) => {
+      const ratio = 1 - marginPct / 100;
+      if (baseCost <= 0 || ratio <= 0) return null;
+      const bid = Math.round((baseCost / ratio) * 100) / 100;
+      return {
+        marginPct,
+        bid,
+        profit: Math.round((bid - baseCost) * 100) / 100,
+      };
+    })
+    .filter(Boolean);
+  return targets;
+}
+
+function buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectName, bidTotal }) {
+  const calcTotals = parsedContext?.calcTotals || {};
+  const subtotal = Number(calcTotals?.subtotal ?? estimateData?.subtotal ?? estimateData?.totalCost ?? estimateData?.baseCost ?? 0);
+  const total = Number(calcTotals?.total ?? bidTotal ?? estimateData?.totalBid ?? 0);
+  const markupPct = Number(estimateData?.markupPct ?? estimateData?.markup ?? 0);
+  const marginPct = Number(calcTotals?.marginPercent ?? estimateData?.marginPercent ?? estimateData?.marginPct ?? estimateData?.margin ?? 0);
+  const title = projectName || estimateData?.title || parsedContext?.bidTitle || 'this estimate';
+  const missingScan = computeEstimateMissingCostScan({
+    estimatedCost: subtotal,
+    estimateData,
+    bidTotal: total,
+    actualCost: parsedContext?.actualCost || parsedContext?.totalSpent || 0,
+    expenses: parsedContext?.expenses || [],
+    parsedContext,
+    currentProjectData: parsedContext?.currentProjectData || null,
+  });
+  const {
+    benchmark,
+    stateKey,
+    regionMultiplier,
+    squareFootage,
+  } = getEstimatePricingBenchmarkContext({ estimateData, parsedContext });
+  const riskBufferMid = missingScan.gaps.length > 0
+    ? Math.round(((missingScan.totalMin + missingScan.totalMax) / 2) * 100) / 100
+    : 0;
+  const adjustedCost = subtotal + riskBufferMid;
+  const targets = computeEstimatePriceTargets(subtotal);
+  const adjustedTargets = riskBufferMid > 0 ? computeEstimatePriceTargets(adjustedCost) : [];
+
+  if (subtotal <= 0) {
+    return {
+      reply: appendEstimateAssistantDisclaimer(
+        `I can price-check **${title}**, but I still need reliable cost coverage first. Add materials, labor, and overhead so I’m not guessing at the bid price.`
+      ),
+      suggestedFollowUps: [
+        { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+        { label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+      ],
+    };
+  }
+
+  const currentAssessment =
+    total <= 0
+      ? 'No final bid total is set yet.'
+      : marginPct < 15
+        ? 'Your current price looks thin for contractor protection.'
+        : marginPct < 20
+          ? 'Your current price is workable, but not especially protected.'
+          : 'Your current price looks reasonably protected.';
+  const verdict =
+    total <= 0
+      ? 'Set a final bid total before I can tell if this price is enough.'
+      : marginPct < 15
+        ? 'No - this looks underpriced right now.'
+        : missingScan.gaps.length > 0 && marginPct < 20
+          ? 'Maybe - the price is close, but missing-cost risk still makes it feel thin.'
+          : missingScan.gaps.length > 0
+            ? 'Mostly yes - but keep some cushion because I still see missing-cost risk.'
+            : marginPct >= 20
+              ? 'Yes - this looks reasonably protected at the current numbers.'
+              : 'Close - but I would prefer a little more protection.';
+
+  const benchmarkBidMin = Math.round(subtotal * (1 + (benchmark?.markup?.min || 0) / 100));
+  const benchmarkBidOptimal = Math.round(subtotal * (1 + (benchmark?.markup?.optimal || 0) / 100));
+  const benchmarkBidMax = Math.round(subtotal * (1 + (benchmark?.markup?.max || 0) / 100));
+
+  const lines = [
+    `**Price guidance for ${title}**`,
+    '',
+    `**Verdict:** ${verdict}`,
+    '',
+    `- **Estimated cost:** $${Math.round(subtotal).toLocaleString()}`,
+    ...(total > 0 ? [`- **Current bid:** $${Math.round(total).toLocaleString()}`] : []),
+    ...(markupPct > 0 ? [`- **Current markup:** ${Math.round(markupPct * 10) / 10}%`] : []),
+    ...(marginPct > 0 ? [`- **Current margin:** ${Math.round(marginPct * 10) / 10}%`] : []),
+    '',
+    currentAssessment,
+  ];
+
+  lines.push('', '**How I am figuring it out**');
+  lines.push(`- **Base estimate math:** I start with your current estimated cost of **$${Math.round(subtotal).toLocaleString()}** and calculate protected bid prices from margin targets.`);
+  if (benchmark?.markup) {
+    lines.push(`- **Project-type benchmark check:** for a **${benchmark.label}**, the benchmark markup range in this app is about **${benchmark.markup.min}% to ${benchmark.markup.max}%**, with **${benchmark.markup.optimal}%** as the typical target.`);
+  }
+  if (missingScan.gaps.length > 0) {
+    lines.push(`- **Missing-cost risk:** I also see likely gaps such as **${missingScan.gaps.slice(0, 2).map((gap) => gap.title).join('** and **')}**, so a safer price should account for that.`);
+  }
+  if (squareFootage > 0 && benchmark?.sqft) {
+    const low = Math.round(squareFootage * benchmark.sqft.min * regionMultiplier);
+    const high = Math.round(squareFootage * benchmark.sqft.max * regionMultiplier);
+    lines.push(`- **Regional / size heuristic:** using **${squareFootage.toLocaleString()} sq ft** and the current region multiplier (**${regionMultiplier.toFixed(2)}** for ${stateKey || 'national'}), a rough market-style range is about **$${low.toLocaleString()} to $${high.toLocaleString()}**.`);
+  } else if (stateKey && stateKey !== 'national' && regionMultiplier !== 1.0) {
+    lines.push(`- **Regional context:** I am applying a **${regionMultiplier.toFixed(2)}x** regional benchmark lens for **${stateKey.toUpperCase()}** when I compare your pricing posture, but your main price recommendation still starts from your own estimate costs.`);
+  }
+
+  if (targets.length > 0) {
+    lines.push('', '**Target bid prices**');
+    targets.forEach((target) => {
+      lines.push(`- To protect **${target.marginPct}% margin**: about **$${Math.round(target.bid).toLocaleString()}**`);
+    });
+    lines.push(`- Benchmark markup range on current cost: about **$${benchmarkBidMin.toLocaleString()} to $${benchmarkBidMax.toLocaleString()}**`);
+    lines.push(`- Benchmark-optimal markup on current cost: about **$${benchmarkBidOptimal.toLocaleString()}**`);
+    const safer = (adjustedTargets.find((t) => t.marginPct === 20) || adjustedTargets[0]) || (targets.find((t) => t.marginPct === 20) || targets[0]);
+    if (safer) {
+      if (adjustedTargets.length > 0) {
+        lines.push('', `Because I see possible missing-cost risk, a safer anchor is about **$${Math.round(safer.bid).toLocaleString()}** using an added risk buffer of roughly **$${Math.round(riskBufferMid).toLocaleString()}**.`);
+      } else {
+        lines.push('', `If you want a safer default, I would anchor this bid around **$${Math.round(safer.bid).toLocaleString()}**.`);
+      }
+    }
+  }
+
+  return {
+    reply: appendEstimateAssistantDisclaimer(lines.join('\n')),
+    suggestedFollowUps: [
+      { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
+      { label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+      { label: 'Make This Safer', prompt: 'Make this estimate safer.' },
+    ],
+  };
+}
+
+function buildEstimateFixFirstReply({ parsedContext, estimateData, projectName, bidTotal }) {
+  const review = runEstimateReview({ parsedContext, estimateData, projectName, bidTotal });
+  const calcTotals = parsedContext?.calcTotals || {};
+  const marginPct = Number(calcTotals?.marginPercent ?? estimateData?.marginPercent ?? estimateData?.marginPct ?? estimateData?.margin ?? 0);
+  const paymentSchedule = estimateData?.paymentSchedule || parsedContext?.paymentSchedule || null;
+  const missingReply = computeEstimateMissingCostScan({
+    estimatedCost: calcTotals?.subtotal ?? estimateData?.totalCost ?? estimateData?.baseCost ?? 0,
+    estimateData,
+    bidTotal: Number(calcTotals?.total ?? bidTotal ?? estimateData?.totalBid ?? 0),
+    actualCost: 0,
+    expenses: parsedContext?.expenses || [],
+    parsedContext,
+    currentProjectData: parsedContext?.currentProjectData || null,
+  });
+  const actions = [];
+  if (!Number(calcTotals?.materials ?? estimateData?.materialTotal ?? 0)) actions.push('Add missing materials / equipment coverage.');
+  if (!Number(calcTotals?.labor ?? estimateData?.laborTotal ?? 0)) actions.push('Add labor by trade so the bid is real, not just material-driven.');
+  if (marginPct > 0 && marginPct < 15) actions.push('Raise the price or markup because the current margin is thin.');
+  if (!paymentSchedule || !parsedContext?.hasPaymentSchedule) actions.push('Set a protective payment schedule so cash flow is not back-loaded.');
+  if (missingReply.gaps.length > 0) actions.push(`Check likely missing costs like ${missingReply.gaps.slice(0, 2).map((g) => g.title.toLowerCase()).join(' and ')}.`);
+
+  const unique = Array.from(new Set(actions)).slice(0, 3);
+  return {
+    reply: appendEstimateAssistantDisclaimer(
+      [
+        `**Fix first for ${projectName || estimateData?.title || 'this estimate'}**`,
+        '',
+        ...(unique.length > 0 ? unique.map((line, index) => `${index + 1}. ${line}`) : ['1. This estimate is in decent shape — run a final send-readiness review.']),
+        '',
+        'After that, run **Review this bid** again to see what moved.',
+      ].join('\n')
+    ),
+    suggestedFollowUps: (review?.suggestedFollowUps || []).slice(0, 4),
+  };
+}
+
+function buildEstimateSafetyReview({ parsedContext, estimateData, projectName, bidTotal }) {
+  const calcTotals = parsedContext?.calcTotals || {};
+  const marginPct = Number(calcTotals?.marginPercent ?? estimateData?.marginPercent ?? estimateData?.marginPct ?? estimateData?.margin ?? 0);
+  const markupPct = Number(estimateData?.markupPct ?? estimateData?.markup ?? 0);
+  const paymentSchedule = estimateData?.paymentSchedule || parsedContext?.paymentSchedule || null;
+  const missing = computeEstimateMissingCostScan({
+    estimatedCost: calcTotals?.subtotal ?? estimateData?.totalCost ?? estimateData?.baseCost ?? 0,
+    estimateData,
+    bidTotal: Number(calcTotals?.total ?? bidTotal ?? estimateData?.totalBid ?? 0),
+    actualCost: 0,
+    expenses: parsedContext?.expenses || [],
+    parsedContext,
+    currentProjectData: parsedContext?.currentProjectData || null,
+  });
+  const title = projectName || estimateData?.title || 'this estimate';
+  const moves = [];
+  if (paymentSchedule !== 'weekly' && !parsedContext?.hasPaymentSchedule) moves.push('Pull cash forward with a deposit + progress payment schedule.');
+  if (marginPct > 0 && marginPct < 18) moves.push(`Raise the price enough to protect at least an 18-20% margin (current margin is ${Math.round(marginPct * 10) / 10}%).`);
+  else if (!markupPct || markupPct < 18) moves.push('Review markup before sending so profit is not thin.');
+  if (missing.gaps.length > 0) moves.push(`Cover likely gaps such as ${missing.gaps.slice(0, 2).map((g) => g.title.toLowerCase()).join(' and ')}.`);
+
+  return {
+    reply: appendEstimateAssistantDisclaimer(
+      [
+        `**Make ${title} safer**`,
+        '',
+        ...(moves.length > 0 ? moves.map((line, index) => `${index + 1}. ${line}`) : ['1. The main structure already looks reasonably protected.']),
+        '',
+        'Best sequence: fix missing costs first, then confirm markup / price, then tighten payment timing.',
+      ].join('\n')
+    ),
+    suggestedFollowUps: [
+      { label: 'Review Markup', prompt: 'Review my markup and margin for this estimate.' },
+      { label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' },
+      { label: 'Set Payments', prompt: 'Help me set up the payment schedule for this estimate.' },
     ],
   };
 }
@@ -4242,7 +4668,7 @@ function buildEstimateProposalWordingReply({ estimateData, projectName }) {
     '1. Pair this with clear exclusions and allowance notes before sending.',
   ].join('\n');
   return {
-    reply,
+    reply: appendEstimateAssistantDisclaimer(reply),
     suggestedFollowUps: [
       { label: 'Check Exclusions', prompt: 'What exclusions or allowance notes should I add before sending?' },
       { label: 'Client Ready Review', prompt: 'Give this estimate a client-facing wording and send-readiness review.' },
@@ -4266,13 +4692,476 @@ function buildEstimateExclusionsReply({ estimateData }) {
     '1. Add only the exclusions that truly fit this job so the estimate stays clean and credible.',
   ].join('\n');
   return {
-    reply,
+    reply: appendEstimateAssistantDisclaimer(reply),
     suggestedFollowUps: [
       { label: 'Proposal Wording', prompt: 'Improve the proposal wording for this estimate.' },
       { label: 'Client Ready Review', prompt: 'Give this estimate a client-facing wording and send-readiness review.' },
       { label: 'Run Final Review', prompt: 'Review this bid before I send it.' },
     ],
   };
+}
+
+/**
+ * Detect user intent to set estimate markup % (Step 5). Phrases like "markup percent of 25%" do not match the older
+ * "make markup to 25%" pattern — include common variants so the app receives set_markup_percentage actions.
+ */
+function extractEstimateMarkupPercentIntent(lower, estimateData = null) {
+  const ed = estimateData || {};
+  const current = Number(ed.markupPct ?? ed.markup ?? 0);
+  const s = String(lower || '');
+  const patterns = [
+    /\b(?:set|change|update|make)\s+(?:the\s+)?markup(?:\s+to)?\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\b(?:set|change|update|make)\s+(?:the\s+)?markup\s+(?:percent|percentage)\s+(?:of|to)\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\bmarkup\s+(?:percent|percentage)\s+(?:of|to)\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\b(?:let'?s|let us)\s+make\s+markup(?:\s+(?:percent|percentage))?\s+(?:of|to)\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\bmarkup\s+to\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\b(?:put|bump)\s+(?:the\s+)?markup\s+(?:at|to)\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\b(?:increase|raise|lower|reduce)\s+(?:my\s+|the\s+)?markup\s+to\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m?.[1] != null) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 0 && n <= 100) return n;
+    }
+  }
+  // Relative change (after absolute "to X%" patterns so "increase markup to 25%" wins)
+  let rel = s.match(/\b(?:increase|raise|bump)\s+(?:the\s+)?markup\s+(?:by|of)\s+(\d{1,3}(?:\.\d+)?)\s*%/i);
+  if (rel?.[1] != null) {
+    const delta = Number(rel[1]);
+    if (Number.isFinite(delta) && delta >= 0) return Math.min(100, Math.max(0, Math.round((current + delta) * 100) / 100));
+  }
+  rel = s.match(/\b(?:decrease|reduce|lower)\s+(?:the\s+)?markup\s+(?:by|of)\s+(\d{1,3}(?:\.\d+)?)\s*%/i);
+  if (rel?.[1] != null) {
+    const delta = Number(rel[1]);
+    if (Number.isFinite(delta) && delta >= 0) return Math.min(100, Math.max(0, Math.round((current - delta) * 100) / 100));
+  }
+  rel = s.match(/\b(?:increase|raise|bump)\s+(?:the\s+)?markup\s+(?:by|of)\s+(\d{1,3}(?:\.\d+)?)\b/i);
+  if (rel?.[1] != null && !/\bmarkup\s+to\b/i.test(s)) {
+    const delta = Number(rel[1]);
+    if (Number.isFinite(delta) && delta >= 0 && delta <= 100) return Math.min(100, Math.max(0, Math.round((current + delta) * 100) / 100));
+  }
+  return null;
+}
+
+/** Step 5 field: plans/permits/equipment rental = direct cost; overhead buckets = not in subtotal (matches mobile calc). */
+function extractEstimateStep5FieldFromLabel(label, fullMessage = '') {
+  const sample = `${label} ${fullMessage}`.toLowerCase();
+  if (/\bequipment\s+maintenance\b/.test(sample)) return 'equipmentMaintenance';
+  if (/\bother\s+direct\b|\b(?:misc|miscellaneous)\s+direct\s+costs?\b|\bdirect\s+costs?\s+other\b/i.test(sample)) return 'otherDirectCost';
+  if (/\b(permits?|permit\s+fee|building\s+permit|permitting)\b/.test(sample)) return 'permitCost';
+  if (/\b(plans?|plan\s+check|blueprints?|architectural\s+plans?)\b/.test(sample)) return 'planCost';
+  if (/\b(equipment\s+rental|rental\s+equipment|rent\s+equipment|tool\s+rental)\b/.test(sample)) return 'equipment';
+  if (/\b(other\s+overhead|misc(?:ellaneous)?\s+overhead)\b/.test(sample)) return 'otherOverhead';
+  if (/\bfacilities\b/.test(sample)) return 'facilities';
+  if (/\binsurance\s+overhead\b/.test(sample) || /\bgl\s+insurance\b/.test(sample)) return 'insuranceOverhead';
+  if (/\binsurance\b/.test(sample) && !/\bworkers?\b/.test(sample)) return 'insuranceOverhead';
+  if (/\bequipment\b/.test(sample)) return 'equipment';
+  return null;
+}
+
+/** Regex-only Step 5 dollar updates (e.g. "set permits to $500") so we don't mis-route into material line items. */
+function extractEstimateStep5PricingRegex(message, estimateData) {
+  const ed = estimateData || {};
+  const cur = (k) => Number(ed[k] || 0);
+  const lower = String(message || '').toLowerCase();
+  const useAdd =
+    /\b(add|adding|plus|increase\s+by|another|on\s+top)\b/i.test(lower) &&
+    !/\bset\s+(?:the\s+)?(?:plans?|permits?|insurance|facilities|equipment)\b/i.test(lower);
+  const updates = {};
+  const take = (field, rawN, forceSet) => {
+    const n = parseLooseCurrencyAmount(String(rawN));
+    if (!Number.isFinite(n) || n < 0) return;
+    const v = forceSet || !useAdd ? n : cur(field) + n;
+    updates[field] = Math.round(v * 100) / 100;
+  };
+
+  let m;
+  const setRe = (field, re) => {
+    const mm = lower.match(re);
+    if (mm?.[1] != null) take(field, mm[1], true);
+  };
+  setRe('permitCost', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:permits?|permit\s+cost)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('planCost', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:plans?|plan\s+cost)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('otherDirectCost', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:other\s+direct(?:\s+costs?)?)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('equipmentMaintenance', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:equipment\s+maintenance)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('equipment', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:equipment\s+rental|rental\s+equipment)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('equipment', /\b(?:set|change|update|make)\s+(?:the\s+)?equipment\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('insuranceOverhead', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:insurance\s+overhead|insurance)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('facilities', /\b(?:set|change|update|make)\s+(?:the\s+)?facilities\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+  setRe('otherOverhead', /\b(?:set|change|update|make)\s+(?:the\s+)?(?:other\s+overhead|misc(?:ellaneous)?\s+overhead)\s+(?:to|at|=)\s*\$?(\d[\d,]*(?:\.\d+)?)/i);
+
+  // "$500 for permits" / "add $400 for plan check"
+  const amtFirst = [
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:permits?|permit\s+cost|building\s+permit)\b/i, field: 'permitCost' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:plans?|plan\s+check|blueprints?)\b/i, field: 'planCost' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:other\s+direct(?:\s+costs?)?)\b/i, field: 'otherDirectCost' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:equipment\s+rental|rental\s+equipment|tool\s+rental)\b/i, field: 'equipment' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:equipment\s+maintenance|maintenance\s+on\s+equipment)\b/i, field: 'equipmentMaintenance' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:insurance\s+overhead|insurance)\b/i, field: 'insuranceOverhead' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?facilities\b/i, field: 'facilities' },
+    { re: /\$?(\d[\d,]*(?:\.\d+)?)\s*(?:for|to|toward)\s+(?:the\s+)?(?:other\s+overhead|misc(?:ellaneous)?\s+overhead)\b/i, field: 'otherOverhead' },
+  ];
+  for (const { re, field } of amtFirst) {
+    m = lower.match(re);
+    if (m?.[1] != null) take(field, m[1], !useAdd);
+  }
+
+  return updates;
+}
+
+function partitionEstimateLineItemsAndStep5(message, items, estimateData) {
+  const msg = String(message || '');
+  const lower = msg.toLowerCase();
+  const useAdd =
+    /\b(add|adding|plus|increase\s+by|another|on\s+top)\b/i.test(lower) &&
+    !/\bset\s+(?:the\s+)?(?:plans?|permits?|insurance|facilities|equipment)\b/i.test(lower);
+  const cur = (k) => Number(estimateData?.[k] || 0);
+  const buckets = {};
+  const lineItems = [];
+  for (const item of items || []) {
+    if (item.kind === 'labor') {
+      lineItems.push(item);
+      continue;
+    }
+    const field = extractEstimateStep5FieldFromLabel(item.rawLabel || item.name, msg);
+    if (field) {
+      buckets[field] = (buckets[field] || 0) + Number(item.amount || 0);
+    } else {
+      lineItems.push(item);
+    }
+  }
+  const fieldUpdates = {};
+  for (const [field, sum] of Object.entries(buckets)) {
+    if (!Number.isFinite(sum) || sum <= 0) continue;
+    fieldUpdates[field] = Math.round((useAdd ? cur(field) + sum : sum) * 100) / 100;
+  }
+  return { lineItems, fieldUpdates };
+}
+
+function mergeEstimateStep5PricingMaps(regexMap, partitionMap) {
+  return { ...regexMap, ...partitionMap };
+}
+
+const ESTIMATE_STEP5_FIELD_LABELS = {
+  planCost: 'Plans',
+  permitCost: 'Permits',
+  otherDirectCost: 'Other direct costs',
+  equipment: 'Equipment rental',
+  insuranceOverhead: 'Insurance overhead',
+  equipmentMaintenance: 'Equipment maintenance',
+  facilities: 'Facilities',
+  otherOverhead: 'Other overhead',
+};
+
+/** User wants to change markup but did not give a target % — use a conversational snapshot + ask. */
+function wantsEstimateMarkupChangeWithoutTarget(lower, estimateData = null) {
+  if (extractEstimateMarkupPercentIntent(lower, estimateData) != null) return false;
+  if (!/\bmarkup\b/i.test(lower)) return false;
+  if (/\b(what|how|why|explain|define|mean|difference|is my|show my|current)\b/i.test(lower) && !/\b(increase|raise|lower|change|adjust|update|set|more|less)\b/i.test(lower)) {
+    return false;
+  }
+  return (
+    /\b(increase|raise|decreas|reduc|lower|chang|adjust|updat|set|bump)\w*\b/i.test(lower) ||
+    /\bmore\b.*\bmarkup\b|\bmarkup\b.*\bmore\b/i.test(lower)
+  );
+}
+
+/** Business overhead only — matches mobile Step 5 net profit deduction (fallback if companyOverhead missing). */
+function estimateCompanyOverheadDollarsForNet(ct, estimateData) {
+  const co = Number(ct?.companyOverhead);
+  if (Number.isFinite(co) && co >= 0) return co;
+  const full = Number(ct?.overhead || 0);
+  const permits = Number(ct?.permitCosts ?? 0);
+  const rent = Number(estimateData?.equipment ?? estimateData?.bidData?.equipment ?? 0);
+  const otherDirect = Number(estimateData?.otherDirectCost ?? estimateData?.bidData?.otherDirectCost ?? 0);
+  return Math.max(0, full - permits - rent - otherDirect);
+}
+
+/**
+ * Mirrors Estimate Step 5: subtotal = direct job cost (materials + labor + plans/permits + equipment rental + other direct costs);
+ * gross markup = subtotal × markup%; net = gross − business overhead only (insurance, equipment maintenance, facilities, other).
+ */
+function buildEstimateMarkupSnapshotMarkdown(parsedContext, estimateData) {
+  const ct = parsedContext?.calcTotals || {};
+  const ed = estimateData || parsedContext?.estimateData || parsedContext?.bidData || {};
+  const subtotal = Number(ct.subtotal || 0);
+  const plansPermitsDollars = Number(ct.permitCosts ?? 0);
+  const businessOverheadDollars = estimateCompanyOverheadDollarsForNet(ct, ed);
+  const markupPct = Number(ed.markupPct ?? ed.markup ?? 0);
+  const grossProfit = Number.isFinite(Number(ct.profit))
+    ? Number(ct.profit)
+    : subtotal > 0
+      ? (subtotal * markupPct) / 100
+      : 0;
+  const bidTotal = Number.isFinite(Number(ct.total)) && Number(ct.total) > 0
+    ? Number(ct.total)
+    : subtotal + grossProfit;
+  const netProfit = Math.max(0, grossProfit - businessOverheadDollars);
+  const netMarginOnBid = bidTotal > 0 ? (netProfit / bidTotal) * 100 : 0;
+  const bizOhPctOfDirect = subtotal > 0 ? (businessOverheadDollars / subtotal) * 100 : 0;
+  const storedOhPct = Number(ed.overheadPct);
+  const ohPctNote = Number.isFinite(storedOhPct) && storedOhPct >= 0
+    ? ` (app header **Overhead** rate ≈ **${Math.round(storedOhPct * 10) / 10}%** of direct job cost — business overhead only)`
+    : '';
+  return [
+    '**Current pricing snapshot**',
+    `- **Markup on job cost:** **${Math.round(markupPct * 10) / 10}%** (Step 5 field) — applied to **materials + labor + plans/permits + equipment rental + other direct costs** only`,
+    `- **Plans & permits (direct job cost):** **$${Math.round(plansPermitsDollars).toLocaleString()}** (included in subtotal below)`,
+    `- **Business overhead** (insurance, equipment maintenance, facilities, other — **not** in subtotal; deducted from gross markup): **$${Math.round(businessOverheadDollars).toLocaleString()}** — about **${bizOhPctOfDirect.toFixed(1)}%** of direct job cost${ohPctNote}`,
+    `- **Direct job cost (subtotal):** **$${Math.round(subtotal).toLocaleString()}** (materials + labor + plans/permits + equipment rental + other direct costs)`,
+    `- **Gross profit (markup dollars):** **$${Math.round(grossProfit).toLocaleString()}**`,
+    `- **Net profit** (gross markup minus **business** overhead only): **$${Math.round(netProfit).toLocaleString()}**`,
+    `- **Bid total:** **$${Math.round(bidTotal).toLocaleString()}**`,
+    `- **Net margin on bid:** **${netMarginOnBid.toFixed(1)}%** (net profit ÷ bid — not the same as markup % on cost)`,
+  ].join('\n');
+}
+
+function buildEstimateMarkupProjectedMarkdown(subtotal, businessOverheadDollars, newMarkupPct) {
+  const s = Number(subtotal) || 0;
+  const oh = Number(businessOverheadDollars) || 0;
+  const pct = Number(newMarkupPct) || 0;
+  const gross = s > 0 ? (s * pct) / 100 : 0;
+  const bid = s + gross;
+  const net = Math.max(0, gross - oh);
+  const marginOnBid = bid > 0 ? (net / bid) * 100 : 0;
+  return [
+    '',
+    `**If we set markup to ${Math.round(pct * 10) / 10}%** (after you confirm):`,
+    `- **Gross profit (markup $):** **$${Math.round(gross).toLocaleString()}**`,
+    `- **Net profit:** **$${Math.round(net).toLocaleString()}**`,
+    `- **Bid total:** **$${Math.round(bid).toLocaleString()}**`,
+    `- **Net margin on bid:** **${marginOnBid.toFixed(1)}%**`,
+  ].join('\n');
+}
+
+/** Parse "5% of the total bid for the deposit" / "deposit of 10%" style messages (estimate payments, not expenses). */
+function extractEstimateDepositPercentOfBid(lower) {
+  const patterns = [
+    /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:of\s+)?(?:the\s+)?(?:total\s+)?(?:bid|contract|estimate|job|price)\b(?:[^\n]{0,40})?(?:deposit|down\s*payment|upfront)/i,
+    /\bdeposit\s+of\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\bdown\s*payment\s+of\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:for\s+)?(?:the\s+)?(?:deposit|down\s*payment)\b/i,
+  ];
+  for (const re of patterns) {
+    const m = lower.match(re);
+    if (m) {
+      const pct = Number(m[1]);
+      if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct;
+    }
+  }
+  return null;
+}
+
+/** "Let's do deposit 20%" / "deposit to 20%" — tweak bid schedule, not a project change order. */
+function extractSimpleDepositPercentCommand(lower) {
+  if (/\bchange\s+order\b/i.test(lower)) return null;
+  const patterns = [
+    /\b(?:let\s*'?s|let us)\s+do\s+(?:a\s+)?deposit\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\bdo\s+(?:a\s+)?deposit\s+of\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\bdeposit\s+(?:to|at|of|is|=)\s*(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\b(?:use|make|set)\s+(?:the\s+)?deposit\s+(?:to|at|of)?\s*(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\bchange\s+(?:the\s+)?deposit\s+to\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /\b(?:lower|raise|reduce)\s+(?:the\s+)?deposit\s+to\s+(\d{1,2}(?:\.\d+)?)\s*%/i,
+  ];
+  for (const re of patterns) {
+    const m = lower.match(re);
+    if (m) {
+      const pct = Number(m[1]);
+      if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct;
+    }
+  }
+  const t = lower.trim();
+  if (t.length <= 48) {
+    const mShort = t.match(/^[\s,.!?]*(\d{1,2}(?:\.\d+)?)\s*%\s*deposit\b/i);
+    if (mShort) {
+      const pct = Number(mShort[1]);
+      if (Number.isFinite(pct) && pct > 0 && pct <= 100) return pct;
+    }
+  }
+  return null;
+}
+
+function resolveWeeklyProgressWeekCountForEstimate(lower, estimateData, parsedContext) {
+  const wk = lower.match(/(\d{1,2})\s+weeks?/i);
+  if (wk) return Math.max(1, Math.min(52, Number(wk[1])));
+  const d = estimateData?.durationWeeks;
+  if (d != null && String(d).trim() !== '') {
+    const n = Math.round(Number(d));
+    if (Number.isFinite(n) && n >= 1) return Math.min(52, n);
+  }
+  const fromCtx =
+    parsedContext?.weeklyPayments ||
+    parsedContext?.bidData?.weeklyPayments ||
+    estimateData?.weeklyPayments;
+  if (Array.isArray(fromCtx) && fromCtx.length > 1) {
+    const progressRows = fromCtx.filter((row) => {
+      const wn = Number(row?.weekNumber);
+      if (wn >= 1) return true;
+      const nm = String(row?.name || row?.description || '').toLowerCase();
+      return /\bweek\s+\d+/.test(nm) && !/\bdeposit\b/.test(nm);
+    });
+    if (progressRows.length >= 1) return Math.min(52, progressRows.length);
+    return Math.max(1, Math.min(52, fromCtx.length - 1));
+  }
+  return 4;
+}
+
+function extractWeeklyScheduleDepositPercent(lower) {
+  const m =
+    lower.match(/(\d{1,2}(?:\.\d+)?)\s*%\s*(?:for\s+)?(?:the\s+)?deposit\b/i) ||
+    lower.match(/\bdeposit\s+(?:of\s+)?(\d{1,2}(?:\.\d+)?)\s*%/i) ||
+    lower.match(/(\d{1,2}(?:\.\d+)?)\s*%\s*deposit\b/i);
+  if (!m) return null;
+  const pct = Number(m[1]);
+  return Number.isFinite(pct) && pct > 0 && pct <= 100 ? pct : null;
+}
+
+function messageLooksLikePaymentScheduleConfirm(lower) {
+  if (/\b(no|not|nope|don't|dont|wait|hold on|cancel|nevermind|never mind|wrong|different|change)\b/i.test(lower)) return false;
+  return /\b(yes|yep|yeah|confirm|confirmed|apply|ok|okay|sure|correct|right|exactly|sounds good|do it|go ahead|that's right|that is right|please do)\b/i.test(lower);
+}
+
+function extractEstimateWeekCountReply(lower) {
+  const explicit = lower.match(/(\d{1,2})\s+weeks?\b/i);
+  if (explicit) {
+    const n = Number(explicit[1]);
+    return Number.isFinite(n) && n >= 1 ? Math.min(52, n) : null;
+  }
+  const bare = lower.trim().match(/^(\d{1,2})$/);
+  if (bare) {
+    const n = Number(bare[1]);
+    return Number.isFinite(n) && n >= 1 ? Math.min(52, n) : null;
+  }
+  return null;
+}
+
+function parseEstimatePaymentScheduleDates(message) {
+  const text = normalizeEstimateUserMessageText(String(message || '').trim());
+  if (!text) return null;
+  const found = [];
+  const pushIso = (iso, index) => {
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) found.push({ iso, index });
+  };
+
+  let m;
+  const isoRe = /\b(20\d{2}-\d{2}-\d{2})\b/g;
+  while ((m = isoRe.exec(text)) !== null) pushIso(m[1], m.index);
+
+  const namedRe =
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}|\d{4}))?\b/gi;
+  while ((m = namedRe.exec(text)) !== null) {
+    const mon = ESTIMATE_SCHEDULE_MONTH_MAP[m[1].toLowerCase()];
+    const day = parseInt(m[2], 10);
+    let year = m[3] ? parseInt(m[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    const iso = estimateToIsoDate(year, mon, day);
+    if (iso) pushIso(iso, m.index);
+  }
+
+  const slashRe = /\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/g;
+  while ((m = slashRe.exec(text)) !== null) {
+    const mon = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    const iso = estimateToIsoDate(year, mon, day);
+    if (iso) pushIso(iso, m.index);
+  }
+
+  const dashRe = /\b(\d{1,2})-(\d{1,2})-(20\d{2})\b/g;
+  while ((m = dashRe.exec(text)) !== null) {
+    const mon = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    const iso = estimateToIsoDate(year, mon, day);
+    if (iso) pushIso(iso, m.index);
+  }
+
+  if (!found.length) return null;
+  const unique = [];
+  const seen = new Set();
+  for (const item of found.sort((a, b) => a.index - b.index)) {
+    if (seen.has(item.iso)) continue;
+    seen.add(item.iso);
+    unique.push(item);
+  }
+
+  const depositCue = /\b(deposit|down payment|upfront)(?:\s+date)?\b/i;
+  const weeklyCue = /\b(weekly payments?|week 1|first weekly|weekly start|start weekly|weekly schedule starts?)\b/i;
+  const idxDeposit = text.search(depositCue);
+  const idxWeekly = text.search(weeklyCue);
+  const out = {};
+
+  if (idxDeposit >= 0) {
+    const after = unique.find((u) => u.index >= idxDeposit);
+    if (after) out.depositDate = after.iso;
+  }
+  if (idxWeekly >= 0) {
+    const after = unique.find((u) => u.index >= idxWeekly);
+    if (after) out.weeklyStartDate = after.iso;
+  }
+  if (!out.depositDate && unique.length >= 1) out.depositDate = unique[0].iso;
+  if (!out.weeklyStartDate && unique.length >= 2) {
+    out.weeklyStartDate = unique.find((u) => u.iso !== out.depositDate)?.iso;
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
+function buildEstimateWeeklyScheduleDatePrompt({ total, depositPct, weeks }) {
+  const depositAmount = Math.round(total * (depositPct / 100) * 100) / 100;
+  const weeklyAmount = Math.round(((total - depositAmount) / Math.max(1, weeks)) * 100) / 100;
+  return {
+    reply: [
+      `For this **${weeks}-week weekly payment schedule**, I have:`,
+      `- **Deposit:** $${depositAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${depositPct}%)`,
+      `- **Weekly payments:** ${weeks} payments of about $${weeklyAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      '',
+      'Before I confirm it, what **date** do you want for the **deposit**, and what date should **Week 1** start?',
+      'Example: `Deposit 04-15-2026, weekly start 04-22-2026`',
+    ].join('\n'),
+    suggestedFollowUps: [
+      { label: 'Deposit today / weekly next week', prompt: 'Deposit 04-15-2026, weekly start 04-22-2026' },
+      { label: 'Same week start', prompt: 'Deposit 04-15-2026, weekly start 04-17-2026' },
+    ],
+  };
+}
+
+function buildWeeklyPaymentScheduleRows({ total, weeks, depositPct, startDate, depositDate, weeklyStartDate }) {
+  const weeklyPayments = [];
+  const safeWeeks = Math.max(1, Math.min(52, Math.round(Number(weeks) || 4)));
+  const dp = Math.min(95, Math.max(0.5, Number(depositPct) || 20));
+  const recurringPct = (100 - dp) / safeWeeks;
+  const resolvedDepositDate = depositDate || startDate || new Date().toISOString().split('T')[0];
+  weeklyPayments.push({
+    id: `ai-weekly-deposit-${Date.now()}`,
+    name: 'Deposit / startup',
+    description: 'Deposit / startup',
+    percentage: Math.round(dp * 100) / 100,
+    amount: Math.round(total * (dp / 100) * 100) / 100,
+    weekNumber: 0,
+    scheduledDate: resolvedDepositDate,
+    dueDate: resolvedDepositDate,
+  });
+  const weeklyBaseDate = weeklyStartDate
+    ? new Date(`${weeklyStartDate}T00:00:00`)
+    : new Date(`${resolvedDepositDate}T00:00:00`);
+  for (let idx = 1; idx <= safeWeeks; idx += 1) {
+    const scheduledDate = new Date(weeklyBaseDate);
+    scheduledDate.setDate(scheduledDate.getDate() + (weeklyStartDate ? (idx - 1) * 7 : idx * 7));
+    const day = scheduledDate.toISOString().split('T')[0];
+    weeklyPayments.push({
+      id: `ai-weekly-${Date.now()}-${idx}`,
+      name: `Week ${idx} progress payment`,
+      description: `Week ${idx} progress payment`,
+      percentage: Math.round(recurringPct * 100) / 100,
+      amount: Math.round(total * (recurringPct / 100) * 100) / 100,
+      weekNumber: idx,
+      scheduledDate: day,
+      dueDate: day,
+    });
+  }
+  return { weeklyPayments, safeWeeks, depositPctUsed: dp };
 }
 
 function buildEstimateActionResponse({ message, parsedContext, estimateData, bidTotal, projectName, session }) {
@@ -4284,23 +5173,53 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
   const startDate = estimateData?.startDate || estimateData?.projectStartDate || null;
   const defaultTier = session?.estimatePreferences?.pricingTier || 'standard';
   const followUps = buildEstimateSuggestedFollowUpsFromBrief(parsedContext, []);
+  const currentStepNumber = Number(parsedContext?.currentStepNumber ?? 0);
+  const pendingPay = session?.pendingEstimatePaymentConfirm;
+  const pendingWeekCount = extractEstimateWeekCountReply(lower);
+  const inPendingPaymentFollowUp =
+    (pendingPay?.kind === 'weekly_deposit' || pendingPay?.kind === 'weekly_schedule' || pendingPay?.kind === 'weekly_dates') &&
+    (messageLooksLikePaymentScheduleConfirm(lower) || pendingWeekCount != null || !!parseEstimatePaymentScheduleDates(msg));
   let parsedCostItems = extractEstimateCostItems(msg);
   const customerParsed = parseEstimateStep1CustomerInfo(msg);
   const customerUpdateAction = buildUpdateCustomerInfoAction(customerParsed);
   const explicitClientPhrase = /\b(?:client|customer)\s+(?:is|=)\s+/i.test(msg);
   const customerInfoIntent =
+    !inPendingPaymentFollowUp &&
     customerUpdateAction &&
     (looksLikeCustomerInfoSubmission(msg) || explicitClientPhrase);
   if (customerInfoIntent && customerUpdateAction && parsedCostItems.length > 0) {
     parsedCostItems = filterSpuriousCostItemsForCustomerStep1(msg, parsedCostItems);
   }
-  const markupMatch = lower.match(/\b(?:set|change|update|make)\s+(?:the\s+)?markup(?:\s+to)?\s+(\d{1,2}(?:\.\d+)?)%/i);
+  const step5Regex = extractEstimateStep5PricingRegex(msg, estimateData);
+  const { lineItems: splitLineItems, fieldUpdates: step5Partition } = partitionEstimateLineItemsAndStep5(
+    msg,
+    parsedCostItems,
+    estimateData
+  );
+  parsedCostItems = splitLineItems;
+  const step5Pricing = mergeEstimateStep5PricingMaps(step5Regex, step5Partition);
+  const hasStep5Pricing = Object.keys(step5Pricing).length > 0;
+
+  const markupPctIntent = extractEstimateMarkupPercentIntent(lower, estimateData);
+  if (wantsEstimateMarkupChangeWithoutTarget(lower, estimateData)) {
+    const snap = buildEstimateMarkupSnapshotMarkdown(parsedContext, estimateData);
+    const reply = [
+      snap,
+      '',
+      '**Next step:** tell me the **markup percentage** you want on job cost (Step 5).',
+      '',
+      'Examples: *“Set markup to 28%”* or *“Increase markup to 30%.”*',
+    ].join('\n');
+    trackEstimateSessionEvent(session, 'markup_change_prompt', { prompt: lower.slice(0, 120) });
+    return { reply, actions: [], suggestedFollowUps: followUps };
+  }
+
   const hasDirectMutationInput =
     messageLooksLikeEstimateMutation(msg, parsedCostItems) ||
     !!customerInfoIntent ||
-    !!markupMatch;
+    markupPctIntent != null ||
+    hasStep5Pricing;
 
-  const currentStepNumber = Number(parsedContext?.currentStepNumber ?? 0);
   const projectInfoParsed = mergeEstimateProjectInfoParsed(
     parseEstimateStep2ProjectInfo(msg),
     parseEstimateScheduleDates(msg, estimateData)
@@ -4308,6 +5227,7 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
   const projectUpdateAction = buildUpdateProjectInfoAction(projectInfoParsed);
   const onEstimateBuildStep = currentStepNumber >= 2;
   const projectInfoIntent =
+    !inPendingPaymentFollowUp &&
     projectUpdateAction &&
     (onEstimateBuildStep || looksLikeProjectInfoSubmission(msg) || looksLikeProjectDateUpdate(msg));
 
@@ -4372,7 +5292,7 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
     };
   }
 
-  if (hasDirectMutationInput && (parsedCostItems.length > 0 || customerUpdateAction || markupMatch)) {
+  if (hasDirectMutationInput && (parsedCostItems.length > 0 || customerUpdateAction || markupPctIntent != null || hasStep5Pricing)) {
     const actions = [];
     const replyLines = [];
     if (projectInfoIntent && projectUpdateAction) {
@@ -4431,6 +5351,21 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
       replyLines.push('Tap **Confirm** in the dialog to save this to Step 1 (Customer information), or **Cancel** to edit.');
     }
 
+    if (hasStep5Pricing) {
+      actions.push({ type: 'apply_estimate_pricing_fields', ...step5Pricing });
+      trackEstimateSessionEvent(session, 'apply_estimate_step5_pricing', step5Pricing);
+      replyLines.push('**Step 5 — direct costs & overhead**');
+      replyLines.push('');
+      for (const [k, v] of Object.entries(step5Pricing)) {
+        replyLines.push(`- **${ESTIMATE_STEP5_FIELD_LABELS[k] || k}:** $${Math.round(Number(v)).toLocaleString()}`);
+      }
+      replyLines.push('');
+      replyLines.push(
+        'Tap **Confirm** to apply. **Plans, permits, equipment rental, and other direct costs** increase **direct job cost** (markup base). **Insurance, equipment maintenance, facilities, and other overhead** are **not** in that base — they reduce **net profit** after markup.'
+      );
+      replyLines.push('');
+    }
+
     if (parsedCostItems.length > 0) {
       actions.push({
         type: 'add_estimate_line_items',
@@ -4474,18 +5409,35 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
       }
     }
 
-    if (markupMatch) {
-      const markupPct = Number(markupMatch[1]);
-      actions.push({ type: 'set_markup_percentage', markupPct });
-      trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct });
-      replyLines.push(`I can also set markup to **${markupPct}%**.`);
+    if (markupPctIntent != null) {
+      actions.push({ type: 'set_markup_percentage', markupPct: markupPctIntent });
+      trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct: markupPctIntent });
+      const ct = parsedContext?.calcTotals || {};
+      const subtotal = Number(ct.subtotal || 0);
+      const oh = estimateCompanyOverheadDollarsForNet(ct, estimateData);
+      const pct = markupPctIntent;
+      if (parsedCostItems.length > 0 || customerInfoIntent || hasStep5Pricing) {
+        replyLines.push(`When you confirm, I'll also apply **${pct}%** markup on job cost. Preview after that change:`);
+        replyLines.push(buildEstimateMarkupProjectedMarkdown(subtotal, oh, pct));
+      } else {
+        replyLines.push(
+          [
+            '**Markup update** — current numbers and what **' + pct + '%** would do after you confirm:',
+            buildEstimateMarkupSnapshotMarkdown(parsedContext, estimateData),
+            buildEstimateMarkupProjectedMarkdown(subtotal, oh, pct),
+            '',
+            `Tap **Confirm** to set Step 5 markup to **${pct}%**.`,
+          ].join('\n')
+        );
+      }
     }
 
     const onlyCustomerStep =
       customerUpdateAction &&
       customerInfoIntent &&
       parsedCostItems.length === 0 &&
-      !markupMatch;
+      markupPctIntent == null &&
+      !hasStep5Pricing;
 
     return {
       reply: replyLines.filter(Boolean).join('\n'),
@@ -4518,28 +5470,34 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
     }
   }
 
-  if (markupMatch) {
-    const markupPct = Number(markupMatch[1]);
-    trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct });
+  if (markupPctIntent != null) {
+    trackEstimateSessionEvent(session, 'set_markup_percentage', { markupPct: markupPctIntent });
+    const ct = parsedContext?.calcTotals || {};
+    const subtotal = Number(ct.subtotal || 0);
+    const oh = estimateCompanyOverheadDollarsForNet(ct, estimateData);
+    const pct = markupPctIntent;
+    const reply = [
+      '**Markup update** — current numbers and what **' + pct + '%** would do after you confirm:',
+      buildEstimateMarkupSnapshotMarkdown(parsedContext, estimateData),
+      buildEstimateMarkupProjectedMarkdown(subtotal, oh, pct),
+      '',
+      `Tap **Confirm** to set Step 5 markup to **${pct}%**.`,
+    ].join('\n');
     return {
-      reply: `I can set markup to **${markupPct}%**. This is a safe direct edit.`,
-      actions: [{ type: 'set_markup_percentage', markupPct }],
+      reply,
+      actions: [{ type: 'set_markup_percentage', markupPct: markupPctIntent }],
       suggestedFollowUps: followUps,
     };
   }
 
   const saferPricingIntent = /\bmake this safer|improve protection|raise margin|raise markup|protect profit\b/i.test(lower);
   if (saferPricingIntent) {
-    const reply = [
-      'This sounds like a protection move, not a blind auto-edit.',
-      'Best safety levers are: improve payment timing, add missing cost coverage, and increase markup only if the scope is already grounded.',
-      `Best next action: ${brief?.bestNextAction?.label || 'run a full bid review'}.`,
-    ].join('\n\n');
+    const safetyReview = buildEstimateSafetyReview({ parsedContext, estimateData, projectName, bidTotal });
     trackEstimateSessionEvent(session, 'suggest_protection_moves', { lower });
     return {
-      reply,
+      reply: safetyReview.reply,
       actions: [],
-      suggestedFollowUps: buildEstimateSuggestedFollowUpsFromBrief(parsedContext, [
+      suggestedFollowUps: safetyReview.suggestedFollowUps || buildEstimateSuggestedFollowUpsFromBrief(parsedContext, [
         { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
         { label: 'Safer Schedule', prompt: 'Build a safer payment schedule for this estimate.' },
         { label: 'Review Markup', prompt: 'Review my markup and margin for this estimate.' },
@@ -4588,59 +5546,285 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
     };
   }
 
-  const weeklyScheduleIntent = /\b(build|create|generate|make)\b.*\bweekly\b.*\b(payment|schedule)\b/i.test(lower);
+  const paymentScheduleTopic =
+    currentStepNumber === 7 ||
+    /\b(payment schedule|weekly payment|milestone payment|deposit|progress payment)\b/i.test(lower);
+  if (pendingPay?.kind === 'weekly_dates') {
+    const parsedDates = parseEstimatePaymentScheduleDates(msg) || {};
+    const missing = [];
+    if (!parsedDates.depositDate) missing.push('deposit date');
+    if (!parsedDates.weeklyStartDate) missing.push('weekly payment start date');
+    if (missing.length === 0) {
+      const { weeklyPayments, safeWeeks, depositPctUsed } = buildWeeklyPaymentScheduleRows({
+        total: pendingPay.bidTotal,
+        weeks: pendingPay.weeks,
+        depositPct: pendingPay.depositPct,
+        startDate,
+        depositDate: parsedDates.depositDate,
+        weeklyStartDate: parsedDates.weeklyStartDate,
+      });
+      session.pendingEstimatePaymentConfirm = null;
+      const depAmt = Math.round(pendingPay.bidTotal * (depositPctUsed / 100) * 100) / 100;
+      const recurringAmt = weeklyPayments.find((p) => Number(p?.weekNumber) === 1)?.amount || 0;
+      trackEstimateSessionEvent(session, 'replace_payment_schedule', {
+        paymentSchedule: 'weekly',
+        weeks: safeWeeks,
+        depositPct: depositPctUsed,
+        source: 'weekly_schedule_dates',
+      });
+      return {
+        reply: [
+          `I prepared your **${safeWeeks}-week weekly payment schedule** for **Step 7**.`,
+          `- **Deposit:** $${depAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on **${formatEstimateDateForDisplay(parsedDates.depositDate)}**`,
+          `- **Week 1 start:** ${formatEstimateDateForDisplay(parsedDates.weeklyStartDate)}`,
+          `- **Weekly payment amount:** about $${Number(recurringAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          '',
+          'Tap **Confirm** in the app to save this payment schedule to **Step 7**.',
+        ].join('\n'),
+        actions: [{ type: 'replace_payment_schedule', paymentSchedule: 'weekly', weeklyPayments, safer: false, depositPct: depositPctUsed }],
+        suggestedFollowUps: followUps,
+      };
+    }
+    return {
+      reply: `I still need the **${missing.join(' and ')}** before I confirm the weekly schedule. Example: \`Deposit 04-15-2026, weekly start 04-22-2026\``,
+      actions: [],
+      suggestedFollowUps: [
+        { label: 'Deposit 04-15 / weekly 04-22', prompt: 'Deposit 04-15-2026, weekly start 04-22-2026' },
+        { label: 'Deposit 05-01 / weekly 05-08', prompt: 'Deposit 05-01-2026, weekly start 05-08-2026' },
+      ],
+    };
+  }
+  if (pendingPay?.kind === 'weekly_schedule') {
+    if (pendingWeekCount != null) {
+      session.pendingEstimatePaymentConfirm = {
+        kind: 'weekly_dates',
+        bidTotal: pendingPay.bidTotal,
+        depositPct: pendingPay.depositPct,
+        weeks: pendingWeekCount,
+      };
+      const prompt = buildEstimateWeeklyScheduleDatePrompt({
+        total: pendingPay.bidTotal,
+        depositPct: pendingPay.depositPct,
+        weeks: pendingWeekCount,
+      });
+      return {
+        reply: prompt.reply,
+        actions: [],
+        suggestedFollowUps: prompt.suggestedFollowUps,
+      };
+    }
+    if (messageLooksLikePaymentScheduleConfirm(lower)) {
+      return {
+        reply: 'How many **weeks** should I use for the weekly payment schedule? You can reply with just a number like **4**.',
+        actions: [],
+        suggestedFollowUps: [
+          { label: '4 weeks', prompt: '4' },
+          { label: '6 weeks', prompt: '6' },
+          { label: '8 weeks', prompt: '8' },
+        ],
+      };
+    }
+  }
+  if (pendingPay?.kind === 'weekly_deposit') {
+    const weekCountReply = extractEstimateWeekCountReply(lower);
+    const affirmative = messageLooksLikePaymentScheduleConfirm(lower);
+
+    const resolveWeeks = () => {
+      if (weekCountReply != null) return weekCountReply;
+      const d = estimateData?.durationWeeks;
+      if (d != null && String(d).trim() !== '') {
+        const n = Number(d);
+        if (Number.isFinite(n) && n >= 1) return n;
+      }
+      return NaN;
+    };
+
+    const applyWeeklyWithDeposit = (weeks) => {
+      const safeWeeks = Math.max(1, Math.min(52, Math.round(Number(weeks) || 4)));
+      const depositPctUsed = Math.min(95, Math.max(0.5, Number(pendingPay.depositPct) || 20));
+      session.pendingEstimatePaymentConfirm = {
+        kind: 'weekly_dates',
+        bidTotal: pendingPay.bidTotal,
+        depositPct: depositPctUsed,
+        weeks: safeWeeks,
+      };
+      const prompt = buildEstimateWeeklyScheduleDatePrompt({
+        total: pendingPay.bidTotal,
+        depositPct: depositPctUsed,
+        weeks: safeWeeks,
+      });
+      return {
+        reply: prompt.reply,
+        actions: [],
+        suggestedFollowUps: prompt.suggestedFollowUps,
+      };
+    };
+
+    if (pendingPay.awaitingWeeks && weekCountReply != null) {
+      const w = weekCountReply;
+      if (Number.isFinite(w) && w >= 1) return applyWeeklyWithDeposit(w);
+    }
+
+    if (affirmative) {
+      let w = resolveWeeks();
+      if (!Number.isFinite(w) || w < 1) {
+        session.pendingEstimatePaymentConfirm = { ...pendingPay, awaitingWeeks: true };
+        const depAmt =
+          Math.round(pendingPay.bidTotal * (pendingPay.depositPct / 100) * 100) / 100;
+        return {
+          reply: [
+            `Got it — **${pendingPay.depositPct}%** deposit is **$${depAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** on **$${Math.round(pendingPay.bidTotal).toLocaleString()}**.`,
+            'How many **weeks** should the remaining balance be split across? (e.g. “6 weeks”.)',
+          ].join('\n\n'),
+          actions: [],
+          suggestedFollowUps: [
+            { label: '4 weeks', prompt: 'Split the remainder over 4 weeks.' },
+            { label: '6 weeks', prompt: 'Split the remainder over 6 weeks.' },
+            { label: '8 weeks', prompt: 'Split the remainder over 8 weeks.' },
+          ],
+        };
+      }
+      return applyWeeklyWithDeposit(w);
+    }
+  }
+
+  const simpleDepositPctCmd = extractSimpleDepositPercentCommand(lower);
+  if (simpleDepositPctCmd != null && total > 0 && paymentScheduleTopic) {
+    const weeks = resolveWeeklyProgressWeekCountForEstimate(lower, estimateData, parsedContext);
+    const safeWeeks = Math.max(1, Math.min(52, Math.round(Number(weeks) || 4)));
+    const depositPctUsed = Math.min(95, Math.max(0.5, Number(simpleDepositPctCmd) || 20));
+    if (session) {
+      session.pendingEstimatePaymentConfirm = {
+        kind: 'weekly_dates',
+        bidTotal: total,
+        depositPct: depositPctUsed,
+        weeks: safeWeeks,
+      };
+    }
+    const prompt = buildEstimateWeeklyScheduleDatePrompt({
+      total,
+      depositPct: depositPctUsed,
+      weeks: safeWeeks,
+    });
+    return {
+      reply: `${prompt.reply}\n\nThis is an **estimate schedule update only** — not a project change order.`,
+      actions: [],
+      suggestedFollowUps: prompt.suggestedFollowUps,
+    };
+  }
+
+  // Include natural menu replies ("deposit and weekly payments") — without "build/create" the LLM may mis-route to generate_estimate.
+  const weeklyScheduleIntent =
+    /\b(build|create|generate|make)\b[\s\S]{0,120}\bweekly\b[\s\S]{0,80}\b(payments?|schedule)\b/i.test(lower) ||
+    (/\b(deposit|down\s*payment)\b/i.test(lower) && /\bweekly\b/i.test(lower)) ||
+    (/^(?:option\s*)?#?\s*2\b/i.test(lower.trim()) && lower.trim().length <= 40);
+  const milestoneScheduleIntent =
+    /\b(build|create|generate|make)\b[\s\S]{0,120}\b(milestone|deposit)\b[\s\S]{0,80}\b(payments?|schedule)\b/i.test(lower) ||
+    /\bsafer schedule\b/i.test(lower);
+
+  const genericEstimatePaymentScheduleIntent =
+    !weeklyScheduleIntent &&
+    !milestoneScheduleIntent &&
+    (/\b(add|create|set\s*up|build|generate|start)\b[\s\S]{0,140}\bpayment\s+schedule\b/i.test(lower) ||
+      /\bpayment\s+schedule\b[\s\S]{0,120}\b(add|create|set\s*up|build|help|need)\b/i.test(lower) ||
+      /\badd\s+payments?\b[\s\S]{0,90}\b(?:my\s+)?(?:payment\s+)?schedule\b/i.test(lower) ||
+      /\bhelp\s+(?:me\s+)?(?:with\s+)?(?:my\s+|the\s+)?payment\s+schedule\b/i.test(lower) ||
+      /\b(set\s*up|create|build)\s+(?:my\s+|the\s+|a\s+)?payments?\s+for\s+(?:this\s+)?(?:job|estimate|bid)\b/i.test(lower));
+
+  if (genericEstimatePaymentScheduleIntent) {
+    trackEstimateSessionEvent(session, 'estimate_payment_schedule_menu', { prompt: lower.slice(0, 120) });
+    const totalLine = total > 0 ? ` I’ll use your current **bid total of $${Math.round(total).toLocaleString()}** for amounts once you pick a structure.` : '';
+    return {
+      reply: [
+        'For this **estimate**, we set up the full **bid payment schedule** (deposit + progress draws)—not a single timeline payment with a custom title.',
+        '',
+        'Choose a structure:',
+        '1. **Deposit + milestone payments**',
+        '2. **Deposit + weekly progress payments**',
+        '3. **Custom** — describe percentages or timing',
+        '',
+        `For example: *“Build a milestone payment schedule,”* *“Build a weekly payment schedule for 6 weeks,”* or *“5% of the bid for the deposit with weekly payments.”*${totalLine}`,
+      ].join('\n'),
+      actions: [],
+      suggestedFollowUps: [
+        { label: 'Milestone schedule', prompt: 'Build a milestone payment schedule for this estimate.' },
+        { label: 'Weekly (4 weeks)', prompt: 'Build a weekly payment schedule for 4 weeks.' },
+        { label: 'Weekly (6 weeks)', prompt: 'Build a weekly payment schedule for 6 weeks.' },
+        { label: 'Safer schedule', prompt: 'Build a safer payment schedule for this estimate.' },
+      ],
+    };
+  }
+
+  const depositPctOfBid = extractEstimateDepositPercentOfBid(lower);
+  if (depositPctOfBid != null && total > 0 && paymentScheduleTopic && !weeklyScheduleIntent) {
+    const depositAmount = Math.round(total * (depositPctOfBid / 100) * 100) / 100;
+    session.pendingEstimatePaymentConfirm = {
+      kind: 'weekly_deposit',
+      depositPct: depositPctOfBid,
+      bidTotal: total,
+      awaitingWeeks: false,
+    };
+    trackEstimateSessionEvent(session, 'estimate_deposit_pct_confirm_prompt', { depositPct: depositPctOfBid, total });
+    return {
+      reply: [
+        `A **${depositPctOfBid}%** deposit on your current **bid total of $${Math.round(total).toLocaleString()}** is **$${depositAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**.`,
+        'Reply **yes** to build a **weekly** schedule with that deposit (equal weekly payments for the rest). Say how many weeks if you want something other than your estimate duration, e.g. “yes, 6 weeks.”',
+      ].join('\n\n'),
+      actions: [],
+      suggestedFollowUps: [
+        { label: 'Yes, apply deposit', prompt: `Yes, apply a ${depositPctOfBid}% deposit with weekly payments.` },
+        { label: '6 weeks', prompt: `Yes, ${depositPctOfBid}% deposit and split the rest over 6 weeks.` },
+      ],
+    };
+  }
+
   if (weeklyScheduleIntent) {
     const weeksMatch = lower.match(/(\d{1,2})\s+weeks?/i);
     const weeks = Number(weeksMatch?.[1] || estimateData?.durationWeeks || 4);
     if (!weeksMatch && !estimateData?.durationWeeks) {
+      if (session) {
+        session.pendingEstimatePaymentConfirm = {
+          kind: 'weekly_schedule',
+          bidTotal: total,
+          depositPct: extractWeeklyScheduleDepositPercent(lower) ?? (/safer|protect|cash flow/i.test(lower) ? 25 : 20),
+        };
+      }
       return {
         reply: 'I can build a weekly payment schedule. How many weeks should I assume?',
         actions: [],
         suggestedFollowUps: [
-          { label: '4 weeks', prompt: 'Build a weekly payment schedule for 4 weeks.' },
-          { label: '6 weeks', prompt: 'Build a weekly payment schedule for 6 weeks.' },
-          { label: '8 weeks', prompt: 'Build a weekly payment schedule for 8 weeks.' },
+          { label: '4 weeks', prompt: '4' },
+          { label: '6 weeks', prompt: '6' },
+          { label: '8 weeks', prompt: '8' },
         ],
       };
     }
-    const weeklyPayments = [];
-    const depositPct = /safer|protect|cash flow/i.test(lower) ? 25 : 20;
-    const recurringPct = (100 - depositPct) / Math.max(weeks, 1);
-    weeklyPayments.push({
-      id: `ai-weekly-deposit-${Date.now()}`,
-      name: 'Deposit / startup',
-      description: 'Deposit / startup',
-      percentage: Math.round(depositPct * 100) / 100,
-      amount: Math.round(total * (depositPct / 100) * 100) / 100,
-      weekNumber: 0,
-      scheduledDate: startDate || new Date().toISOString().split('T')[0],
-      dueDate: startDate || new Date().toISOString().split('T')[0],
-    });
-    for (let idx = 1; idx <= Math.max(weeks, 1); idx += 1) {
-      const scheduledDate = new Date((startDate || new Date().toISOString().split('T')[0]) + 'T00:00:00');
-      scheduledDate.setDate(scheduledDate.getDate() + idx * 7);
-      const day = scheduledDate.toISOString().split('T')[0];
-      weeklyPayments.push({
-        id: `ai-weekly-${Date.now()}-${idx}`,
-        name: `Week ${idx} progress payment`,
-        description: `Week ${idx} progress payment`,
-        percentage: Math.round(recurringPct * 100) / 100,
-        amount: Math.round(total * (recurringPct / 100) * 100) / 100,
-        weekNumber: idx,
-        scheduledDate: day,
-        dueDate: day,
-      });
+    const customWeeklyDepositPct = extractWeeklyScheduleDepositPercent(lower);
+    let depositPct = customWeeklyDepositPct;
+    if (depositPct == null) depositPct = /safer|protect|cash flow/i.test(lower) ? 25 : 20;
+    const safeWeeks = Math.max(1, Math.min(52, Math.round(Number(weeks) || 4)));
+    const depositPctUsed = Math.min(95, Math.max(0.5, Number(depositPct) || 20));
+    if (session) {
+      session.pendingEstimatePaymentConfirm = {
+        kind: 'weekly_dates',
+        bidTotal: total,
+        depositPct: depositPctUsed,
+        weeks: safeWeeks,
+      };
     }
-    trackEstimateSessionEvent(session, 'replace_payment_schedule', { paymentSchedule: 'weekly', weeks });
+    const prompt = buildEstimateWeeklyScheduleDatePrompt({
+      total,
+      depositPct: depositPctUsed,
+      weeks: safeWeeks,
+    });
     return {
-      reply: `I prepared a **weekly payment schedule** over **${weeks} weeks**${total > 0 ? ` using the current bid total of $${Math.round(total).toLocaleString()}` : ''}.`,
-      actions: [{ type: 'replace_payment_schedule', paymentSchedule: 'weekly', weeklyPayments, safer: /safer|protect|cash flow/i.test(lower) }],
-      suggestedFollowUps: followUps,
+      reply: prompt.reply,
+      actions: [],
+      suggestedFollowUps: prompt.suggestedFollowUps,
     };
   }
 
-  const milestoneScheduleIntent = /\b(build|create|generate|make)\b.*\b(milestone|deposit)\b.*\b(payment|schedule)\b/i.test(lower);
-  if (milestoneScheduleIntent || /\bsafer schedule\b/i.test(lower)) {
+  if (milestoneScheduleIntent) {
     const safer = /\bsafer|protect|cash flow\b/i.test(lower);
     const percentages = safer ? [40, 30, 20, 10] : [30, 30, 30, 10];
     const names = safer
@@ -4703,6 +5887,16 @@ function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext 
   const healthScore = Number(parsedContext?.healthScore ?? 0);
   const startDate = estimateData?.startDate || estimateData?.projectStartDate || null;
   const endDate = estimateData?.endDate || estimateData?.projectEndDate || null;
+  const missingScan = computeEstimateMissingCostScan({
+    estimatedCost: subtotal,
+    estimateData,
+    bidTotal: total,
+    actualCost: parsedContext?.actualCost || parsedContext?.totalSpent || 0,
+    expenses: parsedContext?.expenses || [],
+    parsedContext,
+    currentProjectData: parsedContext?.currentProjectData || null,
+  });
+  const targetPrices = computeEstimatePriceTargets(subtotal);
   const customerMissing = [];
   if (!estimateData?.customerName) customerMissing.push('customer name');
   if (!String(estimateData?.customerPhone || '').trim()) customerMissing.push('phone number');
@@ -4740,6 +5934,8 @@ function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext 
   if (!laborTotal) fixSuggestions.push({ label: 'Add labor', prompt: 'Help me add labor to this estimate.' });
   if (markupPct <= 0 || markupPct < 18 || marginPct < 15) fixSuggestions.push({ label: 'Review markup', prompt: 'Review my markup and margin for this estimate.' });
   if (paymentMissing.length > 0) fixSuggestions.push({ label: 'Set payments', prompt: 'Help me set up the payment schedule for this estimate.' });
+  if (total > 0 && subtotal > 0) fixSuggestions.push({ label: 'What should I charge?', prompt: 'What should I charge for this estimate?' });
+  if (missingScan.gaps.length > 0) fixSuggestions.push({ label: 'Find missing costs', prompt: 'Scan this estimate for missing costs.' });
   if (uniqueIssues.length === 0 && readinessState === 'ready') fixSuggestions.push({ label: 'Final wording review', prompt: 'Give this estimate a final client-facing wording and pricing review.' });
 
   let overallStatus = 'Partially built';
@@ -4772,13 +5968,19 @@ function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext 
   if (markupPct > 0) reply += `- Markup: ${Math.round(markupPct * 10) / 10}%\n`;
   if (healthScore > 0) reply += `- Health score: ${healthScore}/100\n`;
   reply += `- Readiness: ${readinessState}\n\n`;
+  if (targetPrices.length > 0) {
+    const safer = targetPrices.find((t) => t.marginPct === 20) || targetPrices[0];
+    reply += `**Price check**\n`;
+    reply += `- Current bid: ${total > 0 ? `$${Math.round(total).toLocaleString()}` : 'Not set'}\n`;
+    reply += `- Safer target: about $${Math.round(safer.bid).toLocaleString()} to protect ~${safer.marginPct}% margin\n\n`;
+  }
 
   if (uniqueIssues.length === 0 && readinessState === 'ready') {
     reply += `**Good as-is**\n`;
     reply += `${goodAsIs.length > 0 ? goodAsIs.map((line, index) => `${index + 1}. ${line}`).join('\n') : '1. The estimate is structurally ready for review.'}\n\n`;
     reply += `**Next best fixes**\n1. Do one final wording and pricing pass.\n2. Confirm payment timing matches your risk tolerance.\n\n`;
     reply += `**Optional improvements**\n1. Run a last friction scenario before sending.\n`;
-    return { reply, suggestedFollowUps: fixSuggestions.slice(0, 4) };
+    return { reply: appendEstimateAssistantDisclaimer(reply), suggestedFollowUps: fixSuggestions.slice(0, 4) };
   }
 
   reply += `**Missing**\n`;
@@ -4799,6 +6001,12 @@ function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext 
   (risks.length > 0 ? risks : [brief?.assumptions || 'Entered data is still incomplete, so keep assumptions visible.']).slice(0, 4).forEach((line, index) => {
     reply += `${index + 1}. ${line}\n`;
   });
+  if (missingScan.gaps.length > 0) {
+    reply += `\n**Likely missing costs**\n`;
+    missingScan.gaps.slice(0, 3).forEach((gap, index) => {
+      reply += `${index + 1}. ${gap.title} — ${gap.reason}\n`;
+    });
+  }
   reply += `\n**Good as-is**\n`;
   (goodAsIs.length > 0 ? goodAsIs : ['You already have enough context to keep building this bid.']).slice(0, 3).forEach((line, index) => {
     reply += `${index + 1}. ${line}\n`;
@@ -4810,7 +6018,7 @@ function runEstimateReview({ projectName, estimateData, bidTotal, parsedContext 
   reply += `\n**Optional improvements**\n`;
   reply += `1. ${brief?.bestNextAction?.label || nextStepLabel}\n`;
   reply += `2. Run one scenario review before sending if margin protection is thin.\n`;
-  return { reply, suggestedFollowUps: fixSuggestions.slice(0, 4) };
+  return { reply: appendEstimateAssistantDisclaimer(reply), suggestedFollowUps: fixSuggestions.slice(0, 4) };
 }
 
 /**
@@ -5016,6 +6224,55 @@ router.post('/stream', async (req, res) => {
 
     const projectIdStream = parsedContext.projectId;
     const rawBodyMsgStream = String(message ?? '').toLowerCase();
+
+    // EARLY STREAM: Estimate Assistant — how much to charge / pricing guidance (must match POST / — streaming was skipping this and hitting the LLM)
+    if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawBodyMsgStream)) {
+      let currentProjectDataEstStream = null;
+      const pidEstStream =
+        parsedContext.projectId ||
+        parsedContext.activeProjectId ||
+        parsedContext.resolvedProjectId ||
+        parsedContext.selectedProjectId ||
+        null;
+      if (pidEstStream && allProjects.length > 0) {
+        currentProjectDataEstStream = allProjects.find((p) => String(p.id) === String(pidEstStream));
+      }
+      const estimateDataEstStream =
+        currentProjectDataEstStream?.estimateData ||
+        parsedContext.estimateData ||
+        currentProjectDataEstStream?.projectData?.estimateData ||
+        parsedContext.bidData ||
+        {};
+      const bidTotalEstStream =
+        parsedContext.bidTotal ||
+        parsedContext.total ||
+        parsedContext.bidPrice ||
+        currentProjectDataEstStream?.bidTotal ||
+        currentProjectDataEstStream?.bidPrice ||
+        estimateDataEstStream?.totalBid ||
+        0;
+      const projectNameEstStream =
+        parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
+      const priceGuidanceStream = buildEstimatePriceGuidanceReply({
+        parsedContext,
+        estimateData: estimateDataEstStream,
+        projectName: projectNameEstStream,
+        bidTotal: bidTotalEstStream,
+      });
+      trackEstimateSessionEvent(session, 'estimate_price_guidance', { prompt: rawBodyMsgStream });
+      console.log('✅ EARLY STREAM estimate price guidance — returning immediately (same as POST)');
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: priceGuidanceStream.reply })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'done',
+          suggestedFollowUps: priceGuidanceStream.suggestedFollowUps || [],
+          sessionId: session?.id,
+        })}\n\n`,
+      );
+      res.end();
+      return;
+    }
 
     // EARLY STREAM: "Am I making enough (money)? (on this job/project)?" — same deterministic reply as main POST
     const isMakingEnoughStream = /\bmaking\s+enough\b/i.test(rawBodyMsgStream) && (/\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawBodyMsgStream) || /\bmoney\b/i.test(rawBodyMsgStream) || /\bjob\b/i.test(rawBodyMsgStream));
@@ -5525,6 +6782,50 @@ router.post('/', async (req, res) => {
     // ── RUN-FIRST: "Am I making enough (money) on this job?" — use ONLY parsedContext so we never miss (e.g. project detail sends no allProjects)
     const rawMsgFirst = String(req.body?.message ?? message ?? '').trim();
     const rawMsgLower = rawMsgFirst.toLowerCase();
+
+    // ── RUN-FIRST: Estimate — "what should I charge" / charging enough (before any other handler or LLM)
+    if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawMsgLower)) {
+      const allProjRf = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+      const pidRf =
+        parsedContext.projectId ||
+        parsedContext.activeProjectId ||
+        parsedContext.resolvedProjectId ||
+        parsedContext.selectedProjectId ||
+        null;
+      let projRf = null;
+      if (pidRf && allProjRf.length > 0) {
+        projRf = allProjRf.find((p) => String(p?.id) === String(pidRf));
+      }
+      const estimateDataRf =
+        projRf?.estimateData ||
+        parsedContext.estimateData ||
+        projRf?.projectData?.estimateData ||
+        parsedContext.bidData ||
+        {};
+      const bidTotalRf =
+        parsedContext.bidTotal ||
+        parsedContext.total ||
+        parsedContext.bidPrice ||
+        projRf?.bidTotal ||
+        projRf?.bidPrice ||
+        estimateDataRf?.totalBid ||
+        0;
+      const projectNameRf = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
+      const priceGuidanceRf = buildEstimatePriceGuidanceReply({
+        parsedContext,
+        estimateData: estimateDataRf,
+        projectName: projectNameRf,
+        bidTotal: bidTotalRf,
+      });
+      trackEstimateSessionEvent(session, 'estimate_price_guidance', { prompt: rawMsgLower });
+      console.log('✅ RUN-FIRST estimate price guidance — returning immediately');
+      return res.json({
+        reply: priceGuidanceRf.reply,
+        actions: [],
+        suggestedFollowUps: priceGuidanceRf.suggestedFollowUps || [],
+      });
+    }
+
     const isMakingEnoughRunFirst = /\bmaking\s+enough\b/i.test(rawMsgLower) && (
       /\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawMsgLower) ||
       /\bmoney\b/i.test(rawMsgLower) ||
@@ -6137,7 +7438,6 @@ router.post('/', async (req, res) => {
         msgLowerEarly.includes('is this ready to send') ||
         msgLowerEarly.includes('is this estimate ready') ||
         msgLowerEarly.includes('is this bid ready') ||
-        msgLowerEarly.includes('what should i fix first') ||
         msgLowerEarly.includes("what's missing") ||
         msgLowerEarly.includes('what is missing')
       );
@@ -6152,6 +7452,14 @@ router.post('/', async (req, res) => {
       return res.json({ reply: reviewResult.reply, actions: [], suggestedFollowUps: reviewResult.suggestedFollowUps || [] });
     }
     if (isEstimateAssistantScreen(parsedContext)) {
+      const isEstimatePriceGuidance = matchesEstimatePriceGuidanceQuery(msgLowerEarly);
+      if (isEstimatePriceGuidance) {
+        const priceGuidance = buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectName, bidTotal });
+        trackEstimateSessionEvent(session, 'estimate_price_guidance', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate price guidance — returning immediately');
+        return res.json({ reply: priceGuidance.reply, actions: [], suggestedFollowUps: priceGuidance.suggestedFollowUps || [] });
+      }
+
       const isStartBidIntent = messageLooksLikeStartNewBidOrEstimateIntent(msgLowerEarly);
       if (isStartBidIntent) {
         const stepNumEarly = Number(parsedContext?.currentStepNumber ?? -1);
@@ -6175,7 +7483,10 @@ router.post('/', async (req, res) => {
       });
       if (estimateActionResult) {
         console.log('✅ EARLY estimate action/copilot response — returning immediately');
-        return res.json(estimateActionResult);
+        return res.json({
+          ...estimateActionResult,
+          reply: appendEstimateAssistantDisclaimer(estimateActionResult.reply),
+        });
       }
 
       const isEstimateGuideQuery =
@@ -6193,6 +7504,31 @@ router.post('/', async (req, res) => {
         trackEstimateSessionEvent(session, 'estimate_copilot_guide', { prompt: msgLowerEarly });
         console.log('✅ EARLY estimate copilot guide — returning immediately');
         return res.json({ reply: guideResult.reply, actions: [], suggestedFollowUps: guideResult.suggestedFollowUps || [] });
+      }
+
+      const isEstimateSafetyQuery =
+        msgLowerEarly.includes('make this safer') ||
+        msgLowerEarly.includes('make this estimate safer') ||
+        msgLowerEarly.includes('make this bid safer') ||
+        msgLowerEarly.includes('protect this bid') ||
+        msgLowerEarly.includes('protect this estimate');
+      if (isEstimateSafetyQuery) {
+        const safetyReview = buildEstimateSafetyReview({ parsedContext, estimateData, projectName, bidTotal });
+        trackEstimateSessionEvent(session, 'estimate_safety_review', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate safety review — returning immediately');
+        return res.json({ reply: safetyReview.reply, actions: [], suggestedFollowUps: safetyReview.suggestedFollowUps || [] });
+      }
+
+      const isEstimateFixFirstQuery =
+        msgLowerEarly.includes('what should i fix first') ||
+        msgLowerEarly.includes('what do i fix first') ||
+        msgLowerEarly.includes('what should i fix next') ||
+        msgLowerEarly.includes('fix first');
+      if (isEstimateFixFirstQuery) {
+        const fixFirst = buildEstimateFixFirstReply({ parsedContext, estimateData, projectName, bidTotal });
+        trackEstimateSessionEvent(session, 'estimate_fix_first', { prompt: msgLowerEarly });
+        console.log('✅ EARLY estimate fix-first review — returning immediately');
+        return res.json({ reply: fixFirst.reply, actions: [], suggestedFollowUps: fixFirst.suggestedFollowUps || [] });
       }
 
       const isClientFacingEstimateReview =
@@ -6546,7 +7882,7 @@ router.post('/', async (req, res) => {
         Number(estimateData?.overheadTotal || 0) > 0 ||
         Number(estimateData?.insuranceOverhead || 0) > 0 ||
         Number(estimateData?.facilities || 0) > 0 ||
-        Number(estimateData?.equipment || 0) > 0 ||
+        Number(estimateData?.equipmentMaintenance || 0) > 0 ||
         Number(estimateData?.otherOverhead || 0) > 0 ||
         hasKeyword(['overhead', 'insurance', 'supervision', 'mobilization']);
       const hasContingency =
@@ -7202,7 +8538,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'create_change_order',
-          description: 'Create a change order for a project. Use when user says "client wants to add...", "scope change", "change order for...", "add a change order". This creates the CO, adjusts the budget, and optionally adds a payment milestone. IMPORTANT: Change orders do NOT need an expected delivery date or received date — NEVER ask for one.',
+          description: 'Create a change order for a **live/won project** when scope or price changes after the contract (e.g. "client wants to add...", "scope change", "add a change order"). **Do NOT use** for the **Estimate / bid builder**: changing **payment schedule**, **deposit percentage**, **weekly vs milestone**, or **payment amounts on an unsent bid** is not a change order — answer from estimate context or use estimate payment actions, not create_change_order. Change orders do NOT need delivery/received dates — NEVER ask for one.',
           parameters: {
             type: 'object',
             properties: {
@@ -9342,9 +10678,10 @@ router.post('/', async (req, res) => {
     }
 
     const changeOrderIntentRegex = /\b(change\s+(?:the\s+)?order|changeorder|create.*change\s+(?:the\s+)?order|add.*change\s+(?:the\s+)?order|scope change|extra work|client wants to add)\b/i;
-    const lastAssistantCOPrompt = String(
+    const lastAssistantContentForCO = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
-    ).toLowerCase().includes('change order');
+    );
+    const lastAssistantCOPrompt = assistantMessageIsChangeOrderCollectionPrompt(lastAssistantContentForCO);
     // CRITICAL: Only activate CO flow if there's an actual change order intent phrase
     // Don't activate just because there's a description/amount (those could be for expenses)
     const hasCOIntentInHistory = getCOFlowUserMessages([
@@ -9354,11 +10691,22 @@ router.post('/', async (req, res) => {
     // CRITICAL: Never treat "scan for missing costs" as a change order follow-up — user switched intent
     const isMissingCostScanMsg = (msgLower.includes('missing cost') || msgLower.includes('missing costs') ||
       (msgLower.includes('scan') && msgLower.includes('cost')) || msgLower.includes('cost gaps') || msgLower.includes('what am i missing'));
-    const isChangeOrderFlowActive = !isMissingCostScanMsg && (
+    let isChangeOrderFlowActive = !isMissingCostScanMsg && (
       changeOrderIntentRegex.test(String(message || '').toLowerCase()) ||
       lastAssistantCOPrompt ||
       hasCOIntentInHistory
     );
+
+    if (
+      isChangeOrderFlowActive &&
+      isEstimateAssistantScreen(parsedContext) &&
+      extractSimpleDepositPercentCommand(msgLower) != null &&
+      (/\b(deposit|weekly|payment\s+schedule|progress payment)\b/i.test(msgLower) ||
+        Number(parsedContext?.currentStepNumber) === 7)
+    ) {
+      console.log('🛡️ CO guard: disabled for estimate bid deposit % tweak (not a change order)');
+      isChangeOrderFlowActive = false;
+    }
 
     // Hard guard: if we're in a change-order flow, never allow PO/date requirements to leak in.
     if (isChangeOrderFlowActive) {
@@ -12233,7 +13581,16 @@ RULES:
       responseData.actions = actions;
       console.log('✅ Added actions to responseData:', actions.length);
     }
-    
+
+    // LLM / mixed paths on the estimate assistant do not use buildEstimate* helpers — append the same footer here.
+    if (
+      isEstimateAssistantScreen(parsedContext) &&
+      typeof responseData.reply === 'string' &&
+      responseData.reply.trim()
+    ) {
+      responseData.reply = appendEstimateAssistantDisclaimer(responseData.reply);
+    }
+
     logPhase('request_done', {
       hasActions: Array.isArray(responseData?.actions) ? responseData.actions.length : 0,
       hasProjectUpdate: !!responseData?.projectUpdateData,

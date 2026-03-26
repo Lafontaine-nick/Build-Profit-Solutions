@@ -1339,6 +1339,7 @@ const ProjectService = {
     project_name: string;
     insurance_overhead?: number;
     equipment?: number;
+    equipment_maintenance?: number;
     facilities?: number;
     other_overhead?: number;
     markup_percent?: number;
@@ -1369,6 +1370,7 @@ const ProjectService = {
       projectId: projectData?.id || null,
       insuranceOverhead: args.insurance_overhead,
       equipment: args.equipment,
+      equipmentMaintenance: args.equipment_maintenance,
       facilities: args.facilities,
       otherOverhead: args.other_overhead,
       markupPct: args.markup_percent,
@@ -2909,7 +2911,11 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           equipment: {
             type: "number",
-            description: "Equipment rentals cost in dollars (typically 3-8% of materials + labor, higher for heavy equipment projects). Optional.",
+            description: "Equipment rental (direct job cost) in dollars (typically 3-8% of materials + labor for heavy equipment). Optional.",
+          },
+          equipment_maintenance: {
+            type: "number",
+            description: "Equipment maintenance / ownership overhead in dollars (business overhead, not in markup base). Optional.",
           },
           facilities: {
             type: "number",
@@ -5304,6 +5310,7 @@ ${actionEnforcement}
           projectId: result.projectId,
           insuranceOverhead: result.insuranceOverhead,
           equipment: result.equipment,
+          equipmentMaintenance: result.equipmentMaintenance,
           facilities: result.facilities,
           otherOverhead: result.otherOverhead,
           markupPct: result.markupPct,
