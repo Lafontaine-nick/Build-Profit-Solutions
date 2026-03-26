@@ -367,7 +367,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             <Ionicons
               name="information-circle-outline"
               size={16}
-              color={darkMode ? "#9CA3AF" : "#475569"}
+              color={darkMode ? "#FFFFFF" : "#475569"}
             />
             <Text style={styles.infoText}>
               Projection factors in monthly lead volume, average bid size, and win
@@ -410,9 +410,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 10,
   },
   cardInner: {
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderRadius: 18,
     padding: 16,
+    borderWidth: darkMode ? 0 : 1,
+    borderColor: darkMode ? "transparent" : Colors.line,
   },
   sectionDivider: {
     height: 1,
@@ -474,9 +476,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: 26,
     height: 80,
     borderRadius: 999,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.surface,
     borderWidth: 2,
-    borderColor: darkMode ? Colors.line : "#64748B",
+    borderColor: darkMode ? Colors.line : "#94A3B8",
     justifyContent: "flex-end",
     overflow: "hidden",
   },
@@ -496,7 +498,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   chartXAxisLabel: {
     fontSize: 11,
-    color: darkMode ? "#9CA3AF" : "#334155",
+    color: darkMode ? "#FFFFFF" : "#334155",
   },
 
   /* range filters */
@@ -533,7 +535,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   profitLabel: {
     fontSize: 12,
-    color: darkMode ? "#8DA0B8" : "#475569",
+    color: darkMode ? "#F3F4F6" : "#475569",
   },
   profitValue: {
     fontSize: 20,
@@ -544,7 +546,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   profitSubnote: {
     marginTop: 2,
     fontSize: 11,
-    color: darkMode ? "#6B7280" : "#475569",
+    color: darkMode ? "#E5E7EB" : "#475569",
   },
 
   /* project type rows */
@@ -568,7 +570,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   projectSubLabel: {
     marginTop: 2,
     fontSize: 12,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   progressTrack: {
     marginTop: 6,
@@ -592,13 +594,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginRight: 10,
     padding: 12,
     borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: darkMode ? "rgba(255, 255, 255, 0.1)" : Colors.line,
   },
   forecastLabel: {
     fontSize: 12,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   forecastValue: {
     fontSize: 18,
@@ -609,22 +611,22 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   forecastSub: {
     marginTop: 2,
     fontSize: 11,
-    color: darkMode ? "#8DA0B8" : "#475569",
+    color: darkMode ? "#F3F4F6" : "#475569",
   },
   infoRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     marginTop: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface,
     borderRadius: 14,
     padding: 12,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: darkMode ? "rgba(255, 255, 255, 0.1)" : Colors.line,
   },
   infoText: {
     marginLeft: 6,
     fontSize: 11,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
     flex: 1,
   },
 });

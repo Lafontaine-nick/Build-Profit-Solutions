@@ -37,17 +37,14 @@ export async function recalculateProjectValues(project: any) {
     console.log(`💰 Labor total: ${labor}`);
     console.log(`📊 Labor line items:`, estimate.laborLineItems);
     
-    // Calculate overhead costs
-    const equipment = Number(estimate.equipment) || 0;
-    const facilities = Number(estimate.facilities) || 0;
-    const insuranceOverhead = Number(estimate.insuranceOverhead) || 0;
-    const otherOverhead = Number(estimate.otherOverhead) || 0;
+    const planCost = Number(estimate.planCost) || 0;
     const permitCost = Number(estimate.permitCost) || 0;
-    const subcontractors = Number(estimate.subcontractors) || 0;
-    const totalOverhead = equipment + facilities + insuranceOverhead + otherOverhead + permitCost + subcontractors;
-    
-    // Calculate subtotal and markup
-    const subtotal = materials + labor + totalOverhead;
+    const plansPermits = planCost + permitCost;
+    const equipmentRental = Number(estimate.equipment) || 0;
+    const otherDirectCost = Number(estimate.otherDirectCost) || 0;
+
+    // Markup base matches Estimate Generator: materials + labor + plans/permits + equipment rental + other direct
+    const subtotal = materials + labor + plansPermits + equipmentRental + otherDirectCost;
     const markupPct = Number(estimate.markupPct) || 0;
     const markup = subtotal * (markupPct / 100);
     const recalculatedValue = Math.round(subtotal + markup);

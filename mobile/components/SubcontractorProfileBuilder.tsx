@@ -137,7 +137,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="Enter your company name"
-            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
             value={campaign.companyName || ''}
             onChangeText={(text) => onUpdate({ companyName: text })}
           />
@@ -148,7 +148,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="Your full name"
-            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
             value={campaign.contactName || ''}
             onChangeText={(text) => onUpdate({ contactName: text })}
           />
@@ -160,7 +160,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="email@company.com"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               keyboardType="email-address"
               autoCapitalize="none"
               value={campaign.email || ''}
@@ -172,7 +172,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="(555) 123-4567"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               keyboardType="phone-pad"
               value={campaign.phone || ''}
               onChangeText={(text) => onUpdate({ phone: text })}
@@ -185,7 +185,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="https://yourcompany.com"
-            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
             keyboardType="url"
             autoCapitalize="none"
             value={campaign.website || ''}
@@ -208,7 +208,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={[styles.textInput, styles.textArea]}
             placeholder="We are a family-owned business with 15 years of experience in residential and commercial construction..."
-            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
             multiline
             numberOfLines={6}
             maxLength={500}
@@ -232,7 +232,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="License #"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               value={campaign.licenseNumber || ''}
               onChangeText={(text) => onUpdate({ licenseNumber: text })}
             />
@@ -242,7 +242,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="5"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               keyboardType="numeric"
               value={campaign.yearsExperience?.toString() || ''}
               onChangeText={(text) => onUpdate({ yearsExperience: parseInt(text) || 0 })}
@@ -256,7 +256,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="1"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               keyboardType="numeric"
               value={campaign.teamSize?.toString() || ''}
               onChangeText={(text) => onUpdate({ teamSize: parseInt(text) || 1 })}
@@ -279,7 +279,7 @@ export function SubcontractorProfileBuilder({
                       styles.responseTimeOption,
                       isSelected && styles.responseTimeSelected,
                       { 
-                        borderColor: isSelected ? '#43cea2' : (darkMode ? '#6B7280' : Colors.line),
+                        borderColor: isSelected ? '#43cea2' : (darkMode ? '#E5E7EB' : Colors.line),
                         backgroundColor: isSelected ? '#43cea2' : (darkMode ? 'rgba(107, 114, 128, 0.1)' : Colors.surface2)
                       }
                     ]}
@@ -310,7 +310,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="Insurance Co."
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               value={campaign.insuranceProvider || ''}
               onChangeText={(text) => onUpdate({ insuranceProvider: text })}
             />
@@ -320,7 +320,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="MM/YYYY"
-              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
               value={campaign.insuranceExpiry || ''}
               onChangeText={(text) => onUpdate({ insuranceExpiry: text })}
             />
@@ -364,7 +364,7 @@ export function SubcontractorProfileBuilder({
         <TextInput
           style={[styles.textInput, styles.textArea]}
           placeholder="List your major equipment and tools (e.g., Excavator, Crane, Specialized Tools)"
-          placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
+          placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
           multiline
           numberOfLines={3}
           value={campaign.equipment?.join(', ') || ''}
@@ -438,13 +438,13 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
   },
   inputSubtitle: {
     fontSize: 12,
-    color: darkMode ? '#6B7280' : Colors.sub,
+    color: darkMode ? '#E5E7EB' : Colors.sub,
     marginBottom: 8,
     lineHeight: 16,
   },
   charCounter: {
     fontSize: 12,
-    color: darkMode ? '#6B7280' : Colors.sub,
+    color: darkMode ? '#E5E7EB' : Colors.sub,
     textAlign: 'right' as const,
     marginTop: 4,
   },

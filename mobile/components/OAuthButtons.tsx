@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useClerkOAuth } from '@/hooks/useClerkOAuth';
 import Constants from 'expo-constants';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface OAuthButtonsProps {
   onGooglePress: (googleOAuth: any, clerkSetActive: any) => void;
@@ -15,6 +16,31 @@ interface OAuthButtonsProps {
  * Only renders when Clerk is configured and we're in ClerkProvider
  */
 export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButtonsProps) {
+  const { theme } = useTheme();
+  const isDarkBg = theme.bg === '#000000';
+  const oauthStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        dividerRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginVertical: 18,
+        },
+        dividerLine: {
+          flex: 1,
+          height: 1,
+          backgroundColor: isDarkBg ? 'rgba(255,255,255,0.35)' : '#D3D9E6',
+        },
+        dividerText: {
+          marginHorizontal: 10,
+          color: isDarkBg ? '#FFFFFF' : '#64748B',
+          fontSize: 12,
+          fontWeight: '500',
+        },
+      }),
+    [isDarkBg]
+  );
+
   // Check if Clerk is configured
   const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const useClerk = publishableKey && (publishableKey.startsWith('pk_live_') || (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'));
@@ -62,10 +88,10 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
 
   return (
     <>
-      <View style={styles.dividerRow}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>OR</Text>
-        <View style={styles.dividerLine} />
+      <View style={oauthStyles.dividerRow}>
+        <View style={oauthStyles.dividerLine} />
+        <Text style={oauthStyles.dividerText}>OR</Text>
+        <View style={oauthStyles.dividerLine} />
       </View>
 
       <TouchableOpacity
@@ -124,22 +150,6 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
 }
 
 const styles = StyleSheet.create({
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 18,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#D3D9E6',
-  },
-  dividerText: {
-    marginHorizontal: 10,
-    color: '#9AA3B6',
-    fontSize: 12,
-    fontWeight: '500',
-  },
   socialButton: {
     borderRadius: 999,
     backgroundColor: '#FFFFFF',

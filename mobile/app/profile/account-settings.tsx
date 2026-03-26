@@ -369,7 +369,7 @@ export default function AccountSettingsScreen() {
               styles.iosButton,
               styles.logoutButton,
               {
-                backgroundColor: darkMode ? '#2a2a2a' : '#f5f5f5',
+                backgroundColor: darkMode ? '#2a2a2a' : theme.cardDark,
                 shadowOpacity: darkMode ? 0.3 : 0.1,
                 borderColor: darkMode
                   ? 'rgba(255, 255, 255, 0.1)'
@@ -400,7 +400,7 @@ export default function AccountSettingsScreen() {
               styles.iosButton,
               styles.deleteButton,
               {
-                backgroundColor: darkMode ? '#2a1a1a' : '#fff',
+                backgroundColor: darkMode ? '#2a1a1a' : theme.card,
                 shadowOpacity: darkMode ? 0.3 : 0.1,
                 borderColor: darkMode
                   ? 'rgba(255, 59, 48, 0.3)'
@@ -456,7 +456,7 @@ export default function AccountSettingsScreen() {
                   styles.modalButton,
                   styles.cancelButton,
                   {
-                    backgroundColor: darkMode ? '#2a2a2a' : '#f5f5f5',
+                    backgroundColor: darkMode ? '#2a2a2a' : theme.cardDark,
                   },
                 ]}
                 onPress={() => setShowLogoutModal(false)}

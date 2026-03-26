@@ -185,14 +185,12 @@ export default function LeadDetailModal({
           }, 0) || 0;
           console.log('💰 Total labor:', labor, 'from', bid.laborLineItems?.length || 0, 'items');
           
-          // Calculate overhead
-          const overhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0);
+          const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
+          const equipmentRental = Number(bid.equipment) || 0;
+          const otherDirectCost = Number(bid.otherDirectCost) || 0;
           
-          // Calculate permit costs
-          const permitCosts = bid.permitCost || 0;
-          
-          // Calculate subtotal
-          const subtotal = materials + labor + overhead + permitCosts;
+          // Markup base (matches Estimate Generator)
+          const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
           
           // Calculate contingency (if included in total)
           const contingency = Math.round((subtotal * (bid.contingencyPct || 0)) / 100);
@@ -929,7 +927,7 @@ export default function LeadDetailModal({
                         <MaterialIcons 
                           name={showMoreDetails ? 'expand-less' : 'expand-more'} 
                           size={20} 
-                          color="#9CA3AF" 
+                          color="#F3F4F6" 
                         />
                       </TouchableOpacity>
                       
@@ -1049,7 +1047,7 @@ export default function LeadDetailModal({
                                 <MaterialIcons 
                                   name={task.completed ? "check-box" : "check-box-outline-blank"} 
                                   size={24} 
-                                  color={task.completed ? "#34C759" : "#9CA3AF"} 
+                                  color={task.completed ? "#34C759" : "#F3F4F6"} 
                                 />
                               </TouchableOpacity>
                               <Text style={[
@@ -1097,7 +1095,7 @@ export default function LeadDetailModal({
                             <TextInput 
                               style={styles.taskInput} 
                               placeholder="Enter task description..."
-                              placeholderTextColor="#9CA3AF"
+                              placeholderTextColor="#F3F4F6"
                               value={taskText}
                               onChangeText={setTaskText}
                               multiline
@@ -1112,7 +1110,7 @@ export default function LeadDetailModal({
                                   setTaskText('');
                                 }}
                               >
-                                <MaterialIcons name="close" size={16} color="#9CA3AF" />
+                                <MaterialIcons name="close" size={16} color="#F3F4F6" />
                               </TouchableOpacity>
                               <TouchableOpacity 
                                 style={styles.taskActionButton}
@@ -1247,7 +1245,7 @@ export default function LeadDetailModal({
                             {(engagement?.responseCount || lead.engagement?.responseCount || 0) > 0 ? (
                               <MaterialIcons name="trending-up" size={14} color="#22C55E" style={styles.trendIcon} />
                             ) : (
-                              <MaterialIcons name="trending-down" size={14} color="#9CA3AF" style={styles.trendIcon} />
+                              <MaterialIcons name="trending-down" size={14} color="#F3F4F6" style={styles.trendIcon} />
                             )}
                           </View>
                           <Text style={[styles.engagementLabel, !darkMode && { color: Colors.sub }]}>Your Responses</Text>
@@ -1623,7 +1621,7 @@ export default function LeadDetailModal({
                       <TextInput 
                         style={[styles.noteInput, !darkMode && { color: Colors.text }]} 
                         placeholder="Enter your note here..."
-                        placeholderTextColor={darkMode ? "#9CA3AF" : "#64748B"}
+                        placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
                         value={noteText}
                         onChangeText={setNoteText}
                         multiline
@@ -1639,7 +1637,7 @@ export default function LeadDetailModal({
                             setNoteText('');
                           }}
                         >
-                          <MaterialIcons name="close" size={16} color="#9CA3AF" />
+                          <MaterialIcons name="close" size={16} color="#F3F4F6" />
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[styles.noteActionButton, styles.saveButton]}
@@ -1716,7 +1714,7 @@ export default function LeadDetailModal({
                   onPress={handleCall}
                   disabled={!lead.contact.phone}
                 >
-                  <MaterialIcons name="phone" size={20} color={lead.contact.phone ? '#FFFFFF' : '#9CA3AF'} />
+                  <MaterialIcons name="phone" size={20} color={lead.contact.phone ? '#FFFFFF' : '#F3F4F6'} />
                   <Text style={[styles.actionPrimaryText, !lead.contact.phone && styles.disabledText]}>
                     Call Lead
                   </Text>
@@ -1729,7 +1727,7 @@ export default function LeadDetailModal({
                     onPress={handleEmail}
                     disabled={!lead.contact.email}
                   >
-                    <MaterialIcons name="email" size={18} color={lead.contact.email ? '#3B82F6' : '#9CA3AF'} />
+                    <MaterialIcons name="email" size={18} color={lead.contact.email ? '#3B82F6' : '#F3F4F6'} />
                     <Text style={[styles.actionSecondaryText, !lead.contact.email && styles.disabledText]}>
                       Email
                     </Text>
@@ -1976,9 +1974,9 @@ function getLeadHealthColor(lead: Lead): string {
     case 'Fair':
       return '#F59E0B';
     case 'Weak':
-      return '#9CA3AF';
+      return '#F3F4F6';
     default:
-      return '#9CA3AF';
+      return '#F3F4F6';
   }
 }
 
@@ -2146,7 +2144,7 @@ const styles = StyleSheet.create({
   },
   analyticsSectionSubtitle: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: '#F3F4F6',
   },
   // Hero Section Styles
   heroSection: {
@@ -2205,8 +2203,8 @@ const styles = StyleSheet.create({
   heroMeta: {
     fontSize: 14,
     fontWeight: '400',
-    color: '#9CA3AF',
-    opacity: 0.7, // Reduced opacity to ~70%
+    color: '#F3F4F6',
+    opacity: 1,
   },
   leadHealthIndicator: {
     flexDirection: 'row',
@@ -2219,7 +2217,7 @@ const styles = StyleSheet.create({
   leadHealthLabel: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   leadHealthValue: {
     fontSize: 13,
@@ -2241,12 +2239,12 @@ const styles = StyleSheet.create({
   compressedMetadataLine: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   compressedMetadataSeparator: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.5,
   },
   // Key Stats Row Styles (kept for compatibility)
@@ -2263,7 +2261,7 @@ const styles = StyleSheet.create({
   keyStatLabel: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.65,
     marginBottom: 6,
   },
@@ -2292,7 +2290,7 @@ const styles = StyleSheet.create({
   moreDetailsText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   moreDetailsContent: {
     marginTop: 12,
@@ -2308,7 +2306,7 @@ const styles = StyleSheet.create({
   projectRealityLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.7,
     marginBottom: 6,
   },
@@ -2345,7 +2343,7 @@ const styles = StyleSheet.create({
   systemMetadataLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.5,
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -2360,7 +2358,7 @@ const styles = StyleSheet.create({
   moreDetailLabel: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.65,
   },
   moreDetailValue: {
@@ -2400,7 +2398,7 @@ const styles = StyleSheet.create({
   structuredLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.65,
     marginBottom: 4,
   },
@@ -2511,11 +2509,11 @@ const styles = StyleSheet.create({
   actionDestructiveSubtext: {
     fontSize: 10,
     fontWeight: '400',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.7,
   },
   disabledText: {
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   leadHeader: {
     flexDirection: 'row',
@@ -2535,7 +2533,7 @@ const styles = StyleSheet.create({
   },
   companyName: {
     fontSize: 16,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 8,
   },
   trade: {
@@ -2571,7 +2569,7 @@ const styles = StyleSheet.create({
   },
   budgetLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 4,
   },
   budgetValue: {
@@ -2594,7 +2592,7 @@ const styles = StyleSheet.create({
   },
   timelineLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 4,
   },
   timelineValue: {
@@ -2605,7 +2603,7 @@ const styles = StyleSheet.create({
   },
   createdDate: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   contactGrid: {
     flexDirection: 'row',
@@ -2624,7 +2622,7 @@ const styles = StyleSheet.create({
   },
   contactLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 8,
     marginBottom: 4,
   },
@@ -2651,7 +2649,7 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.65, // Lower opacity for labels
     marginBottom: 4,
     textAlign: 'center',
@@ -2708,7 +2706,7 @@ const styles = StyleSheet.create({
   },
   qualityLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 8,
   },
   noteCard: {
@@ -2729,7 +2727,7 @@ const styles = StyleSheet.create({
   },
   noteDate: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   addNoteButton: {
     flexDirection: 'row',
@@ -2769,7 +2767,7 @@ const styles = StyleSheet.create({
   },
   characterCount: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     textAlign: 'right',
     marginTop: 4,
   },
@@ -2835,7 +2833,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 2,
     opacity: 0.7, // Dimmed subtitle
   },
@@ -2924,7 +2922,7 @@ const styles = StyleSheet.create({
   },
   analyticsLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 8,
     textAlign: 'center',
   },
@@ -2960,7 +2958,7 @@ const styles = StyleSheet.create({
   },
   benchmarkNote: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     fontStyle: 'italic',
     marginTop: 8,
     opacity: 0.7,
@@ -2991,7 +2989,7 @@ const styles = StyleSheet.create({
   },
   historyDate: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 2,
   },
   historyDescription: {
@@ -3053,7 +3051,7 @@ const styles = StyleSheet.create({
   commGroupHeader: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 8,
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -3094,12 +3092,12 @@ const styles = StyleSheet.create({
   },
   commLogSubtitle: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 4,
   },
   commLogDate: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#FFFFFF',
   },
   responseTimeNote: {
     marginTop: 16,
@@ -3156,7 +3154,7 @@ const styles = StyleSheet.create({
   },
   addTaskHint: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     opacity: 0.6,
     marginTop: 6,
     textAlign: 'center',
@@ -3172,7 +3170,7 @@ const styles = StyleSheet.create({
   },
   taskInputLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginBottom: 8,
   },
   taskInputRow: {
@@ -3242,7 +3240,7 @@ const styles = StyleSheet.create({
   },
   taskTextCompleted: {
     textDecorationLine: 'line-through',
-    color: '#9CA3AF',
+    color: '#F3F4F6',
   },
   taskDeleteButton: {
     padding: 8,
@@ -3269,7 +3267,7 @@ const styles = StyleSheet.create({
   },
   quoteLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 6,
     textAlign: 'center',
   },
@@ -3344,13 +3342,13 @@ const styles = StyleSheet.create({
   },
   engagementLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     fontWeight: '500',
   },
   // Progress Bar Styles
   analyticsSubtext: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#F3F4F6',
     marginTop: 4,
   },
   progressBarContainer: {

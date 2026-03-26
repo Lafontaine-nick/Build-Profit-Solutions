@@ -42,8 +42,8 @@ const DARK: ThemeTokens = {
   hairline: "rgba(255,255,255,0.10)",
   overlay: "rgba(0,0,0,0.70)",
 
-  text: "#F9FAFB",
-  subtext: "rgba(255,255,255,0.60)",
+  text: "#FFFFFF",
+  subtext: "#FFFFFF",
 
   accent: "#2DFFC4",     // keep your brand
   onAccent: "#050B13",   // dark text works on your neon gradient
@@ -54,25 +54,25 @@ const DARK: ThemeTokens = {
 };
 
 const LIGHT: ThemeTokens = {
-  // iOS-grade soft white with proper surface hierarchy
-  bg: "#F8FAFC",  // App background (surfaceBg) - soft off-white
-  card: "#FFFFFF",  // Primary cards (surfaceCard) - pure white
-  cardDark: "rgba(255,255,255,0.86)",
+  // Light mode keeps the brand feel, but adds stronger hierarchy and borders.
+  bg: "#F4F7FB",
+  card: "#FFFFFF",
+  cardDark: "#F8FBFF",
 
-  surface: "#F1F5F9",  // List items / nested cards (surfaceSoft) - subtle gray
-  surface2: "#E2E8F0",  // Icon containers - slightly darker
-  hairline: "rgba(15,23,42,0.06)",  // Subtle borders - very soft
+  surface: "#EEF3F8",
+  surface2: "#E3EBF4",
+  hairline: "rgba(15,23,42,0.10)",
   overlay: "rgba(0,0,0,0.45)",
 
-  text: "#0F172A",  // Primary text (slate-900) - maximum contrast
-  subtext: "#64748B",  // Secondary text (slate-500) - medium contrast
+  text: "#0F172A",
+  subtext: "#475569",
 
-  accent: "#22C55E",  // Keep brand green
-  onAccent: "#FFFFFF",  // text on accent buttons in light mode
+  accent: "#22C55E",
+  onAccent: "#FFFFFF",
 
-  iconBg: "#E2E8F0",  // Icon backgrounds - subtle gray
+  iconBg: "#E7EEF6",
 
-  background: ["#F8FAFC", "#F8FAFC", "#F8FAFC", "#F8FAFC"],
+  background: ["#F7FAFD", "#F4F7FB", "#F2F7FB", "#EEF6F7"],
 };
 
 const ThemeContext = createContext<ThemeContextType>({

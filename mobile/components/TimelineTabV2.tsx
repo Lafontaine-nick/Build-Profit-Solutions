@@ -15,6 +15,9 @@ import type { Milestone } from "../src/types/timeline";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 
+/** Secondary copy on Timeline in dark mode — full white on black (replaces grey COLORS.subtext). */
+const TIMELINE_DARK_SECONDARY = "#FFFFFF";
+
 /* -------------------- helpers -------------------- */
 
 const getStorageKey = (projectId: string) => `bps.timeline.v2.${projectId}`;
@@ -65,10 +68,14 @@ function statusLabel(status?: string) {
   return "Pending";
 }
 
-function statusPillStyle(status?: string) {
+function statusPillStyle(status?: string, darkMode = true) {
   if (status === "completed") return { bg: "rgba(34, 197, 94, 0.25)", text: "#22c55e", border: "#22c55e" };
   if (status === "in_progress") return { bg: "rgba(34, 211, 238, 0.15)", text: "#22d3ee", border: "#22c55e" };
-  return { bg: "rgba(180,195,215,0.18)", text: "rgba(234,241,247,0.75)", border: "rgba(148, 163, 184, 0.4)" };
+  return {
+    bg: "rgba(180,195,215,0.18)",
+    text: darkMode ? "#FFFFFF" : "rgba(234,241,247,0.75)",
+    border: "rgba(148, 163, 184, 0.4)",
+  };
 }
 
 /* -------------------- Milestone Card (matches app design) -------------------- */
@@ -84,7 +91,7 @@ function MilestoneCardV2({
 }) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const pill = statusPillStyle(item.status);
+  const pill = statusPillStyle(item.status, darkMode);
   const isPending = item.status !== "completed" && item.status !== "in_progress";
   const pendingPill = !darkMode && item.status !== "completed" && item.status !== "in_progress";
   const pillBg = pendingPill ? "#CBD5E1" : pill.bg;
@@ -114,7 +121,7 @@ function MilestoneCardV2({
                   <Text style={styles.amountText}>${item.amount.toLocaleString()}</Text>
                 </View>
               ) : null}
-              <Text style={[styles.mPct, !darkMode && { color: Colors.sub }]}>{Math.round(pct)}%</Text>
+              <Text style={[styles.mPct, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>{Math.round(pct)}%</Text>
             </View>
           </View>
 
@@ -123,18 +130,18 @@ function MilestoneCardV2({
             <View style={[styles.statusPill, { backgroundColor: pillBg, borderWidth: 1, borderColor: pill.border || "transparent" }]}>
               <Text style={[styles.statusText, { color: pillText }]}>{statusLabel(item.status)}</Text>
             </View>
-            <Text style={[styles.mMetaText, !darkMode && { color: Colors.sub }]}>{formatDate(item.plannedDate)}</Text>
+            <Text style={[styles.mMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>{formatDate(item.plannedDate)}</Text>
           </View>
 
           {/* Additional Info */}
           {item.assignee ? (
-            <Text style={[styles.mMetaText, { marginTop: 8 }, !darkMode && { color: Colors.sub }]}>
+            <Text style={[styles.mMetaText, { marginTop: 8, color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
               Assigned: {item.assignee}
             </Text>
           ) : null}
 
           {dependencyTitle ? (
-            <Text style={[styles.mMetaText, { marginTop: 8 }, !darkMode && { color: Colors.sub }]}>
+            <Text style={[styles.mMetaText, { marginTop: 8, color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
               Depends on: {dependencyTitle}
             </Text>
           ) : null}
@@ -973,7 +980,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           !darkMode && { backgroundColor: Colors.bg },
         ]}
       >
-        <Text style={[styles.loadingText, !darkMode && { color: Colors.text }]}>Loading timeline...</Text>
+        <Text style={[styles.loadingText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.text }]}>Loading timeline...</Text>
       </View>
     );
   }
@@ -1027,7 +1034,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   <Text style={[styles.timelineHeaderTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                     Timeline Details
                   </Text>
-                  <Text style={[styles.timelineHeaderSubtitle, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                  <Text style={[styles.timelineHeaderSubtitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                     Track milestones and project progress
                   </Text>
                 </View>
@@ -1068,7 +1075,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     Daily Logs
                   </Text>
                   {dailyLogs.length > 0 && (
-                    <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.subtext : Colors.sub, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
+                    <Text style={[styles.sectionTitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
                       {dailyLogs.length} {dailyLogs.length === 1 ? 'entry' : 'entries'}
                     </Text>
                   )}
@@ -1124,7 +1131,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                               <MaterialIcons 
                                 name="delete-outline" 
                                 size={20} 
-                                color={darkMode ? "rgba(226, 232, 240, 0.6)" : "#94a3b8"} 
+                                color={darkMode ? TIMELINE_DARK_SECONDARY : "#94a3b8"} 
                               />
                             </TouchableOpacity>
                           </View>
@@ -1138,16 +1145,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                           <View style={styles.logMeta}>
                             {log.crewCount && (
                               <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
-                                <MaterialIcons name="people" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
-                                <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                                <MaterialIcons name="people" size={16} color={darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub} />
+                                <Text style={[styles.logMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                                   {log.crewCount} {log.crewCount === 1 ? 'person' : 'people'}
                                 </Text>
                               </View>
                             )}
                             {log.hoursWorked && (
                               <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
-                                <MaterialIcons name="schedule" size={16} color={darkMode ? COLORS.subtext : Colors.sub} />
-                                <Text style={[styles.logMetaText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                                <MaterialIcons name="schedule" size={16} color={darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub} />
+                                <Text style={[styles.logMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                                   {log.hoursWorked} {log.hoursWorked === 1 ? 'hour' : 'hours'}
                                 </Text>
                               </View>
@@ -1159,7 +1166,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   </ScrollView>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
-                    <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                    <Text style={[styles.emptyText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                       No daily logs yet. Use the AI assistant to add a daily log entry.
                     </Text>
                   </View>
@@ -1189,17 +1196,17 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       {upcoming.length > 0 ? (
                         upcoming.map((u) => (
                           <View key={u.id} style={styles.upcomingItem}>
-                            <Text style={[styles.upcomingBullet, { color: darkMode ? COLORS.subtext : Colors.sub }]}>•</Text>
+                            <Text style={[styles.upcomingBullet, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>•</Text>
                             <Text style={[styles.upcomingText, { color: darkMode ? COLORS.text : Colors.text }]}>
                               {u.title}{" "}
-                              <Text style={[styles.upcomingDate, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                              <Text style={[styles.upcomingDate, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                                 — {formatDate(u.plannedDate)}
                               </Text>
                             </Text>
                           </View>
                         ))
                       ) : (
-                        <Text style={[styles.emptyText, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                        <Text style={[styles.emptyText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                           No upcoming milestones
                         </Text>
                       )}
@@ -1241,7 +1248,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       <Text style={[styles.emptyTimelineTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                         Project hasn't started yet
                       </Text>
-                      <Text style={[styles.emptyTimelineSubtitle, { color: darkMode ? COLORS.subtext : Colors.sub }]}>
+                      <Text style={[styles.emptyTimelineSubtitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
                         Progress will begin once work starts or a milestone is marked complete.
                       </Text>
                       <View style={styles.starterButtonsContainer}>
@@ -1555,7 +1562,7 @@ const styles = StyleSheet.create({
   },
   timelineHeaderSubtitle: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: TIMELINE_DARK_SECONDARY,
     marginTop: 4,
   },
   sectionCardContainer: {
@@ -1618,16 +1625,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     gap: 16,
   },
-  emptyText: {
-    fontSize: 15,
-    fontStyle: "italic",
-    textAlign: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    lineHeight: 22,
-    opacity: 0.7,
-  },
-
   milestoneCardContainer: {
     marginBottom: 16,
   },
@@ -1674,7 +1671,7 @@ const styles = StyleSheet.create({
     fontSize: 14 
   },
   mPct: { 
-    color: "rgba(234,241,247,0.75)", 
+    color: TIMELINE_DARK_SECONDARY, 
     fontWeight: "700", 
     fontSize: 16 
   },
@@ -1697,7 +1694,7 @@ const styles = StyleSheet.create({
     fontSize: 13 
   },
   mMetaText: { 
-    color: "rgba(234,241,247,0.65)", 
+    color: TIMELINE_DARK_SECONDARY, 
     fontWeight: "600", 
     fontSize: 14 
   },
@@ -1720,10 +1717,12 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   emptyText: {
-    color: COLORS.subtext,
+    color: TIMELINE_DARK_SECONDARY,
     fontSize: 14,
     textAlign: "center",
     paddingVertical: 24,
+    paddingHorizontal: 20,
+    lineHeight: 22,
   },
   emptyTimelineContainer: {
     paddingVertical: 32,
@@ -1825,7 +1824,7 @@ const styles = StyleSheet.create({
   logMetaText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.subtext,
+    color: TIMELINE_DARK_SECONDARY,
   },
   starterButtonsContainer: {
     width: '100%',

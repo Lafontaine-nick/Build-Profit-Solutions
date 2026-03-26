@@ -74,9 +74,10 @@ const AuthScreen: React.FC = () => {
   const router = useRouter();
   const navigation = useNavigation();
   const { t } = useTranslation();
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const inputPlaceholderColor = darkMode ? '#FFFFFF' : '#64748B';
   const params = useLocalSearchParams<{ mode?: string }>();
 
   const initialMode = params.mode === 'signin' ? 'signin' : 'signup';
@@ -998,7 +999,7 @@ const AuthScreen: React.FC = () => {
             <View style={[styles.headerRow, styles.wideContainer]}>
               {navigation.canGoBack() && (
                 <TouchableOpacity onPress={handleBack} hitSlop={12} style={{ marginBottom: 8 }}>
-                  <MaterialIcons name="arrow-back-ios" size={18} color={Colors.bg === '#000000' ? "#E5E7EB" : Colors.text} />
+                  <MaterialIcons name="arrow-back-ios" size={18} color={darkMode ? "#FFFFFF" : Colors.text} />
                 </TouchableOpacity>
               )}
 
@@ -1028,7 +1029,7 @@ const AuthScreen: React.FC = () => {
                 end={{ x: 0.95, y: 0.9 }}
                 style={styles.cardBorder}
               >
-            <View style={[styles.card, Colors.bg !== '#000000' && { backgroundColor: Colors.bg }]}>
+            <View style={[styles.card, Colors.bg !== '#000000' && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
               {/* Mode toggle – visually echoes Overview / Analytics / Insights bar */}
               <View style={styles.modeToggle}>
                 <TouchableOpacity
@@ -1044,7 +1045,7 @@ const AuthScreen: React.FC = () => {
                   <Ionicons
                     name="person-add-outline"
                     size={14}
-                    color={isSignup ? "#022C22" : (Colors.bg === '#000000' ? "#9CA3AF" : "#334155")}
+                    color={isSignup ? "#022C22" : (darkMode ? "#FFFFFF" : "#334155")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1070,7 +1071,7 @@ const AuthScreen: React.FC = () => {
                   <Ionicons
                     name="log-in-outline"
                     size={14}
-                    color={!isSignup ? "#022C22" : (Colors.bg === '#000000' ? "#9CA3AF" : "#334155")}
+                    color={!isSignup ? "#022C22" : (darkMode ? "#FFFFFF" : "#334155")}
                     style={{ marginRight: 4 }}
                   />
                   <Text
@@ -1096,7 +1097,7 @@ const AuthScreen: React.FC = () => {
                       <TextInput
                         style={styles.input}
                         placeholder="Nick"
-                        placeholderTextColor="#6B7280"
+                        placeholderTextColor={inputPlaceholderColor}
                         autoCapitalize="words"
                         value={firstName}
                         onChangeText={(text) => {
@@ -1126,7 +1127,7 @@ const AuthScreen: React.FC = () => {
                       <TextInput
                         style={styles.input}
                         placeholder="Lafontaine"
-                        placeholderTextColor="#6B7280"
+                        placeholderTextColor={inputPlaceholderColor}
                         autoCapitalize="words"
                         value={lastName}
                         onChangeText={(text) => {
@@ -1159,7 +1160,7 @@ const AuthScreen: React.FC = () => {
                   <TextInput
                     style={styles.input}
                     placeholder="you@company.com"
-                    placeholderTextColor="#6B7280"
+                    placeholderTextColor={inputPlaceholderColor}
                     autoCapitalize="none"
                     keyboardType="email-address"
                     value={email}
@@ -1191,7 +1192,7 @@ const AuthScreen: React.FC = () => {
                   <TextInput
                     style={styles.input}
                     placeholder="••••••••"
-                    placeholderTextColor="#6B7280"
+                    placeholderTextColor={inputPlaceholderColor}
                     secureTextEntry={!showPassword}
                     value={password}
                     onChangeText={(text) => {
@@ -1213,7 +1214,7 @@ const AuthScreen: React.FC = () => {
                     <MaterialIcons
                       name={showPassword ? "visibility" : "visibility-off"}
                       size={20}
-                      color="#6B7280"
+                      color={darkMode ? '#FFFFFF' : '#64748B'}
                     />
                   </TouchableOpacity>
                 </View>
@@ -1233,7 +1234,7 @@ const AuthScreen: React.FC = () => {
                     <TextInput
                       style={styles.input}
                       placeholder="Repeat password"
-                      placeholderTextColor="#6B7280"
+                      placeholderTextColor={inputPlaceholderColor}
                       secureTextEntry={!showConfirmPassword}
                       value={confirmPassword}
                       onChangeText={(text) => {
@@ -1255,7 +1256,7 @@ const AuthScreen: React.FC = () => {
                       <MaterialIcons
                         name={showConfirmPassword ? "visibility" : "visibility-off"}
                         size={20}
-                        color="#6B7280"
+                        color={darkMode ? '#FFFFFF' : '#64748B'}
                       />
                     </TouchableOpacity>
                   </View>
@@ -1313,7 +1314,7 @@ const AuthScreen: React.FC = () => {
                     <TextInput
                       style={styles.input}
                       placeholder="Enter 6-digit code"
-                      placeholderTextColor="#6B7280"
+                      placeholderTextColor={inputPlaceholderColor}
                       keyboardType="number-pad"
                       value={verificationCode}
                       onChangeText={setVerificationCode}
@@ -1439,7 +1440,7 @@ const AuthScreen: React.FC = () => {
   );
 };
 
-const getStyles = (Colors: any) => StyleSheet.create({
+const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   gradient: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -1474,7 +1475,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     alignItems: "flex-end",
   },
   headerTitle: {
-    color: Colors.bg === '#000000' ? "#F9FAFB" : Colors.text,
+    color: isDark ? "#F9FAFB" : Colors.text,
     fontSize: 28,
     fontWeight: "800",
   },
@@ -1485,34 +1486,34 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginTop: 1,
   },
   headerSubtitle: {
-    color: Colors.bg === '#000000' ? "#9CA3AF" : "#475569",
+    color: isDark ? "#FFFFFF" : "#475569",
     fontSize: 13,
     marginTop: 6,
   },
   cardBorder: {
     borderRadius: 30,
     padding: 1,
-    shadowColor: Colors.bg === '#000000' ? '#00A6FF' : "transparent",
-    shadowOpacity: Colors.bg === '#000000' ? 0.16 : 0,
-    shadowRadius: Colors.bg === '#000000' ? 14 : 0,
-    shadowOffset: { width: 0, height: Colors.bg === '#000000' ? 10 : 0 },
-    elevation: Colors.bg === '#000000' ? 12 : 0,
-    borderWidth: Colors.bg === '#000000' ? 0 : 1,
-    borderColor: Colors.bg === '#000000' ? "transparent" : "#E2E8F0",
+    shadowColor: isDark ? '#00A6FF' : "transparent",
+    shadowOpacity: isDark ? 0.16 : 0,
+    shadowRadius: isDark ? 14 : 0,
+    shadowOffset: { width: 0, height: isDark ? 10 : 0 },
+    elevation: isDark ? 12 : 0,
+    borderWidth: isDark ? 0 : 1,
+    borderColor: isDark ? "transparent" : "#E2E8F0",
   },
   card: {
-    backgroundColor: Colors.bg === '#000000' ? "#000000" : "#FFFFFF",
+    backgroundColor: isDark ? "#000000" : "#FFFFFF",
     borderRadius: 28,
     paddingHorizontal: 18,
     paddingVertical: 20,
   },
   modeToggle: {
     flexDirection: "row",
-    backgroundColor: Colors.bg === '#000000' ? "#000000" : "#F1F5F9",
+    backgroundColor: isDark ? "#000000" : "#F1F5F9",
     borderRadius: 999,
     padding: 4,
-    borderWidth: Colors.bg === '#000000' ? 1 : 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(55, 65, 81, 0.9)" : "#E2E8F0",
+    borderWidth: isDark ? 1 : 1,
+    borderColor: isDark ? "rgba(55, 65, 81, 0.9)" : "#E2E8F0",
     marginBottom: 18,
   },
   modeChip: {
@@ -1532,7 +1533,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   modeChipText: {
-    color: Colors.bg === '#000000' ? "#9CA3AF" : "#334155",
+    color: isDark ? "#FFFFFF" : "#334155",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -1547,7 +1548,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flex: 1,
   },
   label: {
-    color: Colors.bg === '#000000' ? "#E5E7EB" : "#0F172A",
+    color: isDark ? "#FFFFFF" : "#0F172A",
     fontSize: 13,
     marginBottom: 6,
     fontWeight: "600", // Increased from 500
@@ -1558,13 +1559,13 @@ const getStyles = (Colors: any) => StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    backgroundColor: Colors.bg === '#000000' ? "#000000" : "#FFFFFF",
+    backgroundColor: isDark ? "#000000" : "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(148,163,184,0.9)" : "#E2E8F0",
+    borderColor: isDark ? "rgba(148,163,184,0.9)" : "#E2E8F0",
   },
   input: {
     flex: 1,
-    color: Colors.bg === '#000000' ? "#F9FAFB" : Colors.text,
+    color: isDark ? "#F9FAFB" : Colors.text,
     fontSize: 15,
   },
   inputError: {
@@ -1583,7 +1584,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   helperText: {
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "#6B7280" : "#475569",
+    color: isDark ? "#F3F4F6" : "#475569",
     marginTop: 4,
   },
   strengthRow: {
@@ -1596,14 +1597,14 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 999,
-    backgroundColor: Colors.bg === '#000000' ? "rgba(55,65,81,0.7)" : "#E2E8F0",
+    backgroundColor: isDark ? "rgba(55,65,81,0.7)" : "#E2E8F0",
     marginRight: 4,
   },
   strengthBarActive: {
     backgroundColor: "#22C55E",
   },
   strengthText: {
-    color: Colors.bg === '#000000' ? "#9CA3AF" : "#475569",
+    color: isDark ? "#FFFFFF" : "#475569",
     fontSize: 11,
     marginLeft: 8,
   },
@@ -1645,11 +1646,11 @@ const getStyles = (Colors: any) => StyleSheet.create({
   divider: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.bg === '#000000' ? "#374151" : Colors.line,
+    backgroundColor: isDark ? "#374151" : Colors.line,
   },
   dividerText: {
     marginHorizontal: 10,
-    color: Colors.bg === '#000000' ? "#6B7280" : "#475569",
+    color: isDark ? "#FFFFFF" : "#475569",
     fontSize: 12,
     fontWeight: "500",
   },
@@ -1659,7 +1660,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginTop: 4,
   },
   footerText: {
-    color: Colors.bg === '#000000' ? "#9CA3AF" : "#475569",
+    color: isDark ? "#FFFFFF" : "#475569",
     fontSize: 13,
   },
   footerLink: {
@@ -1674,7 +1675,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   termsText: {
     fontSize: 11,
-    color: Colors.bg === '#000000' ? "#6B7280" : "#475569",
+    color: isDark ? "#F3F4F6" : "#475569",
     textAlign: "center",
     lineHeight: 16,
   },

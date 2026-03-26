@@ -38,16 +38,16 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const darkMode = themeColors.bg === '#000000';
   const palette = useMemo(() => ({
     ...baseColors,
-    text: darkMode ? baseColors.text : themeColors.text,
-    textDim: darkMode ? baseColors.textDim : themeColors.sub,
+    text: darkMode ? '#FFFFFF' : themeColors.text,
+    textDim: darkMode ? '#FFFFFF' : themeColors.sub,
     card: darkMode ? baseColors.card : themeColors.bg,
     cardDark: darkMode ? baseColors.cardDark : themeColors.bg,
     chip: darkMode ? baseColors.chip : (themeColors.surface2 || themeColors.bg),
     divider: darkMode ? baseColors.divider : themeColors.line,
     accentText: darkMode ? '#FFFFFF' : themeColors.text,
-    mutedOpacity: darkMode ? 0.7 : 1,
-    subtleOpacity: darkMode ? 0.6 : 1,
-    faintOpacity: darkMode ? 0.5 : 1,
+    mutedOpacity: darkMode ? 1 : 0.7,
+    subtleOpacity: darkMode ? 1 : 0.6,
+    faintOpacity: darkMode ? 1 : 0.5,
   }), [darkMode, themeColors]);
   const styles = useMemo(() => getStyles(palette), [palette]);
 
@@ -199,7 +199,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
   // Base values from the current bid
   const base = useMemo(() => {
-    // Calculate total overhead same way as Step 5 (Overhead & Markup)
+    // Calculate total overhead same way as Step 5 (direct costs, overhead & markup)
     const totalOverhead = (bid?.insuranceOverhead || 0) +
                           (bid?.equipment || 0) +
                           (bid?.facilities || 0) +
@@ -1011,7 +1011,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 style={styles.modalBackButton}
                 onPress={() => setShowDetailsModal(false)}
               >
-                <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#0F172A"} />
               </TouchableOpacity>
               <Text style={styles.modalTitle}>📊 Detailed Analysis</Text>
               <View style={{ width: 40 }} />

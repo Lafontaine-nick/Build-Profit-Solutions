@@ -853,8 +853,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         bg: '#000000',
         surface: '#0f172a',
         surface2: '#1e293b',
-        text: '#f1f5f9',
-        subtext: '#94a3b8',
+        text: '#FFFFFF',
+        subtext: '#FFFFFF',
         border: '#334155',
         green: '#22c55e',
       }
@@ -943,7 +943,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={{ fontSize: 16, fontWeight: '600', flex: 1, color: COLORS.text }}>{event.title}</Text>
-                    <MaterialIcons name={getEventIcon(event) as any} size={16} color={getEventColor(event)} />
+                    <MaterialIcons name={getEventIcon(event) as any} size={16} color={darkMode ? '#FFFFFF' : getEventColor(event)} />
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                     <Ionicons name="calendar-outline" size={14} color={COLORS.subtext} />
@@ -957,7 +957,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                     <Text style={{ fontSize: 13, color: COLORS.subtext }}>
                       {event.projectName || 'Project'}
                       {(event as MasterCalendarEvent).isCompletedProject && (
-                        <Text style={{ opacity: 0.7 }}> (Completed)</Text>
+                        <Text style={{ opacity: darkMode ? 1 : 0.7 }}> (Completed)</Text>
                       )}
                     </Text>
                   </View>
@@ -980,7 +980,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           fontWeight: '600',
                           textTransform: 'uppercase',
                           letterSpacing: 0.5,
-                          color: getEventColor(event),
+                          color: darkMode ? '#FFFFFF' : getEventColor(event),
                         }}>
                           {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
                         </Text>
@@ -1143,7 +1143,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             <MaterialIcons
                               name={getEventIcon(event) as any}
                               size={16}
-                              color={getEventColor(event)}
+                              color={darkMode ? '#FFFFFF' : getEventColor(event)}
                             />
                           </View>
                           <View style={{
@@ -1156,7 +1156,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                             <Text style={{ fontSize: 13, color: COLORS.subtext }}>
                               {event.projectName || 'Project'}
                               {(event as any).isCompletedProject && (
-                                <Text style={{ opacity: 0.7 }}> (Completed)</Text>
+                                <Text style={{ opacity: darkMode ? 1 : 0.7 }}> (Completed)</Text>
                               )}
                             </Text>
                           </View>
@@ -1196,7 +1196,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                                   fontWeight: '600',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.5,
-                                  color: getEventColor(event),
+                                  color: darkMode ? '#FFFFFF' : getEventColor(event),
                                 }}>
                                   {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
                                 </Text>
@@ -1414,7 +1414,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventTitle}
                       onChangeText={setEventTitle}
                       placeholder="e.g., Framing Inspection"
-                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{
@@ -1444,7 +1444,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         setEventDate(formatted);
                       }}
                       placeholder="MM-DD-YY"
-                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 44 }}>
@@ -1454,7 +1454,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventTime}
                       onChangeText={setEventTime}
                       placeholder="09:00"
-                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
                     />
                   </View>
                 </View>
@@ -1543,7 +1543,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventSubcontractor}
                       onChangeText={setEventSubcontractor}
                       placeholder="e.g., ABC Electric"
-                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, minHeight: 100 }}>
@@ -1553,7 +1553,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventNotes}
                       onChangeText={setEventNotes}
                       placeholder="Additional details..."
-                      placeholderTextColor={darkMode ? "#8E8E93" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
                       multiline
                       numberOfLines={4}
                       textAlignVertical="top"
@@ -2182,7 +2182,7 @@ const DashboardScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.root}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
       {/* Background */}
       <View style={StyleSheet.absoluteFill} />
@@ -2202,13 +2202,13 @@ const DashboardScreen: React.FC = () => {
               const aiStatusText = aiPmMode
                 ? "AI PM Active"
                 : "AI monitoring paused · Manual mode";
-              const isDark = Colors.bg === '#000000';
+              const isDark = darkMode;
               const aiStatusColor = aiPmMode 
                 ? (isDark ? "#6ee7b7" : "#16a34a") 
-                : (isDark ? "#6b7280" : "#94A3B8");
+                : (isDark ? "#F3F4F6" : "#94A3B8");
               const dotColor = aiPmMode 
                 ? "#22c55e" 
-                : (isDark ? "#4b5563" : "#94A3B8");
+                : (isDark ? "#9CA3AF" : "#94A3B8");
               // Format timestamps
               const ruleBasedTime = aiData?.ruleBasedUpdatedAt 
                 ? new Date(aiData.ruleBasedUpdatedAt).toLocaleTimeString()
@@ -2271,7 +2271,7 @@ const DashboardScreen: React.FC = () => {
 
         {/* SEGMENTED CONTROL */}
         <View style={styles.wideContainer}>
-          <BlurView intensity={35} tint="dark" style={styles.segmentContainer}>
+          <BlurView intensity={35} tint={darkMode ? "dark" : "light"} style={styles.segmentContainer}>
             <View style={styles.segmentInner}>
             <SegmentTab
               label={t('dashboard.overview')}
@@ -2437,7 +2437,7 @@ const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) 
       style={styles.segmentTab}
     >
       <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={16} color={Colors.bg === '#000000' ? "#E5F7FF" : "#475569"} />
+        <Ionicons name={icon} size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
         <Text style={styles.segmentLabel}>
           {label}
         </Text>
@@ -2655,7 +2655,7 @@ const InsightItem = ({
             <Ionicons 
               name="information-circle-outline" 
               size={14} 
-              color={darkMode ? "#9ca3af" : "#6b7280"} 
+              color={darkMode ? "#FFFFFF" : "#6b7280"} 
             />
           </Pressable>
         </View>
@@ -3042,7 +3042,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               }}
             >
               <View style={{
-                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
+                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
                 borderRadius: 18,
                 padding: 12,
               }}>
@@ -3169,7 +3169,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           }}
         >
           <View style={{
-            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
+            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
             borderRadius: 18,
             padding: 16,
           }}>
@@ -3238,7 +3238,7 @@ const AnalyticsMetric = ({
       "Avg Project Value": { icon: "trending-up-outline", color: "#22d3ee", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
       "Avg Margin": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
     };
-    const config = baseConfigs[label] || { icon: "stats-chart-outline", color: "#8DA0B8", darkBg: Colors.surface2, lightBg: "#E2E8F0" };
+    const config = baseConfigs[label] || { icon: "stats-chart-outline", color: "#FFFFFF", darkBg: Colors.surface2, lightBg: "#E2E8F0" };
     return {
       icon: config.icon,
       color: config.color,
@@ -3463,7 +3463,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   screenSubtitle: {
     fontSize: 14,
-    color: Colors.bg === '#000000' ? Colors.sub : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
     marginTop: 4,
   },
   aiStatusRow: {
@@ -3490,8 +3490,8 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   aiTimestampText: {
     fontSize: 10,
-    color: Colors.sub,
-    opacity: 0.7,
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.sub,
+    opacity: 1,
   },
   refreshButton: {
     padding: 4,
@@ -3586,8 +3586,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   segmentLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#E5F7FF" : "#000000",
-    opacity: Colors.bg === '#000000' ? 1 : 1, // Keep full opacity, color already muted
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
   },
   segmentLabelActive: {
     color: Colors.bg === '#000000' ? "#050B13" : "#071018",
@@ -3674,7 +3673,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   cardSubtitle: {
     marginTop: 2,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#8DA0B8" : "#475569", // slate-600 for better contrast
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569", // slate-600 for better contrast
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -3687,7 +3686,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginTop: 12,
     fontSize: 15,
     lineHeight: 23,
-    color: Colors.bg === '#000000' ? "#cbd5e1" : "#475569",
+    color: Colors.bg === '#000000' ? "#F3F4F6" : "#475569",
   },
   insightsSectionTitle: {
     fontSize: 20,
@@ -3699,7 +3698,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: 4,
-    color: Colors.bg === '#000000' ? "#94a3b8" : "#64748b",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#64748b",
   },
   linkText: {
     fontSize: 14,
@@ -3842,7 +3841,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   projectLocationText: {
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#7C8BA0" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
   },
   statusPillBase: {
     paddingHorizontal: 14,
@@ -3867,11 +3866,11 @@ const getStyles = (Colors: any) => StyleSheet.create({
   projectMetaText: {
     marginTop: 2,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#9BB2C8" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
   },
   projectMetaLabel: {
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "#7C8BA0" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
   },
   progressRow: {
     flexDirection: "row",
@@ -3898,7 +3897,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   progressLabel: {
     marginTop: 4,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#7C8BA0" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
   },
   aiTagChip: {
     flexDirection: "row",
@@ -3949,7 +3948,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   projectSummaryAmount: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#9BB2C8" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
     marginTop: 4,
   },
   projectSummaryProgress: {
@@ -4015,7 +4014,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   analyticsLabel: {
     fontSize: 11, // Slightly larger
-    color: Colors.bg === '#000000' ? "#8DA0B8" : "#334155",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#334155",
     fontWeight: "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
@@ -4069,7 +4068,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: Colors.bg === '#000000' ? "#8DA0B8" : Colors.sub,
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.sub,
     marginTop: 6,
     textAlign: "center",
     maxWidth: 240,
@@ -4145,7 +4144,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   metricContext: {
     fontSize: 12,
-    color: "#9ca3af",
+    color: "#F3F4F6",
     marginTop: 10,
   },
 
@@ -4182,13 +4181,13 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#6b7280" : "#475569", // slate-600 for better contrast
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569", // slate-600 for better contrast
     marginTop: 2,
   },
   aiInsightsCollapsedHint: {
     fontSize: 13,
     lineHeight: 18,
-    color: Colors.bg === '#000000' ? "#9ca3af" : "#64748b",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#64748b",
     paddingHorizontal: 4,
   },
   aiInsightsShowMoreRow: {
@@ -4263,7 +4262,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   insightBody: {
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "#9ca3af" : "#475569",
+    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
     marginTop: 2,
   },
 

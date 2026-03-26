@@ -28,8 +28,8 @@ const lightGray = '#f9fafb';
 // Dark Mode Specific
 const darkBackground = '#0b1c38'; // Deep dark blue background
 const darkCard = '#142850'; // Dark card background
-const darkText = '#e5e7eb'; // Light text on dark
-const darkSubtext = '#9ca3af'; // Secondary text on dark
+const darkText = '#ffffff'; // Primary text on dark — max contrast on black/navy
+const darkSubtext = '#ffffff'; // Secondary/helper text (was grey; same as primary for readability)
 
 export const Colors = {
   light: {
@@ -65,7 +65,7 @@ export const Colors = {
     // Text Colors
     text: darkText, // Primary text - Light for readability
     subtext: darkSubtext, // Secondary text
-    caption: '#6b7280', // Caption text
+    caption: '#f3f4f6', // Caption — light on dark (was mid-grey, too low contrast)
     link: '#60a5fa', // Link text
 
     // Background Colors

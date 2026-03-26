@@ -124,7 +124,7 @@ export default function LandingScreen() {
             <View style={{ marginTop: 16 }}>
               <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>BUILD PROFIT</Text>
             </View>
-            <Text style={[styles.screenSubtitle, { color: darkMode ? "#94a3b8" : "#000000" }]}>SOLUTIONS</Text>
+            <Text style={[styles.screenSubtitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>SOLUTIONS</Text>
 
             <View style={styles.taglineRow}>
               <Ionicons name="sparkles" size={14} color="#22c55e" />
@@ -149,7 +149,7 @@ export default function LandingScreen() {
             end={{ x: 0.95, y: 0.9 }}
             style={styles.cardBorder}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg }]}>
+            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
               <View style={styles.cardHeaderRow}>
                 <View>
                   <Text style={styles.cardTitle}>{t('landing.getStarted')}</Text>
@@ -202,7 +202,7 @@ export default function LandingScreen() {
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={16}
-                  color="#6ee7b7"
+                  color={darkMode ? "#6ee7b7" : "#16a34a"}
                 />
                 <Text style={styles.reassureText}>
                   {t('landing.dataPrivacy')}
@@ -220,7 +220,7 @@ export default function LandingScreen() {
             end={{ x: 0.95, y: 0.9 }}
             style={[styles.cardBorder, { marginBottom: 0 }]}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg }]}>
+            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
               <View style={styles.cardHeaderRow}>
                 <View>
                   <Text style={styles.cardTitle}>{t('landing.whatBuildersSay')}</Text>
@@ -374,7 +374,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   tagline: {
     fontSize: 14,
-    color: darkMode ? "#cbd5e1" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
     fontWeight: "500",
   },
   aiStatusRow: {
@@ -391,7 +391,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   aiStatusText: {
     fontSize: 12,
-    color: "#6ee7b7",
+    color: darkMode ? "#6ee7b7" : "#15803d",
   },
 
   cardBorder: {
@@ -428,7 +428,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   cardSubtitle: {
     marginTop: 8,
     fontSize: 13,
-    color: darkMode ? "#8DA0B8" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
     textAlign: "center",
   },
 
@@ -492,7 +492,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   reassureText: {
     fontSize: 12,
-    color: darkMode ? "#9ca3af" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
 
   testimonialContent: {
@@ -519,7 +519,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   testimonialAuthor: {
     fontSize: 14,
     textAlign: "center",
-    color: darkMode ? "#94a3b8" : "#64748B",
+    color: darkMode ? "#FFFFFF" : "#64748B",
     fontWeight: "600",
   },
 });

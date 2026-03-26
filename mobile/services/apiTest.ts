@@ -1,9 +1,24 @@
 // Simple API test to verify connectivity
 import Constants from 'expo-constants';
 
+/** Backend mounts routes under /api — avoid 404 when env URL is host-only (e.g. http://192.168.x.x:3001). */
+const normalizeApiBaseUrl = (url: string): string => {
+  const trimmed = String(url || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return 'https://build-profit-solutions-backend.onrender.com/api';
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+};
+
+/** Use for all mobile `fetch` calls to the Node backend (project-leads, marketplace, etc.). */
+export const resolveMobileApiBaseUrl = (): string =>
+  normalizeApiBaseUrl(
+    Constants.expoConfig?.extra?.apiBaseUrl ||
+      process.env.EXPO_PUBLIC_API_BASE_URL ||
+      'https://build-profit-solutions-backend.onrender.com/api'
+  );
+
 export const testApiConnection = async () => {
-  const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://build-profit-solutions-backend.onrender.com/api';
-  
+  const API_BASE_URL = resolveMobileApiBaseUrl();
+
   console.log('🧪 Testing API connection...');
   console.log('🧪 API_BASE_URL:', API_BASE_URL);
   

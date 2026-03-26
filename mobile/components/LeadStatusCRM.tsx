@@ -52,7 +52,7 @@ const LeadStatusCRM: React.FC<LeadStatusCRMProps> = ({
   // Define colors based on theme
   const backgroundColor = 'transparent';
   const textColor = darkMode ? '#E0E0E0' : '#333333';
-  const textSecondaryColor = darkMode ? '#B0B0B0' : '#666666';
+  const textSecondaryColor = darkMode ? '#FFFFFF' : '#666666';
   const borderColor = darkMode ? '#2A4A7A' : '#E0E0E0';
   const cardColor = darkMode ? '#1B365D' : '#FFFFFF';
   const accentColor = '#4CAF50';

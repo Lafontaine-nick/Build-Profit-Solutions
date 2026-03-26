@@ -147,11 +147,13 @@ function getEstimatedCostBaseline(project: any, estimateData: any): number {
     Number(ed?.materials ?? project?.materials ?? 0) +
     Number(ed?.labor ?? project?.labor ?? 0) +
     Number(ed?.equipment ?? 0) +
+    Number(ed?.equipmentMaintenance ?? 0) +
     Number(ed?.facilities ?? 0) +
     Number(ed?.insuranceOverhead ?? 0) +
     Number(ed?.otherOverhead ?? 0) +
     Number(ed?.planCost ?? 0) +
-    Number(ed?.permitCost ?? 0);
+    Number(ed?.permitCost ?? 0) +
+    Number(ed?.otherDirectCost ?? 0);
   if (fromParts > 0) return fromParts;
   return Number(project?.estimatedCost ?? 0);
 }
@@ -1761,8 +1763,75 @@ const AIAssistantModal: React.FC<Props> = ({
       case 'set_markup_percentage':
         return `Set markup to ${action.markupPct}%?`;
 
-      case 'replace_payment_schedule':
-        return `Replace the current payment schedule with a ${action.paymentSchedule === 'weekly' ? 'weekly' : action.paymentSchedule === 'hybrid' ? 'hybrid' : 'milestone-based'} schedule${action.safer ? ' with earlier cash protection' : ''}?`;
+      case 'apply_estimate_pricing_fields': {
+        const lines: string[] = [];
+        const label = (k: string, v: unknown) =>
+          `- ${k}: $${Number(v || 0).toLocaleString()}`;
+        if (action.planCost != null) lines.push(label('Plans', action.planCost));
+        if (action.permitCost != null) lines.push(label('Permits', action.permitCost));
+        if (action.otherDirectCost != null) lines.push(label('Other direct costs', action.otherDirectCost));
+        if (action.equipment != null) lines.push(label('Equipment rental', action.equipment));
+        if (action.insuranceOverhead != null) lines.push(label('Insurance overhead', action.insuranceOverhead));
+        if (action.equipmentMaintenance != null) lines.push(label('Equipment maintenance', action.equipmentMaintenance));
+        if (action.facilities != null) lines.push(label('Facilities', action.facilities));
+        if (action.otherOverhead != null) lines.push(label('Other overhead', action.otherOverhead));
+        const body = lines.length > 0 ? `\n\n${lines.join('\n')}` : '';
+        return `Update Step 5 pricing (direct costs vs overhead)?${body}`;
+      }
+
+      case 'replace_payment_schedule': {
+        const scheduleLabel =
+          action.paymentSchedule === 'weekly'
+            ? 'weekly'
+            : action.paymentSchedule === 'hybrid'
+              ? 'hybrid'
+              : 'milestone-based';
+        const money = (value: unknown) =>
+          `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const pct = (value: unknown) =>
+          value == null || Number.isNaN(Number(value)) ? '' : ` (${Number(value).toLocaleString()}%)`;
+        const dateText = (value: unknown) => {
+          const raw = String(value || '').trim();
+          if (!raw) return '';
+          const dt = new Date(`${raw}T00:00:00`);
+          return Number.isNaN(dt.getTime()) ? ` on ${raw}` : ` on ${dt.toLocaleDateString()}`;
+        };
+
+        if (action.paymentSchedule === 'weekly' && Array.isArray(action.weeklyPayments) && action.weeklyPayments.length > 0) {
+          const deposit =
+            action.weeklyPayments.find((payment: any) =>
+              Number(payment?.weekNumber) === 0 ||
+              /\bdeposit\b/i.test(String(payment?.name || payment?.description || ''))
+            ) || null;
+          const recurring = action.weeklyPayments.filter((payment: any) => payment !== deposit);
+          const previewLines: string[] = [];
+          previewLines.push(`- Weekly schedule: ${recurring.length} week${recurring.length === 1 ? '' : 's'}`);
+          if (deposit) {
+            previewLines.push(`- Deposit: ${money(deposit.amount)}${pct(deposit.percentage)}${dateText(deposit.scheduledDate || deposit.dueDate)}`);
+          }
+          recurring.slice(0, 4).forEach((payment: any, index: number) => {
+            previewLines.push(
+              `- ${payment?.name || `Week ${index + 1} progress payment`}: ${money(payment?.amount)}${pct(payment?.percentage)}${dateText(payment?.scheduledDate || payment?.dueDate)}`
+            );
+          });
+          if (recurring.length > 4) {
+            previewLines.push(`- plus ${recurring.length - 4} more weekly payment${recurring.length - 4 === 1 ? '' : 's'}`);
+          }
+          return `Replace the current payment schedule with a ${scheduleLabel} schedule${action.safer ? ' with earlier cash protection' : ''}?\n\n${previewLines.join('\n')}`;
+        }
+
+        if (action.paymentSchedule === 'milestone-based' && Array.isArray(action.paymentMilestones) && action.paymentMilestones.length > 0) {
+          const previewLines = action.paymentMilestones.slice(0, 4).map((milestone: any) =>
+            `- ${milestone?.name || 'Milestone'}: ${money(milestone?.paymentAmount ?? milestone?.amount)}${pct(milestone?.percentage)}`
+          );
+          if (action.paymentMilestones.length > 4) {
+            previewLines.push(`- plus ${action.paymentMilestones.length - 4} more milestone payment${action.paymentMilestones.length - 4 === 1 ? '' : 's'}`);
+          }
+          return `Replace the current payment schedule with a ${scheduleLabel} schedule${action.safer ? ' with earlier cash protection' : ''}?\n\n${previewLines.join('\n')}`;
+        }
+
+        return `Replace the current payment schedule with a ${scheduleLabel} schedule${action.safer ? ' with earlier cash protection' : ''}?`;
+      }
 
       case 'rebalance_payment_schedule':
         return 'Rebalance the current payment schedule so it totals 100%?';
@@ -1912,7 +1981,8 @@ const AIAssistantModal: React.FC<Props> = ({
       case 'update_overhead_markup':
         const parts = [];
         if (action.insuranceOverhead !== undefined) parts.push(`Insurance: $${action.insuranceOverhead}`);
-        if (action.equipment !== undefined) parts.push(`Equipment: $${action.equipment}`);
+        if (action.equipment !== undefined) parts.push(`Equipment rental: $${action.equipment}`);
+        if (action.equipmentMaintenance !== undefined) parts.push(`Equipment maintenance: $${action.equipmentMaintenance}`);
         if (action.facilities !== undefined) parts.push(`Facilities: $${action.facilities}`);
         if (action.otherOverhead !== undefined) parts.push(`Other: $${action.otherOverhead}`);
         if (action.markupPct !== undefined) parts.push(`Markup: ${action.markupPct}%`);
@@ -3086,6 +3156,7 @@ const AIAssistantModal: React.FC<Props> = ({
           update_customer_info: 0,
           update_project_info: 1,
           add_estimate_line_items: 2,
+          apply_estimate_pricing_fields: 2,
           set_markup_percentage: 3,
           replace_payment_schedule: 4,
           rebalance_payment_schedule: 5,
@@ -3216,7 +3287,7 @@ const AIAssistantModal: React.FC<Props> = ({
           }
 
           const isChangeOrder = action.type === 'create_change_order';
-          const isEstimateEdit = ['add_estimate_line_items', 'update_customer_info', 'update_project_info', 'set_markup_percentage', 'replace_payment_schedule', 'rebalance_payment_schedule', 'add_starter_materials', 'add_starter_labor', 'add_common_scope_package', 'create_estimate_variant'].includes(action.type);
+          const isEstimateEdit = ['add_estimate_line_items', 'apply_estimate_pricing_fields', 'update_customer_info', 'update_project_info', 'set_markup_percentage', 'replace_payment_schedule', 'rebalance_payment_schedule', 'add_starter_materials', 'add_starter_labor', 'add_common_scope_package', 'create_estimate_variant'].includes(action.type);
           const alertTitle = isChangeOrder ? 'Approve Change Order?' : isEstimateEdit ? 'Confirm Estimate Update' : 'Confirm AI Action';
           const confirmText = isChangeOrder ? 'Approve' : 'Confirm';
           const cancelText = isChangeOrder ? 'Not Now' : 'Cancel';
@@ -3447,14 +3518,14 @@ const AIAssistantModal: React.FC<Props> = ({
     return parts.map((part, index) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return (
-          <Text key={`${keyPrefix}-bold-${index}`} style={[baseStyle, styles.messageBold]}>
+          <Text key={`${keyPrefix}-bold-${index}`} style={[baseStyle, styles.messageBold, !darkMode && { color: ThemeColors.text }]}>
             {part.slice(2, -2)}
           </Text>
         );
       }
       if (part.startsWith('_') && part.endsWith('_')) {
         return (
-          <Text key={`${keyPrefix}-italic-${index}`} style={[baseStyle, styles.messageItalic]}>
+          <Text key={`${keyPrefix}-italic-${index}`} style={[baseStyle, styles.messageItalic, !darkMode && { color: ThemeColors.sub }]}>
             {part.slice(1, -1)}
           </Text>
         );
@@ -3503,8 +3574,8 @@ const AIAssistantModal: React.FC<Props> = ({
     valueStyle: any,
   ) => (
     <>
-      <Text style={styles.messageMetricLabel}>{label}: </Text>
-      {renderInlineMarkdown(value, `${keyPrefix}-value`, valueStyle)}
+      <Text style={[styles.messageMetricLabel, !darkMode && { color: ThemeColors.text }]}>{label}: </Text>
+      {renderInlineMarkdown(value, `${keyPrefix}-value`, [valueStyle, !darkMode && { color: ThemeColors.sub }])}
     </>
   );
 
@@ -3526,10 +3597,10 @@ const AIAssistantModal: React.FC<Props> = ({
       const grouped = [...metadataBuffer];
       metadataBuffer.length = 0;
       elements.push(
-        <View key={`${keyBase}-meta`} style={styles.messageMetaBlock}>
+        <View key={`${keyBase}-meta`} style={[styles.messageMetaBlock, !darkMode && { borderTopColor: ThemeColors.line }]}>
           {grouped.map((metaLine, index) => (
-            <Text key={`${keyBase}-meta-${index}`} style={styles.messageMetaText}>
-              {renderInlineMarkdown(metaLine, `${keyBase}-meta-inline-${index}`, styles.messageMetaText)}
+            <Text key={`${keyBase}-meta-${index}`} style={[styles.messageMetaText, !darkMode && { color: ThemeColors.sub }]}>
+              {renderInlineMarkdown(metaLine, `${keyBase}-meta-inline-${index}`, [styles.messageMetaText, !darkMode && { color: ThemeColors.sub }])}
             </Text>
           ))}
         </View>
@@ -3544,8 +3615,8 @@ const AIAssistantModal: React.FC<Props> = ({
       if (disclaimerMatch) {
         flushMetadata(`line-${index}`);
         elements.push(
-          <View key={`disclaimer-wrap-${index}`} style={styles.messageMetaBlock}>
-            <Text key={`disclaimer-${index}`} style={styles.messageMetaText}>
+          <View key={`disclaimer-wrap-${index}`} style={[styles.messageMetaBlock, !darkMode && { borderTopColor: ThemeColors.line }]}>
+            <Text key={`disclaimer-${index}`} style={[styles.messageMetaText, !darkMode && { color: ThemeColors.sub }]}>
               {disclaimerMatch[1].trim()}
             </Text>
           </View>
@@ -3570,7 +3641,7 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (/^#{2,3}\s+/.test(trimmedLine)) {
         elements.push(
-          <Text key={`heading-${index}`} style={styles.messageHeading}>
+          <Text key={`heading-${index}`} style={[styles.messageHeading, !darkMode && { color: ThemeColors.text }]}>
             {trimmedLine.replace(/^#{2,3}\s*/, '')}
           </Text>
         );
@@ -3579,8 +3650,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (looksLikeSectionBanner(cleanedLine)) {
         elements.push(
-          <View key={`banner-${index}`} style={styles.messageSectionBanner}>
-            <Text style={styles.messageSectionBannerText}>
+          <View key={`banner-${index}`} style={[styles.messageSectionBanner, !darkMode && { backgroundColor: "rgba(22,163,74,0.08)", borderColor: ThemeColors.line }]}>
+            <Text style={[styles.messageSectionBannerText, !darkMode && { color: ThemeColors.text }]}>
               {cleanedLine.replace(/:$/, '')}
             </Text>
           </View>
@@ -3594,7 +3665,7 @@ const AIAssistantModal: React.FC<Props> = ({
           .replace(/\b\w/g, (c) => c.toUpperCase());
         elements.push(
           <View key={`section-${index}`} style={styles.messageSectionHeaderWrap}>
-            <Text style={styles.messageSectionHeader}>{humanized}</Text>
+            <Text style={[styles.messageSectionHeader, !darkMode && { color: ThemeColors.text }]}>{humanized}</Text>
           </View>
         );
         return;
@@ -3603,10 +3674,10 @@ const AIAssistantModal: React.FC<Props> = ({
       const warningMatch = cleanedLine.match(/^(⚠️|➡️)\s*(.+)$/);
       if (warningMatch) {
         elements.push(
-          <View key={`callout-${index}`} style={styles.messageCallout}>
-            <Text style={styles.messageCalloutIcon}>{warningMatch[1]}</Text>
-            <Text style={styles.messageCalloutText}>
-              {renderInlineMarkdown(warningMatch[2], `callout-${index}`, styles.messageCalloutText)}
+          <View key={`callout-${index}`} style={[styles.messageCallout, !darkMode && { backgroundColor: "rgba(0,0,0,0.04)", borderColor: ThemeColors.line }]}>
+            <Text style={[styles.messageCalloutIcon, !darkMode && { color: "#16a34a" }]}>{warningMatch[1]}</Text>
+            <Text style={[styles.messageCalloutText, !darkMode && { color: ThemeColors.text }]}>
+              {renderInlineMarkdown(warningMatch[2], `callout-${index}`, [styles.messageCalloutText, !darkMode && { color: ThemeColors.text }])}
             </Text>
           </View>
         );
@@ -3618,11 +3689,11 @@ const AIAssistantModal: React.FC<Props> = ({
         const metric = splitMetricText(bulletMatch[1]);
         elements.push(
           <View key={`bullet-${index}`} style={[styles.messageBulletRow, metric && styles.messageMetricRow]}>
-            <Text style={styles.messageBullet}>•</Text>
-            <Text style={styles.messageListItem}>
+            <Text style={[styles.messageBullet, !darkMode && { color: "#16a34a" }]}>•</Text>
+            <Text style={[styles.messageListItem, !darkMode && { color: ThemeColors.text }]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, styles.messageMetricValue)
-                : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, styles.messageListItem)}
+                ? renderMetricInline(metric.label, metric.value, `bullet-${index}`, [styles.messageMetricValue, !darkMode && { color: ThemeColors.sub }])
+                : renderInlineMarkdown(bulletMatch[1], `bullet-${index}`, [styles.messageListItem, !darkMode && { color: ThemeColors.text }])}
             </Text>
           </View>
         );
@@ -3634,11 +3705,11 @@ const AIAssistantModal: React.FC<Props> = ({
         const metric = splitMetricText(numberMatch[2]);
         elements.push(
           <View key={`number-${index}`} style={[styles.messageNumberRow, metric && styles.messageMetricRow]}>
-            <Text style={styles.messageNumberIndex}>{numberMatch[1]}.</Text>
-            <Text style={styles.messageListItem}>
+            <Text style={[styles.messageNumberIndex, !darkMode && { color: ThemeColors.sub }]}>{numberMatch[1]}.</Text>
+            <Text style={[styles.messageListItem, !darkMode && { color: ThemeColors.text }]}>
               {metric
-                ? renderMetricInline(metric.label, metric.value, `number-${index}`, styles.messageMetricValue)
-                : renderInlineMarkdown(numberMatch[2], `number-${index}`, styles.messageListItem)}
+                ? renderMetricInline(metric.label, metric.value, `number-${index}`, [styles.messageMetricValue, !darkMode && { color: ThemeColors.sub }])
+                : renderInlineMarkdown(numberMatch[2], `number-${index}`, [styles.messageListItem, !darkMode && { color: ThemeColors.text }])}
             </Text>
           </View>
         );
@@ -3646,8 +3717,8 @@ const AIAssistantModal: React.FC<Props> = ({
       }
 
       elements.push(
-        <Text key={`line-${index}`} style={styles.messageText}>
-          {renderInlineMarkdown(cleanedLine, `line-${index}`, styles.messageText)}
+        <Text key={`line-${index}`} style={[styles.messageText, !darkMode && { color: ThemeColors.text }]}>
+          {renderInlineMarkdown(cleanedLine, `line-${index}`, [styles.messageText, !darkMode && { color: ThemeColors.text }])}
         </Text>
       );
     });
@@ -3749,8 +3820,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 ]}
               >
                 <View style={styles.assistantLabelRow}>
-                  <Ionicons name="sparkles" size={12} color={Colors.green} />
-                  <Text style={styles.assistantLabelText}>AI Assistant</Text>
+                  <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
+                  <Text style={[styles.assistantLabelText, !darkMode && { color: "#16a34a" }]}>AI Assistant</Text>
                 </View>
                 {/* Text-first rendering (keeps classic chat format) */}
                 {renderFormattedText(item.content)}
@@ -3887,8 +3958,8 @@ const AIAssistantModal: React.FC<Props> = ({
               ]}
             >
               <View style={styles.assistantLabelRow}>
-                <Ionicons name="sparkles" size={12} color={Colors.green} />
-                <Text style={styles.assistantLabelText}>AI Assistant</Text>
+                <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
+                <Text style={[styles.assistantLabelText, !darkMode && { color: "#16a34a" }]}>AI Assistant</Text>
               </View>
               <View style={styles.typingDots}>
                 <Animated.View style={[styles.typingDot, { opacity: dotAnim1 }]} />
@@ -4158,7 +4229,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       )}
 
                       {/* Quick actions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0, color: '#FFFFFF' }]}>
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0, color: darkMode ? '#FFFFFF' : ThemeColors.sub }]}>
                         Quick actions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -4176,9 +4247,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={qa.label}
                             accessibilityRole="button"
-                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }]}
+                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }, !darkMode && { borderColor: "#16a34a", backgroundColor: "rgba(22,163,74,0.08)" }]}
                           >
-                            <Text style={styles.todayBriefQuickChipText}>
+                            <Text style={[styles.todayBriefQuickChipText, !darkMode && { color: "#16a34a" }]}>
                               {qa.label}
                             </Text>
                           </TouchableOpacity>
@@ -4187,7 +4258,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       </ScrollView>
 
                       {/* Suggested questions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0, color: '#FFFFFF' }]}>
+                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0, color: darkMode ? '#FFFFFF' : ThemeColors.sub }]}>
                         Suggested questions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -4201,9 +4272,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             accessibilityLabel={sf.label}
                             accessibilityRole="button"
-                            style={styles.todayBriefFollowChip}
+                            style={[styles.todayBriefFollowChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
                           >
-                            <Text style={styles.todayBriefFollowChipText}>
+                            <Text style={[styles.todayBriefFollowChipText, !darkMode && { color: ThemeColors.text }]}>
                               {sf.label}
                             </Text>
                           </TouchableOpacity>
@@ -4583,7 +4654,7 @@ const AIAssistantModal: React.FC<Props> = ({
               paddingBottom: Math.max(insets.bottom, 8) + 8,
               paddingTop: 4,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
-            }]}>
+            }, !darkMode && { borderTopColor: ThemeColors.line, shadowOpacity: 0.05 }]}>
               {/* Global AI & Projects: Smart Quick Actions */}
               {!keyboardOpen && (isGlobalAssistantContext || isProjectsScreenContext) && (
                 <View style={styles.bottomRailSection}>
@@ -4633,9 +4704,9 @@ const AIAssistantModal: React.FC<Props> = ({
                             }
                             handleQuickAction(message);
                           }}
-                          style={[styles.bottomRailChip, chipDisabled && { opacity: 0.5 }]}
+                          style={[styles.bottomRailChip, chipDisabled && { opacity: 0.5 }, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
                         >
-                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
                         </TouchableOpacity>
                         );
                       })}
@@ -4683,9 +4754,9 @@ const AIAssistantModal: React.FC<Props> = ({
                           onPress={() => {
                             handleQuickAction(chip.prompt);
                           }}
-                          style={styles.bottomRailChip}
+                          style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
                         >
-                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
@@ -4698,9 +4769,9 @@ const AIAssistantModal: React.FC<Props> = ({
                           onPress={() => {
                             handleQuickAction(chip.prompt);
                           }}
-                          style={styles.bottomRailChip}
+                          style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
                         >
-                          <Text style={styles.bottomRailChipText}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
@@ -4722,9 +4793,9 @@ const AIAssistantModal: React.FC<Props> = ({
                       onPress={() => {
                         handleQuickAction(chip.prompt);
                       }}
-                      style={styles.bottomRailChip}
+                      style={[styles.bottomRailChip, !darkMode && { borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }]}
                     >
-                      <Text style={styles.bottomRailChipText}>{chip.label}</Text>
+                      <Text style={[styles.bottomRailChipText, !darkMode && { color: "#16a34a" }]}>{chip.label}</Text>
                     </TouchableOpacity>
                   ));
                   })()}
@@ -4849,7 +4920,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       </View>
                     ) : (
                       <TextInput
-                        style={[styles.input, !darkMode && { color: "#6B7280" }]}
+                        style={[styles.input, !darkMode && { color: ThemeColors.text }]}
                         placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : isEstimateContext ? "Ask about this estimate, line items, or margins…" : "Ask anything about this project…")}
                         placeholderTextColor={!darkMode ? "#6B7280" : Colors.sub}
                         value={input}

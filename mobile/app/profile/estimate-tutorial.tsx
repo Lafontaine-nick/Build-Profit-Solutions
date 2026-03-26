@@ -111,9 +111,9 @@ export default function EstimateTutorialScreen() {
     },
     {
       number: 6,
-      title: 'Set Overhead & Markup',
+      title: 'Direct costs, overhead & markup',
       description:
-        'Configure your overhead costs (insurance, equipment, facilities) and set your desired markup percentage for profit.',
+        'Enter equipment rental, plans, permits, and other direct costs; then overhead (insurance, equipment maintenance, facilities, other); then your markup percentage.',
       icon: 'trending-up',
     },
     {
@@ -197,7 +197,7 @@ export default function EstimateTutorialScreen() {
               end={{ x: 0.95, y: 0.85 }}
               style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
             >
-              <View style={[styles.contentCard, { backgroundColor: Colors.bg }]}>
+              <View style={[styles.contentCard, { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
                 <View style={styles.scrollContent}>
                   {/* Welcome Section */}
                   <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>

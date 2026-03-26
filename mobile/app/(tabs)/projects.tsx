@@ -510,14 +510,14 @@ export default function ProjectsScreen() {
         const bid = ed ?? mergedProject;
         const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
         const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-        const overhead =
-          Number(bid?.equipment || 0) +
-          Number(bid?.facilities || 0) +
-          Number(bid?.insuranceOverhead || 0) +
-          Number(bid?.otherOverhead || 0) +
+        const permitCosts =
           Number(bid?.planCost || 0) +
           Number(bid?.permitCost || 0);
-        if (materials + labor + overhead > 0) return materials + labor + overhead;
+        const equipmentRental = Number(bid?.equipment || 0);
+        const otherDirectCost = Number(bid?.otherDirectCost || 0);
+        // Direct job cost (markup base) — matches estimate subtotal; business overhead is subtracted separately below
+        const directSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
+        if (directSubtotal > 0) return directSubtotal;
         const buckets = mergedProject?.buckets ?? pd?.buckets ?? [];
         const costBuckets = buckets.filter((b: any) =>
           (b?.name || '').toLowerCase().includes('labor') ||
@@ -546,8 +546,8 @@ export default function ProjectsScreen() {
       // Prefer estimate-stored net profit first (source of truth from estimate submission payload).
       const estimateProfit = toFiniteNumber(mergedProject?.estimateData?.profit ?? p.profit);
       const overheadFromEstimate =
-        toFiniteNumber(ed?.equipment) + toFiniteNumber(ed?.facilities) + toFiniteNumber(ed?.insuranceOverhead) +
-        toFiniteNumber(ed?.otherOverhead) + toFiniteNumber(ed?.planCost) + toFiniteNumber(ed?.permitCost);
+        toFiniteNumber(ed?.equipmentMaintenance) + toFiniteNumber(ed?.facilities) +
+        toFiniteNumber(ed?.insuranceOverhead) + toFiniteNumber(ed?.otherOverhead);
       const derivedNetProfit =
         costFromLineItems > 0 && revenue > costFromLineItems
           ? Math.max(0, (revenue - costFromLineItems) - overheadFromEstimate)
@@ -569,11 +569,13 @@ export default function ProjectsScreen() {
         toFiniteNumber(ed?.materials ?? (mergedProject as any)?.materials) +
         toFiniteNumber(ed?.labor ?? (mergedProject as any)?.labor) +
         toFiniteNumber(ed?.equipment ?? (mergedProject as any)?.equipment) +
+        toFiniteNumber(ed?.equipmentMaintenance ?? (mergedProject as any)?.equipmentMaintenance) +
         toFiniteNumber(ed?.facilities ?? (mergedProject as any)?.facilities) +
         toFiniteNumber(ed?.insuranceOverhead ?? (mergedProject as any)?.insuranceOverhead) +
         toFiniteNumber(ed?.otherOverhead ?? (mergedProject as any)?.otherOverhead) +
         toFiniteNumber(ed?.planCost ?? (mergedProject as any)?.planCost) +
-        toFiniteNumber(ed?.permitCost ?? (mergedProject as any)?.permitCost);
+        toFiniteNumber(ed?.permitCost ?? (mergedProject as any)?.permitCost) +
+        toFiniteNumber(ed?.otherDirectCost ?? (mergedProject as any)?.otherDirectCost);
       const estimatedCost = costFromEstimateProfit > 0
         ? costFromEstimateProfit
         : costFromStoredMargin > 0
@@ -838,7 +840,7 @@ export default function ProjectsScreen() {
             }}
           >
             <View style={{
-              backgroundColor: darkMode ? Colors.card : Colors.bg,
+              backgroundColor: darkMode ? Colors.card : Colors.cardDark,
               borderRadius: 18,
               padding: 12,
             }}>
@@ -1317,7 +1319,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   aiTagText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#BBF7D0',
+    color: darkMode ? '#BBF7D0' : '#166534',
     letterSpacing: 0.3,
   },
   emptyState: {
@@ -1381,9 +1383,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.cardDark,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.3)' : Colors.line,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -1396,7 +1398,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   tabText: {
     fontSize: 15,
     fontWeight: '600',
-    color: darkMode ? Colors.sub : '#64748B',
+    color: darkMode ? Colors.sub : '#334155',
   },
   tabTextActive: {
     color: darkMode ? '#2DFFC4' : '#0EA5E9',
@@ -1488,7 +1490,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bottomSheet: {
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,

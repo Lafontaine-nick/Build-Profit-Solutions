@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
 
 interface GreyCalendarProps {
   onDayPress: (day: { dateString: string }) => void;
@@ -28,6 +30,9 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   initialDate,
   events = [],
 }) => {
+  const { theme, darkMode } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
 
   const [currentDate, setCurrentDate] = useState(() => {
     if (initialDate) {
@@ -154,7 +159,11 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
           style={styles.arrowButton}
           activeOpacity={0.6}
         >
-          <Ionicons name="chevron-back" size={22} color="rgba(255, 255, 255, 0.7)" />
+          <Ionicons
+            name="chevron-back"
+            size={22}
+            color={darkMode ? "rgba(255, 255, 255, 0.7)" : "#334155"}
+          />
         </TouchableOpacity>
         <View style={styles.monthYearContainer}>
           <Text style={styles.monthYear}>
@@ -176,7 +185,11 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
           style={styles.arrowButton}
           activeOpacity={0.6}
         >
-          <Ionicons name="chevron-forward" size={22} color="rgba(255, 255, 255, 0.7)" />
+          <Ionicons
+            name="chevron-forward"
+            size={22}
+            color={darkMode ? "rgba(255, 255, 255, 0.7)" : "#334155"}
+          />
         </TouchableOpacity>
       </View>
 
@@ -197,11 +210,13 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   container: {
-    backgroundColor: '#2a2a2a', // iOS-style grey background
+    backgroundColor: darkMode ? '#2a2a2a' : Colors.cardDark,
     borderRadius: 16,
     padding: 16,
+    borderWidth: darkMode ? 0 : 1,
+    borderColor: darkMode ? 'transparent' : Colors.line,
   },
   header: {
     flexDirection: 'row',
@@ -216,7 +231,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface,
   },
   monthYearContainer: {
     flex: 1,
@@ -225,7 +240,7 @@ const styles = StyleSheet.create({
   monthYear: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#ffffff',
+    color: darkMode ? '#ffffff' : Colors.text,
     letterSpacing: 0.3,
   },
   todayButton: {
@@ -248,7 +263,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
   },
   dayNameCell: {
     flex: 1,
@@ -258,7 +273,7 @@ const styles = StyleSheet.create({
   dayNameText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#ffffff',
+    color: darkMode ? '#ffffff' : Colors.sub,
     letterSpacing: 0.5,
   },
   calendarGrid: {
@@ -290,17 +305,17 @@ const styles = StyleSheet.create({
   dayText: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#ffffff',
+    color: darkMode ? '#ffffff' : Colors.text,
   },
   dayTextToday: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#2DFFC4', // Bright teal/cyan (green-to-blue)
+    color: darkMode ? '#2DFFC4' : '#0F766E',
   },
   dayTextHighlighted: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#ffffff',
+    color: darkMode ? '#ffffff' : Colors.text,
   },
   dayEvents: {
     flexDirection: 'row',
@@ -317,7 +332,7 @@ const styles = StyleSheet.create({
   dayEventMore: {
     fontSize: 8,
     marginLeft: 2,
-    color: '#ffffff',
+    color: darkMode ? '#ffffff' : Colors.sub,
   },
 });
 

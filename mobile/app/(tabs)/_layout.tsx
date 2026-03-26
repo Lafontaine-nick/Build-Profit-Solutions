@@ -6,10 +6,13 @@ import PillTabBarBackground from '@/components/ui/PillTabBarBackground';
 import { HapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function TabLayout() {
   const { enabled: aiManagerEnabled, hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
+  const { darkMode } = useTheme();
+  const tabInactiveColor = darkMode ? '#FFFFFF' : '#64748B';
 
   return (
       <Tabs
@@ -45,10 +48,10 @@ export default function TabLayout() {
         },
 
         tabBarActiveTintColor: '#22C55E',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.65)',
+        tabBarInactiveTintColor: tabInactiveColor,
 
         tabBarIcon: ({ focused }) => {
-          const color = focused ? '#22C55E' : 'rgba(255,255,255,0.65)';
+          const color = focused ? '#22C55E' : tabInactiveColor;
           let iconName: keyof typeof Ionicons.glyphMap = 'home-outline';
 
           if (route.name === 'dashboard') iconName = 'speedometer-outline';
@@ -72,7 +75,7 @@ export default function TabLayout() {
                   <Ionicons
                     name="sparkles-outline"
                     size={iconSize}
-                    color={focused ? '#22C55E' : 'rgba(255,255,255,0.78)'}
+                    color={focused ? '#22C55E' : tabInactiveColor}
                   />
 
                   {/* Small "AI" badge when manager mode is enabled */}

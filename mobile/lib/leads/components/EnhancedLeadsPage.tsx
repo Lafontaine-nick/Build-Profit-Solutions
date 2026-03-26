@@ -93,6 +93,12 @@ interface EnhancedLeadsPageProps {
   onSetReminder?: (leadId: string, reminderDate: Date, reminderNote: string) => void;
   onRefreshLeads?: () => void;
   onPreferencesPress?: () => void;
+  /** Fired when filtered list size changes so the parent can show “X of Y” under the title. */
+  onLeadsViewMeta?: (meta: {
+    eligibleInLeadsTab: number;
+    visibleInView: number;
+    filtersNarrowed: boolean;
+  }) => void;
   contractorProfile?: {
     tradeTypes?: string[];
     specificTrades?: string[];
@@ -200,7 +206,7 @@ const getSourceStyle = (source: string) => {
     case 'SHARED':
       return { backgroundColor: '#4C1D95', borderColor: '#8B5CF6' };
     default:
-      return { backgroundColor: '#374151', borderColor: '#6B7280' };
+      return { backgroundColor: '#374151', borderColor: '#FFFFFF' };
   }
 };
 
@@ -211,7 +217,7 @@ const getPriorityLevel = (lead: Lead): { level: string; color: string; icon: str
   if (score >= 80 && value >= 100000) return { level: 'Hot', color: '#EF4444', icon: 'local-fire-department' };
   if (score >= 70 && value >= 50000) return { level: 'High', color: '#F59E0B', icon: 'star' };
   if (score >= 50) return { level: 'Medium', color: '#3B82F6', icon: 'trending-up' };
-  return { level: 'Low', color: '#6B7280', icon: 'ac-unit' };
+  return { level: 'Low', color: '#FFFFFF', icon: 'ac-unit' };
 };
 
 const autoDraftFollowUp = (lead: Lead): string => {
@@ -352,9 +358,9 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
           <View style={styles.sourceAnalytics}>
             {/* High-Value Insight Banner */}
             {highValueLeads.length > 0 && (
-              <View style={styles.insightBanner}>
+              <View style={[styles.insightBanner, !darkMode && { backgroundColor: '#FEF3C7', borderLeftColor: '#D97706' }]}>
                 <MaterialIcons name="stars" size={20} color="#F59E0B" />
-                <Text style={styles.insightText}>
+                <Text style={[styles.insightText, !darkMode && { color: '#92400E' }]}>
                   🔮 {highValueLeads.length} high-value leads near you this week
                 </Text>
               </View>
@@ -371,9 +377,8 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                 Lead Sources
               </Text>
               <TouchableOpacity 
-                style={styles.helpButton}
+                style={[styles.helpButton, !darkMode && { backgroundColor: Colors.surface }]}
                 onPress={() => {
-                  // Show descriptions modal
                   Alert.alert(
                     'Lead Source Types',
                     sources.map(s => `${s.label}: ${s.description}`).join('\n\n'),
@@ -381,7 +386,7 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                   );
                 }}
               >
-                <MaterialIcons name="help-outline" size={16} color="#9CA3AF" />
+                <MaterialIcons name="help-outline" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
               </TouchableOpacity>
             </View>
 
@@ -502,7 +507,7 @@ const InsightsMap = ({ leads, isExpanded, onToggle }: {
         <MaterialIcons 
           name={isExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
           size={24} 
-          color="#6B7280" 
+          color="#FFFFFF" 
         />
       </TouchableOpacity>
 
@@ -544,7 +549,7 @@ const InsightsMap = ({ leads, isExpanded, onToggle }: {
                   {lead.contact.name} - {lead.location.city}
                 </Text>
         </View>
-              <MaterialIcons name="open-in-new" size={16} color="#6B7280" />
+              <MaterialIcons name="open-in-new" size={16} color="#FFFFFF" />
             </TouchableOpacity>
           ))}
       </View>
@@ -556,14 +561,14 @@ const InsightsMap = ({ leads, isExpanded, onToggle }: {
 // Helper function to get stage color
 function getStageColor(stage: string): string {
   const colors: { [key: string]: string } = {
-    'new': '#6B7280',        // Gray
+    'new': '#FFFFFF',        // Gray
     'contacted': '#3B82F6',  // Blue
     'qualified': '#8B5CF6',  // Purple
     'quoted': '#8B5CF6',     // Purple (same as qualified)
     'proposal': '#F59E0B',   // Amber
     'won': '#10B981',        // Green
   };
-  return colors[stage] || '#6B7280';
+  return colors[stage] || '#FFFFFF';
 }
 
 // Enhanced Lead Card with Delete Button
@@ -778,10 +783,10 @@ const EnhancedLeadCard = ({
                   </Text>
                 </View>
               </View>
-              <MaterialIcons 
+                <MaterialIcons 
                 name={isExpanded ? "expand-less" : "expand-more"} 
                 size={24} 
-                color={isCampaignLead ? "#19E180" : isSubRequest ? "#F59E0B" : "#9CA3AF"} 
+                color={isCampaignLead ? "#19E180" : isSubRequest ? "#F59E0B" : (darkMode ? "#FFFFFF" : Colors.text)} 
               />
             </View>
             <View style={styles.compactMetaRow}>
@@ -792,12 +797,12 @@ const EnhancedLeadCard = ({
                     <Text style={[styles.leadName, { color: '#19E180', marginLeft: 4 }]}>Active Campaign</Text>
                   </>
                 ) : (
-                  <Text style={styles.leadName}>{lead.contact.name}</Text>
+                  <Text style={[styles.leadName, !darkMode && { color: Colors.text }]}>{lead.contact.name}</Text>
                 )}
               </View>
-              <Text style={styles.compactDivider}>•</Text>
-              <Text style={styles.leadValue}>${leadValue.toLocaleString()}</Text>
-              <Text style={styles.compactDivider}>•</Text>
+              <Text style={[styles.compactDivider, !darkMode && { color: Colors.sub }]}>•</Text>
+              <Text style={[styles.leadValue, !darkMode && { color: "#16a34a" }]}>${leadValue.toLocaleString()}</Text>
+              <Text style={[styles.compactDivider, !darkMode && { color: Colors.sub }]}>•</Text>
               <Text style={[styles.leadScore, { color: isCampaignLead ? '#19E180' : getTemperatureColor(leadScore.temperature) }]}>
                 {isCampaignLead ? 'Posted' : `Score: ${leadScore.overall}`}
               </Text>
@@ -845,7 +850,7 @@ const EnhancedLeadCard = ({
             {/* Quick Actions */}
             <View style={styles.compactActions}>
               <TouchableOpacity
-                style={styles.compactActionBtn}
+                style={[styles.compactActionBtn, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line, borderWidth: 1 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   if (!lead.contact.phone) return Alert.alert('No phone on file');
@@ -857,15 +862,15 @@ const EnhancedLeadCard = ({
                 }}
               >
                 <MaterialIcons name="phone" size={18} color="#10B981" />
-                <Text style={styles.compactActionText}>Call</Text>
+                <Text style={[styles.compactActionText, !darkMode && { color: Colors.text }]}>Call</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.compactActionBtn}
+                style={[styles.compactActionBtn, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line, borderWidth: 1 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   setShowQuickResponses(!showQuickResponses);
-                  setIsExpanded(true); // Auto-expand when opening quick responses
+                  setIsExpanded(true);
                 }}
               >
                 <MaterialIcons name="flash-on" size={18} color="#FFD700" />
@@ -873,15 +878,15 @@ const EnhancedLeadCard = ({
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.compactActionBtn}
+                style={[styles.compactActionBtn, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line, borderWidth: 1 }]}
                 onPress={(e) => {
                   e.stopPropagation();
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setIsExpanded(true);
                 }}
               >
-                <Text style={styles.compactActionText}>View Details</Text>
-                <MaterialIcons name="arrow-forward" size={16} color="#9CA3AF" />
+                <Text style={[styles.compactActionText, !darkMode && { color: Colors.text }]}>View Details</Text>
+                <MaterialIcons name="arrow-forward" size={16} color={darkMode ? "#FFFFFF" : Colors.text} />
               </TouchableOpacity>
             </View>
           </View>
@@ -892,8 +897,8 @@ const EnhancedLeadCard = ({
           <View style={styles.expandedView}>
             {/* Simplified Project Details */}
             <View style={styles.projectRow}>
-              <Text style={styles.projectType}>{lead.trade}</Text>
-              <Text style={styles.leadValue}>
+              <Text style={[styles.projectType, !darkMode && { color: "#16a34a" }]}>{lead.trade}</Text>
+              <Text style={[styles.leadValue, !darkMode && { color: "#16a34a" }]}>
                 ${leadValue.toLocaleString()}
               </Text>
             </View>
@@ -949,7 +954,7 @@ const EnhancedLeadCard = ({
                     {lead.matchedContractors} Contractor{lead.matchedContractors !== 1 ? 's' : ''} Matched
                   </Text>
                 </View>
-                <Text style={{ color: '#8DA0B8', fontSize: 13, marginTop: 4 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 13, marginTop: 4 }}>
                   Qualified contractors have been notified and can respond to your request. Check back for responses.
                 </Text>
               </View>
@@ -962,7 +967,7 @@ const EnhancedLeadCard = ({
                   <Text style={styles.ltvEmoji}>{tierBadge.emoji}</Text>
                   <View style={styles.ltvContent}>
                     <Text style={[styles.ltvLabel, { color: tierBadge.color }]}>{tierBadge.label}</Text>
-                    <Text style={styles.ltvDescription}>{tierBadge.description}</Text>
+                    <Text style={[styles.ltvDescription, !darkMode && { color: Colors.sub }]}>{tierBadge.description}</Text>
                   </View>
                 </View>
                 {ltvData.propertyCount > 1 && (
@@ -989,7 +994,7 @@ const EnhancedLeadCard = ({
                 <Text style={[styles.engagementLabel, { color: engagementStatus.color }]}>
                   {engagementStatus.label}
                 </Text>
-                <Text style={styles.engagementMessage}>{engagementStatus.message}</Text>
+                <Text style={[styles.engagementMessage, !darkMode && { color: Colors.sub }]}>{engagementStatus.message}</Text>
               </View>
               {enhancedEngagement.estimateOpened && (
                 <View style={styles.engagementBadge}>
@@ -1011,7 +1016,7 @@ const EnhancedLeadCard = ({
                 <View style={styles.photoHeader}>
                   <MaterialIcons name="photo-library" size={18} color="#3B82F6" />
                   <Text style={styles.photoHeaderText}>{photos.length} Project Photo{photos.length > 1 ? 's' : ''}</Text>
-                  <MaterialIcons name={showPhotos ? "expand-less" : "expand-more"} size={18} color="#9CA3AF" />
+                  <MaterialIcons name={showPhotos ? "expand-less" : "expand-more"} size={18} color="#FFFFFF" />
                 </View>
                 {showPhotos && (
                   <ScrollView 
@@ -1024,7 +1029,7 @@ const EnhancedLeadCard = ({
                       return (
                         <View key={photo.id} style={styles.photoContainer}>
                           <View style={styles.photoPlaceholder}>
-                            <MaterialIcons name="image" size={40} color="#9CA3AF" />
+                            <MaterialIcons name="image" size={40} color="#FFFFFF" />
                           </View>
                           <View style={styles.photoTypeTag}>
                             <Text style={styles.photoTypeEmoji}>{photoTypeInfo.icon}</Text>
@@ -1145,7 +1150,7 @@ const EnhancedLeadCard = ({
                 <View style={styles.competitorInsights}>
                   {competitorData.insights.map((insight, index) => (
                     <View key={index} style={styles.competitorInsightItem}>
-                      <MaterialIcons name="info" size={14} color="#999" />
+                      <MaterialIcons name="info" size={14} color="#FFFFFF" />
                       <Text style={styles.competitorInsightText}>{insight}</Text>
                     </View>
                   ))}
@@ -1219,8 +1224,8 @@ const EnhancedLeadCard = ({
                 
                 {notifications.slice(0, 2).map((notification, index) => (
                   <View key={index} style={[styles.notificationItem, { borderLeftColor: notification.priority === 'high' ? '#EF4444' : notification.priority === 'medium' ? '#F59E0B' : '#10B981' }]}>
-                    <Text style={styles.notificationTitle}>{notification.title}</Text>
-                    <Text style={styles.notificationMessage}>{notification.message}</Text>
+                    <Text style={[styles.notificationTitle, !darkMode && { color: Colors.text }]}>{notification.title}</Text>
+                    <Text style={[styles.notificationMessage, !darkMode && { color: Colors.sub }]}>{notification.message}</Text>
                     {notification.actionRequired && (
                       <View style={styles.actionRequiredBadge}>
                         <Text style={styles.actionRequiredText}>Action Required</Text>
@@ -1338,7 +1343,7 @@ const EnhancedLeadCard = ({
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={async () => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   if (!lead.contact.phone) return Alert.alert('No phone on file');
@@ -1360,11 +1365,11 @@ const EnhancedLeadCard = ({
                 }}
               >
                 <MaterialIcons name="phone" size={16} color="#10B981" />
-                <Text style={styles.actionText}>Call</Text>
+                <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Call</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={async () => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   if (!lead.contact.email) return Alert.alert('No email on file');
@@ -1382,23 +1387,23 @@ const EnhancedLeadCard = ({
                 }}
               >
                 <MaterialIcons name="email" size={16} color="#3B82F6" />
-                <Text style={styles.actionText}>Email</Text>
+                <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Email</Text>
               </TouchableOpacity>
 
 
                 <TouchableOpacity
-                  style={styles.actionButton}
+                  style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                   onPress={() => {
                   const draft = autoDraftFollowUp(lead);
                   Alert.alert('Draft Message', draft);
                   }}
                 >
                 <MaterialIcons name="auto-fix-high" size={16} color="#8B5CF6" />
-                <Text style={styles.actionText}>Draft</Text>
+                <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Draft</Text>
                 </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={() => {
                   if (onOpenNotes) {
                     onOpenNotes(lead);
@@ -1406,11 +1411,11 @@ const EnhancedLeadCard = ({
                 }}
               >
                 <MaterialIcons name="note" size={16} color="#F59E0B" />
-                <Text style={styles.actionText}>Notes</Text>
+                <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Notes</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.actionButton}
+                style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={() => {
                   Alert.prompt(
                     'Set Reminder',
@@ -1440,7 +1445,7 @@ const EnhancedLeadCard = ({
                 }}
               >
                 <MaterialIcons name="alarm" size={16} color="#EF4444" />
-                <Text style={styles.actionText}>Remind</Text>
+                <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Remind</Text>
               </TouchableOpacity>
             </View>
 
@@ -1492,10 +1497,10 @@ const EnhancedLeadCard = ({
                   >
                     <Text style={styles.quickResponseIcon}>{template.icon}</Text>
                     <View style={styles.quickResponseContent}>
-                      <Text style={styles.quickResponseTitle}>{template.title}</Text>
-                      <Text style={styles.quickResponseMessage}>{template.message}</Text>
+                      <Text style={[styles.quickResponseTitle, !darkMode && { color: Colors.text }]}>{template.title}</Text>
+                      <Text style={[styles.quickResponseMessage, !darkMode && { color: Colors.sub }]}>{template.message}</Text>
                     </View>
-                    <MaterialIcons name="arrow-forward" size={16} color="#9CA3AF" />
+                    <MaterialIcons name="arrow-forward" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1544,7 +1549,7 @@ const EnhancedLeadCard = ({
             <TextInput
               style={styles.noteInput}
               placeholder="Type your note here..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#FFFFFF"
               multiline
               value={noteText}
               onChangeText={setNoteText}
@@ -1620,7 +1625,7 @@ const EnhancedLeadCard = ({
             <TextInput
               style={styles.reminderNoteInput}
               placeholder="Optional reminder note..."
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#FFFFFF"
               value={reminderNote}
               onChangeText={setReminderNote}
             />
@@ -1643,6 +1648,7 @@ export default function EnhancedLeadsPage({
   onSetReminder,
   onRefreshLeads,
   onPreferencesPress,
+  onLeadsViewMeta,
   contractorProfile,
 }: EnhancedLeadsPageProps) {
   // Tab Navigation
@@ -1676,6 +1682,13 @@ export default function EnhancedLeadsPage({
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [bulkActionMode, setBulkActionMode] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+
+  // Non-campaign, non-archived (unless showArchived) — scope of the main Leads list before pipeline/search filters
+  const eligibleInLeadsTab = useMemo(() => {
+    const visibleLeads = showArchived ? leads : leads.filter((lead) => !lead.archived);
+    return visibleLeads.filter((lead) => !lead.projectId?.startsWith('CAMPAIGN-')).length;
+  }, [leads, showArchived]);
+
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [showEditCampaignModal, setShowEditCampaignModal] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<SubcontractorCampaign | null>(null);
@@ -2175,6 +2188,15 @@ export default function EnhancedLeadsPage({
     return arr;
   }, [leads, pipeline, sourceFilter, projectTypeFilter, budgetFilter, timelineFilter, selectedTrades, sortBy, debouncedQuery, showArchived]);
 
+  useEffect(() => {
+    if (!onLeadsViewMeta) return;
+    onLeadsViewMeta({
+      eligibleInLeadsTab,
+      visibleInView: filteredAndSortedLeads.length,
+      filtersNarrowed:
+        eligibleInLeadsTab > 0 && filteredAndSortedLeads.length < eligibleInLeadsTab,
+    });
+  }, [eligibleInLeadsTab, filteredAndSortedLeads.length, onLeadsViewMeta]);
 
   const handleStageChange = (lead: Lead) => {
     const stageOrder: LeadStage[] = ['new', 'contacted', 'qualified', 'proposal', 'won'];
@@ -2189,11 +2211,18 @@ export default function EnhancedLeadsPage({
   // Empty state component
   const EmptyState = () => {
     const hasLeads = leads.length > 0;
-    const hasFilters = query !== '' || sourceFilter !== 'all' || projectTypeFilter !== 'all' || pipeline !== 'all';
+    const hasFilters =
+      query !== '' ||
+      sourceFilter !== 'all' ||
+      projectTypeFilter !== 'all' ||
+      pipeline !== 'all' ||
+      budgetFilter !== 'all' ||
+      timelineFilter !== 'all' ||
+      selectedTrades.length > 0;
     
     return (
     <View style={styles.emptyState}>
-      <MaterialIcons name="search-off" size={48} color="#6B7280" />
+      <MaterialIcons name="search-off" size={48} color="#FFFFFF" />
         <Text style={styles.emptyStateText}>
           {hasLeads && hasFilters 
             ? "No leads match your filters." 
@@ -2207,6 +2236,9 @@ export default function EnhancedLeadsPage({
           setSourceFilter('all');
           setProjectTypeFilter('all');
           setPipeline('all');
+          setBudgetFilter('all');
+          setTimelineFilter('all');
+          setSelectedTrades([]);
           setSortBy('smart');
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }}
@@ -2253,7 +2285,7 @@ export default function EnhancedLeadsPage({
             <Text style={[styles.sectionTitle, !darkMode && { color: Colors.text }]}>
               Lead Sources
             </Text>
-            <Text style={styles.sectionSubtitle}>Filter by lead origin and source type</Text>
+            <Text style={[styles.sectionSubtitle, !darkMode && { color: Colors.sub }]}>Filter by lead origin and source type</Text>
           </View>
           <View style={styles.sectionContent}>
             <SourceAnalytics 
@@ -2274,13 +2306,13 @@ export default function EnhancedLeadsPage({
           {
             backgroundColor: Colors.surface2,
             borderColor: Colors.line,
-            borderWidth: darkMode ? 1 : 0,
+            borderWidth: 1,
             borderRadius: 14,
           }
         ]}>
-          <MaterialIcons name="search" size={20} color="#9CA3AF" />
+          <MaterialIcons name="search" size={20} color={darkMode ? "#FFFFFF" : Colors.sub} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, !darkMode && { color: Colors.text }]}
             placeholder="Search leads..."
             placeholderTextColor={darkMode ? "rgba(255, 255, 255, 0.6)" : "#64748B"}
             value={query}
@@ -2288,16 +2320,25 @@ export default function EnhancedLeadsPage({
           />
           {query !== '' && (
             <TouchableOpacity onPress={() => setQuery('')}>
-              <MaterialIcons name="close" size={20} color="#9CA3AF" />
+              <MaterialIcons name="close" size={20} color={darkMode ? "#FFFFFF" : Colors.sub} />
             </TouchableOpacity>
           )}
-          {(pipeline !== 'all' || query !== '' || sourceFilter !== 'all' || projectTypeFilter !== 'all') && (
+          {(pipeline !== 'all' ||
+            query !== '' ||
+            sourceFilter !== 'all' ||
+            projectTypeFilter !== 'all' ||
+            budgetFilter !== 'all' ||
+            timelineFilter !== 'all' ||
+            selectedTrades.length > 0) && (
             <TouchableOpacity 
               onPress={() => {
                 setQuery('');
                 setSourceFilter('all');
                 setProjectTypeFilter('all');
                 setPipeline('all');
+                setBudgetFilter('all');
+                setTimelineFilter('all');
+                setSelectedTrades([]);
                 setSortBy('smart');
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}
@@ -2314,7 +2355,7 @@ export default function EnhancedLeadsPage({
             <MaterialIcons 
               name="tune" 
               size={20} 
-              color={(budgetFilter !== 'all' || timelineFilter !== 'all' || selectedTrades.length > 0) ? "#43cea2" : showAdvancedFilters ? "#43cea2" : "#9CA3AF"} 
+              color={(budgetFilter !== 'all' || timelineFilter !== 'all' || selectedTrades.length > 0) ? "#43cea2" : showAdvancedFilters ? "#43cea2" : (darkMode ? "#FFFFFF" : Colors.sub)} 
             />
           </TouchableOpacity>
         </View>
@@ -2350,7 +2391,7 @@ export default function EnhancedLeadsPage({
               style={styles.bulkActionCloseButton}
               onPress={toggleBulkMode}
             >
-              <MaterialIcons name="close" size={20} color="#9CA3AF" />
+              <MaterialIcons name="close" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
           <View style={styles.bulkActionsRow}>
@@ -2413,7 +2454,7 @@ export default function EnhancedLeadsPage({
               );
             }}
           >
-            <MaterialIcons name="filter-alt" size={14} color="#9CA3AF" />
+            <MaterialIcons name="filter-alt" size={14} color="#FFFFFF" />
             <Text style={styles.preferencesIndicatorText}>
               {contractorProfile.specificTrades.length} {contractorProfile.specificTrades.length === 1 ? 'trade' : 'trades'}
             </Text>
@@ -2464,13 +2505,13 @@ export default function EnhancedLeadsPage({
           <View style={styles.refineLeadsContent}>
             {/* Timeline Filter - Most Important, Reduced Saturation */}
             <View style={[styles.refineFilterSection, styles.refineFilterSectionPrimary]}>
-              <Text style={styles.refineFilterLabel}>Timeline</Text>
+              <Text style={[styles.refineFilterLabel, !darkMode && { color: Colors.text }]}>Timeline</Text>
               <View style={styles.segmentedControl}>
                 {[
-                  { key: 'all', label: 'All', color: '#6B7280' },
-                  { key: 'Urgent', label: 'Urgent', color: '#DC2626' }, // Muted red
-                  { key: 'Soon', label: 'Soon', color: '#D97706' }, // Soft amber
-                  { key: 'Normal', label: 'Normal', color: '#059669' }, // Muted green
+                  { key: 'all', label: 'All', color: darkMode ? '#FFFFFF' : Colors.text },
+                  { key: 'Urgent', label: 'Urgent', color: '#DC2626' },
+                  { key: 'Soon', label: 'Soon', color: '#D97706' },
+                  { key: 'Normal', label: 'Normal', color: '#059669' },
                 ].map((filter) => {
                   const isActive = timelineFilter === filter.key;
                   return (
@@ -2489,7 +2530,7 @@ export default function EnhancedLeadsPage({
                         style={[
                           styles.segmentedControlText,
                           isActive && { color: filter.color, fontWeight: '700' },
-                          !isActive && { color: '#6B7280' }
+                          !isActive && { color: darkMode ? '#FFFFFF' : Colors.sub }
                         ]}
                         numberOfLines={1}
                       >
@@ -2503,7 +2544,7 @@ export default function EnhancedLeadsPage({
 
             {/* Budget Filter - Segmented Control */}
             <View style={[styles.refineFilterSection, styles.refineFilterSectionSecondary]}>
-              <Text style={styles.refineFilterLabel}>Budget</Text>
+              <Text style={[styles.refineFilterLabel, !darkMode && { color: Colors.text }]}>Budget</Text>
               <View style={styles.segmentedControl}>
                 {[
                   { key: 'all', label: 'All' },
@@ -2529,7 +2570,7 @@ export default function EnhancedLeadsPage({
                       <Text style={[
                         styles.segmentedControlText,
                         isActive && !isAll && styles.segmentedControlTextActive,
-                        isAll && { color: '#6B7280' }
+                        isAll && { color: darkMode ? '#FFFFFF' : Colors.text }
                       ]}>
                         {filter.label}
                       </Text>
@@ -2541,7 +2582,7 @@ export default function EnhancedLeadsPage({
 
             {/* Trade Filter - Tokenized Selector */}
             <View style={[styles.refineFilterSection, styles.refineFilterSectionTertiary]}>
-              <Text style={styles.refineFilterLabel}>Trade</Text>
+              <Text style={[styles.refineFilterLabel, !darkMode && { color: Colors.text }]}>Trade</Text>
               <View style={styles.tradeTokenContainer}>
                 {selectedTrades.map((trade, idx) => (
                   <LinearGradient
@@ -2590,7 +2631,7 @@ export default function EnhancedLeadsPage({
                     );
                   }}
                 >
-                  <MaterialIcons name="add" size={16} color="#9CA3AF" />
+                  <MaterialIcons name="add" size={16} color={darkMode ? "#FFFFFF" : Colors.text} />
                   <Text style={styles.tradeTokenAddText}>Add trades</Text>
                 </TouchableOpacity>
               </View>
@@ -2677,7 +2718,7 @@ export default function EnhancedLeadsPage({
                   {
                     backgroundColor: Colors.surface2,
                     borderColor: Colors.line,
-                    borderWidth: darkMode ? 1 : 0,
+                    borderWidth: 1,
                     borderRadius: 14,
                   }
                 ]}
@@ -2686,7 +2727,7 @@ export default function EnhancedLeadsPage({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
               >
-                <MaterialIcons name="psychology" size={16} color={darkMode ? '#9CA3AF' : Colors.text} />
+                <MaterialIcons name="psychology" size={16} color={darkMode ? '#FFFFFF' : Colors.text} />
                 <Text
                   style={[
                     styles.utilityButtonText,
@@ -2704,7 +2745,7 @@ export default function EnhancedLeadsPage({
                 {
                   backgroundColor: Colors.surface2,
                   borderColor: Colors.line,
-                  borderWidth: darkMode ? 1 : 0,
+                  borderWidth: 1,
                   borderRadius: 14,
                 }
               ]}
@@ -2713,7 +2754,7 @@ export default function EnhancedLeadsPage({
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}
             >
-              <MaterialIcons name="message" size={16} color={darkMode ? '#9CA3AF' : Colors.text} />
+              <MaterialIcons name="message" size={16} color={darkMode ? '#FFFFFF' : Colors.text} />
               <Text
                 style={[
                   styles.utilityButtonText,
@@ -2748,7 +2789,7 @@ export default function EnhancedLeadsPage({
                         <MaterialIcons
                           name={filteredAndSortedLeads.every(lead => selectedLeads.has(lead.id)) ? "check-box" : "check-box-outline-blank"}
                           size={24}
-                          color={filteredAndSortedLeads.every(lead => selectedLeads.has(lead.id)) ? "#43cea2" : "#9CA3AF"}
+                          color={filteredAndSortedLeads.every(lead => selectedLeads.has(lead.id)) ? "#43cea2" : "#FFFFFF"}
                         />
                       </TouchableOpacity>
                     </View>
@@ -2777,7 +2818,7 @@ export default function EnhancedLeadsPage({
                           >
                             My Leads
                           </Text>
-                          <Text style={styles.myLeadsHeaderSubtext}>Your active lead opportunities</Text>
+                          <Text style={[styles.myLeadsHeaderSubtext, !darkMode && { color: Colors.sub }]}>Your active lead opportunities</Text>
                         </View>
                         {filteredAndSortedLeads.map((lead, idx) => (
                           <View key={lead.id}>
@@ -2820,9 +2861,9 @@ export default function EnhancedLeadsPage({
             switch (status) {
               case 'active': return '#19E180';
               case 'paused': return '#F59E0B';
-              case 'draft': return '#6B7280';
+              case 'draft': return '#FFFFFF';
               case 'expired': return '#EF4444';
-              default: return '#6B7280';
+              default: return '#FFFFFF';
             }
           };
           
@@ -2918,7 +2959,7 @@ export default function EnhancedLeadsPage({
                     <View style={styles.performanceMetric}>
                       <Text style={[styles.performanceMetricLabel, !darkMode && { color: Colors.sub }]}>Close Rate</Text>
                       <Text style={[styles.performanceMetricValue, { 
-                        color: aggregateCampaignMetrics.winRate > 0 ? '#19E180' : (darkMode ? '#9CA3AF' : Colors.sub)
+                        color: aggregateCampaignMetrics.winRate > 0 ? '#19E180' : (darkMode ? '#FFFFFF' : Colors.sub)
                       }]}>
                         {aggregateCampaignMetrics.winRate === 0 ? '—' : `${aggregateCampaignMetrics.winRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}%`}
                       </Text>
@@ -2970,7 +3011,7 @@ export default function EnhancedLeadsPage({
                       {/* Campaigns List */}
                       {campaigns.length === 0 ? (
                         <View style={styles.emptyCampaignsState}>
-                          <MaterialIcons name="campaign" size={48} color="#6B7280" />
+                          <MaterialIcons name="campaign" size={48} color="#FFFFFF" />
                           <Text style={[styles.emptyCampaignsTitle, !darkMode && { color: Colors.text }]}>No Campaigns Yet</Text>
                           <Text style={styles.emptyCampaignsText}>
                             Top contractors earn $8,000–$20,000/month from campaigns.
@@ -3060,7 +3101,7 @@ export default function EnhancedLeadsPage({
                                 {/* Network Reach */}
                                 {marketplaceReach > 0 && (
                                   <View style={styles.marketplaceReach}>
-                                    <MaterialIcons name="network-check" size={14} color="#9CA3AF" />
+                                    <MaterialIcons name="network-check" size={14} color="#FFFFFF" />
                                     <Text
                                       style={[
                                         styles.marketplaceReachText,
@@ -3117,7 +3158,7 @@ export default function EnhancedLeadsPage({
                                   <View style={styles.campaignTier2Metric}>
                                     <Text style={[styles.campaignTier2LabelROI, !darkMode && { color: Colors.sub }]}>ROI</Text>
                                     <Text style={[styles.campaignTier2ValueROI, { 
-                                      color: metrics.roi > 0 ? '#19E180' : metrics.roi < 0 ? '#EF4444' : '#9CA3AF'
+                                      color: metrics.roi > 0 ? '#19E180' : metrics.roi < 0 ? '#EF4444' : '#FFFFFF'
                                     }, !darkMode && { color: Colors.sub }]}>
                                       {metrics.roi === 0 ? '—' : `${metrics.roi > 0 ? '+' : ''}${metrics.roi.toLocaleString(undefined, { maximumFractionDigits: 0 })}%`}
                                     </Text>
@@ -3627,7 +3668,7 @@ const styles = StyleSheet.create({
   },
   myLeadsHeaderSubtext: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: '#FFFFFF',
   },
   leadCardInGroup: {
     padding: 0,
@@ -3672,7 +3713,7 @@ const styles = StyleSheet.create({
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: '#FFFFFF',
   },
   sectionContent: {
     padding: 0,
@@ -3691,7 +3732,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   subtitle: {
-    color: '#8B95A9',
+    color: '#FFFFFF',
   },
   sortButton: {
     padding: 8,
@@ -3721,7 +3762,7 @@ const styles = StyleSheet.create({
   sortOptionText: {
     flex: 1,
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   activeSortOptionText: {
@@ -3750,7 +3791,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   analyticsTitle: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 4,
@@ -3783,7 +3824,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#152B45',
   },
   pillText: {
-    color: '#CFD3E0',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 12,
   },
@@ -3877,7 +3918,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   mapPlaceholderSubtext: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 14,
     marginTop: 4,
   },
@@ -3918,7 +3959,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E2741',
   },
   pipelineTabText: {
-    color: '#CFD3E0',
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12,
   },
@@ -4082,7 +4123,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   companyName: {
-    color: '#9AA3B2',
+    color: '#FFFFFF',
     marginTop: 2,
     fontSize: 13,
   },
@@ -4132,7 +4173,7 @@ const styles = StyleSheet.create({
     borderColor: '#31384A',
   },
   actionText: {
-    color: '#CFD3E0',
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12,
   },
@@ -4267,23 +4308,23 @@ const styles = StyleSheet.create({
     borderColor: '#2A3142',
   },
   scoreModalTitle: {
-    color: '#CFD3E0',
+    color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 16,
   },
   scoreModalDescription: {
-    color: '#9AA3B2',
+    color: '#FFFFFF',
     marginTop: 8,
     fontSize: 14,
   },
   scoreModalSubtitle: {
-    color: '#CFD3E0',
+    color: '#FFFFFF',
     marginTop: 10,
     fontWeight: '700',
     fontSize: 14,
   },
   scoreModalTip: {
-    color: '#9AA3B2',
+    color: '#FFFFFF',
     marginTop: 6,
     fontSize: 13,
   },
@@ -4320,7 +4361,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyStateText: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginTop: 12,
     marginBottom: 16,
     fontSize: 16,
@@ -4390,10 +4431,10 @@ const styles = StyleSheet.create({
   },
   sourceTabActive: {
     borderBottomWidth: 3,
-    borderBottomColor: '#6B7280',
+    borderBottomColor: '#FFFFFF',
   },
   sourceTabLabel: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -4413,7 +4454,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6B7280',
   },
   sourceBadgeText: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -4428,13 +4469,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
   sourceStatsLabel: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '600',
     marginBottom: 4,
   },
   sourceStatsText: {
-    color: '#D1D5DB',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '500',
   },
@@ -4575,7 +4616,7 @@ const styles = StyleSheet.create({
   },
   quickResponseMessage: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   // Phase 2 Enhancement Styles
   phase2LTVRow: {
@@ -4602,7 +4643,7 @@ const styles = StyleSheet.create({
   },
   ltvDescription: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   ltvIndicators: {
     flexDirection: 'row',
@@ -4644,7 +4685,7 @@ const styles = StyleSheet.create({
   },
   engagementMessage: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   engagementBadge: {
     flexDirection: 'row',
@@ -4707,7 +4748,7 @@ const styles = StyleSheet.create({
   },
   photoTypeText: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   // Collapsible Card Styles
@@ -4723,7 +4764,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   compactDivider: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 14,
   },
   compactView: {
@@ -4786,7 +4827,7 @@ const styles = StyleSheet.create({
   stageSelectorLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   stageBadge: {
     flexDirection: 'row',
@@ -4846,7 +4887,7 @@ const styles = StyleSheet.create({
   },
   pricingLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   pricingValue: {
     fontSize: 12,
@@ -4899,7 +4940,7 @@ const styles = StyleSheet.create({
   },
   reviewsLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -4913,7 +4954,7 @@ const styles = StyleSheet.create({
   },
   ratingCount: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   reliabilityScore: {
     fontSize: 12,
@@ -4999,7 +5040,7 @@ const styles = StyleSheet.create({
   },
   notificationMessage: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginBottom: 4,
   },
   actionRequiredBadge: {
@@ -5058,7 +5099,7 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   tradeInput: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -5092,7 +5133,7 @@ const styles = StyleSheet.create({
   filterSummaryLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginRight: 4,
   },
   filterSummaryChip: {
@@ -5146,7 +5187,7 @@ const styles = StyleSheet.create({
   },
   refineLeadsOptional: {
     fontSize: 11,
-    color: '#8DA0B8',
+    color: '#FFFFFF',
     fontWeight: '500',
     opacity: 0.6, // Reduced opacity for de-emphasis
   },
@@ -5216,7 +5257,7 @@ const styles = StyleSheet.create({
   segmentedControlText: {
     fontSize: 12, // Reduced from 13 to prevent wrapping
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#FFFFFF',
   },
   segmentedControlTextActive: {
     color: '#43cea2',
@@ -5263,11 +5304,11 @@ const styles = StyleSheet.create({
   tradeTokenAddText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   tradeHelperText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#FFFFFF',
     marginTop: 6,
     fontStyle: 'italic',
   },
@@ -5307,7 +5348,7 @@ const styles = StyleSheet.create({
   },
   refineModalOptional: {
     fontSize: 11,
-    color: '#8DA0B8',
+    color: '#FFFFFF',
     fontWeight: '500',
     opacity: 0.6,
   },
@@ -5361,7 +5402,7 @@ const styles = StyleSheet.create({
   quickActionText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   
   // Launch Campaign Button Styles
@@ -5440,7 +5481,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   utilityButtonText: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '500',
     marginLeft: 4,
@@ -5470,7 +5511,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   preferencesIndicatorText: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '500',
   },
@@ -5580,7 +5621,7 @@ const styles = StyleSheet.create({
   },
   portfolioPreviewText: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginBottom: 6,
   },
   portfolioThumbnails: {
@@ -5623,7 +5664,7 @@ const styles = StyleSheet.create({
   },
   campaignServices: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginBottom: 4,
   },
   campaignAreas: {
@@ -5703,7 +5744,7 @@ const styles = StyleSheet.create({
   },
   competitorStatLabel: {
     fontSize: 10,
-    color: '#999',
+    color: '#FFFFFF',
     marginTop: 4,
   },
   competitorStatValue: {
@@ -5790,7 +5831,7 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   tabTextActive: {
     color: '#43cea2',
@@ -5854,7 +5895,7 @@ const styles = StyleSheet.create({
   },
   emptyCampaignsSubtext: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     textAlign: 'center',
     marginTop: 8,
     maxWidth: 280,
@@ -5878,7 +5919,7 @@ const styles = StyleSheet.create({
   },
   performanceMetricLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 4,
   },
@@ -5889,7 +5930,7 @@ const styles = StyleSheet.create({
   },
   networkActivityLabel: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#FFFFFF',
     fontWeight: '500',
     textAlign: 'center',
     marginTop: 8,
@@ -5934,7 +5975,7 @@ const styles = StyleSheet.create({
   },
   campaignPerformanceLocation: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 4,
   },
@@ -5979,7 +6020,7 @@ const styles = StyleSheet.create({
   },
   subscriptionBadgeSubtext: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   // Time Period Toggle
@@ -6007,7 +6048,7 @@ const styles = StyleSheet.create({
   timePeriodButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
   },
   timePeriodButtonTextActive: {
     color: '#43cea2',
@@ -6026,7 +6067,7 @@ const styles = StyleSheet.create({
   },
   campaignTier1Label: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 6,
   },
@@ -6051,7 +6092,7 @@ const styles = StyleSheet.create({
   },
   campaignTier2Label: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 4,
   },
@@ -6061,7 +6102,7 @@ const styles = StyleSheet.create({
   },
   campaignTier2LabelROI: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 4,
     textAlign: 'center',
@@ -6084,13 +6125,13 @@ const styles = StyleSheet.create({
   },
   campaignTier3Label: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#FFFFFF',
     fontWeight: '500',
     marginBottom: 4,
   },
   campaignTier3Value: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   // Marketplace Reach
@@ -6103,7 +6144,7 @@ const styles = StyleSheet.create({
   },
   marketplaceReachText: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   // AI Optimization Status
@@ -6164,7 +6205,7 @@ const styles = StyleSheet.create({
   campaignPhotosLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#FFFFFF',
     marginBottom: 8,
   },
   campaignPhotoThumb: {
@@ -6199,7 +6240,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bulkActionCount: {
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -6260,7 +6301,7 @@ const styles = StyleSheet.create({
   },
   aiIntelligenceLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: '#FFFFFF',
     marginBottom: 6,
     fontWeight: '600',
   },

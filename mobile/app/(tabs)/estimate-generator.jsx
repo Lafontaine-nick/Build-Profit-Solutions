@@ -352,7 +352,7 @@ const STEPS = [
   { id: 2, title: 'Project Information', subtitle: 'Title, location, scope & timeline' },
   { id: 3, title: 'Materials & Supplies', subtitle: 'Live pricing and inflation' },
   { id: 4, title: 'Labor & Subs', subtitle: 'Regional wages and subcontractors' },
-  { id: 5, title: 'Overhead & Markup', subtitle: 'Break down overhead, tune markup' },
+  { id: 5, title: 'Direct costs, overhead & markup', subtitle: 'Direct costs, overhead, and markup rate' },
   { id: 6, title: 'Project Analysis', subtitle: 'Project outcome scenarios' },
   { id: 7, title: 'Payment / Work Schedule', subtitle: 'Payment terms and work scheduling' },
   { id: 8, title: 'Final Bid & Contract', subtitle: 'Health score, contract generation & export' },
@@ -2149,13 +2149,10 @@ function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
   const materials = (cart || []).reduce((sum, r) => sum + (r.total || 0), 0);
   const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
   const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-  const overhead =
-    (bid.insuranceOverhead || 0) +
-    (bid.equipment || 0) +
-    (bid.facilities || 0) +
-    (bid.otherOverhead || 0) +
-    permitCosts;
-  const subtotal = materials + labor + overhead;
+  const equipmentRental = Number(bid.equipment) || 0;
+  const otherDirectCost = Number(bid.otherDirectCost) || 0;
+  // Markup applies to direct job cost (materials + labor + plans/permits + equipment rental + other direct). Business overhead is paid from profit.
+  const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
   const profit = (subtotal * (Number(bid.markupPct) || 0)) / 100;
   return subtotal + profit;
 }
@@ -2192,6 +2189,7 @@ const blankState = (isFirstTime = false) => ({
   planCostText: '',
   permitCost: 0,
   permitCostText: '',
+  otherDirectCost: 0,
   zoning: 'residential',
   
   // Materials - Detailed line items (with smart defaults for first-time users)
@@ -2251,7 +2249,8 @@ const blankState = (isFirstTime = false) => ({
   
   // Overhead
   insuranceOverhead: 0,
-  equipment: 0,
+  equipment: 0, // equipment rental (direct cost; same field name for saved bids)
+  equipmentMaintenance: 0,
   facilities: 0,
   otherOverhead: 0,
   
@@ -2789,8 +2788,9 @@ const computeTotalFromBidData = (bidData) => {
   const materials = (bidData.materialLineItems || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
   const labor = (bidData.laborLineItems || []).reduce((sum, item) => sum + (Number(item.total) || 0), 0);
   const permitCosts = (Number(bidData.planCost) || 0) + (Number(bidData.permitCost) || 0);
-  const overhead = (Number(bidData.insuranceOverhead) || 0) + (Number(bidData.equipment) || 0) + (Number(bidData.facilities) || 0) + (Number(bidData.otherOverhead) || 0) + permitCosts;
-  const subtotal = materials + labor + overhead;
+  const equipmentRental = Number(bidData.equipment) || 0;
+  const otherDirectCost = Number(bidData.otherDirectCost) || 0;
+  const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
   const profit = (subtotal * (Number(bidData.markupPct) || 0)) / 100;
   return Math.round(subtotal + profit) || 0;
 };
@@ -2911,7 +2911,7 @@ const getStepIcon = (stepNum) => {
     2: 'info', // Project Information
     3: 'inventory', // Materials & Supplies
     4: 'people', // Labor & Subs
-    5: 'trending-up', // Overhead & Markup
+    5: 'trending-up', // Direct costs, overhead & markup
     6: 'analytics', // Project Analysis
     7: 'schedule', // Payment / Work Schedule
     8: 'description', // Final Bid & Contract
@@ -3962,7 +3962,7 @@ export default function EstimateGeneratorScreen() {
       case 4:
         return ['laborLineItems', 'subcontractors', 'hours', 'trade'];
       case 5:
-        return ['markupPct', 'insuranceOverhead', 'equipment', 'facilities', 'planCost', 'permitCost'];
+        return ['markupPct', 'insuranceOverhead', 'equipment', 'equipmentMaintenance', 'facilities', 'planCost', 'permitCost', 'otherDirectCost'];
       case 6:
         return ['scenarioAnalysis', 'projectAnalysis', 'marketRates', 'laborRates'];
       case 7:
@@ -5400,7 +5400,14 @@ export default function EstimateGeneratorScreen() {
       projectStartDate: bid.projectStartDate,
       projectEndDate: bid.projectEndDate,
     });
-    const bidKey = `${bid.id}-${bid.title}-${JSON.stringify(bid.laborLineItems)}-${JSON.stringify(materialsCart)}-${customerInfoKey}`;
+    // Include payment schedule — otherwise AI-only payment updates reuse the same key and autosave skips,
+    // so Step 7 / reload still show milestone-based and empty weekly rows.
+    const paymentScheduleKey = JSON.stringify({
+      paymentSchedule: bid.paymentSchedule,
+      paymentMilestones: bid.paymentMilestones,
+      weeklyPayments: bid.weeklyPayments,
+    });
+    const bidKey = `${bid.id}-${bid.title}-${JSON.stringify(bid.laborLineItems)}-${JSON.stringify(materialsCart)}-${customerInfoKey}-${paymentScheduleKey}`;
     if (lastSavedBidRef.current === bidKey) {
       console.log('⚠️ Same bid already saved, skipping...');
       return;
@@ -5442,13 +5449,15 @@ export default function EstimateGeneratorScreen() {
     const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
     const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
     const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const overhead =
+    const equipmentRental = Number(bid.equipment) || 0;
+    const otherDirectCost = Number(bid.otherDirectCost) || 0;
+    const companyOverheadOnly =
       (bid.insuranceOverhead || 0) +
-      (bid.equipment || 0) +
+      (bid.equipmentMaintenance || 0) +
       (bid.facilities || 0) +
-      (bid.otherOverhead || 0) +
-      permitCosts;
-    const calculatedSubtotal = materials + labor + overhead;
+      (bid.otherOverhead || 0);
+    const calculatedSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
+    const overhead = companyOverheadOnly + permitCosts + equipmentRental + otherDirectCost;
     const markup = Number(bid.markupPct) || 0;
     const profit = (calculatedSubtotal * markup) / 100;
     const total = calculatedSubtotal + profit; // Preserve exact decimal precision, don't round
@@ -5476,6 +5485,7 @@ export default function EstimateGeneratorScreen() {
         materials,
         labor,
         overhead,
+        companyOverhead: companyOverheadOnly,
         permitCosts,
         subtotal: calculatedSubtotal,
         markup,
@@ -5551,9 +5561,11 @@ export default function EstimateGeneratorScreen() {
         // Re-save the bid snapshot with updated materialLineItems
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
 
-          const totalOverhead = (estimateContext.overhead ?? 0) + (estimateContext.permitCosts ?? 0);
+          const companyOH =
+            estimateContext.companyOverhead ??
+            Math.max(0, (estimateContext.overhead ?? 0) - (estimateContext.permitCosts ?? 0));
           const profitRaw = estimateContext.profit ?? 0;
-          const netProfit = Math.max(0, profitRaw - totalOverhead);
+          const netProfit = Math.max(0, profitRaw - companyOH);
           const margin = estimateContext.total > 0 ? (netProfit / estimateContext.total) * 100 : 0;
           const estimateData = {
             id: snapshotBid.id,
@@ -5564,7 +5576,7 @@ export default function EstimateGeneratorScreen() {
             profit: netProfit,
             materials: estimateContext.materials ?? 0,
             labor: estimateContext.labor ?? 0,
-            overhead: totalOverhead,
+            overhead: estimateContext.overhead ?? 0,
             subtotal: estimateContext.subtotal ?? 0,
           actualCost: existingProject?.actualCost || 0,
             margin,
@@ -5815,10 +5827,19 @@ export default function EstimateGeneratorScreen() {
     // Calculate rental equipment costs (note: rentals don't have fixed pricing, just duration tracking)
     const rentals = rentalCart.length; // Count of rental items for tracking
     
-    // Overhead includes plans & permits so displayed "Overhead" matches form's "Total Overhead"
+    // Direct job cost (Total Cost / markup base) = materials + labor + plans + permits + equipment rental + other direct costs.
+    // Business overhead (insurance, equipment maintenance, facilities, other) is not in subtotal; it reduces net profit after markup.
     const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const overhead = bid.insuranceOverhead + bid.equipment + bid.facilities + bid.otherOverhead + permitCosts;
-    const subtotal = materials + labor + overhead;
+    const equipmentRental = Number(bid.equipment) || 0;
+    const otherDirectCost = Number(bid.otherDirectCost) || 0;
+    const companyOverhead =
+      (Number(bid.insuranceOverhead) || 0) +
+      (Number(bid.equipmentMaintenance) || 0) +
+      (Number(bid.facilities) || 0) +
+      (Number(bid.otherOverhead) || 0);
+    const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
+    // All non–mat/labor dollars in the overhead section (for charts / context)
+    const overhead = companyOverhead + permitCosts + equipmentRental + otherDirectCost;
     const contingency = Math.round((subtotal * bid.contingencyPct) / 100);
     const profit = (subtotal * bid.markupPct) / 100;
     const total = subtotal + profit; // Preserve exact decimal precision, don't round
@@ -5828,7 +5849,21 @@ export default function EstimateGeneratorScreen() {
     const denom = bid.unitMode === 'sqft' ? Math.max(1, bid.sqft) : bid.unitMode === 'lf' ? 480 : 30;
     const unitPrice = total / denom;
     
-    return { materials, labor, rentals, overhead, permitCosts, contingency, profit, total, subtotal, unitPrice, marginRatio, marginPercent };
+    return {
+      materials,
+      labor,
+      rentals,
+      overhead,
+      companyOverhead,
+      permitCosts,
+      contingency,
+      profit,
+      total,
+      subtotal,
+      unitPrice,
+      marginRatio,
+      marginPercent,
+    };
   }, [bid, rentalCart, materialsCart]);
 
   /** Persists current bid + materials cart to AsyncStorage and the restore-bids list (same as Save Bid, without alert). */
@@ -5939,6 +5974,7 @@ export default function EstimateGeneratorScreen() {
           labor: calc.labor,
           rentals: calc.rentals,
           overhead: calc.overhead,
+          companyOverhead: calc.companyOverhead,
           permitCosts: calc.permitCosts,
           contingency: calc.contingency,
           subtotal: calc.subtotal,
@@ -6335,6 +6371,35 @@ export default function EstimateGeneratorScreen() {
       return resultWithUndo(`Set markup to ${Math.round(nextMarkup * 10) / 10}%.`);
     }
 
+    if (action.type === 'apply_estimate_pricing_fields') {
+      storeEstimateAiUndoSnapshot('update Step 5 pricing fields');
+      const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+      setBid((prev) => {
+        const next = { ...prev };
+        const pc = num(action.planCost);
+        const pperm = num(action.permitCost);
+        const eq = num(action.equipment);
+        const ins = num(action.insuranceOverhead);
+        const em = num(action.equipmentMaintenance);
+        const fac = num(action.facilities);
+        const oo = num(action.otherOverhead);
+        const odc = num(action.otherDirectCost);
+        if (pc != null) next.planCost = pc;
+        if (pperm != null) next.permitCost = pperm;
+        if (eq != null) next.equipment = eq;
+        if (ins != null) next.insuranceOverhead = ins;
+        if (em != null) next.equipmentMaintenance = em;
+        if (fac != null) next.facilities = fac;
+        if (oo != null) next.otherOverhead = oo;
+        if (odc != null) next.otherDirectCost = odc;
+        return next;
+      });
+      setForceRefresh((prev) => prev + 1);
+      return resultWithUndo(
+        'Updated Step 5 amounts — direct costs (plans, permits, equipment rental, other direct) and overhead fields are saved on this bid.'
+      );
+    }
+
     if (action.type === 'update_customer_info') {
       storeEstimateAiUndoSnapshot('update customer info');
       // Step 1 TextInputs are bound to localCustomer* state, which only syncs from bid when bid.id changes.
@@ -6557,6 +6622,7 @@ export default function EstimateGeneratorScreen() {
         ...prev,
         insuranceOverhead: action.insuranceOverhead ?? prev.insuranceOverhead,
         equipment: action.equipment ?? prev.equipment,
+        equipmentMaintenance: action.equipmentMaintenance ?? prev.equipmentMaintenance,
         facilities: action.facilities ?? prev.facilities,
         otherOverhead: action.otherOverhead ?? prev.otherOverhead,
         markupPct: action.markupPct ?? prev.markupPct,
@@ -7014,7 +7080,7 @@ export default function EstimateGeneratorScreen() {
     if ((materialsCart?.length || 0) > 0) points += 10;
     if ((bid.laborLineItems?.length || 0) > 0) points += 10;
     
-    // Overhead & Markup (15 points)
+    // Direct costs, overhead & markup (15 points)
     if (bid.overheadPct && bid.overheadPct > 0) points += 8;
     if (bid.markupPct && bid.markupPct > 0) points += 7;
     
@@ -7226,8 +7292,9 @@ export default function EstimateGeneratorScreen() {
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
       const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
       const permitCosts = (currentBid.planCost || 0) + (currentBid.permitCost || 0);
-      const overhead = (currentBid.insuranceOverhead || 0) + (currentBid.equipment || 0) + (currentBid.facilities || 0) + (currentBid.otherOverhead || 0) + permitCosts;
-      const subtotal = materials + labor + overhead;
+      const equipmentRental = Number(currentBid.equipment) || 0;
+      const otherDirectCost = Number(currentBid.otherDirectCost) || 0;
+      const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
       const profit = (subtotal * (currentBid.markupPct || 0)) / 100;
       const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
       
@@ -7649,13 +7716,15 @@ export default function EstimateGeneratorScreen() {
           category: 'Materials'
         }] : []);
 
-    // Total overhead includes plans & permits (matches Overhead step and main calc)
     const permitCosts = Number(bidData.planCost || 0) + Number(bidData.permitCost || 0);
-    const totalOverhead = Number(bidData.insuranceOverhead || 0) + 
-                         Number(bidData.equipment || 0) + 
-                         Number(bidData.facilities || 0) + 
-                         Number(bidData.otherOverhead || 0) + 
-                         permitCosts;
+    const equipmentRental = Number(bidData.equipment || 0);
+    const otherDirectCost = Number(bidData.otherDirectCost || 0);
+    const companyOverheadOnly =
+      Number(bidData.insuranceOverhead || 0) +
+      Number(bidData.equipmentMaintenance || 0) +
+      Number(bidData.facilities || 0) +
+      Number(bidData.otherOverhead || 0);
+    const totalOverhead = companyOverheadOnly + permitCosts + equipmentRental + otherDirectCost;
 
     return {
       summary: {
@@ -7665,14 +7734,14 @@ export default function EstimateGeneratorScreen() {
         unitPrice: bidData.sqft ? (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
-          const subtotal = materials + labor + totalOverhead;
+          const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup) / bidData.sqft;
         })() : undefined,
         totalBid: (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
-          const subtotal = materials + labor + totalOverhead;
+          const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup);
         })(),
@@ -7734,8 +7803,8 @@ export default function EstimateGeneratorScreen() {
         ? bidData.weeklyPayments.map((w, i) => ({
             id: w.id,
             name: `Week ${i + 1} Payment`,
-            percentage: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
-            percent: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + (bidData.insuranceOverhead || 0) + (bidData.equipment || 0) + (bidData.facilities || 0) + (bidData.otherOverhead || 0))) * 100) : 0,
+            percentage: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + permitCosts + equipmentRental + otherDirectCost)) * 100) : 0,
+            percent: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + permitCosts + equipmentRental + otherDirectCost)) * 100) : 0,
             paymentAmount: w.amount || 0,
             amount: w.amount || 0,
             description: w.description || undefined,
@@ -7984,9 +8053,8 @@ export default function EstimateGeneratorScreen() {
       const estimatedCost = Number(calc?.subtotal) || 0;
       const bidPrice = Number(calc?.grandTotal) || 0;
       const markup = Number(bid.markupPct) || 0;
-      const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0) + (bid.planCost || 0) + (bid.permitCost || 0);
       const profitRaw = calc?.profit ?? 0;
-      const netProfit = Math.max(0, profitRaw - totalOverhead);
+      const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
       const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
       
       console.log('🔍 Debug - calculated values:', {
@@ -8078,9 +8146,8 @@ export default function EstimateGeneratorScreen() {
               const estimatedCost = Number(calc?.subtotal || 0);
               const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
               const markup = Number(sourceBid.markupPct || 0);
-              const totalOverhead = (sourceBid.insuranceOverhead || 0) + (sourceBid.equipment || 0) + (sourceBid.facilities || 0) + (sourceBid.otherOverhead || 0) + (sourceBid.planCost || 0) + (sourceBid.permitCost || 0);
               const profitRaw = calc?.profit ?? 0;
-              const netProfit = Math.max(0, profitRaw - totalOverhead);
+              const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
               const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
               
               console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
@@ -8227,9 +8294,8 @@ export default function EstimateGeneratorScreen() {
       const estimatedCost = Number(calc?.subtotal) || 0;
       const bidPrice = Number(calc?.grandTotal || calc?.total) || 0;
       const markup = Number(sourceBid.markupPct) || 0;
-      const totalOverhead = (sourceBid.insuranceOverhead || 0) + (sourceBid.equipment || 0) + (sourceBid.facilities || 0) + (sourceBid.otherOverhead || 0) + (sourceBid.planCost || 0) + (sourceBid.permitCost || 0);
       const profitRaw = calc?.profit ?? 0;
-      const netProfit = Math.max(0, profitRaw - totalOverhead);
+      const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
       const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
 
       const normalizedPaymentMilestones = Array.isArray(sourceBid.paymentMilestones)
@@ -8393,14 +8459,20 @@ export default function EstimateGeneratorScreen() {
     }));
   }, []);
 
-  // Calculate and save overhead percentage (overhead includes plans & permits)
+  // Overhead % = business overhead as % of direct job cost (mat + labor + plans/permits + equipment rental).
   useEffect(() => {
     const totalPermitCosts = Number(bid.planCost || 0) + Number(bid.permitCost || 0);
-    const totalOverhead = Number(bid.insuranceOverhead || 0) + Number(bid.equipment || 0) + Number(bid.facilities || 0) + Number(bid.otherOverhead || 0) + totalPermitCosts;
+    const companyOverhead =
+      Number(bid.insuranceOverhead || 0) +
+      Number(bid.equipmentMaintenance || 0) +
+      Number(bid.facilities || 0) +
+      Number(bid.otherOverhead || 0);
     const totalMaterials = Number(calc.materials || 0);
     const totalLabor = Number(calc.labor || 0);
-    const subtotal = totalMaterials + totalLabor + totalOverhead;
-    const overheadPct = subtotal > 0 ? Math.round((totalOverhead / subtotal) * 100) : 0;
+    const equipmentRental = Number(bid.equipment) || 0;
+    const otherDirectCost = Number(bid.otherDirectCost) || 0;
+    const directCost = totalMaterials + totalLabor + totalPermitCosts + equipmentRental + otherDirectCost;
+    const overheadPct = directCost > 0 ? Math.round((companyOverhead / directCost) * 100) : 0;
     
     if (bid.overheadPct !== overheadPct) {
       setBid(prev => ({
@@ -8408,7 +8480,7 @@ export default function EstimateGeneratorScreen() {
         overheadPct: overheadPct
       }));
     }
-  }, [bid.insuranceOverhead, bid.equipment, bid.facilities, bid.otherOverhead, bid.planCost, bid.permitCost, calc.materials, calc.labor]);
+  }, [bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, calc.materials, calc.labor]);
 
   
   // Enhanced materials helpers
@@ -10635,13 +10707,8 @@ export default function EstimateGeneratorScreen() {
         const normalizedContractorType = contractorType ? parseInt(contractorType) : null;
         const contractorInfo = normalizedContractorType ? contractorTypes[normalizedContractorType] : null;
         
-        // Calculate total overhead
-        const totalOverhead = (bid.insuranceOverhead || 0) + 
-                              (bid.equipment || 0) + 
-                              (bid.facilities || 0) + 
-                              (bid.otherOverhead || 0) +
-                              (bid.planCost || 0) +
-                              (bid.permitCost || 0);
+        // Deduct only business overhead from gross markup; plans/permits are already inside Total Cost (subtotal).
+        const businessOverheadDeduct = calc?.companyOverhead ?? 0;
         
         const jobTotal = calc?.grandTotal || calc?.total || 0;
         
@@ -10678,8 +10745,8 @@ export default function EstimateGeneratorScreen() {
         const currentMarkup = bid.markupPct || 0;
         const profit = calc?.profit || 0;
         const subtotal = calc?.subtotal || 0;
-        // Net profit = markup minus overhead (what you actually keep). Updates when overhead changes.
-        const netProfit = Math.max(0, profit - totalOverhead);
+        // Net profit = gross markup minus business overhead only (plans/permits are job cost, not taken again here).
+        const netProfit = Math.max(0, profit - businessOverheadDeduct);
         const netProfitPct = jobTotal > 0 ? (netProfit / jobTotal) * 100 : 0;
         
         // AI badge always shows - determine message and button text
@@ -10893,8 +10960,8 @@ export default function EstimateGeneratorScreen() {
                     <Ionicons name="calculator-outline" size={20} color="#2DFFC4" />
                   </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Overhead & Markup</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Break down overhead, tune markup</Text>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Direct costs, overhead & markup</Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Enter direct costs, overhead, and your markup rate</Text>
                 </View>
               </View>
               
@@ -10969,6 +11036,120 @@ export default function EstimateGeneratorScreen() {
                 )}
               </View>
               
+              <View style={{ marginTop: 4, marginBottom: 12 }}>
+                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Direct costs</Text>
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                  Equipment rental, plans, permits, and other direct costs
+                </Text>
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Equipment Rental</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('equipment', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('equipment', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Plans</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('planCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('planCost', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Permits</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('permitCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('permitCost', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={s.inputGroup}>
+                <Text style={s.label}>Other direct costs</Text>
+                <TextInput
+                  style={[s.input, { color: Colors.text }]}
+                  placeholder="0"
+                  placeholderTextColor={Colors.sub}
+                  value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : ''}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('otherDirectCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('otherDirectCost', num);
+                      }
+                    }
+                  }}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                />
+              </View>
+
+              <View style={{ marginTop: 16, marginBottom: 12 }}>
+                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Overhead</Text>
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                  Insurance, equipment maintenance, facilities, and other overhead
+                </Text>
+              </View>
+
               <View style={s.inputGroup}>
                 <Text style={s.label}>Insurance Overhead</Text>
                 <TextInput
@@ -10995,20 +11176,20 @@ export default function EstimateGeneratorScreen() {
               </View>
               
               <View style={s.inputGroup}>
-                <Text style={s.label}>Equipment</Text>
+                <Text style={s.label}>Equipment Maintenance</Text>
                 <TextInput
                   style={[s.input, { color: Colors.text }]}
                   placeholder="0"
                   placeholderTextColor={Colors.sub}
-                  value={bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : ''}
+                  value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
-                      updateBid('equipment', 0);
+                      updateBid('equipmentMaintenance', 0);
                     } else {
                       const num = parseFloat(cleaned);
                       if (!isNaN(num)) {
-                        updateBid('equipment', num);
+                        updateBid('equipmentMaintenance', num);
                       }
                     }
                   }}
@@ -11069,59 +11250,16 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Plans</Text>
-                <TextInput
-                  style={[s.input, { color: Colors.text }]}
-                  placeholder="0"
-                  placeholderTextColor={Colors.sub}
-                  value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
-                  onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('planCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('planCost', num);
-                      }
-                    }
-                  }}
-                  keyboardType="numeric"
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
-                />
+              <View style={{ marginTop: 16, marginBottom: 12 }}>
+                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Markup percentage</Text>
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+                  Applied to materials, labor, and all direct costs above
+                </Text>
               </View>
 
               <View style={s.inputGroup}>
-                <Text style={s.label}>Permits</Text>
-                <TextInput
-                  style={[s.input, { color: Colors.text }]}
-                  placeholder="0"
-                  placeholderTextColor={Colors.sub}
-                  value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
-                  onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('permitCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('permitCost', num);
-                      }
-                    }
-                  }}
-                  keyboardType="numeric"
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
-                />
-              </View>
-              
-              <View style={s.inputGroup}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={s.label}>Markup Percentage</Text>
+                  <Text style={s.label}>Markup %</Text>
                   <TouchableOpacity
                     onPress={() => {
                       // Only update if not already at recommended (not "Apply 0%")
@@ -11291,8 +11429,13 @@ export default function EstimateGeneratorScreen() {
                   borderWidth: 1,
                   borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
                 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <Text style={{ color: Colors.text, fontSize: 13 }}>Total Cost</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ color: Colors.text, fontSize: 13 }}>Total Cost</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                        Materials + labor + plans & permits + equipment rental + other direct (markup applies here; business overhead is below)
+                      </Text>
+                    </View>
                     <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.subtotal || 0)}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -11308,17 +11451,24 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: Colors.text, fontSize: 13 }}>Gross Profit (Markup)</Text>
                     <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.profit || 0)}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ color: '#f97316', fontSize: 13 }}>- Overhead</Text>
-                    <Text style={{ color: '#f97316', fontSize: 15, fontWeight: '600' }}>{money(totalOverhead)}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ color: '#f97316', fontSize: 13 }}>- Business overhead</Text>
+                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                        Insurance, equipment maintenance, facilities, other — not plans, permits, equipment rental, or other direct (those are in Total Cost)
+                      </Text>
+                    </View>
+                    <Text style={{ color: '#f97316', fontSize: 15, fontWeight: '600' }}>{money(businessOverheadDeduct)}</Text>
                   </View>
                   <View style={{ height: 1, backgroundColor: darkMode ? 'rgba(255,255,255,0.2)' : Colors.line, marginVertical: 8 }} />
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View>
                       <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Net Profit</Text>
-                      <Text style={{ color: '#38d39f', fontSize: 12, marginTop: 2 }}>{netProfitPct.toFixed(1)}% of bid</Text>
+                      <Text style={{ color: '#38d39f', fontSize: 12, marginTop: 2 }}>
+                        {netProfitPct.toFixed(1)}% margin on bid
+                      </Text>
                     </View>
-                    <Text style={{ color: '#38d39f', fontSize: 18, fontWeight: '800' }}>{money(Math.max(0, (calc.profit || 0) - totalOverhead))}</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 18, fontWeight: '800' }}>{money(Math.max(0, (calc.profit || 0) - businessOverheadDeduct))}</Text>
                   </View>
                 </View>
               )}
@@ -11352,7 +11502,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Project Analysis</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Project outcome scenarios</Text>
+                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, marginTop: 4 }}>Project outcome scenarios</Text>
                 </View>
               </View>
               {shouldGateAdvanced ? (
@@ -11364,12 +11514,12 @@ export default function EstimateGeneratorScreen() {
                   borderColor: 'rgba(255, 255, 255, 0.12)',
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <MaterialIcons name="lock" size={18} color={Colors.sub} />
+                    <MaterialIcons name="lock" size={18} color={darkMode ? '#FFFFFF' : Colors.sub} />
                     <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
                       Project Analysis
                     </Text>
                   </View>
-                  <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 12, lineHeight: 18 }}>
                     Complete your estimate to unlock outcome scenarios and risk modeling.
                   </Text>
                   <TouchableOpacity
@@ -11403,13 +11553,13 @@ export default function EstimateGeneratorScreen() {
             
             {/* Legal Disclaimer - Outside the card */}
             <Text style={{
-              color: Colors.sub,
+              color: darkMode ? '#FFFFFF' : Colors.sub,
               fontSize: 11,
               textAlign: 'center',
               marginTop: 16,
               marginBottom: 8,
               paddingHorizontal: 20,
-              opacity: 0.6,
+              opacity: darkMode ? 0.9 : 0.6,
               fontStyle: 'italic',
             }}>
               Estimates are scenario-based projections and not guarantees of actual costs or profit.
@@ -14669,9 +14819,9 @@ export default function EstimateGeneratorScreen() {
         
         // Calculate diagnostic reasons for health score
         const diagnosticReasons = [];
-        const totalOverhead = (bid.insuranceOverhead || 0) + (bid.equipment || 0) + (bid.facilities || 0) + (bid.otherOverhead || 0);
+        const totalOverhead = calc?.companyOverhead ?? 0;
         const netProfit = (calc?.profit || 0) - totalOverhead;
-        const netProfitPct = calc?.subtotal > 0 ? (netProfit / calc.subtotal) * 100 : 0;
+        const netProfitPct = calc?.total > 0 ? (netProfit / calc.total) * 100 : 0;
         const laborRatio = calc?.total > 0 ? (calc?.labor || 0) / calc.total : 0;
         
         // Check payment schedule completion

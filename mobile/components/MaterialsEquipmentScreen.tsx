@@ -253,7 +253,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                   }
                 }}
               >
-                <Feather name="search" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
+                <Feather name="search" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
               </Pressable>
               <Pressable
                 style={[styles.iconChip, { marginLeft: 8 }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}
@@ -262,7 +262,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                   // Filter/sort functionality can be added later
                 }}
               >
-                <Feather name="sliders" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
+                <Feather name="sliders" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
               </Pressable>
             </View>
           </View>
@@ -270,7 +270,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           {/* SEARCH BAR */}
           {showSearch && (
             <View style={[styles.searchContainer, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
-              <Feather name="search" size={16} color={darkMode ? "#94a3b8" : Colors.sub} style={{ marginRight: 8 }} />
+              <Feather name="search" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInput, { color: Colors.text }]}
                 placeholder="Search transactions..."
@@ -284,7 +284,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                   onPress={() => setSearchQuery("")}
                   style={styles.searchClear}
                 >
-                  <Feather name="x" size={16} color={darkMode ? "#94a3b8" : Colors.sub} />
+                  <Feather name="x" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
                 </Pressable>
               )}
             </View>

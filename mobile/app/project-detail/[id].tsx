@@ -757,12 +757,11 @@ function ProjectDetailContent() {
   const { recalculatedBudget, recalculatedSubtotal } = realProjectData?.estimateData ? (() => {
     const materials = materialsCart.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
     const labor = (realProjectData.estimateData.laborLineItems || []).reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
-    const equipment = Number(realProjectData.estimateData.equipment) || 0;
-    const facilities = Number(realProjectData.estimateData.facilities) || 0;
-    const insuranceOverhead = Number(realProjectData.estimateData.insuranceOverhead) || 0;
-    const otherOverhead = Number(realProjectData.estimateData.otherOverhead) || 0;
+    const planCost = Number(realProjectData.estimateData.planCost) || 0;
     const permitCost = Number(realProjectData.estimateData.permitCost) || 0;
-    const subtotal = materials + labor + equipment + facilities + insuranceOverhead + otherOverhead + permitCost;
+    const equipmentRental = Number(realProjectData.estimateData.equipment) || 0;
+    const otherDirectCost = Number(realProjectData.estimateData.otherDirectCost) || 0;
+    const subtotal = materials + labor + planCost + permitCost + equipmentRental + otherDirectCost;
     const markupPct = Number(realProjectData.estimateData.markupPct) || 0;
     const markup = subtotal * (markupPct / 100);
     return {
@@ -964,24 +963,22 @@ function ProjectDetailContent() {
         budget: (() => {
           const materials = materialsCart.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
           const labor = (realProjectData.estimateData.laborLineItems || []).reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
-          const equipment = Number(realProjectData.estimateData.equipment) || 0;
-          const facilities = Number(realProjectData.estimateData.facilities) || 0;
-          const insuranceOverhead = Number(realProjectData.estimateData.insuranceOverhead) || 0;
-          const otherOverhead = Number(realProjectData.estimateData.otherOverhead) || 0;
+          const planCost = Number(realProjectData.estimateData.planCost) || 0;
           const permitCost = Number(realProjectData.estimateData.permitCost) || 0;
-          const subtotal = materials + labor + equipment + facilities + insuranceOverhead + otherOverhead + permitCost;
+          const equipmentRental = Number(realProjectData.estimateData.equipment) || 0;
+          const otherDirectCost = Number(realProjectData.estimateData.otherDirectCost) || 0;
+          const subtotal = materials + labor + planCost + permitCost + equipmentRental + otherDirectCost;
           const markupPct = Number(realProjectData.estimateData.markupPct) || 0;
           return Math.round(subtotal * (markupPct / 100));
         })(), 
         bidBudget: (() => {
           const materials = materialsCart.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
           const labor = (realProjectData.estimateData.laborLineItems || []).reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
-          const equipment = Number(realProjectData.estimateData.equipment) || 0;
-          const facilities = Number(realProjectData.estimateData.facilities) || 0;
-          const insuranceOverhead = Number(realProjectData.estimateData.insuranceOverhead) || 0;
-          const otherOverhead = Number(realProjectData.estimateData.otherOverhead) || 0;
+          const planCost = Number(realProjectData.estimateData.planCost) || 0;
           const permitCost = Number(realProjectData.estimateData.permitCost) || 0;
-          const subtotal = materials + labor + equipment + facilities + insuranceOverhead + otherOverhead + permitCost;
+          const equipmentRental = Number(realProjectData.estimateData.equipment) || 0;
+          const otherDirectCost = Number(realProjectData.estimateData.otherDirectCost) || 0;
+          const subtotal = materials + labor + planCost + permitCost + equipmentRental + otherDirectCost;
           const markupPct = Number(realProjectData.estimateData.markupPct) || 0;
           return Math.round(subtotal * (markupPct / 100));
         })()
@@ -1554,7 +1551,7 @@ function ProjectDetailContent() {
       if (normalized.includes('good') || normalized.includes('on track')) return '#22c55e';
       if (normalized.includes('risk') || normalized.includes('at risk')) return '#f59e0b';
       if (normalized.includes('critical') || normalized.includes('behind')) return '#ef4444';
-      return '#9ca3af';
+      return '#e5e7eb';
     };
 
     const getDaysLeftColor = (days: number | null | undefined) => {
@@ -1678,7 +1675,8 @@ function ProjectDetailContent() {
         Number(bid?.insuranceOverhead || 0) +
         Number(bid?.otherOverhead || 0) +
         Number(bid?.planCost || 0) +
-        Number(bid?.permitCost || 0);
+        Number(bid?.permitCost || 0) +
+        Number(bid?.otherDirectCost || 0);
       if (materials + labor + overhead > 0) return materials + labor + overhead;
       // Fallback: sum Labor + Materials/Equipment + Overhead buckets (exclude Markup)
       const buckets = safeProjectData?.buckets || [];
@@ -1705,7 +1703,8 @@ function ProjectDetailContent() {
       Number(ed?.insuranceOverhead || 0) +
       Number(ed?.otherOverhead || 0) +
       Number(ed?.planCost || 0) +
-      Number(ed?.permitCost || 0);
+      Number(ed?.permitCost || 0) +
+      Number(ed?.otherDirectCost || 0);
     // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
     // Fallback: derive net profit when not stored (gross profit - overhead) so we don't show 20% from gross margin
     const estimateNetProfit = Number((safeProjectData as any)?.profit ?? ed?.profit ?? 0);
@@ -1715,7 +1714,8 @@ function ProjectDetailContent() {
       Number(ed?.insuranceOverhead ?? 0) +
       Number(ed?.otherOverhead ?? 0) +
       Number(ed?.planCost ?? 0) +
-      Number(ed?.permitCost ?? 0);
+      Number(ed?.permitCost ?? 0) +
+      Number(ed?.otherDirectCost ?? 0);
     const derivedNetProfit =
       costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
         ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
@@ -2586,7 +2586,7 @@ function ProjectDetailContent() {
             <View style={styles.slideHintContainer}>
               <Text style={styles.slideHintText}>slide to see all pages</Text>
             </View>
-            <BlurView intensity={35} tint="dark" style={styles.segmentContainer}>
+            <BlurView intensity={35} tint={darkMode ? "dark" : "light"} style={styles.segmentContainer}>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -2670,7 +2670,7 @@ function ProjectDetailContent() {
           animationType="none"
           onRequestClose={dismissAiSuggestions}
         >
-          <BlurView intensity={20} tint="dark" style={styles.aiSuggestionsModalBackdrop}>
+          <BlurView intensity={20} tint={darkMode ? "dark" : "light"} style={styles.aiSuggestionsModalBackdrop}>
             <TouchableOpacity
               style={styles.aiSuggestionsModalBackdropTouchable}
               activeOpacity={1}
@@ -2701,7 +2701,7 @@ function ProjectDetailContent() {
               <View style={[styles.aiSuggestionsCard, { backgroundColor: darkMode ? '#1E293B' : '#F1F5F9' }]}>
                 <View style={styles.aiSuggestionsHeader}>
                   <View style={styles.aiSuggestionsHeaderLeft}>
-                    <Ionicons name="sparkles" size={20} color={darkMode ? '#94A3B8' : '#64748B'} />
+                    <Ionicons name="sparkles" size={20} color={darkMode ? '#FFFFFF' : '#64748B'} />
                     <Text style={[styles.aiSuggestionsTitle, { color: darkMode ? '#F1F5F9' : '#0F172A' }]} numberOfLines={1}>AI Project Manager is active</Text>
                   </View>
                   <TouchableOpacity
@@ -2712,16 +2712,16 @@ function ProjectDetailContent() {
                     <Ionicons name="close" size={18} color={Colors.sub} />
                   </TouchableOpacity>
                 </View>
-                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#94A3B8' : '#64748B' }]}>
+                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#FFFFFF' : '#64748B' }]}>
                   I'll flag cost, labor, or schedule drift as it happens.
                 </Text>
                 <View style={styles.aiProactiveInsight}>
-                  <Ionicons name="bulb" size={14} color={darkMode ? '#94A3B8' : '#64748B'} />
-                  <Text style={[styles.aiProactiveInsightText, { color: darkMode ? '#94A3B8' : '#64748B' }]}>
+                  <Ionicons name="bulb" size={14} color={darkMode ? '#FFFFFF' : '#64748B'} />
+                  <Text style={[styles.aiProactiveInsightText, { color: darkMode ? '#FFFFFF' : '#64748B' }]}>
                     Based on your estimate, labor will be your biggest risk area.
                   </Text>
                 </View>
-                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#94A3B8' : '#64748B', marginTop: 8 }]}>
+                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#FFFFFF' : '#64748B', marginTop: 8 }]}>
                   Try asking:
                 </Text>
                 <View style={styles.aiSuggestionsList}>
@@ -4009,7 +4009,7 @@ function ProjectDetailContent() {
           <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 18, textAlign: 'center', marginBottom: 20 }}>
             Error loading project details
           </Text>
-        <Text style={{ color: darkMode ? '#9ca3af' : '#475569', fontSize: 14, textAlign: 'center', marginBottom: 20 }}>
+        <Text style={{ color: darkMode ? '#FFFFFF' : '#475569', fontSize: 14, textAlign: 'center', marginBottom: 20 }}>
             Please try again or contact support if the issue persists.
           </Text>
         </View>
@@ -4093,7 +4093,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 16,
   },
   overviewInner: {
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderRadius: 20,
     padding: 12,
   },
@@ -4215,12 +4215,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? Colors.subtext : "#475569",
   },
   card: {
-    backgroundColor: darkMode ? "#000000" : Colors.bg,
+    backgroundColor: darkMode ? "#000000" : Colors.cardDark,
     padding: 20,
     marginHorizontal: 24,
     marginBottom: 16,
     borderRadius: 20,
-    borderWidth: darkMode ? 0 : 0,
+    borderWidth: darkMode ? 0 : 1,
+    borderColor: darkMode ? "transparent" : Colors.line,
   },
   cardWide: {
     marginHorizontal: -8,
@@ -4286,7 +4287,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   mutedLabel: {
     fontSize: 13,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
     marginBottom: 2,
   },
   largeNumber: {
@@ -4306,7 +4307,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   metricLabel: {
     fontSize: 12,
-    color: darkMode ? '#9CA3AF' : '#475569',
+    color: darkMode ? '#FFFFFF' : '#475569',
     marginBottom: 4,
   },
   metricValue: {
@@ -4328,7 +4329,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusMetricLabel: {
     fontSize: 14,
-    color: darkMode ? '#9CA3AF' : '#475569',
+    color: darkMode ? '#FFFFFF' : '#475569',
     fontWeight: '500',
   },
   projectStatusMetricValue: {
@@ -4362,7 +4363,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusDateLabel: {
     fontSize: 14,
-    color: darkMode ? '#9CA3AF' : '#475569',
+    color: darkMode ? '#FFFFFF' : '#475569',
     fontWeight: '500',
   },
   projectStatusDateValue: {
@@ -4442,7 +4443,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   progressText: {
     marginTop: 8,
     fontSize: 12,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   progressPercent: {
     marginTop: 2,
@@ -4459,7 +4460,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   budgetLabel: {
     fontSize: 14,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   budgetValue: {
     fontSize: 14,
@@ -4478,7 +4479,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineLabel: {
     fontSize: 14,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   timelineValue: {
     fontSize: 14,
@@ -4515,7 +4516,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   healthLabel: {
     fontSize: 14,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   healthPill: {
     paddingHorizontal: 12,
@@ -4533,7 +4534,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   // Team styles
   teamRoleLabel: {
     fontSize: 14,
-    color: darkMode ? "#9CA3AF" : "#475569",
+    color: darkMode ? "#FFFFFF" : "#475569",
   },
   teamNotAssignedText: {
     fontSize: 14,
@@ -5013,7 +5014,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   aiSuggestionsSubtitle: {
     fontSize: 14,
-    color: darkMode ? '#94A3B8' : '#64748B',
+    color: darkMode ? '#FFFFFF' : '#64748B',
     marginBottom: 16,
     lineHeight: 20,
   },

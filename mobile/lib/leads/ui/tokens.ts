@@ -2,7 +2,7 @@ export const c = {
   bg: '#071626',
   card: '#0F2137',
   text: '#E5E7EB',
-  sub: '#93A3AF',
+  sub: '#F3F4F6',
   accent: '#00C281',
   accentDark: '#0dbf83',
   warning: '#CA8A04',

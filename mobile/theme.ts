@@ -9,8 +9,8 @@ export const colors = {
   accentBlue: "#00C1FF",
 
   textPrimary: "#FFFFFF",
-  textSecondary: "rgba(255,255,255,0.72)",
-  textMuted: "rgba(255,255,255,0.55)",
+  textSecondary: "rgba(255,255,255,0.96)",
+  textMuted: "rgba(255,255,255,0.92)",
 
   borderSubtle: "rgba(255,255,255,0.06)",
   success: "#1FE39B",

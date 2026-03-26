@@ -351,7 +351,7 @@ export default function PaymentScreen() {
           end={{ x: 0.95, y: 0.85 }}
           style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
         >
-          <View style={[styles.contentCard, { backgroundColor: Colors.bg }]}>
+          <View style={[styles.contentCard, { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
             <View style={styles.content}>
         {/* Current Plan Card */}
         <View style={[styles.currentPlanCard, { backgroundColor: theme.card, borderColor: theme.border }]}>

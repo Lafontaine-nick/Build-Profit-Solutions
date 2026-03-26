@@ -59,7 +59,7 @@ export default function PaymentSelectionChips({
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.label, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+      <Text style={[styles.label, { color: darkMode ? '#F3F4F6' : '#64748b' }]}>
         {label}
       </Text>
       <View style={styles.chipsContainer}>
@@ -90,7 +90,7 @@ export default function PaymentSelectionChips({
                 <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
                   {option.title}
                 </Text>
-                <Text style={[styles.chipStatus, { color: darkMode ? '#8DA0B8' : '#64748b' }]}>
+                <Text style={[styles.chipStatus, { color: darkMode ? '#F3F4F6' : '#64748b' }]}>
                   {subtitle}
                 </Text>
               </LinearGradient>

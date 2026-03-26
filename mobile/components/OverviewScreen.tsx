@@ -433,14 +433,13 @@ export default function OverviewScreen({
     const bid = ed ?? project;
     const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
     const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-    const overhead =
-      Number(bid?.equipment || 0) +
-      Number(bid?.facilities || 0) +
-      Number(bid?.insuranceOverhead || 0) +
-      Number(bid?.otherOverhead || 0) +
+    const permitCosts =
       Number(bid?.planCost || 0) +
       Number(bid?.permitCost || 0);
-    if (materials + labor + overhead > 0) return materials + labor + overhead;
+    const equipmentRental = Number(bid?.equipment || 0);
+    const otherDirectCost = Number(bid?.otherDirectCost || 0);
+    const directSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
+    if (directSubtotal > 0) return directSubtotal;
     // Fallback: sum Labor + Materials + Overhead buckets
     const buckets = (project as any)?.buckets || [];
     const costBuckets = buckets.filter((b: any) =>
@@ -462,21 +461,21 @@ export default function OverviewScreen({
     Number((ed?.materials ?? (project as any)?.materials) || 0) +
     Number((ed?.labor ?? (project as any)?.labor) || 0) +
     Number((ed?.equipment ?? (project as any)?.equipment) || 0) +
+    Number((ed?.equipmentMaintenance ?? (project as any)?.equipmentMaintenance) || 0) +
     Number((ed?.facilities ?? (project as any)?.facilities) || 0) +
     Number((ed?.insuranceOverhead ?? (project as any)?.insuranceOverhead) || 0) +
     Number((ed?.otherOverhead ?? (project as any)?.otherOverhead) || 0) +
     Number((ed?.planCost ?? (project as any)?.planCost) || 0) +
-    Number((ed?.permitCost ?? (project as any)?.permitCost) || 0);
+    Number((ed?.permitCost ?? (project as any)?.permitCost) || 0) +
+    Number((ed?.otherDirectCost ?? (project as any)?.otherDirectCost) || 0);
   // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
   // Fallback: derive net profit when not stored (gross profit - overhead) so we don't show 20% from gross margin
   const estimateNetProfit = Number((project as any)?.profit ?? ed?.profit ?? 0);
   const overheadFromEstimate =
-    Number(ed?.equipment ?? (project as any)?.equipment ?? 0) +
+    Number(ed?.equipmentMaintenance ?? (project as any)?.equipmentMaintenance ?? 0) +
     Number(ed?.facilities ?? (project as any)?.facilities ?? 0) +
     Number(ed?.insuranceOverhead ?? (project as any)?.insuranceOverhead ?? 0) +
-    Number(ed?.otherOverhead ?? (project as any)?.otherOverhead ?? 0) +
-    Number(ed?.planCost ?? (project as any)?.planCost ?? 0) +
-    Number(ed?.permitCost ?? (project as any)?.permitCost ?? 0);
+    Number(ed?.otherOverhead ?? (project as any)?.otherOverhead ?? 0);
   const derivedNetProfit =
     costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
       ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
@@ -965,7 +964,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   metricLabel: {
     fontSize: 12,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
     marginBottom: 4,
   },
   metricValue: {
@@ -1041,7 +1040,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusMetricLabel: {
     fontSize: 14,
-    color: darkMode ? '#9CA3AF' : '#475569',
+    color: darkMode ? '#FFFFFF' : '#475569',
     fontWeight: '500',
   },
   projectStatusMetricValue: {
@@ -1074,7 +1073,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusDateLabel: {
     fontSize: 14,
-    color: darkMode ? '#9CA3AF' : '#475569',
+    color: darkMode ? '#FFFFFF' : '#475569',
     fontWeight: '500',
   },
   projectStatusDateValue: {
@@ -1114,7 +1113,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   progressText: {
     fontSize: 12,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
     marginTop: 8,
     fontWeight: '500',
   },
@@ -1136,7 +1135,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   budgetLabel: {
     fontSize: 14,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   budgetValue: {
     fontSize: 14,
@@ -1158,7 +1157,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   bucketName: {
     fontSize: 14,
     fontWeight: '600',
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   bucketAmount: {
     fontSize: 13,
@@ -1188,7 +1187,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineLabel: {
     fontSize: 14,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   timelineValue: {
     fontSize: 14,
@@ -1215,7 +1214,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineLabelText: {
     fontSize: 12,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   // Health
   healthDetails: {
@@ -1229,7 +1228,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   healthLabel: {
     fontSize: 14,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   healthValue: {
     fontSize: 14,
@@ -1244,7 +1243,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   teamLabel: {
     fontSize: 14,
-    color: darkMode ? '#8DA0B8' : '#475569',
+    color: darkMode ? '#F3F4F6' : '#475569',
   },
   teamValue: {
     fontSize: 14,

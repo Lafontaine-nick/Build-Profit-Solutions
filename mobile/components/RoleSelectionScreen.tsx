@@ -11,7 +11,7 @@ const RoleSelectionScreen: React.FC = () => {
   // Define colors based on theme
   const backgroundColor = darkMode ? '#14213D' : '#E0E0E0';
   const textColor = darkMode ? '#E0E0E0' : '#333333';
-  const textSecondaryColor = darkMode ? '#B0B0B0' : '#666666';
+  const textSecondaryColor = darkMode ? '#FFFFFF' : '#666666';
   const borderColor = darkMode ? '#2A3F5F' : '#CCCCCC';
   const cardColor = darkMode ? '#1B2A4A' : '#F5F5F5';
   const accentColor = '#1B365D';

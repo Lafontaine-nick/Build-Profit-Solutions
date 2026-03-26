@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { View, StyleSheet, Alert, Modal, TouchableOpacity, Text, StatusBar, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,9 +8,8 @@ import EnhancedLeadsPage from '@/lib/leads/components/EnhancedLeadsPage';
 import LeadDetailModal from '@/lib/leads/components/LeadDetailModal';
 import { Lead, LeadStage } from '@/lib/leads/types';
 import { unifiedLeadService } from '@/services/unifiedLeadService';
-import { testApiConnection } from '@/services/apiTest';
+import { testApiConnection, resolveMobileApiBaseUrl } from '@/services/apiTest';
 import * as Haptics from 'expo-haptics';
-import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReminderService from '@/services/reminderService';
 import { scoreLead } from '@/lib/leads/ai';
@@ -25,7 +24,6 @@ import { useRouter } from 'expo-router';
 import { Pressable } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { useMemo } from 'react';
 
 // Mock data with different lead sources
 const mockLeads: Lead[] = [
@@ -693,7 +691,26 @@ export default function LeadsScreen() {
   const [showLeadDetailModal, setShowLeadDetailModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
-  
+  /** Ensures we always run one API-backed load after prefs hydrate (mock cache should not skip it). */
+  const apiLeadsBootstrapDoneRef = useRef(false);
+
+  const [leadsViewMeta, setLeadsViewMeta] = useState<{
+    eligibleInLeadsTab: number;
+    visibleInView: number;
+    filtersNarrowed: boolean;
+  } | null>(null);
+  const handleLeadsViewMeta = useCallback(
+    (meta: { eligibleInLeadsTab: number; visibleInView: number; filtersNarrowed: boolean }) => {
+      setLeadsViewMeta(meta);
+    },
+    []
+  );
+
+  const campaignLeadCount = useMemo(
+    () => leads.filter((l) => l.projectId?.startsWith('CAMPAIGN-')).length,
+    [leads]
+  );
+
   // Debug: Track when leads are being set
   useEffect(() => {
     console.log('🔍 Leads state changed:', {
@@ -916,8 +933,8 @@ export default function LeadsScreen() {
         
         // Filter by budget range if contractor has budget preferences
         if (contractorProfile.budget) {
-          const leadBudgetMin = lead.project.budgetMin || 0;
-          const leadBudgetMax = lead.project.budgetMax || leadBudgetMin;
+          const leadBudgetMin = lead.project?.budgetMin || 0;
+          const leadBudgetMax = lead.project?.budgetMax || leadBudgetMin;
           const contractorMin = contractorProfile.budget.min || 0;
           const contractorMax = contractorProfile.budget.max || Infinity;
           
@@ -1016,8 +1033,8 @@ export default function LeadsScreen() {
           
           // Apply budget filtering if configured
           if (contractorProfile.budget) {
-            const leadBudgetMin = lead.project.budgetMin || 0;
-            const leadBudgetMax = lead.project.budgetMax || leadBudgetMin;
+            const leadBudgetMin = lead.project?.budgetMin || 0;
+            const leadBudgetMax = lead.project?.budgetMax || leadBudgetMin;
             const contractorMin = contractorProfile.budget.min || 0;
             const contractorMax = contractorProfile.budget.max || Infinity;
             
@@ -1297,8 +1314,23 @@ export default function LeadsScreen() {
     const loadSavedLeadsData = async () => {
       try {
         const leadsData = await AsyncStorage.getItem('leadsData');
+        let parsedLeads: Lead[] | null = null;
         if (leadsData) {
-          const parsedLeads = JSON.parse(leadsData);
+          try {
+            const parsed = JSON.parse(leadsData);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              parsedLeads = parsed;
+            } else {
+              console.log(
+                '📱 leadsData is empty or not a non-empty array — treating as no cache (showing mocks until API load)'
+              );
+            }
+          } catch (parseErr) {
+            console.warn('📱 Failed to parse leadsData, will use mocks:', parseErr);
+          }
+        }
+
+        if (parsedLeads && parsedLeads.length > 0) {
           console.log(`📱 Loaded ${parsedLeads.length} leads from AsyncStorage`);
           
           // Log task and note counts for verification
@@ -1348,11 +1380,16 @@ export default function LeadsScreen() {
             });
           }
           
-          // Apply personalization and set leads
-          const personalizedLeads = getPersonalizedLeads(parsedLeads);
-          setLeads(personalizedLeads);
+          // Apply personalization and set leads (use rescored list for consistent scores)
+          const personalizedLeads = getPersonalizedLeads(rescoredSavedLeads);
+          if (personalizedLeads.length === 0 && rescoredSavedLeads.length > 0) {
+            console.warn('⚠️ Saved leads all filtered by preferences; showing rescored list without strict filter pass');
+            setLeads(rescoredSavedLeads);
+          } else {
+            setLeads(personalizedLeads);
+          }
         } else {
-          console.log('📱 No saved leads data found, using mock data with personalized scoring');
+          console.log('📱 No usable saved leads data found, using mock data with personalized scoring');
           // Load mock leads with personalized scoring
           if (contractorProfile) {
             let mockLeadsWithScoring = mockLeads.map(lead => {
@@ -1391,7 +1428,18 @@ export default function LeadsScreen() {
               });
             }
             
-            const sortedMockLeads = mockLeadsWithScoring.sort((a, b) => b.aiScore - a.aiScore);
+            let sortedMockLeads = mockLeadsWithScoring.sort((a, b) => b.aiScore - a.aiScore);
+            if (sortedMockLeads.length === 0) {
+              console.warn(
+                '⚠️ Match prefs filtered out all demo leads; showing full demo list until API load completes — open Match Prefs to widen trades.'
+              );
+              sortedMockLeads = mockLeads
+                .map((lead) => ({
+                  ...lead,
+                  aiScore: contractorProfile ? scoreLead(lead, undefined, { ...contractorProfile, specificTrades: contractorProfile.specificTrades || [] }) : lead.aiScore || 0,
+                }))
+                .sort((a, b) => b.aiScore - a.aiScore);
+            }
             setLeads(sortedMockLeads);
           } else {
             // Load mock leads without personalized scoring as fallback
@@ -1426,9 +1474,20 @@ export default function LeadsScreen() {
         location: contractorProfile.location,
         preferredTimelines: contractorProfile.preferredTimelines,
       });
-      const personalizedLeads = getPersonalizedLeads(leads);
-      console.log('📊 Scores after personalization:', personalizedLeads.slice(0, 5).map(l => `${l.title}: ${l.aiScore} (trade: ${l.trade})`));
-      setLeads(personalizedLeads);
+      setLeads((prev) => {
+        const personalizedLeads = getPersonalizedLeads(prev);
+        if (personalizedLeads.length === 0 && prev.length > 0) {
+          console.warn(
+            '⚠️ Re-apply personalization would hide all leads (strict filters). Keeping previous list — adjust Match Prefs or clear filters.'
+          );
+          return prev;
+        }
+        console.log(
+          '📊 Scores after personalization:',
+          personalizedLeads.slice(0, 5).map((l) => `${l.title}: ${l.aiScore} (trade: ${l.trade})`)
+        );
+        return personalizedLeads;
+      });
     }
   }, [
     contractorProfile, 
@@ -1459,25 +1518,31 @@ export default function LeadsScreen() {
     }
   }, [deletedLeadIds]);
 
-  // Load leads from API - only after deletedLeadIds are loaded AND contractor profile is loaded
+  // Load leads from API once after deletedLeadIds + contractor profile are ready (do not skip because mock cache filled the list).
   useEffect(() => {
-    console.log('🔄 useEffect for loadLeads triggered - deletedLeadIdsLoaded:', deletedLeadIdsLoaded, 'leads.length:', leads.length, 'contractorProfile:', !!contractorProfile);
-    // Only load leads on initial mount, not when deletedLeadIds changes
-    if (deletedLeadIdsLoaded && leads.length === 0 && contractorProfile) {
-      console.log('🔄 Initial load of leads with contractor profile...');
+    console.log(
+      '🔄 useEffect for loadLeads triggered - deletedLeadIdsLoaded:',
+      deletedLeadIdsLoaded,
+      'bootstrapDone:',
+      apiLeadsBootstrapDoneRef.current,
+      'contractorProfile:',
+      !!contractorProfile
+    );
+    if (!deletedLeadIdsLoaded || !contractorProfile || apiLeadsBootstrapDoneRef.current) {
+      console.log('⏳ Waiting for API bootstrap prerequisites or already bootstrapped');
+      return;
+    }
+    apiLeadsBootstrapDoneRef.current = true;
+    console.log('🔄 Initial API load of leads (unified + marketplace + invites)...');
     const timer = setTimeout(() => {
       loadLeads();
     }, 100);
-    
     return () => clearTimeout(timer);
-    } else {
-      console.log('⏳ Waiting for deletedLeadIdsLoaded:', deletedLeadIdsLoaded, 'leads.length:', leads.length, 'contractorProfile:', !!contractorProfile);
-    }
   }, [deletedLeadIdsLoaded, contractorProfile]);
 
-  const loadLeads = async () => {
+  const loadLeads = async (opts?: { force?: boolean }) => {
     // Prevent multiple simultaneous loads
-    if (isLoadingLeads) {
+    if (isLoadingLeads && !opts?.force) {
       console.log('⏳ Already loading leads, skipping...');
       return;
     }
@@ -1501,7 +1566,7 @@ export default function LeadsScreen() {
       
       try {
         // Disable caching to always get fresh data
-        const apiUrl = `${Constants.expoConfig?.extra?.apiBaseUrl}/project-leads/my-requests/${userId}`;
+        const apiUrl = `${resolveMobileApiBaseUrl()}/project-leads/my-requests/${userId}`;
         console.log(`🔍 Fetching user requests from: ${apiUrl}`);
         const requestsResponse = await fetch(apiUrl, {
           headers: {
@@ -1654,7 +1719,7 @@ export default function LeadsScreen() {
       // Fetch bid invitations (Invites)
       let inviteLeads: Lead[] = [];
       try {
-        const invitesResponse = await fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/bid-invitations/contractor/${userId}`);
+        const invitesResponse = await fetch(`${resolveMobileApiBaseUrl()}/bid-invitations/contractor/${userId}`);
         if (invitesResponse.ok) {
           const invitesData = await invitesResponse.json();
           console.log(`✅ Fetched ${invitesData.invitations?.length || 0} bid invitations`);
@@ -1704,7 +1769,7 @@ export default function LeadsScreen() {
       // Fetch marketplace leads
       let marketplaceLeads: Lead[] = [];
       try {
-        const marketplaceResponse = await fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/marketplace-leads`);
+        const marketplaceResponse = await fetch(`${resolveMobileApiBaseUrl()}/marketplace-leads`);
         if (marketplaceResponse.ok) {
           const marketplaceData = await marketplaceResponse.json();
           console.log(`✅ Fetched ${marketplaceData.leads?.length || 0} marketplace leads`);
@@ -2107,9 +2172,15 @@ export default function LeadsScreen() {
         }
       }
       
-      // ROOT CAUSE FIX: If still no leads, use mock leads as last resort (only if no API leads)
-      if (visibleLeads.length === 0 && !hasApiLeads) {
-        console.warn('⚠️ CRITICAL: No leads found after all sources! Using mock leads as emergency fallback.');
+      // ROOT CAUSE FIX: If still no visible leads, use mock leads as last resort (API empty, or all IDs deleted/filtered)
+      if (visibleLeads.length === 0) {
+        if (hasApiLeads) {
+          console.warn(
+            '⚠️ API returned leads but none are visible (likely all marked deleted). Using mock leads as emergency fallback.'
+          );
+        } else {
+          console.warn('⚠️ CRITICAL: No leads found after all sources! Using mock leads as emergency fallback.');
+        }
         const mockVisible = mockLeads.filter(lead => !deletedLeadIds.has(lead.id));
         if (mockVisible.length > 0) {
           console.warn(`⚠️ Emergency fallback: Using ${mockVisible.length} mock leads`);
@@ -2232,7 +2303,12 @@ export default function LeadsScreen() {
           
           console.log(`✅ Merged leads with saved tasks/notes - applying personalization`);
           const personalizedLeads = getPersonalizedLeads(mergedLeads);
-          setLeads(personalizedLeads);
+          if (personalizedLeads.length === 0 && mergedLeads.length > 0) {
+            console.error('❌ CRITICAL: All leads filtered out after merge (savedData path). Showing merge list without strict personalization.');
+            setLeads(mergedLeads);
+          } else {
+            setLeads(personalizedLeads);
+          }
         } else {
           console.log(`✅ No saved data to merge`);
           // Re-score leads with contractor profile if available
@@ -2281,12 +2357,12 @@ export default function LeadsScreen() {
             });
             console.log(`🔍 Filtered on refresh: ${visibleLeads.length} → ${rescoredLeads.length} leads`);
           }
-          
-          const personalizedLeads = getPersonalizedLeads(visibleLeads);
-          console.log(`📊 After personalization: ${personalizedLeads.length} leads (input: ${visibleLeads.length})`);
-          if (personalizedLeads.length === 0 && visibleLeads.length > 0) {
-            console.error('❌ CRITICAL: All leads were filtered out by personalization! Showing unfiltered leads.');
-            setLeads(visibleLeads); // Emergency fallback - show unfiltered leads
+
+          const personalizedLeads = getPersonalizedLeads(rescoredLeads);
+          console.log(`📊 After personalization: ${personalizedLeads.length} leads (input: ${rescoredLeads.length})`);
+          if (personalizedLeads.length === 0 && rescoredLeads.length > 0) {
+            console.error('❌ CRITICAL: All leads were filtered out by personalization! Showing rescored leads without extra filter pass.');
+            setLeads(rescoredLeads);
           } else {
             setLeads(personalizedLeads);
           }
@@ -2669,108 +2745,14 @@ export default function LeadsScreen() {
 
 
   const handleRefreshLeads = async () => {
-    console.log('🔄 Refreshing leads...');
+    console.log('🔄 Refreshing leads (same path as initial load: unified + marketplace + invites + prefs)...');
     try {
-      // Clear stale cached leads from AsyncStorage first
-      try {
-        const savedData = await AsyncStorage.getItem('leadsData');
-        if (savedData) {
-          const savedLeads = JSON.parse(savedData);
-          console.log(`🧹 Found ${savedLeads.length} cached leads, will filter stale ones after API fetch`);
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not check cached leads:', err);
-      }
-      
-      // Re-fetch leads from API
-      const testLeads = await unifiedLeadService.getLeads();
-      console.log(`✅ Fetched ${testLeads.length} leads from API`);
-      
-      // Get actual user ID from authentication
-      const authState = clerkAuthService.getAuthState();
-      const userId = authState.user?.id || authState.user?.email || 'unknown';
-      let userRequests: Lead[] = [];
-      
-      try {
-        const requestsResponse = await fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/project-leads/my-requests/${userId}`);
-        if (requestsResponse.ok) {
-          const requestsData = await requestsResponse.json();
-          userRequests = (requestsData.requests || []).map((req: any) => ({
-            id: req.id,
-            title: req.title,
-            trade: req.trade,
-            projectId: req.projectId,
-            source: 'PROJECT_BASED',
-            contact: {
-              name: 'Your Request',
-              company: 'Self',
-              email: 'your-email@example.example.com',
-              phone: '555-000-0000',
-            },
-            location: {
-              city: req.city,
-              state: req.state,
-              zip: '00000',
-              lat: 40.7608,
-              lng: -111.8910,
-            },
-            project: {
-              type: 'other',
-              budgetMin: req.budgetMin,
-              budgetMax: req.budgetMax,
-              timeline: req.timeline,
-            },
-            stage: req.status === 'pending' ? 'new' : req.status === 'matched' ? 'contacted' : req.status,
-            aiScore: 85,
-            verified: true,
-            description: req.description,
-            verification: {
-              emailValid: true,
-              phoneValid: true,
-            },
-            createdBy: userId,
-            isOwnRequest: true,
-            matchedContractors: req.matchedContractors,
-          }));
-        }
-      } catch (err) {
-        console.log('⚠️ Could not fetch user requests:', err);
-      }
-      
-      const allLeads = [...testLeads, ...userRequests];
-      const uniqueLeads = allLeads.filter((lead, index, self) =>
-        index === self.findIndex((l) => l.id === lead.id)
-      );
-      
-      // Clear stale cached leads that don't exist in API response
-      try {
-        const savedData = await AsyncStorage.getItem('leadsData');
-        if (savedData) {
-          const savedLeads = JSON.parse(savedData);
-          const apiLeadIds = new Set(uniqueLeads.map(l => l.id));
-          const validSavedLeads = savedLeads.filter((l: Lead) => apiLeadIds.has(l.id));
-          
-          if (validSavedLeads.length < savedLeads.length) {
-            const removedCount = savedLeads.length - validSavedLeads.length;
-            console.log(`🧹 Removed ${removedCount} stale cached leads during refresh`);
-            await AsyncStorage.setItem('leadsData', JSON.stringify(validSavedLeads));
-          }
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not update cached leads:', err);
-      }
-      
-      // Clear deleted leads set when manually refreshing
       setDeletedLeadIds(new Set());
       await AsyncStorage.removeItem('deletedLeadIds');
-      
-      // Use the same personalized scoring and filtering logic as the main load function
-      // This ensures consistency between initial load and refresh
-      const personalizedLeads = getPersonalizedLeads(uniqueLeads);
-      
-      setLeads(personalizedLeads);
+      setLastLoadTime(0);
+      await loadLeads({ force: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      console.log('✅ Leads refreshed successfully with personalized scoring and filtering');
+      console.log('✅ Leads refresh complete');
     } catch (error) {
       console.error('❌ Error refreshing leads:', error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -3058,16 +3040,34 @@ export default function LeadsScreen() {
         <StatusBar barStyle="light-content" translucent={false} />
         
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={styles.mainScroll}
+          contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
         >
           {/* Header */}
           <View style={[styles.headerRow, styles.wideContainer, { paddingTop: Math.max(insets.top, 0) + 20 }]}>
-            <View>
+            <View style={styles.headerTextBlock}>
               <Text style={styles.screenTitle}>Leads</Text>
               <Text style={styles.screenSubtitle}>
                 {leads.length} total · Manage your pipeline
               </Text>
+              {leadsViewMeta?.filtersNarrowed && leads.length > 0 ? (
+                <Text style={styles.screenHint}>
+                  Showing {leadsViewMeta.visibleInView} of {leadsViewMeta.eligibleInLeadsTab} here — search or list filters are hiding the rest. Use Clear filters in the list.
+                </Text>
+              ) : null}
+              {campaignLeadCount > 0 ? (
+                <Text style={styles.screenHint}>
+                  {campaignLeadCount} campaign {campaignLeadCount === 1 ? 'request' : 'requests'} — open the Campaigns tab to manage them.
+                </Text>
+              ) : null}
+              {prefs.filterByTrade && leads.length > 0 ? (
+                <Text style={styles.screenHint}>
+                  Match Prefs on: trades and service areas still apply before you see this list (tap Match Prefs to widen).
+                </Text>
+              ) : null}
             </View>
             
             {/* Profile with glow */}
@@ -3086,7 +3086,8 @@ export default function LeadsScreen() {
           
           {/* Main Content */}
           <View style={styles.contentCard}>
-          <EnhancedLeadsPage 
+          <EnhancedLeadsPage
+        onLeadsViewMeta={handleLeadsViewMeta}
         leads={(() => {
           // NEVER filter out leads completely - always show all leads
           // Use Zustand scoring for AI scores and sorting, but don't use it to hide leads
@@ -3133,7 +3134,7 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/project-leads/${leadId}`, {
+              fetch(`${resolveMobileApiBaseUrl()}/project-leads/${leadId}`, {
                 method: 'DELETE',
               }).catch(err => console.warn('Backend deletion failed:', err));
             }
@@ -3164,7 +3165,7 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/unified-leads/leads/${leadId}/archive`, {
+              fetch(`${resolveMobileApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ archived: true }),
@@ -3198,7 +3199,7 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/unified-leads/leads/${leadId}/archive`, {
+              fetch(`${resolveMobileApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ archived: false }),
@@ -3309,7 +3310,7 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${Constants.expoConfig?.extra?.apiBaseUrl}/project-leads/${leadId}`, {
+              fetch(`${resolveMobileApiBaseUrl()}/project-leads/${leadId}`, {
                 method: 'DELETE',
               }).catch(err => console.warn('Backend deletion failed:', err));
             }
@@ -3333,6 +3334,17 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  mainScroll: {
+    flex: 1,
+  },
+  scrollContentGrow: {
+    flexGrow: 1,
+  },
+  headerTextBlock: {
+    flex: 1,
+    marginRight: 12,
+    minWidth: 0,
   },
   headerRow: {
     flexDirection: 'row',
@@ -3380,6 +3392,13 @@ const getStyles = (Colors: any) => StyleSheet.create({
     color: Colors.sub,
     marginTop: 4,
   },
+  screenHint: {
+    fontSize: 12,
+    color: Colors.sub,
+    marginTop: 6,
+    lineHeight: 17,
+    opacity: 0.92,
+  },
   scrollContent: {
     paddingBottom: 40,
     paddingHorizontal: 20, // Matches estimate generator ScrollView padding
@@ -3387,7 +3406,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   contentCard: {
     marginBottom: 16,
     borderRadius: 20,
-    backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
+    backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
     overflow: 'visible', // Changed from 'hidden' to allow gradient borders to extend
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

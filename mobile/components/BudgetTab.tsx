@@ -549,7 +549,8 @@ export default function BudgetTab({
       Number(bid?.insuranceOverhead || 0) +
       Number(bid?.otherOverhead || 0) +
       Number(bid?.planCost || 0) +
-      Number(bid?.permitCost || 0);
+      Number(bid?.permitCost || 0) +
+      Number(bid?.otherDirectCost || 0);
     if (materials + labor + overhead > 0) return materials + labor + overhead;
     // Fallback: sum Labor + Materials + Overhead buckets
     const buckets = (projectData as any)?.buckets || (projectFromList as any)?.buckets || [];
@@ -576,7 +577,8 @@ export default function BudgetTab({
     Number((ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead) || 0) +
     Number((ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead) || 0) +
     Number((ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost) || 0) +
-    Number((ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost) || 0);
+    Number((ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost) || 0) +
+    Number((ed?.otherDirectCost ?? (projectFromList as any)?.otherDirectCost ?? (projectData as any)?.otherDirectCost) || 0);
   // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
   // Net profit = gross profit - overhead (estimate subtracts overhead from markup to get net)
   const estimateNetProfit = Number((projectFromList as any)?.profit ?? (projectData as any)?.profit ?? ed?.profit ?? 0);
@@ -586,7 +588,8 @@ export default function BudgetTab({
     Number(ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead ?? 0) +
     Number(ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead ?? 0) +
     Number(ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost ?? 0) +
-    Number(ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost ?? 0);
+    Number(ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost ?? 0) +
+    Number(ed?.otherDirectCost ?? (projectFromList as any)?.otherDirectCost ?? (projectData as any)?.otherDirectCost ?? 0);
   const derivedNetProfit =
     costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
       ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)

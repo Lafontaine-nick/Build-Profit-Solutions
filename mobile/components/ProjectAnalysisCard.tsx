@@ -24,7 +24,7 @@ export default function ProjectAnalysisCard({
 }: ProjectAnalysisCardProps) {
   const Colors = {
     text: darkMode ? '#F9FAFB' : '#1e293b',
-    subtext: darkMode ? '#8DA0B8' : '#64748b',
+    subtext: darkMode ? '#F3F4F6' : '#64748b',
     surface: darkMode ? '#1a1a1a' : '#f8fafc',
     border: darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.1)',
     primary: '#22c55e',

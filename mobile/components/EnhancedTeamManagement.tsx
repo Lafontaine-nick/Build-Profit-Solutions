@@ -55,7 +55,7 @@ export default function EnhancedTeamManagement({
         background: '#1a1a1a',
         card: '#2d2d2d',
         text: '#fff',
-        subtext: '#ccc',
+        subtext: '#f3f4f6',
         accent: '#43cea2',
         border: '#404040',
         success: '#4CAF50',
