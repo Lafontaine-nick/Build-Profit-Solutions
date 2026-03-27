@@ -327,6 +327,8 @@ export default function ProfileScreen() {
             avatar: profile.avatar || prev.avatar,
             phone: profile.phone || prev.phone,
             email: profile.email || prev.email,
+            website: profile.website || prev.website,
+            role: profile.role || prev.role,
             location: profile.location || prev.location,
             insurance: profile.insurance || prev.insurance,
             licenses: profile.licenses || prev.licenses,
@@ -341,6 +343,8 @@ export default function ProfileScreen() {
             avatar: user.avatar,
             phone: user.phone,
             email: user.email,
+            website: user.website,
+            role: user.role,
             location: user.location,
           };
           await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(initialProfile));
@@ -470,6 +474,8 @@ export default function ProfileScreen() {
             avatar: user.avatar,
             phone: user.phone,
             email: user.email,
+            website: user.website,
+            role: user.role,
             location: user.location,
             insurance: user.insurance,
             licenses: user.licenses,
@@ -487,7 +493,7 @@ export default function ProfileScreen() {
       const timeoutId = setTimeout(saveAllProfileData, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [user.name, user.company, user.avatar, user.phone, user.email, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio]);
+  }, [user.name, user.company, user.avatar, user.phone, user.email, user.website, user.role, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio]);
 
   const handleSaveProfile = useCallback(async () => {
     try {
@@ -525,6 +531,8 @@ export default function ProfileScreen() {
           company: editForm.company,
           phone: editForm.phone,
           email: editForm.email,
+          website: user.website,
+          role: editForm.role,
           location,
           avatar: user.avatar,
           insurance: user.insurance,

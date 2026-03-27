@@ -44,9 +44,9 @@ import AIAssistantModal from '../../components/AIAssistantModal';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import CoachFlag from '../../components/CoachFlag';
 import BottomToast from '../../components/BottomToast';
-// New proposal system - this is the ONLY system used
-import { buildProposalHtml } from '../../lib/proposals/buildProposalHtml';
-import { exportProposalPdf } from '../../lib/proposals/exportPdf';
+// Contract PDF export
+import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
+import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
 import { useProjectList } from '../../contexts/ProjectListContext';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
@@ -58,6 +58,7 @@ import api from '../../services/BackendAPI';
 import { useAuth } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
+import { getTabScrollContentBottomInset } from '../../constants/ScreenLayout';
 
 // Colors will be defined inside the component using theme
 
@@ -81,6 +82,17 @@ const PROJECT_TYPES = [
   { label: "Other", value: "other" },
 ];
 
+const CONTRACT_TEMPLATE_STATES = [
+  { label: 'Nevada', value: 'nevada' },
+  { label: 'Utah', value: 'utah' },
+  { label: 'Other / Generic Draft', value: 'other' },
+];
+
+const CONTRACT_PDF_MODES = [
+  { label: 'Client PDF', value: 'client' },
+  { label: 'Detailed PDF', value: 'detailed' },
+];
+
 const PROJECT_CATEGORY_SLUGS = {
   kitchen: 'kitchen-remodel',
   bathroom: 'bathroom-remodel',
@@ -89,6 +101,18 @@ const PROJECT_CATEGORY_SLUGS = {
   new_build: 'new-build',
   landscaping: 'landscaping',
   other: 'other',
+};
+
+const normalizeContractTemplateState = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'nv' || normalized === 'nevada') return 'nevada';
+  if (normalized === 'ut' || normalized === 'utah') return 'utah';
+  return 'other';
+};
+
+const getContractTypeForProject = (projectType) => {
+  const normalized = String(projectType || '').trim().toLowerCase();
+  return normalized === 'new_build' ? 'construction' : 'home-improvement';
 };
 
 const SECTIONS = {
@@ -355,7 +379,7 @@ const STEPS = [
   { id: 5, title: 'Direct costs, overhead & markup', subtitle: 'Direct costs, overhead, and markup rate' },
   { id: 6, title: 'Project Analysis', subtitle: 'Project outcome scenarios' },
   { id: 7, title: 'Payment / Work Schedule', subtitle: 'Payment terms and work scheduling' },
-  { id: 8, title: 'Final Bid & Contract', subtitle: 'Health score, contract generation & export' },
+  { id: 8, title: 'Final Proposal & Agreement', subtitle: 'Generate a polished client-facing PDF from this estimate' },
 ];
 
 // ============ MODAL COMPONENTS ============
@@ -740,7 +764,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
   const scrollViewContentStyle = useMemo(() => ({
     paddingHorizontal: 20,
     paddingTop: headerTop + 110,
-    paddingBottom: insets.bottom + 100,
+    paddingBottom: getTabScrollContentBottomInset(insets.bottom),
   }), [headerTop, insets.bottom]);
   
   useEffect(() => {
@@ -1106,7 +1130,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const scrollViewContentStyle = useMemo(() => ({
     paddingHorizontal: 20,
     paddingTop: headerTop + 110,
-    paddingBottom: insets.bottom + 100,
+    paddingBottom: getTabScrollContentBottomInset(insets.bottom),
   }), [headerTop, insets.bottom]);
   
   useEffect(() => {
@@ -3443,76 +3467,6 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
 });
 
-// Final Step Guidance Card Component with pulse animation
-const FinalStepGuidanceCard = ({ onNavigateToSummary, Colors }) => {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.05,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, []);
-  
-  return (
-    <View style={{
-      marginTop: 20,
-      padding: 16,
-      borderRadius: 16,
-      backgroundColor: 'rgba(45, 255, 196, 0.08)',
-      borderWidth: 1,
-      borderColor: 'rgba(45, 255, 196, 0.25)',
-    }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
-        <MaterialIcons name="check-circle" size={20} color="#2DFFC4" />
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>
-            Ready to submit your bid!
-          </Text>
-          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
-            Go to Summary to review your complete estimate and submit it to your client.
-          </Text>
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity
-              onPress={onNavigateToSummary}
-              activeOpacity={0.8}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 10,
-                paddingHorizontal: 16,
-                borderRadius: 10,
-                backgroundColor: 'rgba(45, 255, 196, 0.15)',
-                borderWidth: 1,
-                borderColor: 'rgba(45, 255, 196, 0.4)',
-              }}
-            >
-              <MaterialIcons name="summarize" size={16} color="#2DFFC4" style={{ marginRight: 6 }} />
-              <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '700' }}>
-                Go to Summary
-              </Text>
-              <Ionicons name="arrow-forward" size={16} color="#2DFFC4" style={{ marginLeft: 6 }} />
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-      </View>
-    </View>
-  );
-};
-
 export default function EstimateGeneratorScreen() {
   // Require authentication to access this screen
   useRequireAuth();
@@ -4591,7 +4545,18 @@ export default function EstimateGeneratorScreen() {
     name: 'John Smith',
     company: 'Smith Construction Co.',
     avatar: null,
+    role: 'General Contractor',
+    phone: '',
+    email: '',
+    website: '',
+    location: '',
+    insurance: {},
+    licenses: [],
+    logoUrl: '',
+    profileImageUrl: '',
   });
+  const [contractPdfMode, setContractPdfMode] = useState('client');
+  const [contractTemplateState, setContractTemplateState] = useState('other');
   
   // Modal states
   const [materialModal, setMaterialModal] = useState({ visible: false, item: null });
@@ -4619,6 +4584,8 @@ export default function EstimateGeneratorScreen() {
   // For first-time users, collapse health score by default
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
   const [paymentTimelineExpanded, setPaymentTimelineExpanded] = useState(false);
+  const [finalStepBrandingExpanded, setFinalStepBrandingExpanded] = useState(false);
+  const [finalStepLegalExpanded, setFinalStepLegalExpanded] = useState(false);
   
   // Enhanced materials state
   const [activeScope, setActiveScope] = useState('kitchen');
@@ -7692,9 +7659,9 @@ export default function EstimateGeneratorScreen() {
 
   // Build Contract Document from Bid Data
   const buildDocFromBid = (bidData, calcData) => {
-    const scopeBullets = bidData.scopeDescription 
+    const scopeBullets = bidData.scopeDescription
       ? bidData.scopeDescription.split('\n').filter(line => line.trim())
-      : ['Complete renovation as specified'];
+      : [];
 
     // Build detailed line items from materials cart
     const materialLineItems = materialsCart && materialsCart.length > 0
@@ -7726,11 +7693,37 @@ export default function EstimateGeneratorScreen() {
       Number(bidData.otherOverhead || 0);
     const totalOverhead = companyOverheadOnly + permitCosts + equipmentRental + otherDirectCost;
 
+    const baseSubtotal = (calcData?.materials || 0) + (calcData?.labor || 0) + permitCosts + equipmentRental + otherDirectCost;
+    const grandTotal = Math.round(baseSubtotal + (baseSubtotal * ((bidData.markupPct || 0) / 100)));
+    const resolvedStartDate = bidData.startDate || bidData.projectStartDate || undefined;
+    const resolvedEndDate =
+      bidData.endDate ||
+      bidData.projectEndDate ||
+      (resolvedStartDate
+        ? new Date(
+            new Date(resolvedStartDate + 'T00:00:00').getTime() +
+              (bidData.projectDuration || 30) * 24 * 60 * 60 * 1000
+          )
+            .toISOString()
+            .split('T')[0]
+        : undefined);
+    const formattedSiteAddress = [
+      String(bidData.customerAddress || '').trim(),
+      [String(bidData.customerCity || '').trim(), String(bidData.customerState || '').trim()]
+        .filter(Boolean)
+        .join(', '),
+      String(bidData.customerZip || '').trim(),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+,/g, ',')
+      .trim() || 'N/A';
+
     return {
       summary: {
         contractId: bidData.id || `BPS-${Date.now()}`,
         projectName: bidData.title || 'Untitled Project',
-        siteAddress: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || 'N/A',
+        siteAddress: formattedSiteAddress,
         unitPrice: bidData.sqft ? (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
@@ -7738,51 +7731,49 @@ export default function EstimateGeneratorScreen() {
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup) / bidData.sqft;
         })() : undefined,
-        totalBid: (() => {
-          const materials = calcData?.materials || 0;
-          const labor = calcData?.labor || 0;
-          const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-          const markup = subtotal * ((bidData.markupPct || 0) / 100);
-          return Math.round(subtotal + markup);
-        })(),
+        totalBid: grandTotal,
         durationDays: bidData.projectDuration || 30,
-        estimatedStartDate: bidData.projectStartDate || undefined,
-        estimatedEndDate: bidData.projectEndDate || (bidData.projectStartDate ? 
-          new Date(new Date(bidData.projectStartDate).getTime() + (bidData.projectDuration || 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] 
-          : undefined),
-        startDate: bidData.projectStartDate ? new Date(bidData.projectStartDate + 'T00:00:00').toLocaleDateString() : 'TBD',
+        startDate: resolvedStartDate || 'TBD',
+        endDate: resolvedEndDate || 'TBD',
         expiresDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(),
         retainagePct: 10,
         version: bidData.revision ? `Rev ${bidData.revision}` : 'Final',
       },
       contractor: {
         contactName: contractorProfile.name || undefined,
-        legalName: contractorProfile.company || 'AMERICAN HOME RESTORATION',
-        licenseNo: bidData.licenseNumber || undefined,
-        phone: undefined,
-        email: undefined,
+        legalName: contractorProfile.company || contractorProfile.name || undefined,
+        licenseNo:
+          bidData.licenseNumber ||
+          contractorProfile.licenseNumber ||
+          contractorProfile.licenseNo ||
+          (Array.isArray(contractorProfile.licenses)
+            ? contractorProfile.licenses.find(value => String(value || '').trim())
+            : undefined),
+        phone: contractorProfile.phone || undefined,
+        email: contractorProfile.email || undefined,
         insurer: bidData.insuranceCoverage || undefined,
         glLimit: undefined,
         wcActive: bidData.insurance || false,
-        logoUrl: contractorProfile.avatar || undefined,
+        logoUrl: contractorProfile.avatar || contractorProfile.logoUrl || undefined,
       },
       owner: {
-        legalName: bidData.customerName || 'N/A',
+        legalName: bidData.customerName || 'Client',
         phone: bidData.customerPhone || undefined,
         email: bidData.customerEmail || undefined,
-        address: `${bidData.customerAddress || ''} ${bidData.customerCity || ''}, ${bidData.customerState || ''} ${bidData.customerZip || ''}`.trim() || undefined,
+        address: formattedSiteAddress !== 'N/A' ? formattedSiteAddress : undefined,
       },
       scope: {
         bullets: scopeBullets,
+        description: bidData.scopeDescription || '',
         inclusions: [],
         exclusions: [],
         ownerResponsibilities: [],
         materialLineItems: materialLineItems,
         laborLineItems: (bidData.laborLineItems || []).map(item => ({
-          description: item.description || 'Labor',
+          description: item.name || item.description || item.category || 'Labor',
           labor: item.total || 0,
           materials: 0,
-          category: 'Labor'
+          category: item.section || item.category || 'Labor'
         })),
       },
       allowances: [],
@@ -7802,9 +7793,9 @@ export default function EstimateGeneratorScreen() {
         : bidData.paymentSchedule === 'weekly' && bidData.weeklyPayments
         ? bidData.weeklyPayments.map((w, i) => ({
             id: w.id,
-            name: `Week ${i + 1} Payment`,
-            percentage: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + permitCosts + equipmentRental + otherDirectCost)) * 100) : 0,
-            percent: calcData?.materials && calcData?.labor ? Math.round((w.amount / ((calcData.materials || 0) + (calcData.labor || 0) + permitCosts + equipmentRental + otherDirectCost)) * 100) : 0,
+            name: w.description || (w.weekNumber === 0 ? 'Deposit' : `Week ${w.weekNumber || i + 1} Payment`),
+            percentage: grandTotal > 0 ? Number((((w.amount || 0) / grandTotal) * 100).toFixed(1)) : 0,
+            percent: grandTotal > 0 ? Number((((w.amount || 0) / grandTotal) * 100).toFixed(1)) : 0,
             paymentAmount: w.amount || 0,
             amount: w.amount || 0,
             description: w.description || undefined,
@@ -7821,7 +7812,7 @@ export default function EstimateGeneratorScreen() {
         convFeePct: 5,
         escalationThresholdPct: 8,
         warrantyYears: bidData.warrantyYears || 1,
-        stateLaw: bidData.customerState || 'Nevada',
+        stateLaw: bidData.projectState || bidData.customerState || '',
         workHours: bidData.workSchedule === 'weekdays' ? 'Mon–Fri, 8:00a–5:00p' : 'Flexible',
         permitsBy: 'Contractor',
         permitFeesPaidBy: 'Owner',
@@ -7833,51 +7824,80 @@ export default function EstimateGeneratorScreen() {
     };
   };
 
+  const resolveContractBrandAsset = async (profile) => {
+    const assetPath = resolveBrandImageUrl(profile);
+    if (!assetPath || !String(assetPath).startsWith('file://')) {
+      return assetPath || null;
+    }
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(assetPath, {
+        encoding: 'base64',
+      });
+      const extension = assetPath.split('.').pop().toLowerCase();
+      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+      return `data:${mimeType};base64,${base64}`;
+    } catch (error) {
+      console.error('Failed to convert contract brand image:', error);
+      return null;
+    }
+  };
+
   // Generate and Share Contract - Goes straight to PDF sharing
-  const generateContract = async () => {
+  const generateContract = async (requestedPdfMode = contractPdfMode) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
-      console.log('🔨 Building and sharing contract from bid:', bid.title || 'Untitled');
-      console.log('👤 Using contractor profile:', contractorProfile);
-      
-      // Convert logo to base64 if it exists
-      let logoBase64 = null;
-      if (contractorProfile.avatar && contractorProfile.avatar.startsWith('file://')) {
-        try {
-          console.log('🖼️ Converting logo to base64...');
-          const base64 = await FileSystem.readAsStringAsync(contractorProfile.avatar, {
-            encoding: 'base64',
-          });
-          // Determine image type from file extension
-          const extension = contractorProfile.avatar.split('.').pop().toLowerCase();
-          const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-          logoBase64 = `data:${mimeType};base64,${base64}`;
-          console.log('✅ Logo converted to base64 data URI');
-        } catch (error) {
-          console.error('Failed to convert logo:', error);
-        }
-      }
-      
-      // Build contract document from bid data with real-time calculations
+
+      const contractType = getContractTypeForProject(bid.projectType);
+      const branding = resolveContractBranding(contractorProfile);
       const doc = buildDocFromBid(bid, calc);
-      // Override logo with base64 version
-      if (logoBase64) {
-        doc.contractor.logoUrl = logoBase64;
+      const contractOptions = {
+        branding,
+        pdfMode: requestedPdfMode,
+        state: contractTemplateState,
+        projectType: bid.projectType,
+        contractType,
+      };
+      const preflightWarnings = validateContractPreflight(doc, contractOptions);
+
+      const runExport = async () => {
+        const brandAsset = await resolveContractBrandAsset(contractorProfile);
+        if (brandAsset) {
+          doc.contractor.logoUrl = brandAsset;
+          contractOptions.branding = { ...branding, logoUrl: brandAsset };
+        }
+
+        const filenameMode = requestedPdfMode === 'detailed' ? 'detailed' : 'client';
+        await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-${filenameMode}-${bid.id}`);
+        console.log('✅ Contract PDF generated and shared successfully');
+      };
+
+      if (preflightWarnings.length > 0) {
+        const warningText = preflightWarnings
+          .slice(0, 5)
+          .map((warning) => `• ${warning.message}`)
+          .join('\n');
+
+        Alert.alert(
+          contractTemplateState === 'other' ? 'Generate Draft Agreement?' : 'Review Before Generating',
+          `${warningText}\n\nYou can still generate the PDF, but review it before sending.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: requestedPdfMode === 'detailed' ? 'Generate Detailed PDF' : 'Generate Client PDF',
+              onPress: () => {
+                runExport().catch((error) => {
+                  console.error('❌ Error generating contract:', error);
+                  Alert.alert('❌ Error', `Failed to generate contract: ${error.message}`, [{ text: 'OK' }]);
+                });
+              },
+            },
+          ]
+        );
+        return;
       }
-      console.log('📄 Built contract doc:', {
-        contractorName: doc.contractor.legalName,
-        contractorLogo: doc.contractor.logoUrl ? 'base64 data URI' : 'none'
-      });
-      
-      // Generate HTML and immediately export as PDF
-      const html = buildProposalHtml(doc);
-      console.log('🌐 Generated proposal HTML (' + html.length + ' chars)');
-      
-      // Export and share the PDF directly
-      await exportProposalPdf(html, `${bid.title || 'contract'}-${bid.id}`);
-      
-      console.log('✅ Contract PDF generated and shared successfully');
+
+      await runExport();
     } catch (error) {
       console.error('❌ Error generating contract:', error);
       console.error('Error stack:', error.stack);
@@ -9018,6 +9038,13 @@ export default function EstimateGeneratorScreen() {
     Alert.alert('Template Applied', `${template} template loaded successfully!`);
   };
 
+  // Dark theme tokens set subtext === primary text (see ThemeContext DARK); use real muted grey for empty fields.
+  const estimateStepMutedInputColor = darkMode ? 'rgba(255,255,255,0.42)' : Colors.sub;
+
+  const getStepFieldTextColor = (value) => (
+    String(value ?? '').trim() ? Colors.text : estimateStepMutedInputColor
+  );
+
 
   // Render step content
   const renderStepContent = () => {
@@ -9385,9 +9412,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Customer Name *</Text>
                 <TextInput
-                  style={s.input}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerName) }]}
                   placeholder="Enter customer name"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerName}
                   onChangeText={(text) => {
                     setLocalCustomerName(text);
@@ -9415,9 +9442,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Email</Text>
                 <TextInput
-                  style={s.input}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerEmail) }]}
                   placeholder="customer@example.com"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerEmail}
                   onChangeText={(text) => {
                     setLocalCustomerEmail(text);
@@ -9437,9 +9464,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Phone</Text>
                 <TextInput
-                  style={s.input}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerPhone) }]}
                   placeholder="555-123-4567"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerPhone}
                   onChangeText={(text) => {
                     const formatted = formatPhoneNumber(text);
@@ -9459,9 +9486,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Address</Text>
                 <TextInput
-                  style={s.input}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerAddress) }]}
                   placeholder="Street address"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerAddress}
                   onChangeText={(text) => {
                     setLocalCustomerAddress(text);
@@ -9480,9 +9507,9 @@ export default function EstimateGeneratorScreen() {
                 <View style={[s.inputGroup, { width: '48%' }]}>
                   <Text style={s.label}>City</Text>
                   <TextInput
-                    style={s.input}
+                    style={[s.input, { color: getStepFieldTextColor(localCustomerCity) }]}
                     placeholder="City"
-                    placeholderTextColor={Colors.sub}
+                    placeholderTextColor={estimateStepMutedInputColor}
                     value={localCustomerCity}
                     onChangeText={(text) => {
                       setLocalCustomerCity(text);
@@ -9500,9 +9527,9 @@ export default function EstimateGeneratorScreen() {
                 <View style={[s.inputGroup, { width: '48%' }]}>
                   <Text style={s.label}>State</Text>
                   <TextInput
-                    style={s.input}
+                    style={[s.input, { color: getStepFieldTextColor(localCustomerState) }]}
                     placeholder="State"
-                    placeholderTextColor={Colors.sub}
+                    placeholderTextColor={estimateStepMutedInputColor}
                     value={localCustomerState}
                     onChangeText={(text) => {
                       setLocalCustomerState(text);
@@ -9523,9 +9550,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>ZIP Code</Text>
                 <TextInput
-                  style={s.input}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerZip) }]}
                   placeholder="12345"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerZip}
                   onChangeText={(text) => {
                     setLocalCustomerZip(text);
@@ -9544,9 +9571,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Company (Optional)</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(localCustomerCompany) }]}
                   placeholder="Company name"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={localCustomerCompany}
                   onChangeText={(text) => {
                     setLocalCustomerCompany(text);
@@ -9569,9 +9596,13 @@ export default function EstimateGeneratorScreen() {
                 <Text style={s.label}>Notes</Text>
                 <TextInput
                   key="customerNotes"
-                  style={[s.input, { minHeight: 100, textAlignVertical: 'top', color: Colors.text }]}
+                  style={[s.input, {
+                    minHeight: 100,
+                    textAlignVertical: 'top',
+                    color: getStepFieldTextColor(bid.customerNotes || ''),
+                  }]}
                   placeholder="Additional notes about the customer..."
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.customerNotes || ''}
                   onChangeText={(text) => {
                     setBid(prev => ({ ...prev, customerNotes: text }));
@@ -9610,9 +9641,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Project Title *</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.title || '') }]}
                   placeholder="e.g., Kitchen Renovation"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.title || ''}
                   onChangeText={(text) => updateBid('title', text)}
                   returnKeyType="done"
@@ -9641,9 +9672,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Square Footage</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.sqft?.toString() || '') }]}
                   placeholder="1250"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.sqft?.toString() || ''}
                   onChangeText={(text) => updateBid('sqft', parseInt(text) || 0)}
                   keyboardType="numeric"
@@ -9656,9 +9687,13 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Project Description</Text>
                 <TextInput
-                  style={[s.input, { minHeight: 120, textAlignVertical: 'top', color: Colors.text }]}
+                  style={[s.input, {
+                    minHeight: 120,
+                    textAlignVertical: 'top',
+                    color: getStepFieldTextColor(bid.scopeDescription || ''),
+                  }]}
                   placeholder="Describe the project scope, requirements, and special considerations..."
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.scopeDescription || ''}
                   onChangeText={(text) => updateBid('scopeDescription', text)}
                   returnKeyType="done"
@@ -9675,7 +9710,7 @@ export default function EstimateGeneratorScreen() {
                   style={s.input}
                   onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
                 >
-                  <Text style={{ color: bid.startDate ? Colors.text : Colors.sub }}>
+                  <Text style={{ color: bid.startDate ? Colors.text : estimateStepMutedInputColor }}>
                     {bid.startDate ? new Date(bid.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select start date'}
                   </Text>
                 </TouchableOpacity>
@@ -9705,7 +9740,7 @@ export default function EstimateGeneratorScreen() {
                   style={s.input}
                   onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
                 >
-                  <Text style={{ color: bid.endDate ? Colors.text : Colors.sub }}>
+                  <Text style={{ color: bid.endDate ? Colors.text : estimateStepMutedInputColor }}>
                     {bid.endDate ? new Date(bid.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select end date'}
                   </Text>
                 </TouchableOpacity>
@@ -11046,9 +11081,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Equipment Rental</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11071,9 +11106,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Plans</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11096,9 +11131,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Permits</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11121,9 +11156,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Other direct costs</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11153,9 +11188,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Insurance Overhead</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11178,9 +11213,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Equipment Maintenance</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11203,9 +11238,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Facilities</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11228,9 +11263,9 @@ export default function EstimateGeneratorScreen() {
               <View style={s.inputGroup}>
                 <Text style={s.label}>Other Overhead</Text>
                 <TextInput
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : '') }]}
                   placeholder="0"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : ''}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -11307,9 +11342,9 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <TextInput
                   ref={markupInputRef}
-                  style={[s.input, { color: Colors.text }]}
+                  style={[s.input, { color: getStepFieldTextColor(markupPctText) }]}
                   placeholder="20"
-                  placeholderTextColor={Colors.sub}
+                  placeholderTextColor={estimateStepMutedInputColor}
                   value={markupPctText}
                   onFocus={() => {
                     isMarkupFocused.current = true;
@@ -12278,6 +12313,43 @@ export default function EstimateGeneratorScreen() {
                                   }
                                 }}
                                 initialDate={bid.startDate || bid.projectStartDate}
+                              />
+                            </View>
+                          )}
+                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6, marginTop: 12 }}>End Date</Text>
+                          <TouchableOpacity
+                            onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
+                            style={{
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                              borderWidth: 1,
+                              borderColor: Colors.line,
+                              borderRadius: 12,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                            }}
+                          >
+                            <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                              {(bid.endDate || bid.projectEndDate)
+                                ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                : 'Select end date'}
+                            </Text>
+                          </TouchableOpacity>
+                          {showEndDateCalendar && (
+                            <View style={{ marginTop: 8 }}>
+                              <GreyCalendar
+                                onDayPress={(day) => {
+                                  updateBid('endDate', day.dateString);
+                                  updateBid('projectEndDate', day.dateString);
+                                  setShowEndDateCalendar(false);
+                                }}
+                                markedDates={{
+                                  [(bid.endDate || bid.projectEndDate) || '']: {
+                                    selected: true,
+                                    selectedColor: '#38d39f',
+                                    selectedTextColor: '#000000',
+                                  }
+                                }}
+                                initialDate={bid.endDate || bid.projectEndDate}
                               />
                             </View>
                           )}
@@ -13295,6 +13367,45 @@ export default function EstimateGeneratorScreen() {
                               )}
                             </View>
                             <View>
+                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>End Date</Text>
+                              <TouchableOpacity
+                                onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
+                                style={{
+                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                  borderWidth: 1,
+                                  borderColor: Colors.line,
+                                  borderRadius: 12,
+                                  paddingHorizontal: 12,
+                                  paddingVertical: 10,
+                                }}
+                              >
+                                <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                  {(bid.endDate || bid.projectEndDate)
+                                    ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : 'Select end date'}
+                                </Text>
+                              </TouchableOpacity>
+                              {showEndDateCalendar && (
+                                <View style={{ marginTop: 8 }}>
+                                  <GreyCalendar
+                                    onDayPress={(day) => {
+                                      updateBid('endDate', day.dateString);
+                                      updateBid('projectEndDate', day.dateString);
+                                      setShowEndDateCalendar(false);
+                                    }}
+                                    markedDates={{
+                                      [(bid.endDate || bid.projectEndDate) || '']: {
+                                        selected: true,
+                                        selectedColor: '#38d39f',
+                                        selectedTextColor: '#000000',
+                                      }
+                                    }}
+                                    initialDate={bid.endDate || bid.projectEndDate}
+                                  />
+                                </View>
+                              )}
+                            </View>
+                            <View>
                               <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
                               <TouchableOpacity
                                 onPress={() => setShowDepositCalendar(!showDepositCalendar)}
@@ -13999,6 +14110,45 @@ export default function EstimateGeneratorScreen() {
                                           }
                                         }}
                                         initialDate={bid.startDate || bid.projectStartDate}
+                                      />
+                                    </View>
+                                  )}
+                                </View>
+                                <View>
+                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>End Date</Text>
+                                  <TouchableOpacity
+                                    onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                      borderWidth: 1,
+                                      borderColor: Colors.line,
+                                      borderRadius: 12,
+                                      paddingHorizontal: 12,
+                                      paddingVertical: 10,
+                                    }}
+                                  >
+                                    <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                      {(bid.endDate || bid.projectEndDate)
+                                        ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                        : 'Select end date'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                  {showEndDateCalendar && (
+                                    <View style={{ marginTop: 8 }}>
+                                      <GreyCalendar
+                                        onDayPress={(day) => {
+                                          updateBid('endDate', day.dateString);
+                                          updateBid('projectEndDate', day.dateString);
+                                          setShowEndDateCalendar(false);
+                                        }}
+                                        markedDates={{
+                                          [(bid.endDate || bid.projectEndDate) || '']: {
+                                            selected: true,
+                                            selectedColor: '#38d39f',
+                                            selectedTextColor: '#000000',
+                                          }
+                                        }}
+                                        initialDate={bid.endDate || bid.projectEndDate}
                                       />
                                     </View>
                                   )}
@@ -14878,13 +15028,6 @@ export default function EstimateGeneratorScreen() {
           }
         }
         
-        // Check for missing project dates
-        if (!startDate && !endDate) {
-          diagnosticReasons.push({ icon: '📅', text: 'Project dates not set' });
-        } else if (!startDate || !endDate) {
-          diagnosticReasons.push({ icon: '📅', text: 'Incomplete date range' });
-        }
-        
         // Calculate project duration (check startDate/endDate from step 2, or fallback to projectStartDate/projectEndDate)
         let durationText = 'Not set';
         const startDate = bid.startDate || bid.projectStartDate;
@@ -14920,6 +15063,50 @@ export default function EstimateGeneratorScreen() {
         
         // Check if all items are complete
         const allChecklistItemsComplete = checklistItems.every(item => item.checked);
+        const contractBrandingPreview = resolveContractBranding(contractorProfile);
+        const selectedContractType = getContractTypeForProject(bid.projectType);
+        const contractPreviewDoc = buildDocFromBid(bid, calc);
+        const contractPreflightWarnings = validateContractPreflight(contractPreviewDoc, {
+          branding: contractBrandingPreview,
+          pdfMode: contractPdfMode,
+          state: contractTemplateState,
+          projectType: bid.projectType,
+          contractType: selectedContractType,
+        });
+        const suggestedContractState = normalizeContractTemplateState(bid.projectState || bid.customerState);
+        const contractStateHelperText =
+          contractTemplateState === 'other'
+            ? suggestedContractState !== 'other'
+              ? `Suggested from project address: ${suggestedContractState === 'nevada' ? 'Nevada' : 'Utah'}. Select a state only when you want jurisdiction-specific language; otherwise leave this as Generic Draft.`
+              : 'Generic draft only. Select a state only when you want jurisdiction-specific language.'
+            : `Using ${contractTemplateState === 'nevada' ? 'Nevada' : 'Utah'}-specific contract language.`;
+        const brandingSummary = [
+          contractBrandingPreview.companyName || contractorProfile.company,
+          contractBrandingPreview.contractorName,
+          contractBrandingPreview.contractorTitle,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Company profile';
+        const brandingDetails = [
+          contractBrandingPreview.companyPhone,
+          contractBrandingPreview.companyEmail,
+          contractBrandingPreview.companyWebsite,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const brandingIncomplete =
+          !contractBrandingPreview.companyName ||
+          !contractBrandingPreview.contractorName ||
+          !contractBrandingPreview.companyPhone ||
+          !contractBrandingPreview.companyEmail;
+        const compactPaymentLabel =
+          paymentScheduleType === 'Weekly'
+            ? 'Weekly payments'
+            : paymentScheduleType === 'Milestone-based'
+              ? 'Milestone payments'
+              : paymentScheduleType || 'Payment schedule not set';
+        const readinessHeadline = shouldGateAdvanced ? 'Needs Review' : 'Ready to Generate';
+        const readinessSummary = `${money(calc?.total || 0)} total · ${netProfitPct.toFixed(1)}% estimated profit · ${compactPaymentLabel}`;
         
         // AI Insight text (refined to sound more advisor-like)
         let aiInsightText = '';
@@ -15067,6 +15254,12 @@ export default function EstimateGeneratorScreen() {
             }
           });
         }
+        const reviewItems = Array.from(
+          new Set([
+            ...checklistItems.filter(item => !item.checked).map(item => item.text),
+            ...contractPreflightWarnings.map(warning => warning.message),
+          ])
+        ).slice(0, 4);
         
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
@@ -15076,477 +15269,364 @@ export default function EstimateGeneratorScreen() {
                   <MaterialIcons name="description" size={22} color="#2DFFC4" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Final Bid & Contract</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Health score, contract generation & export</Text>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Final Proposal & Agreement</Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Generate a polished client-facing PDF from this estimate.</Text>
                 </View>
               </View>
-              
-              {shouldGateAdvanced ? (
-                <>
-                  <View style={{
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                    borderWidth: 2,
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                    borderRadius: 20,
-                    padding: 20,
-                    marginBottom: 20,
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                      <MaterialIcons name="lock" size={18} color={Colors.sub} />
-                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
-                        Health score & insights
-                      </Text>
-                    </View>
-                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                      Complete your estimate to unlock health score, AI insights, and recommendations.
+              <View
+                style={{
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : Colors.line,
+                  borderRadius: 18,
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7 }}>
+                      Proposal Readiness
                     </Text>
-                    <TouchableOpacity
-                      onPress={handleReadinessCTA}
-                      activeOpacity={0.8}
+                    <Text style={{ color: shouldGateAdvanced ? '#fbbf24' : '#38d39f', fontSize: 18, fontWeight: '800', marginTop: 4 }}>
+                      {readinessHeadline}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                    <View
                       style={{
-                        marginTop: 12,
-                        alignSelf: 'flex-start',
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: 'rgba(45, 255, 196, 0.4)',
-                        backgroundColor: 'rgba(45, 255, 196, 0.08)',
+                        width: 54,
+                        height: 54,
+                        borderRadius: 27,
+                        borderWidth: 2,
+                        borderColor: healthColor,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.02)' : Colors.bg,
                       }}
                     >
-                      <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
-                        Finish setup to unlock
+                      <Text style={{ color: healthColor, fontSize: 22, fontWeight: '800' }}>
+                        {healthScore}
                       </Text>
+                    </View>
+                    <Text style={{ color: Colors.sub, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                      Health Score
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setScoreExplanationExpanded(!scoreExplanationExpanded);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>Why?</Text>
                     </TouchableOpacity>
                   </View>
-                  
-                  {/* Navigation guidance for first-time users when gated */}
-                  {shouldShowGuidance && (
-                    <View style={{
-                      marginBottom: 20,
-                      padding: 16,
-                      borderRadius: 16,
-                      backgroundColor: 'rgba(45, 255, 196, 0.08)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(45, 255, 196, 0.25)',
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                        <MaterialIcons name="info" size={20} color="#2DFFC4" />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 4 }}>
-                            Almost there!
-                          </Text>
-                          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                            Complete the remaining steps, then go to Summary to review and submit your bid.
+                </View>
+                <Text style={{ color: Colors.text, fontSize: 13, lineHeight: 20, marginTop: 8 }}>
+                  {readinessSummary}
+                </Text>
+
+                {scoreExplanationExpanded && (
+                  <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
+                    <View style={{ gap: 8 }}>
+                      {checklistItems.map((item, index) => (
+                        <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <MaterialIcons
+                            name={item.checked ? 'check-circle' : 'warning'}
+                            size={16}
+                            color={item.checked ? '#38d39f' : '#fbbf24'}
+                          />
+                          <Text style={{ color: Colors.sub, fontSize: 12, flex: 1 }}>
+                            {item.text}
                           </Text>
                         </View>
-                      </View>
+                      ))}
                     </View>
-                  )}
-                </>
-              ) : (
-                <>
-              {/* 1. Upgraded Health Score Diagnostic Card */}
-              <View style={{
-                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                borderWidth: 2,
-                borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                borderRadius: 20,
-                padding: 20,
-                marginBottom: 20,
-                alignItems: 'center',
-              }}>
-                <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12, marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
-                  HEALTH SCORE
-                </Text>
-                <View style={{
-                  width: 100,
-                  height: 100,
-                  borderRadius: 50,
-                  borderWidth: 4,
-                  borderColor: healthScore < 50 ? '#ef4444' : healthScore < 70 ? '#fbbf24' : '#38d39f',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: 8,
-                }}>
-                  <Text style={{ color: healthColor, fontSize: 48, fontWeight: '700' }}>
-                    {healthScore}
-                  </Text>
-                </View>
-                <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 14, marginBottom: 4 }}>
-                  {aiLevel === 'good' ? 'Ready to send' : aiLevel === 'warn' ? 'Moderate risk — optimizable' : 'Needs attention'}
-                </Text>
-                {/* Hide advanced math for first-time users */}
-                {projectedProfit10Pct > 0 && !shouldShowGuidance && (
-                  <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, opacity: darkMode ? 0.7 : 1, marginBottom: 8, textAlign: 'center' }}>
-                    If costs rise 10%, projected profit: {money(projectedProfit10Pct)} ({projectedProfitPct10Pct.toFixed(1)}%)
-                  </Text>
-                )}
-                <TouchableOpacity
-                  onPress={() => {
-                    setHealthScoreBreakdownExpanded(!healthScoreBreakdownExpanded);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={{ width: '100%', marginTop: 8 }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, opacity: 0.7, fontWeight: '600' }}>
-                      Why this score
-                    </Text>
-                    <MaterialIcons
-                      name={healthScoreBreakdownExpanded ? 'expand-less' : 'expand-more'}
-                      size={16}
-                      color={Colors.sub}
-                      style={{ opacity: 0.7 }}
-                    />
-                  </View>
-                </TouchableOpacity>
-                
-                {healthScoreBreakdownExpanded && (
-                  <View style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 12, textAlign: 'left', width: '100%' }}>
-                      Health Score Breakdown
-                    </Text>
-                    <View style={{ width: '100%', gap: 8 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Margin strength:</Text>
-                        <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', textAlign: 'right' }}>
-                          {marginStrength} ({netProfitPct.toFixed(1)}%)
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Payment timing:</Text>
-                        <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', textAlign: 'right', flex: 1 }}>
-                          {paymentTiming}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Cost volatility:</Text>
-                        <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', textAlign: 'right', flex: 1 }}>
-                          {costVolatility}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Readiness:</Text>
-                        <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', textAlign: 'right' }}>
-                          {readiness}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
-                
-                {/* Diagnostic Reason Chips - Hide for first-time users unless expanded */}
-                {diagnosticReasons.length > 0 && (!shouldShowGuidance || healthScoreBreakdownExpanded) && (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: 8 }}>
-                    {diagnosticReasons.map((reason, index) => (
-                      <View
-                        key={index}
-                        style={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          borderRadius: 12,
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        <Text style={{ fontSize: 12 }}>{reason.icon}</Text>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, fontWeight: '600' }}>{reason.text}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-              
-              {/* 2. AI Insight Line */}
-              <View style={{
-                backgroundColor: 'rgba(56, 211, 159, 0.1)',
-                borderRadius: 12,
-                padding: 14,
-                marginBottom: 20,
-                borderWidth: 1,
-                borderColor: 'rgba(56, 211, 159, 0.2)',
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                  <MaterialIcons name="lightbulb" size={18} color="#38d39f" style={{ marginTop: 2 }} />
-                  <Text style={{ color: Colors.text, fontSize: 13, lineHeight: 20, flex: 1 }}>
-                    <Text style={{ fontWeight: '700', color: '#38d39f' }}>AI Insight: </Text>
-                    {aiInsightText}
-                  </Text>
-                </View>
-              </View>
-              
-              {/* AI Recommendations (Fix-It Actions) */}
-              {aiRecommendations.length > 0 && (
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 12 }}>
-                    AI Recommendations
-                  </Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {aiRecommendations.map((rec, index) => (
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
                       <TouchableOpacity
-                        key={index}
-                        onPress={rec.action}
-                        style={{
-                          flex: 1,
-                          minWidth: '47%',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 6,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          backgroundColor: 'rgba(56, 211, 159, 0.1)',
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: 'rgba(56, 211, 159, 0.3)',
+                        onPress={() => {
+                          setHealthScoreBreakdownExpanded(!healthScoreBreakdownExpanded);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
-                        activeOpacity={0.7}
+                        activeOpacity={0.75}
                       >
-                        <Text style={{ fontSize: 16 }}>{rec.icon}</Text>
-                        <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', flex: 1 }}>
-                          {rec.text}
-                        </Text>
-                        <Text style={{ color: '#38d39f', fontSize: 11, fontWeight: '700' }}>
-                          {rec.scoreGain}
+                        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                          {healthScoreBreakdownExpanded ? 'Hide summary' : 'View summary'}
                         </Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
-              </>
-              )}
-              
-              {/* 3. Bid Snapshot Card */}
-              <View style={{
-                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                borderWidth: 2,
-                borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                borderRadius: 16,
-                padding: 16,
-                marginBottom: 20,
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                  <MaterialIcons name="receipt" size={18} color={Colors.sub} style={{ marginRight: 8 }} />
-                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Bid Snapshot</Text>
-                </View>
-                {shouldGateAdvanced ? (
-                  <View style={{ gap: 10 }}>
-                    <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                      Estimated Profit
-                    </Text>
-                    <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 22, fontWeight: '800' }}>
-                      {money(netProfit)} ({netProfitPct.toFixed(1)}%)
-                    </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 12 }}>
-                      You&apos;re protected against ~{costOverrunCushion.toFixed(1)}% cost overruns.
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={{ gap: 10 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Total Bid:</Text>
-                      <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{money(calc?.total || 0)}</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setFinalStepLegalExpanded(!finalStepLegalExpanded);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                          {finalStepLegalExpanded ? 'Hide legal notes' : 'View legal review notes'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => openEstimateCopilot('Review this proposal before export.')}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>Review with AI</Text>
+                      </TouchableOpacity>
                     </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Estimated Net Profit:</Text>
-                      <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
-                        {money(netProfit)} ({netProfitPct.toFixed(1)}%)
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Payment Structure:</Text>
-                      <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{paymentScheduleType}</Text>
-                    </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Duration:</Text>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{durationText}</Text>
-                  </View>
-                  {/* Hide advanced math for first-time users */}
-                  {!shouldShowGuidance && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                      <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12 }}>Cost Overrun Cushion:</Text>
-                      <Text style={{ color: costOverrunCushion >= 10 ? '#38d39f' : costOverrunCushion >= 5 ? '#ffcc66' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
-                        ~{costOverrunCushion.toFixed(1)}%
-                      </Text>
-                    </View>
-                  )}
-                  </View>
-                )}
-              </View>
-              
-              {!shouldGateAdvanced && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setScoreExplanationExpanded(!scoreExplanationExpanded);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={{
-                    marginBottom: 20,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                      What affects this score?
-                    </Text>
-                    <MaterialIcons
-                      name={scoreExplanationExpanded ? 'expand-less' : 'expand-more'}
-                      size={18}
-                      color={Colors.sub}
-                    />
-                  </View>
-                  {scoreExplanationExpanded && (
-                    <View style={{ marginTop: 12, gap: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Margin strength</Text>
+
+                    {healthScoreBreakdownExpanded && (
+                      <View
+                        style={{
+                          marginTop: 14,
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: darkMode ? 'rgba(255,255,255,0.025)' : Colors.bg,
+                          borderWidth: 1,
+                          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                          gap: 8,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>Total bid</Text>
+                          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{money(calc?.total || 0)}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>Estimated net profit</Text>
+                          <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
+                            {money(netProfit)} ({netProfitPct.toFixed(1)}%)
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>Payment structure</Text>
+                          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{compactPaymentLabel}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>Duration</Text>
+                          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{durationText}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: Colors.sub, fontSize: 12 }}>Margin strength</Text>
+                          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{marginStrength}</Text>
+                        </View>
                       </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Payment timing</Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11 }}>•</Text>
-                        <Text style={{ color: darkMode ? Colors.sub : Colors.text, fontSize: 11, flex: 1 }}>Cost volatility</Text>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              )}
-              
-              {/* 5. Pre-Flight Checklist */}
-              {checklistItems.length > 0 && (
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 12 }}>
-                    Pre-Flight Checklist {allChecklistItemsComplete && '(Ready to Send)'}
-                  </Text>
-                  <View style={{ gap: 10 }}>
-                    {checklistItems.map((item, index) => (
-                      <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <MaterialIcons
-                          name={item.checked ? 'check-circle' : item.isWarning ? 'warning' : 'radio-button-unchecked'}
-                          size={18}
-                          color={item.checked ? '#38d39f' : item.isWarning ? '#ffcc66' : Colors.sub}
-                        />
-                        <Text style={{
-                          color: item.checked ? Colors.text : item.isWarning ? '#ffcc66' : Colors.sub,
-                          fontSize: 12,
-                          flex: 1,
-                          fontWeight: item.isWarning ? '600' : '500',
-                        }}>
-                          {item.text}
+                    )}
+
+                    {finalStepLegalExpanded && (
+                      <View
+                        style={{
+                          marginTop: 14,
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: darkMode ? 'rgba(255,255,255,0.025)' : Colors.bg,
+                          borderWidth: 1,
+                          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                        }}
+                      >
+                        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                          {contractStateHelperText}
+                        </Text>
+                        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
+                          Payment timing: {paymentTiming}. Cost profile: {costVolatility}. Readiness: {readiness}.
                         </Text>
                       </View>
-                    ))}
+                    )}
                   </View>
-                  {allChecklistItemsComplete && (
-                    <Text style={{
-                      color: '#38d39f',
-                      fontSize: 11,
-                      marginTop: 12,
-                      fontWeight: '600',
-                      textAlign: 'center',
-                    }}>
-                      All required items are complete. This bid is ready to generate a client-facing contract.
-                    </Text>
-                  )}
-                </View>
-              )}
-              
-              {/* 4. Generate Contract CTA with Framing */}
-              <View style={{ marginBottom: 16 }}>
-                {allChecklistItemsComplete ? (
-                  <View style={{ alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Pricing validated</Text>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Payments balanced</Text>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>✓ Margin protected</Text>
-                  </View>
-                ) : shouldGateAdvanced ? (
-                  <Text style={{
-                    color: Colors.sub,
-                    fontSize: 12,
-                    marginBottom: 8,
-                    textAlign: 'center',
-                    fontWeight: '600',
-                  }}>
-                    Complete setup to generate a client-facing contract
-                  </Text>
-                ) : (
-                  <Text style={{
-                    color: Colors.sub,
-                    fontSize: 12,
-                    marginBottom: 8,
-                    textAlign: 'center',
-                    fontWeight: '600',
-                  }}>
-                    Ready to generate client-facing contract
-                  </Text>
                 )}
-                <TouchableOpacity
-                  onPress={shouldGateAdvanced ? handleReadinessCTA : generateContract}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
+              </View>
+
+              <View
+                style={{
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : Colors.line,
+                  borderRadius: 18,
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 14 }}>
+                  Contract Settings
+                </Text>
+
+                <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8 }}>State</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {CONTRACT_TEMPLATE_STATES.map((item) => (
+                    <TouchableOpacity
+                      key={item.value}
+                      onPress={() => setContractTemplateState(item.value)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: contractTemplateState === item.value ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.10)' : Colors.line),
+                        backgroundColor: contractTemplateState === item.value ? 'rgba(45,255,196,0.12)' : (darkMode ? 'rgba(255,255,255,0.02)' : Colors.bg),
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ color: contractTemplateState === item.value ? '#2DFFC4' : Colors.text, fontSize: 12, fontWeight: '700' }}>
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 17, marginTop: 10 }}>
+                  {contractStateHelperText}
+                </Text>
+
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 16, marginBottom: 8 }}>PDF Type</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {CONTRACT_PDF_MODES.map((item) => (
+                    <TouchableOpacity
+                      key={item.value}
+                      onPress={() => setContractPdfMode(item.value)}
+                      style={{
+                        flex: 1,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: contractPdfMode === item.value ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.10)' : Colors.line),
+                        backgroundColor: contractPdfMode === item.value ? 'rgba(45,255,196,0.12)' : (darkMode ? 'rgba(255,255,255,0.02)' : Colors.bg),
+                        alignItems: 'center',
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ color: contractPdfMode === item.value ? '#2DFFC4' : Colors.text, fontSize: 12, fontWeight: '700' }}>
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 16, marginBottom: 6 }}>Branding</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                  <Text style={{ color: Colors.text, fontSize: 12, lineHeight: 18, flex: 1 }}>
+                    {brandingSummary}
+                  </Text>
+                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setFinalStepBrandingExpanded(!finalStepBrandingExpanded);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                        {finalStepBrandingExpanded ? 'Hide branding' : 'Preview branding'}
+                      </Text>
+                    </TouchableOpacity>
+                    {brandingIncomplete && (
+                      <TouchableOpacity onPress={() => router.push('/profile')} activeOpacity={0.75}>
+                        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>Edit profile</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {finalStepBrandingExpanded && (
+                  <View
                     style={{
+                      marginTop: 12,
+                      padding: 12,
                       borderRadius: 12,
-                      padding: 16,
-                      alignItems: 'center',
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      gap: 8,
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.025)' : Colors.bg,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
                     }}
                   >
-                    <MaterialIcons name="description" size={20} color="#fff" />
-                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                      {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate Contract PDF'}
+                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                      {brandingDetails || 'Add phone, email, website, logo, and license details in Profile Overview for stronger branding.'}
                     </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <Text style={{
-                  color: Colors.sub,
-                  fontSize: 10,
-                  marginTop: 6,
-                  textAlign: 'center',
-                  opacity: 0.7,
-                }}>
-                  Includes scope, pricing, payment schedule, and terms
+                  </View>
+                )}
+              </View>
+
+              {reviewItems.length > 0 && (
+                <View
+                  style={{
+                    backgroundColor: 'rgba(245, 158, 11, 0.10)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(245, 158, 11, 0.24)',
+                    borderRadius: 16,
+                    padding: 14,
+                    marginBottom: 16,
+                  }}
+                >
+                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
+                    Review before sending
+                  </Text>
+                  <View style={{ gap: 6 }}>
+                    {reviewItems.map((item, index) => (
+                      <Text key={index} style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                        {'\u2022'} {item}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              <View style={{ marginBottom: 8 }}>
+                {allChecklistItemsComplete && !shouldGateAdvanced && (
+                  <View style={{ alignItems: 'center', gap: 4, marginBottom: 10 }}>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Pricing validated</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Payments balanced</Text>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Required fields complete</Text>
+                  </View>
+                )}
+                <View style={{ gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract('client')}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['rgba(45, 255, 196, 0.88)', 'rgba(0, 166, 255, 0.88)']}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={{
+                        borderRadius: 12,
+                        padding: 16,
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <MaterialIcons name="description" size={20} color="#fff" />
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+                        {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate Client PDF'}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {!shouldGateAdvanced && (
+                    <TouchableOpacity
+                      onPress={() => generateContract('detailed')}
+                      activeOpacity={0.85}
+                      style={{
+                        borderRadius: 12,
+                        padding: 15,
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        gap: 8,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
+                      }}
+                    >
+                      <MaterialIcons name="summarize" size={20} color={Colors.text} />
+                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
+                        Generate Detailed PDF
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 10, textAlign: 'center', opacity: 0.7 }}>
+                  This agreement is generated from template language and estimate inputs. Review before client use.
                 </Text>
               </View>
-              
-              {/* 8. Legal Safety Text */}
-              <View style={{ marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
-                  <MaterialIcons name="info-outline" size={14} color={Colors.sub} style={{ marginTop: 2, opacity: 0.6 }} />
-                  <Text style={{ color: Colors.sub, fontSize: 10, lineHeight: 16, flex: 1, opacity: 0.7 }}>
-                    Health score and insights are estimates based on provided inputs. Review contract terms before client use.
-                  </Text>
-                </View>
-              </View>
-              
-              {/* Navigation guidance for first-time users */}
-              {shouldShowGuidance && allChecklistItemsComplete && !shouldGateAdvanced && (
-                <FinalStepGuidanceCard 
-                  onNavigateToSummary={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setStep(0);
-                    setActiveNavButton('summary');
-                  }}
-                  Colors={Colors}
-                />
-              )}
             </GlassBorderCard>
           </View>
         );
@@ -16574,27 +16654,29 @@ export default function EstimateGeneratorScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
-      <Pressable
-        style={s.aiFloatingWrapper}
-        onPress={() => {
-          openEstimateCopilot('');
-        }}
-      >
-        <LinearGradient
-          colors={["#22c55e", "#22d3ee"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={s.aiFloating}
+      {/* FLOATING ASK PM BADGE - hidden on final export step */}
+      {step !== 8 && (
+        <Pressable
+          style={s.aiFloatingWrapper}
+          onPress={() => {
+            openEstimateCopilot('');
+          }}
         >
-          <Ionicons
-            name="sparkles"
-            size={18}
-            color="#020617"
-          />
-          <Text style={s.aiFloatingText}>Ask PM</Text>
-        </LinearGradient>
-      </Pressable>
+          <LinearGradient
+            colors={["#22c55e", "#22d3ee"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={s.aiFloating}
+          >
+            <Ionicons
+              name="sparkles"
+              size={18}
+              color="#020617"
+            />
+            <Text style={s.aiFloatingText}>Ask PM</Text>
+          </LinearGradient>
+        </Pressable>
+      )}
 
       <AIAssistantModal
         visible={showAIAssistant}

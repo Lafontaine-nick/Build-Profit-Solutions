@@ -37,6 +37,14 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
+import { ScreenLayout, getTabScrollContentBottomInset } from "@/constants/ScreenLayout";
+import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
+import {
+  formatMoneyUSD,
+  formatMoneyCompact,
+  formatDateShort,
+  formatTimeShort,
+} from "@/utils/formatters";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
 const isDepositMilestone = (m: any): boolean => {
@@ -113,46 +121,6 @@ const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgr
 const { width } = Dimensions.get("window");
 
 type TabKey = "overview" | "analytics" | "calendar" | "insights";
-
-// Format currency to show exact value (matching projects page) - no rounding
-const formatCurrencyExact = (value: number) => {
-  return value.toLocaleString('en-US', { 
-    style: 'currency', 
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2 
-  });
-};
-
-// Keep short format for backwards compatibility (but prefer exact)
-const formatCurrencyShort = (value: number) => {
-  const absValue = Math.abs(value);
-  if (absValue >= 1_000_000_000) {
-    return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (absValue >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (absValue >= 1_000) {
-    return `$${(value / 1_000).toFixed(0)}K`;
-  }
-  return value.toLocaleString('en-US', { 
-    style: 'currency', 
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2 
-  });
-};
-
-// Format currency as full value with 2 decimal places (e.g., $27,928.64)
-const formatCurrencyFull = (value: number) => {
-  return value.toLocaleString('en-US', { 
-    style: 'currency', 
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2 
-  });
-};
 
 const sanitizePositiveNumber = (value: any): number => {
   if (value == null) return 0;
@@ -1610,7 +1578,11 @@ const DashboardScreen: React.FC = () => {
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(
+    () => getStyles(Colors, getTabScrollContentBottomInset(insets.bottom)),
+    [Colors, insets.bottom]
+  );
   const { dashboardMetrics, activeProjects, estimates } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showAIAssistant, setShowAIAssistant] = useState(false);
@@ -2101,8 +2073,8 @@ const DashboardScreen: React.FC = () => {
           marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
           dateLabel: p.endDate
             ? status === "completed"
-              ? `Completed ${new Date(p.endDate).toISOString().split("T")[0]}`
-              : `Due ${new Date(p.endDate).toISOString().split("T")[0]}`
+              ? `Completed ${formatDateShort(p.endDate)}`
+              : `Due ${formatDateShort(p.endDate)}`
             : "No due date",
           rawProject: p,
         };
@@ -2138,10 +2110,10 @@ const DashboardScreen: React.FC = () => {
         : 0;
 
     const result = {
-      totalBids: formatCurrencyExact(totalBids),
-      activeProjects: formatCurrencyExact(activeProjectsValue),
+      totalBids: formatMoneyUSD(totalBids),
+      activeProjects: formatMoneyUSD(activeProjectsValue),
       avgMargin: `${avgMargin.toFixed(1)}%`,
-      completedProfit: formatCurrencyExact(pipelineTotals.completedProfit),
+      completedProfit: formatMoneyUSD(pipelineTotals.completedProfit),
       rawCompletedProfit: pipelineTotals.completedProfit,
       // Include raw values for debugging
       _rawTotalBids: totalBids,
@@ -2192,31 +2164,30 @@ const DashboardScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         >
         {/* HEADER */}
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
-            <Text style={styles.screenTitle}>{t('dashboard.title')}</Text>
-            <Text style={styles.screenSubtitle}>{t('dashboard.welcome')}, {user.name}</Text>
-
-            {/* AI status badge */}
-            {(() => {
+          <TabScreenHeader
+            style={styles.headerRow}
+            title={t('dashboard.title')}
+            subtitle={`${t('dashboard.welcome')}, ${user.name}`}
+            titleColor={Colors.text}
+            subtitleColor={darkMode ? "#FFFFFF" : "#475569"}
+            belowTitle={(() => {
               const aiStatusText = aiPmMode
                 ? "AI PM Active"
                 : "AI monitoring paused · Manual mode";
               const isDark = darkMode;
-              const aiStatusColor = aiPmMode 
-                ? (isDark ? "#6ee7b7" : "#16a34a") 
+              const aiStatusColor = aiPmMode
+                ? (isDark ? "#6ee7b7" : "#16a34a")
                 : (isDark ? "#FFFFFF" : "#94A3B8");
-              const dotColor = aiPmMode 
-                ? "#22c55e" 
+              const dotColor = aiPmMode
+                ? "#22c55e"
                 : (isDark ? "#FFFFFF" : "#94A3B8");
-              // Format timestamps
-              const ruleBasedTime = aiData?.ruleBasedUpdatedAt 
-                ? new Date(aiData.ruleBasedUpdatedAt).toLocaleTimeString()
+              const ruleBasedTime = aiData?.ruleBasedUpdatedAt
+                ? formatTimeShort(aiData.ruleBasedUpdatedAt)
                 : null;
-              const aiTime = aiData?.aiUpdatedAt 
-                ? new Date(aiData.aiUpdatedAt).toLocaleTimeString()
+              const aiTime = aiData?.aiUpdatedAt
+                ? formatTimeShort(aiData.aiUpdatedAt)
                 : null;
-              
+
               return (
                 <View style={styles.aiStatusRow}>
                   <View
@@ -2241,7 +2212,7 @@ const DashboardScreen: React.FC = () => {
                         </Text>
                       )}
                       {!aiLoading && (
-                        <Pressable 
+                        <Pressable
                           onPress={handleManualRefresh}
                           style={styles.refreshButton}
                         >
@@ -2253,21 +2224,20 @@ const DashboardScreen: React.FC = () => {
                 </View>
               );
             })()}
-            </View>
-            
-          {/* Profile with glow */}
-            <LinearGradient
-            colors={["#22c55e", "#22d3ee"]}
-            style={styles.profileOuter}
-          >
-            <Pressable
-              style={styles.profileInner}
-              onPress={() => router.push("/profile")}
-            >
-              <Text style={styles.profileInitials}>{user.initials}</Text>
-            </Pressable>
-            </LinearGradient>
-          </View>
+            right={
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                style={styles.profileOuter}
+              >
+                <Pressable
+                  style={styles.profileInner}
+                  onPress={() => router.push("/profile")}
+                >
+                  <Text style={styles.profileInitials}>{user.initials}</Text>
+                </Pressable>
+              </LinearGradient>
+            }
+          />
 
         {/* SEGMENTED CONTROL */}
         <View style={styles.wideContainer}>
@@ -2689,7 +2659,8 @@ interface OverviewSectionProps {
     totalBids: string;
     activeProjects: string;
     avgMargin: string;
-    completedProfit: number;
+    completedProfit: string;
+    rawCompletedProfit: number;
   };
   projects: any[];
   onProjectPress: (project: any) => void;
@@ -2966,7 +2937,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     </Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
                       <Text style={styles.projectSummaryAmount}>
-                        {formatCurrencyFull(project.amount)}
+                        {formatMoneyUSD(project.amount)}
                       </Text>
                       {aiPmMode && (
                         <View style={styles.aiTagChip}>
@@ -3118,7 +3089,8 @@ interface AnalyticsSectionProps {
     totalBids: string;
     activeProjects: string;
     avgMargin: string;
-    completedProfit: number;
+    completedProfit: string;
+    rawCompletedProfit: number;
   };
   dashboardMetrics: any;
   activeCount: number;
@@ -3151,7 +3123,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
     const isThousands = /K/i.test(rawTotal);
     const totalValue = isThousands ? numeric * 1000 : numeric; // 44,000
 
-    return formatCurrencyShort(totalValue / activeWonCount);
+    return formatMoneyCompact(totalValue / activeWonCount);
   }, [metrics.totalBids, activeWonCount]);
 
   return (
@@ -3419,15 +3391,15 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
 /* ----------------- STYLES ----------------- */
 
-const getStyles = (Colors: any) => StyleSheet.create({
+const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
   scrollContent: {
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingTop: ScreenLayout.screen.paddingTop,
+    paddingHorizontal: ScreenLayout.edge.horizontal,
+    paddingBottom: scrollBottomInset,
   },
   glossOverlay: {
     position: "absolute",
@@ -3438,13 +3410,9 @@ const getStyles = (Colors: any) => StyleSheet.create({
     backgroundColor: "rgba(15,23,42,0.6)",
   },
 
-  // HEADER
+  // HEADER (TabScreenHeader handles vertical spacing; wide bleed for segments)
   headerRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginTop: 12,
-    marginBottom: 18,
-    marginHorizontal: -20,
+    marginHorizontal: -ScreenLayout.edge.horizontal,
     paddingHorizontal: 8,
   },
   titleGlow: {
@@ -3455,16 +3423,6 @@ const getStyles = (Colors: any) => StyleSheet.create({
     height: 56,
     opacity: 0.22,
     borderRadius: 999,
-  },
-  screenTitle: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: Colors.text,
-  },
-  screenSubtitle: {
-    fontSize: 14,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
-    marginTop: 4,
   },
   aiStatusRow: {
     flexDirection: "row",
@@ -3594,12 +3552,12 @@ const getStyles = (Colors: any) => StyleSheet.create({
 
   // GENERIC CARD
   card: {
-    borderRadius: 28,
-    padding: 18,
+    borderRadius: ScreenLayout.card.radius,
+    padding: ScreenLayout.card.padding,
     backgroundColor: Colors.card,
     borderWidth: Colors.bg === '#000000' ? 1 : 0,
     borderColor: Colors.line,
-    marginBottom: 16,
+    marginBottom: ScreenLayout.card.marginBottom,
     shadowColor: Colors.bg === '#000000' ? "#000" : "#0F172A",
     shadowOpacity: Colors.bg === '#000000' ? 0.4 : 0.05,
     shadowRadius: Colors.bg === '#000000' ? 18 : 10,

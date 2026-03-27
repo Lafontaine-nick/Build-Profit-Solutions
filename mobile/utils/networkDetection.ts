@@ -128,14 +128,13 @@ export const getNetworkInfo = (): NetworkInfo => {
     executionEnvironment: Constants.executionEnvironment
   });
   
-  // CRITICAL: iOS Simulator - use network IP (more reliable than localhost for some network configs)
+  // CRITICAL: iOS Simulator — prefer localhost (same machine as Metro/backend). Auto-detected LAN
+  // IPs go stale after DHCP/router changes and break fetch to 192.168.x.x while localhost still works.
   // Android Emulator MUST use 10.0.2.2
   if (isActuallySimulator || isSim) {
     if (Platform.OS === 'ios') {
-      // iOS Simulator: Use network IP instead of localhost (more reliable)
-      // localhost sometimes doesn't work in iOS Simulator depending on network configuration
-      recommendedApiUrl = localBackendUrl || 'http://localhost:3001';
-      console.log('✅ iOS Simulator detected - using:', recommendedApiUrl);
+      recommendedApiUrl = 'http://localhost:3001';
+      console.log('✅ iOS Simulator detected - using localhost:3001');
     } else if (Platform.OS === 'android') {
       // Android emulator needs special IP
       recommendedApiUrl = 'http://10.0.2.2:3001';

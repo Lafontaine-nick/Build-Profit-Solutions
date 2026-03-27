@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { Pressable } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
 
 // Mock data with different lead sources
 const mockLeads: Lead[] = [
@@ -660,7 +661,10 @@ export default function LeadsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useMemo(
+    () => getStyles(Colors, getTabScrollContentBottomInset(insets.bottom)),
+    [Colors, insets.bottom]
+  );
   
   const user = {
     name: 'Nick Lafontaine',
@@ -3327,7 +3331,7 @@ export default function LeadsScreen() {
   );
 }
 
-const getStyles = (Colors: any) => StyleSheet.create({
+const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -3350,8 +3354,8 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginTop: 12,
-    marginBottom: 18,
+    marginTop: ScreenLayout.header.marginTop,
+    marginBottom: ScreenLayout.header.marginBottom,
   },
   wideContainer: {
     marginHorizontal: -20,
@@ -3383,14 +3387,16 @@ const getStyles = (Colors: any) => StyleSheet.create({
     fontSize: 16,
   },
   screenTitle: {
-    fontSize: 32,
-    fontWeight: '800',
+    fontSize: ScreenLayout.header.titleSize,
+    fontWeight: ScreenLayout.header.titleWeight,
+    letterSpacing: ScreenLayout.header.titleLetterSpacing,
     color: Colors.text,
   },
   screenSubtitle: {
-    fontSize: 14,
+    fontSize: ScreenLayout.header.subtitleSize,
+    fontWeight: ScreenLayout.header.subtitleWeight,
     color: Colors.sub,
-    marginTop: 4,
+    marginTop: ScreenLayout.header.subtitleMarginTop,
   },
   screenHint: {
     fontSize: 12,
@@ -3400,12 +3406,12 @@ const getStyles = (Colors: any) => StyleSheet.create({
     opacity: 0.92,
   },
   scrollContent: {
-    paddingBottom: 40,
-    paddingHorizontal: 20, // Matches estimate generator ScrollView padding
+    paddingBottom: scrollBottomInset,
+    paddingHorizontal: ScreenLayout.edge.horizontal,
   },
   contentCard: {
-    marginBottom: 16,
-    borderRadius: 20,
+    marginBottom: ScreenLayout.card.marginBottom,
+    borderRadius: ScreenLayout.card.radius,
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
     overflow: 'visible', // Changed from 'hidden' to allow gradient borders to extend
     shadowColor: '#000',

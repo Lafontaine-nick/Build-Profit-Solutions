@@ -2,7 +2,16 @@ module.exports = function(api) {
   // Use forever() instead of true to avoid caching conflicts
   api.cache.forever();
   return {
-    presets: ['babel-preset-expo'],
+    presets: [
+      [
+        'babel-preset-expo',
+        {
+          // Hermes cannot parse import.meta; this transforms ESM packages such as
+          // yoga-layout before they reach the runtime.
+          unstable_transformImportMeta: true,
+        },
+      ],
+    ],
     plugins: [
       // Reanimated plugin must be last
       'react-native-reanimated/plugin',

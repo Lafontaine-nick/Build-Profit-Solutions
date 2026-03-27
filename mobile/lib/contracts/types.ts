@@ -12,11 +12,13 @@ export interface ContractDoc {
     totalBid: number;
     durationDays: number;
     startDate: string;
+    endDate?: string;
     expiresDate?: string;
     retainagePct?: number;
     version?: string;
   };
   contractor: {
+    contactName?: string;
     legalName?: string;
     licenseNo?: string;
     phone?: string;
@@ -35,6 +37,7 @@ export interface ContractDoc {
   };
   scope: {
     bullets: string[];
+    description?: string;
     inclusions?: string[];
     exclusions?: string[];
     ownerResponsibilities?: string[];

@@ -76,6 +76,8 @@ export default {
         // Development backend URL for physical devices.
         // Do not hardcode stale LAN IPs; set EXPO_PUBLIC_DEV_API_BASE_URL explicitly when needed.
         devApiBaseUrl: process.env.EXPO_PUBLIC_DEV_API_BASE_URL || '',
+        // Optional: PDF render only (e.g. http://192.168.x.x:3001/api). Overrides order in exportContractPdf.
+        pdfApiBaseUrl: process.env.EXPO_PUBLIC_PDF_API_BASE_URL || '',
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       isDevelopment: isDevelopment,
     },

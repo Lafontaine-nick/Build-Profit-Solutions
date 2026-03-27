@@ -35,6 +35,7 @@ const unifiedLeadsRoutes = require('./routes/unified-leads');
 const invoicesRoutes = require('./routes/invoices');
 const paymentMethodsRoutes = require('./routes/paymentMethods');
 const supportTicketsRoutes = require('./routes/support-tickets');
+const contractsRoutes = require('./routes/contracts');
 const aiDashboardRoutes = require('./routes/aiDashboard');
 const aiAssistantRoutes = require('./routes/aiAssistant');
 const dashboardRoutes = require('./routes/dashboard');
@@ -98,10 +99,10 @@ app.use((req, res, next) => {
   if (req.originalUrl === '/api/stripe/webhook') {
     next();
   } else {
-    express.json({ limit: '10mb' })(req, res, next);
+    express.json({ limit: '25mb' })(req, res, next);
   }
 });
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Serve static files (customer website)
 app.use(express.static('public'));
@@ -165,6 +166,7 @@ app.use('/api/unified-leads', unifiedLeadsRoutes);
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/payment-methods', paymentMethodsRoutes);
 app.use('/api/support-tickets', supportTicketsRoutes);
+app.use('/api/contracts', contractsRoutes);
 app.use('/api/ai', aiBudgetForecastRoutes);
 app.use('/api/ai', aiExpenseValidationRoutes);
 app.use('/api/ai', aiPredictiveAnalyticsRoutes);

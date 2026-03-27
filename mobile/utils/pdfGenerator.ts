@@ -1,13 +1,15 @@
 /**
  * PDF Generator Utility
- * 
- * Bridges @react-pdf/renderer with Expo's file system for React Native
- * Note: This requires a web-based rendering approach for full compatibility
+ *
+ * Bridges @react-pdf/renderer with Expo file storage / sharing.
  */
 
+import '../lib/proposals/reactPdfBufferPolyfill';
+import type { ReactElement } from 'react';
 import { pdf } from '@react-pdf/renderer';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { fromByteArray } from 'base64-js';
 
 export type GeneratePdfOptions = {
   filename: string;
@@ -29,47 +31,108 @@ export type GeneratePdfOptions = {
  * );
  * ```
  */
+type PdfInstance = ReturnType<typeof pdf>;
+
+type ChunkStream = {
+  on: (ev: string, fn: (...args: unknown[]) => void) => void;
+};
+
+/**
+ * Prefer the stream from `toBuffer()` on React Native: `Blob` / `arrayBuffer()`
+ * are often incomplete in Hermes, which breaks `toBlob()`.
+ */
+async function pdfInstanceToBase64String(instance: PdfInstance): Promise<string> {
+  const stream = (await instance.toBuffer()) as unknown as ChunkStream;
+
+  const chunks: Uint8Array[] = [];
+
+  return await new Promise((resolve, reject) => {
+    stream.on('data', (chunk: unknown) => {
+      if (chunk instanceof Uint8Array) {
+        chunks.push(chunk);
+      } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(chunk)) {
+        chunks.push(new Uint8Array(chunk));
+      } else {
+        chunks.push(new Uint8Array(chunk as ArrayBuffer));
+      }
+    });
+    stream.on('end', () => {
+      const total = chunks.reduce((sum, c) => sum + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
+      resolve(fromByteArray(merged));
+    });
+    stream.on('error', reject);
+  });
+}
+
 export async function generateAndSavePdf(
-  document: React.ReactElement,
+  document: ReactElement,
   options: GeneratePdfOptions
 ): Promise<string> {
   try {
-    // Generate PDF blob
     console.log('📄 Generating PDF...');
-    const blob = await pdf(document).toBlob();
-    
-    // Convert blob to base64
-    const base64data = await blobToBase64(blob);
-    
-    // Save to file system
-    const path = FileSystem.documentDirectory + options.filename;
+    const instance = pdf(document as any);
+    let base64data: string;
+    try {
+      base64data = await pdfInstanceToBase64String(instance);
+    } catch (streamErr) {
+      console.warn('📄 PDF stream export failed, trying Blob path:', streamErr);
+      const blob = await pdf(document as any).toBlob();
+      base64data = await blobToBase64(blob);
+    }
+    const safeFilename = options.filename.toLowerCase().endsWith('.pdf')
+      ? options.filename
+      : `${options.filename}.pdf`;
+    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+
+    if (!baseDir) {
+      throw new Error('No writable file system directory is available for PDF export.');
+    }
+
+    const path = `${baseDir}${safeFilename}`;
     await FileSystem.writeAsStringAsync(
       path,
-      base64data.split(',')[1],
+      base64data,
       { encoding: 'base64' }
     );
-    
+
     console.log('✅ PDF saved to:', path);
-    
-    // Auto-share if requested
+
     if (options.autoShare && await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(path);
+      await Sharing.shareAsync(path, {
+        UTI: 'com.adobe.pdf',
+        mimeType: 'application/pdf',
+      });
     }
-    
+
     return path;
   } catch (error) {
     console.error('❌ PDF generation failed:', error);
-    throw new Error(`Failed to generate PDF: ${error.message}`);
+    const message = error instanceof Error ? error.message : 'Unknown PDF generation error';
+    throw new Error(`Failed to generate PDF: ${message}`);
   }
 }
 
 /**
- * Convert a Blob to base64 string
+ * Convert a Blob to a bare base64 payload.
  */
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
+async function blobToBase64(blob: Blob): Promise<string> {
+  if (typeof blob.arrayBuffer === 'function') {
+    const arrayBuffer = await blob.arrayBuffer();
+    return fromByteArray(new Uint8Array(arrayBuffer));
+  }
+
+  return await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',')[1] : result);
+    };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });

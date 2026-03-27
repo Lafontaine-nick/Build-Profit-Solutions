@@ -33,31 +33,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
-
-// Utility functions (same as dashboard)
-const formatCurrencyShort = (value: number) => {
-  const absValue = Math.abs(value);
-  if (absValue >= 1_000_000_000) {
-    return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (absValue >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (absValue >= 1_000) {
-    return `$${(value / 1_000).toFixed(0)}K`;
-  }
-  return `$${Math.round(value).toLocaleString()}`;
-};
-
-// Format currency as full value with 2 decimal places (e.g., $3,000.00)
-const formatCurrencyFull = (value: number) => {
-  return value.toLocaleString('en-US', { 
-    style: 'currency', 
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2 
-  });
-};
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
+import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
+import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 
 const sanitizePositiveNumber = (value: any): number => {
   if (value == null) return 0;
@@ -265,7 +244,11 @@ export default function ProjectsScreen() {
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(
+    () => getStyles(Colors, darkMode, getTabScrollContentBottomInset(insets.bottom)),
+    [Colors, darkMode, insets.bottom]
+  );
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
   const params = useLocalSearchParams();
@@ -638,8 +621,8 @@ export default function ProjectsScreen() {
         projectedProfit: displayProfit,
         dateLabel: p.endDate
           ? status === 'completed'
-            ? `Completed ${new Date(p.endDate).toISOString().split('T')[0]}`
-            : `Due ${new Date(p.endDate).toISOString().split('T')[0]}`
+            ? `Completed ${formatDateShort(p.endDate)}`
+            : `Due ${formatDateShort(p.endDate)}`
           : 'No due date',
         rawProject: mergedProject,
         rawStatus: status,
@@ -768,27 +751,26 @@ export default function ProjectsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
-        <View style={[styles.headerRow, styles.wideContainer]}>
-          <View>
-            <Text style={styles.screenTitle}>{t('projects.allProjects')}</Text>
-            <Text style={styles.screenSubtitle}>
-              {projects.length} {activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} {projects.length === 1 ? 'project' : 'projects'}
-            </Text>
-          </View>
-
-          {/* Profile with glow */}
-          <LinearGradient
-            colors={progressGradient}
-            style={styles.profileOuter}
-          >
-            <Pressable
-              style={styles.profileInner}
-              onPress={() => router.push('/profile')}
+        <TabScreenHeader
+          style={styles.wideContainer}
+          title={t('projects.allProjects')}
+          subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
+          titleColor={Colors.text}
+          subtitleColor={darkMode ? Colors.sub : '#475569'}
+          right={
+            <LinearGradient
+              colors={progressGradient}
+              style={styles.profileOuter}
             >
-              <Text style={styles.profileInitials}>{user.initials}</Text>
-            </Pressable>
-          </LinearGradient>
-        </View>
+              <Pressable
+                style={styles.profileInner}
+                onPress={() => router.push('/profile')}
+              >
+                <Text style={styles.profileInitials}>{user.initials}</Text>
+              </Pressable>
+            </LinearGradient>
+          }
+        />
 
         {/* TABS */}
         <View style={[styles.tabsContainer, styles.wideContainer]}>
@@ -978,7 +960,7 @@ export default function ProjectsScreen() {
                     <View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={styles.projectAmount}>
-                          {formatCurrencyFull(project.amount)}
+                          {formatMoneyUSD(project.amount)}
                         </Text>
                       {aiPmMode && (
                         <View style={styles.aiTagChip}>
@@ -1141,41 +1123,27 @@ export default function ProjectsScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 120) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
   scrollContent: {
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingTop: ScreenLayout.screen.paddingTop,
+    paddingHorizontal: ScreenLayout.edge.horizontal,
+    paddingBottom: scrollBottomInset,
   },
   wideContainer: {
     marginHorizontal: -20,
     paddingHorizontal: 4,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    marginBottom: 18,
-  },
-  screenTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  screenSubtitle: {
-    fontSize: 14,
-    color: darkMode ? Colors.sub : "#475569",
-    marginTop: 4,
-  },
   card: {
-    padding: 18,
+    borderRadius: ScreenLayout.card.radius,
+    padding: ScreenLayout.card.padding,
     backgroundColor: Colors.card,
-    marginBottom: 16,
+    borderWidth: darkMode ? 1 : 0,
+    borderColor: Colors.line,
+    marginBottom: ScreenLayout.card.marginBottom,
   },
   projectsCardWide: {
     marginHorizontal: -8,

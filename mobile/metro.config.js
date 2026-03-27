@@ -2,6 +2,41 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
+/**
+ * @react-pdf packages ship separate browser builds (no `fs`). Metro's resolver
+ * must use them on native; otherwise the Node entry fails at runtime.
+ */
+const reactPdfBrowserEntry = require.resolve(
+  '@react-pdf/renderer/lib/react-pdf.browser.js',
+);
+const pdfkitBrowserEntry = require.resolve('@react-pdf/pdfkit/lib/pdfkit.browser.js');
+const imageBrowserEntry = require.resolve('@react-pdf/image/lib/index.browser.js');
+const pngJsBrowserEntry = require.resolve('@react-pdf/png-js/lib/png-js.browser.js');
+const yogaShimEntry = require.resolve('./lib/proposals/reactPdfYogaShim.js');
+
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === '@react-pdf/renderer') {
+    return { filePath: reactPdfBrowserEntry, type: 'sourceFile' };
+  }
+  if (moduleName === '@react-pdf/pdfkit') {
+    return { filePath: pdfkitBrowserEntry, type: 'sourceFile' };
+  }
+  if (moduleName === '@react-pdf/image') {
+    return { filePath: imageBrowserEntry, type: 'sourceFile' };
+  }
+  if (moduleName === '@react-pdf/png-js') {
+    return { filePath: pngJsBrowserEntry, type: 'sourceFile' };
+  }
+  if (moduleName === 'yoga-layout/load') {
+    return { filePath: yogaShimEntry, type: 'sourceFile' };
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 // Ensure proper resolution of modules
 config.resolver.platforms = ['ios', 'android', 'native', 'web'];
 
