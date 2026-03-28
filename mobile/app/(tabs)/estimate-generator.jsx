@@ -43,6 +43,7 @@ import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import CoachFlag from '../../components/CoachFlag';
+import ContractSettingsCompact from '../../components/ContractSettingsCompact';
 import BottomToast from '../../components/BottomToast';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
@@ -80,17 +81,6 @@ const PROJECT_TYPES = [
   { label: "New Build", value: "new_build" },
   { label: "Landscaping", value: "landscaping" },
   { label: "Other", value: "other" },
-];
-
-const CONTRACT_TEMPLATE_STATES = [
-  { label: 'Nevada', value: 'nevada' },
-  { label: 'Utah', value: 'utah' },
-  { label: 'Other / Generic Draft', value: 'other' },
-];
-
-const CONTRACT_PDF_MODES = [
-  { label: 'Client PDF', value: 'client' },
-  { label: 'Detailed PDF', value: 'detailed' },
 ];
 
 const PROJECT_CATEGORY_SLUGS = {
@@ -4555,9 +4545,8 @@ export default function EstimateGeneratorScreen() {
     logoUrl: '',
     profileImageUrl: '',
   });
-  const [contractPdfMode, setContractPdfMode] = useState('client');
   const [contractTemplateState, setContractTemplateState] = useState('other');
-  
+
   // Modal states
   const [materialModal, setMaterialModal] = useState({ visible: false, item: null });
   const [laborModal, setLaborModal] = useState({ visible: false, item: null });
@@ -4584,7 +4573,6 @@ export default function EstimateGeneratorScreen() {
   // For first-time users, collapse health score by default
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
   const [paymentTimelineExpanded, setPaymentTimelineExpanded] = useState(false);
-  const [finalStepBrandingExpanded, setFinalStepBrandingExpanded] = useState(false);
   const [finalStepLegalExpanded, setFinalStepLegalExpanded] = useState(false);
   
   // Enhanced materials state
@@ -7819,7 +7807,10 @@ export default function EstimateGeneratorScreen() {
       },
       labor: calcData?.labor || 0,
       materials: calcData?.materials || 0,
-      overhead: totalOverhead,
+      // PDF "Direct costs" line — plans, permits, equipment rental, other direct (not M/L).
+      permitCosts: permitCosts + equipmentRental + otherDirectCost,
+      // Company overhead only (insurance, facilities, etc.) — separate from direct job costs.
+      overhead: companyOverheadOnly,
       profitMarginPct: bidData.markupPct || 0,
     };
   };
@@ -7844,7 +7835,7 @@ export default function EstimateGeneratorScreen() {
   };
 
   // Generate and Share Contract - Goes straight to PDF sharing
-  const generateContract = async (requestedPdfMode = contractPdfMode) => {
+  const generateContract = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -7853,10 +7844,11 @@ export default function EstimateGeneratorScreen() {
       const doc = buildDocFromBid(bid, calc);
       const contractOptions = {
         branding,
-        pdfMode: requestedPdfMode,
+        pdfMode: 'detailed',
         state: contractTemplateState,
         projectType: bid.projectType,
         contractType,
+        contractAudience: 'client',
       };
       const preflightWarnings = validateContractPreflight(doc, contractOptions);
 
@@ -7867,8 +7859,7 @@ export default function EstimateGeneratorScreen() {
           contractOptions.branding = { ...branding, logoUrl: brandAsset };
         }
 
-        const filenameMode = requestedPdfMode === 'detailed' ? 'detailed' : 'client';
-        await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-${filenameMode}-${bid.id}`);
+        await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-agreement-${bid.id}`);
         console.log('✅ Contract PDF generated and shared successfully');
       };
 
@@ -7884,7 +7875,7 @@ export default function EstimateGeneratorScreen() {
           [
             { text: 'Cancel', style: 'cancel' },
             {
-              text: requestedPdfMode === 'detailed' ? 'Generate Detailed PDF' : 'Generate Client PDF',
+              text: 'Generate PDF',
               onPress: () => {
                 runExport().catch((error) => {
                   console.error('❌ Error generating contract:', error);
@@ -15068,18 +15059,29 @@ export default function EstimateGeneratorScreen() {
         const contractPreviewDoc = buildDocFromBid(bid, calc);
         const contractPreflightWarnings = validateContractPreflight(contractPreviewDoc, {
           branding: contractBrandingPreview,
-          pdfMode: contractPdfMode,
+          pdfMode: 'detailed',
           state: contractTemplateState,
           projectType: bid.projectType,
           contractType: selectedContractType,
         });
         const suggestedContractState = normalizeContractTemplateState(bid.projectState || bid.customerState);
+        const compactProjectAddress = [
+          bid.customerAddress,
+          [bid.customerCity, bid.customerState, bid.customerZip].filter(Boolean).join(', '),
+        ]
+          .filter(Boolean)
+          .join(' · ') || String(bid.siteAddress || '').trim() || '';
         const contractStateHelperText =
           contractTemplateState === 'other'
             ? suggestedContractState !== 'other'
               ? `Suggested from project address: ${suggestedContractState === 'nevada' ? 'Nevada' : 'Utah'}. Select a state only when you want jurisdiction-specific language; otherwise leave this as Generic Draft.`
               : 'Generic draft only. Select a state only when you want jurisdiction-specific language.'
             : `Using ${contractTemplateState === 'nevada' ? 'Nevada' : 'Utah'}-specific contract language.`;
+        const contractTemplateStateMismatch =
+          suggestedContractState &&
+          suggestedContractState !== 'other' &&
+          contractTemplateState !== 'other' &&
+          suggestedContractState !== contractTemplateState;
         const brandingSummary = [
           contractBrandingPreview.companyName || contractorProfile.company,
           contractBrandingPreview.contractorName,
@@ -15087,18 +15089,6 @@ export default function EstimateGeneratorScreen() {
         ]
           .filter(Boolean)
           .join(' · ') || 'Company profile';
-        const brandingDetails = [
-          contractBrandingPreview.companyPhone,
-          contractBrandingPreview.companyEmail,
-          contractBrandingPreview.companyWebsite,
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        const brandingIncomplete =
-          !contractBrandingPreview.companyName ||
-          !contractBrandingPreview.contractorName ||
-          !contractBrandingPreview.companyPhone ||
-          !contractBrandingPreview.companyEmail;
         const compactPaymentLabel =
           paymentScheduleType === 'Weekly'
             ? 'Weekly payments'
@@ -15254,10 +15244,13 @@ export default function EstimateGeneratorScreen() {
             }
           });
         }
+        const preflightMessagesForReview = contractPreflightWarnings
+          .filter(w => w.id !== 'utah-review')
+          .map(w => w.message);
         const reviewItems = Array.from(
           new Set([
             ...checklistItems.filter(item => !item.checked).map(item => item.text),
-            ...contractPreflightWarnings.map(warning => warning.message),
+            ...preflightMessagesForReview,
           ])
         ).slice(0, 4);
         
@@ -15426,6 +15419,11 @@ export default function EstimateGeneratorScreen() {
                         <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
                           {contractStateHelperText}
                         </Text>
+                        {contractTemplateState === 'utah' ? (
+                          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
+                            Utah template language is included, but review cancellation and consumer-notice requirements before use.
+                          </Text>
+                        ) : null}
                         <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
                           Payment timing: {paymentTiming}. Cost profile: {costVolatility}. Readiness: {readiness}.
                         </Text>
@@ -15435,113 +15433,34 @@ export default function EstimateGeneratorScreen() {
                 )}
               </View>
 
-              <View
-                style={{
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : Colors.line,
-                  borderRadius: 18,
-                  padding: 16,
-                  marginBottom: 16,
-                }}
-              >
-                <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 14 }}>
-                  Contract Settings
-                </Text>
+              <ContractSettingsCompact
+                colors={Colors}
+                darkMode={darkMode}
+                contractTemplateState={contractTemplateState}
+                onContractTemplateStateChange={setContractTemplateState}
+                brandingLabel={brandingSummary}
+                projectAddress={compactProjectAddress}
+              />
 
-                <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8 }}>State</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {CONTRACT_TEMPLATE_STATES.map((item) => (
-                    <TouchableOpacity
-                      key={item.value}
-                      onPress={() => setContractTemplateState(item.value)}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 10,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: contractTemplateState === item.value ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.10)' : Colors.line),
-                        backgroundColor: contractTemplateState === item.value ? 'rgba(45,255,196,0.12)' : (darkMode ? 'rgba(255,255,255,0.02)' : Colors.bg),
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={{ color: contractTemplateState === item.value ? '#2DFFC4' : Colors.text, fontSize: 12, fontWeight: '700' }}>
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 17, marginTop: 10 }}>
-                  {contractStateHelperText}
-                </Text>
-
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 16, marginBottom: 8 }}>PDF Type</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {CONTRACT_PDF_MODES.map((item) => (
-                    <TouchableOpacity
-                      key={item.value}
-                      onPress={() => setContractPdfMode(item.value)}
-                      style={{
-                        flex: 1,
-                        paddingHorizontal: 12,
-                        paddingVertical: 12,
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: contractPdfMode === item.value ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.10)' : Colors.line),
-                        backgroundColor: contractPdfMode === item.value ? 'rgba(45,255,196,0.12)' : (darkMode ? 'rgba(255,255,255,0.02)' : Colors.bg),
-                        alignItems: 'center',
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={{ color: contractPdfMode === item.value ? '#2DFFC4' : Colors.text, fontSize: 12, fontWeight: '700' }}>
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 16, marginBottom: 6 }}>Branding</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <Text style={{ color: Colors.text, fontSize: 12, lineHeight: 18, flex: 1 }}>
-                    {brandingSummary}
+              {contractTemplateStateMismatch ? (
+                <View
+                  style={{
+                    marginBottom: 14,
+                    padding: 12,
+                    borderRadius: 14,
+                    backgroundColor: 'rgba(245, 158, 11, 0.10)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(245, 158, 11, 0.28)',
+                  }}
+                >
+                  <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
+                    Template mismatch
                   </Text>
-                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setFinalStepBrandingExpanded(!finalStepBrandingExpanded);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
-                        {finalStepBrandingExpanded ? 'Hide branding' : 'Preview branding'}
-                      </Text>
-                    </TouchableOpacity>
-                    {brandingIncomplete && (
-                      <TouchableOpacity onPress={() => router.push('/profile')} activeOpacity={0.75}>
-                        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>Edit profile</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
+                  <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                    Selected contract state does not match the project address.
+                  </Text>
                 </View>
-
-                {finalStepBrandingExpanded && (
-                  <View
-                    style={{
-                      marginTop: 12,
-                      padding: 12,
-                      borderRadius: 12,
-                      backgroundColor: darkMode ? 'rgba(255,255,255,0.025)' : Colors.bg,
-                      borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                    }}
-                  >
-                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                      {brandingDetails || 'Add phone, email, website, logo, and license details in Profile Overview for stronger branding.'}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              ) : null}
 
               {reviewItems.length > 0 && (
                 <View
@@ -15577,7 +15496,7 @@ export default function EstimateGeneratorScreen() {
                 )}
                 <View style={{ gap: 10 }}>
                   <TouchableOpacity
-                    onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract('client')}
+                    onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract()}
                     activeOpacity={0.8}
                   >
                     <LinearGradient
@@ -15595,33 +15514,10 @@ export default function EstimateGeneratorScreen() {
                     >
                       <MaterialIcons name="description" size={20} color="#fff" />
                       <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                        {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate Client PDF'}
+                        {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate contract PDF'}
                       </Text>
                     </LinearGradient>
                   </TouchableOpacity>
-
-                  {!shouldGateAdvanced && (
-                    <TouchableOpacity
-                      onPress={() => generateContract('detailed')}
-                      activeOpacity={0.85}
-                      style={{
-                        borderRadius: 12,
-                        padding: 15,
-                        alignItems: 'center',
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        gap: 8,
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-                      }}
-                    >
-                      <MaterialIcons name="summarize" size={20} color={Colors.text} />
-                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
-                        Generate Detailed PDF
-                      </Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
                 <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 10, textAlign: 'center', opacity: 0.7 }}>
                   This agreement is generated from template language and estimate inputs. Review before client use.

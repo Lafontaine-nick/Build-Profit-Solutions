@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 import { fromByteArray } from "base64-js";
 import { ContractDoc } from "../contracts/types";
 import { ContractBuildOptions } from "./contractTemplate";
-import { buildProposalHtml } from "./buildProposalHtml";
+import { buildProposalHtml, getContractPdfPrintFooterParts } from "./buildProposalHtml";
 import { resolveBackendRestApiBaseUrl } from "../../utils/resolveBackendRestApiUrl";
 import { getNetworkInfo } from "../../utils/networkDetection";
 
@@ -75,9 +75,21 @@ const getCandidateApiBases = () => {
 
   candidates.push(resolveBackendRestApiBaseUrl());
 
-  return unique(candidates.filter(Boolean));
+  const merged = unique(candidates.filter(Boolean));
+  // On a physical phone, localhost/127.0.0.1 is the device itself — never use it for PDF.
+  if (Constants.isDevice) {
+    return merged.filter(
+      (url) => !/localhost|127\.0\.0\.1/i.test(url),
+    );
+  }
+  return merged;
 };
 
+/**
+ * `options.contractAudience`:
+ * - `'client'` (default) — terms page uses client-ready copy; no “generic draft” / preflight bullet list on the PDF.
+ * - `'internal'` — full “review before send” strip + all warnings on the terms page (draft preview).
+ */
 export async function exportContractPdf(
   doc: ContractDoc,
   options: ContractBuildOptions,
@@ -85,7 +97,33 @@ export async function exportContractPdf(
 ) {
   const safeBase = sanitizeFilenamePart(fileBase);
   const filename = `${safeBase}.pdf`;
+
+  // @react-pdf/renderer uses yoga-layout-prebuilt (Emscripten/WASM). Hermes/Expo Go does not
+  // provide HEAPU32 etc., so React PDF crashes on native. Use Web-only React PDF; native uses
+  // buildProposalHtml + backend Puppeteer (same content, HTML/CSS pipeline).
+  if (Platform.OS === "web") {
+    try {
+      const [{ generateAndSavePdf }, contractMod, React] = await Promise.all([
+        import("../../utils/pdfGenerator"),
+        import("./ContractPdfDocument"),
+        import("react"),
+      ]);
+      const ContractPdfDocument = contractMod.ContractPdfDocument ?? contractMod.default;
+      console.log("📄 Contract PDF: generating in browser with React PDF…");
+      return await generateAndSavePdf(
+        React.createElement(ContractPdfDocument, { doc, options }),
+        { filename, autoShare: true },
+      );
+    } catch (reactPdfError) {
+      console.warn(
+        "📄 React PDF (web) failed; falling back to backend HTML:",
+        reactPdfError instanceof Error ? reactPdfError.message : reactPdfError,
+      );
+    }
+  }
+
   const html = buildProposalHtml(doc, options);
+  const { footerLeft, footerCenter } = getContractPdfPrintFooterParts(doc, options);
   const apiBases = getCandidateApiBases();
   const attemptErrors: string[] = [];
 
@@ -100,6 +138,8 @@ export async function exportContractPdf(
         body: JSON.stringify({
           filename,
           html,
+          footerLeft,
+          footerCenter,
         }),
       });
 

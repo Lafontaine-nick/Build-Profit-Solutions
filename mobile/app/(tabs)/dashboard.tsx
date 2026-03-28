@@ -29,7 +29,7 @@ import ProfileAnalytics from "@/components/ProfileAnalytics";
 import GreyCalendar from "@/components/GreyCalendar";
 import * as Haptics from "expo-haptics";
 import { apiService } from "@/services/api";
-import type { AiDashboardResponse } from "@/types/aiDashboard";
+import type { AiDashboardResponse, AiInsight, AiNextStep } from "@/types/aiDashboard";
 import { clerkAuthService } from "@/services/clerkAuth";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -45,6 +45,18 @@ import {
   formatDateShort,
   formatTimeShort,
 } from "@/utils/formatters";
+import { splitEventNotesForDisplay } from "@/utils/calendarEventDisplay";
+import {
+  bucketForNextStep,
+  firstSupportingSentence,
+  groupNextStepsByBucket,
+  heroKickerForInsight,
+  humanizeNextStepLabel,
+  inferCtaFromStep,
+  portfolioPatternBullets,
+  sortNextStepsForControlCenter,
+  type ActionBucket,
+} from "@/utils/aiInsightsUi";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
 const isDepositMilestone = (m: any): boolean => {
@@ -228,6 +240,89 @@ const statusTheme: Record<string, { bg: string; border: string; color: string }>
   Draft: { bg: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.35)', color: '#cbd5e1' },
 };
 
+/** Overview AI insights: urgency first, then impact; deprioritize low-material receipt chatter. */
+const sortInsightsForOverview = (insights: any[]): any[] => {
+  const typeRank: Record<string, number> = { alert: 0, opportunity: 1, info: 2 };
+  const combined = (i: any) => `${String(i?.title || "")} ${String(i?.body || "")}`.toLowerCase();
+  const keywordBoost = (i: any) => {
+    const s = combined(i);
+    let b = 0;
+    if (/\bmargin\b|underpriced|profit/.test(s)) b += 4;
+    if (/\bpermit\b|fee/.test(s)) b += 3;
+    if (/over\s*run|overrun|budget|forecast/.test(s)) b += 4;
+    if (/receipt|invoice|upload/.test(s) && !/missing|required|block/.test(s)) b -= 2;
+    return b;
+  };
+  const receiptOnlyNoise = (i: any) => {
+    const s = combined(i);
+    return /\breceipt/.test(s) && !/\b(margin|budget|permit|overrun|risk|missing|fee)\b/.test(s);
+  };
+  return [...(insights || [])].sort((a, b) => {
+    const ta = typeRank[String(a?.type)] ?? 3;
+    const tb = typeRank[String(b?.type)] ?? 3;
+    if (ta !== tb) return ta - tb;
+    const impactDiff =
+      (Number(b?.impactScore) || 0) - (Number(a?.impactScore) || 0);
+    if (impactDiff !== 0) return impactDiff;
+    const kw = keywordBoost(b) - keywordBoost(a);
+    if (kw !== 0) return kw;
+    const noise = Number(receiptOnlyNoise(a)) - Number(receiptOnlyNoise(b));
+    if (noise !== 0) return noise;
+    return 0;
+  });
+};
+
+/** One subtle operational line per dashboard project card */
+const getDashboardProjectOperationalSignal = (project: {
+  rawProject: any;
+  margin: number;
+  progress: number;
+  status: string;
+  amount: number;
+  marginDisplay: string;
+}): { text: string; variant: "risk" | "watch" | "muted" } => {
+  const raw = project.rawProject || {};
+  const isCompleted = project.status === "Completed";
+
+  const endRaw = raw.endDate || raw.projectData?.endDate || raw.dueDate;
+  if (endRaw && !isCompleted) {
+    const d = new Date(endRaw);
+    if (!Number.isNaN(d.getTime()) && d.getTime() < Date.now()) {
+      return { text: "Schedule overdue", variant: "risk" };
+    }
+  }
+
+  const spent = Number(
+    raw.actualCost ||
+      raw.projectData?.spent ||
+      raw.projectData?.totalSpent ||
+      raw.totalSpent ||
+      0
+  );
+  const contract = Number(project.amount || 0);
+  if (contract > 0 && spent > 0 && !isCompleted) {
+    const ratio = spent / contract;
+    if (ratio > 0.98) return { text: "Cost overrun risk", variant: "risk" };
+    if (ratio > 0.88) return { text: "Spend nearing budget", variant: "watch" };
+  }
+
+  const m = Number(project.margin || 0);
+  if (!isCompleted && m > 0 && m < 10) {
+    return { text: "Low margin risk", variant: "risk" };
+  }
+  if (!isCompleted && m >= 10 && m < 16) {
+    return { text: "Margin watch", variant: "watch" };
+  }
+
+  if (isCompleted) {
+    return { text: project.marginDisplay || "Closed out", variant: "muted" };
+  }
+  if (project.progress >= 0.92) {
+    return { text: "Nearing completion", variant: "muted" };
+  }
+  return { text: "On track", variant: "muted" };
+};
+
 const computePipelineTotals = (projects: any[]) => {
   let totalBidValue = 0;
   let activeProjectsValue = 0;
@@ -313,6 +408,72 @@ const EVENT_TYPE_COLORS: Record<CalendarEvent["type"], string> = {
   other: "#f97316",
 };
 const ACCENT_GREEN = "#19E180";
+/** Emerald + cyan — Dashboard segment tabs, metrics, Profile, bpsThemeV2 */
+const BPS_BRAND_GREEN = "#22c55e";
+const BPS_BRAND_TEAL = "#22d3ee";
+
+const DISMISSED_NEXT_STEPS_STORAGE_KEY = "bps.dashboard.dismissedNextSteps.v1";
+
+/**
+ * Projects included in AI dashboard insights + next steps.
+ * Active / submitted / in-estimate only — never completed.
+ */
+const AI_DASHBOARD_PROJECT_STATUSES = new Set([
+  "draft",
+  "estimate",
+  "bid_submitted",
+  "submitted",
+  "won",
+  "in_progress",
+  "active",
+]);
+
+function normalizePortfolioStatus(status: unknown): string {
+  return (status ?? "")
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+}
+
+function isProjectEligibleForAiDashboardInsights(
+  p: { id?: unknown; status?: unknown } | null | undefined
+): boolean {
+  if (!p || p.id == null || String(p.id).trim() === "") return false;
+  const status = normalizePortfolioStatus(p.status);
+  return AI_DASHBOARD_PROJECT_STATUSES.has(status);
+}
+
+/** Lowercased titles for completed jobs — used to drop orphan AI rows that name a closed job. */
+function completedProjectTitlesLower(
+  activeProjects: any[],
+  estimates: any[]
+): string[] {
+  const all = [...activeProjects, ...estimates];
+  return all
+    .filter((p) => {
+      const s = normalizePortfolioStatus(p?.status);
+      return s === "completed" || s === "complete";
+    })
+    .map((p) => String(p?.title || p?.name || "").toLowerCase().trim())
+    .filter((t) => t.length >= 4);
+}
+
+function aiTextReferencesCompletedJob(text: string, completedTitles: string[]): boolean {
+  const hay = text.toLowerCase();
+  return completedTitles.some((title) => hay.includes(title));
+}
+
+/** Stable id for persisting dismissals (API id, or project + label fallback). */
+const stableNextStepId = (step: AiNextStep): string => {
+  const raw = step.id != null ? String(step.id).trim() : "";
+  if (raw) return raw;
+  const label = String(step.label || "").slice(0, 200);
+  const pid = step.projectId != null ? String(step.projectId) : "";
+  return `fb:${pid}:${label}`;
+};
+
 const EVENT_TYPE_FORM_ICONS: Record<CalendarEvent["type"], string> = {
   inspection: "check-circle",
   delivery: "package",
@@ -342,12 +503,45 @@ type MasterCalendarEvent = CalendarEvent & {
   isUserCreated?: boolean;
 };
 
+const toLocalISODate = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+type UpcomingFilterKey = "all" | "inspection" | "payment" | "tasks" | "ai";
+
+const matchesUpcomingFilter = (e: MasterCalendarEvent, f: UpcomingFilterKey): boolean => {
+  if (f === "all") return true;
+  if (f === "inspection") {
+    return e.calendarCategory === "inspection" || e.type === "inspection";
+  }
+  if (f === "payment") {
+    return e.calendarCategory === "payment" || e.type === "payment";
+  }
+  if (f === "tasks") {
+    const c = e.calendarCategory;
+    return (
+      c === "phase" ||
+      c === "delivery" ||
+      c === "deadline" ||
+      e.type === "work" ||
+      e.type === "delivery" ||
+      e.type === "deadline"
+    );
+  }
+  if (f === "ai") return Boolean(e.isUserCreated);
+  return true;
+};
+
 const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects, estimates }) => {
   const { theme, darkMode } = useTheme();
   const Colors = React.useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
   const [allEvents, setAllEvents] = React.useState<MasterCalendarEvent[]>([]);
-  const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = React.useState<string | null>(() => toLocalISODate());
+  const [upcomingFilter, setUpcomingFilter] = React.useState<UpcomingFilterKey>("all");
   const [showDateEventsModal, setShowDateEventsModal] = React.useState(false);
   const [showEventModal, setShowEventModal] = React.useState(false);
   const [editingEvent, setEditingEvent] = React.useState<MasterCalendarEvent | null>(null);
@@ -520,7 +714,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           const isCollected = m.status === 'completed' || m.status === 'paid' || m.collected || m.isPaid;
           pushUnique({
             id: `payment-${projectId}-${m.id || `${date}-${amount}`}`,
-            title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`,
+            title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: ${formatMoneyUSD(amount)}` : ''}`,
             date,
             type: 'payment',
             calendarCategory: 'payment',
@@ -559,7 +753,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 pushUnique({
                   id: `timeline-${projectId}-${item.id || `${date}-${item.title || item.name || 'milestone'}`}`,
                   title: category === 'payment'
-                    ? `${item.title || item.name || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`
+                    ? `${item.title || item.name || 'Payment'}${amount > 0 ? `: ${formatMoneyUSD(amount)}` : ''}`
                     : (item.title || item.name || 'Milestone'),
                   date,
                   type: categoryToType(category),
@@ -660,7 +854,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return allEvents.filter(event => event.date === dateStr);
   }, [allEvents]);
 
-  // Upcoming events (next 7 days) — same as ProjectCalendar
+  // Upcoming events (next 7 days) — same window as before; filter is presentation-only
   const upcomingEvents = React.useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -673,6 +867,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         eventDate.setHours(0, 0, 0, 0);
         return eventDate >= today && eventDate <= nextWeek;
       })
+      .filter((e) => matchesUpcomingFilter(e, upcomingFilter))
       .sort((a, b) => {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
@@ -680,8 +875,56 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         if (a.time && b.time) return a.time.localeCompare(b.time);
         return a.time ? -1 : b.time ? 1 : 0;
       })
-      .slice(0, 5);
+      .slice(0, 8);
+  }, [allEvents, upcomingFilter]);
+
+  const hasAnyUpcomingInWindow = React.useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return allEvents.some((e) => {
+      if (e.completed) return false;
+      const eventDate = new Date(e.date);
+      eventDate.setHours(0, 0, 0, 0);
+      return eventDate >= today && eventDate <= nextWeek;
+    });
   }, [allEvents]);
+
+  const getProjectSiteHint = React.useCallback(
+    (projectId: string): string | null => {
+      const p = [...activeProjects, ...estimates].find((x) => String(x?.id) === String(projectId));
+      if (!p) return null;
+      const pd = (p as any).projectData || p;
+      const city = (p as any).customerCity || pd.customerCity;
+      const st = (p as any).customerState || pd.customerState;
+      const zip = (p as any).customerZip || pd.customerZip;
+      if (city && st) {
+        return [city, st, zip].filter(Boolean).join(", ");
+      }
+      const site = (p as any).siteAddress || pd.siteAddress;
+      return site ? String(site).trim().slice(0, 48) || null : null;
+    },
+    [activeProjects, estimates],
+  );
+
+  const selectedDayContext = React.useMemo(() => {
+    if (!selectedDate) {
+      return { title: "Select a date", sub: "Tap the calendar to focus a day" };
+    }
+    const parts = selectedDate.split("-").map(Number);
+    if (parts.length !== 3) return { title: "Select a date", sub: "" };
+    const [y, m, d] = parts;
+    const dt = new Date(y, m - 1, d);
+    const count = allEvents.filter((ev) => ev.date === selectedDate).length;
+    const title = `Events for ${dt.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })}`;
+    const sub = count === 0 ? "No events on this day" : `${count} on this day`;
+    return { title, sub };
+  }, [selectedDate, allEvents]);
 
   const resetForm = React.useCallback(() => {
     setEventTitle("");
@@ -737,7 +980,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         : [...existing, newEvent];
       await AsyncStorage.setItem(key, JSON.stringify(updated));
       setShowEventModal(false);
-      setSelectedDate(null);
+      setSelectedDate(dateToSave);
       resetForm();
       setEditingEvent(null);
       if (Platform.OS === "ios") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -763,7 +1006,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             const updated = existing.filter((e) => e.id !== editingEvent.id);
             await AsyncStorage.setItem(key, JSON.stringify(updated));
             setShowEventModal(false);
-            setSelectedDate(null);
+            if (editingEvent?.date) setSelectedDate(editingEvent.date);
             resetForm();
             setEditingEvent(null);
             setRefreshTrigger((t) => t + 1);
@@ -836,10 +1079,27 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         green: '#22c55e',
       };
 
+  const calendarLegend = [
+    { key: "payment", label: "Payments", color: CALENDAR_CATEGORY_COLORS.payment },
+    { key: "inspection", label: "Inspections", color: CALENDAR_CATEGORY_COLORS.inspection },
+    { key: "phase", label: "Crew", color: CALENDAR_CATEGORY_COLORS.phase },
+    { key: "delivery", label: "Deliveries", color: CALENDAR_CATEGORY_COLORS.delivery },
+    { key: "deadline", label: "Deadlines", color: CALENDAR_CATEGORY_COLORS.deadline },
+  ] as const;
+
+  const upcomingFilterChips: { key: UpcomingFilterKey; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "inspection", label: "Inspections" },
+    { key: "payment", label: "Payments" },
+    { key: "tasks", label: "Tasks" },
+    { key: "ai", label: "AI" },
+  ];
+
   return (
     <>
-      <View style={{ marginTop: 8, marginBottom: 24 }}>
+      <View style={{ marginTop: 4, marginBottom: 14 }}>
         <GreyCalendar
+          selectedDateString={selectedDate}
           onDayPress={({ dateString }) => {
             setSelectedDate(dateString);
             setEventDate(dateString);
@@ -860,22 +1120,149 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           }}
           events={calendarEvents}
         />
+        <View style={{ marginTop: 10, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 15, fontWeight: "800", color: COLORS.text }}>
+            {selectedDayContext.title}
+          </Text>
+          <Text
+            style={{
+              fontSize: 12,
+              marginTop: 3,
+              color: darkMode ? "rgba(255,255,255,0.55)" : COLORS.subtext,
+              fontWeight: "500",
+            }}
+          >
+            {selectedDayContext.sub}
+          </Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ marginTop: 10, gap: 10, paddingRight: 8 }}
+        >
+          {calendarLegend.map((item) => (
+            <View
+              key={item.key}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <View
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 4,
+                  backgroundColor: item.color,
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: "600",
+                  color: darkMode ? "rgba(255,255,255,0.65)" : COLORS.subtext,
+                }}
+              >
+                {item.label}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
       </View>
 
       {/* Upcoming (Next 7 Days) */}
-      {upcomingEvents.length > 0 && (
-        <View style={{ paddingHorizontal: 0, marginBottom: 24 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Ionicons name="time-outline" size={20} color={COLORS.green} />
-            <Text style={{ fontSize: 18, fontWeight: '600', color: COLORS.text }}>Upcoming (Next 7 Days)</Text>
+      {allEvents.length > 0 && (
+        <View style={{ paddingHorizontal: 0, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Ionicons name="time-outline" size={19} color={COLORS.green} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: "700", color: COLORS.text }}>
+                Upcoming · next 7 days
+              </Text>
+              <Text
+                style={{
+                  fontSize: 11,
+                  marginTop: 2,
+                  color: darkMode ? "rgba(255,255,255,0.5)" : "#64748b",
+                  fontWeight: "500",
+                }}
+              >
+                Actionable schedule
+              </Text>
+            </View>
           </View>
-          {upcomingEvents.map((event) => (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8, marginBottom: 12, paddingRight: 12 }}
+          >
+            {upcomingFilterChips.map((chip) => {
+              const active = upcomingFilter === chip.key;
+              return (
+                <Pressable
+                  key={chip.key}
+                  onPress={() => {
+                    setUpcomingFilter(chip.key);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    backgroundColor: active
+                      ? "rgba(45, 255, 196, 0.18)"
+                      : darkMode
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(0,0,0,0.04)",
+                    borderColor: active ? "#2DFFC4" : darkMode ? "rgba(255,255,255,0.12)" : COLORS.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: "700",
+                      color: active ? "#2DFFC4" : COLORS.text,
+                    }}
+                  >
+                    {chip.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {upcomingEvents.length === 0 ? (
+            <Text
+              style={{
+                fontSize: 13,
+                color: darkMode ? "rgba(255,255,255,0.55)" : COLORS.subtext,
+                marginBottom: 8,
+              }}
+            >
+              {!hasAnyUpcomingInWindow
+                ? "Nothing scheduled in the next 7 days."
+                : "No events match this filter · try All."}
+            </Text>
+          ) : (
+            upcomingEvents.map((event) => {
+              const siteHint = getProjectSiteHint(event.projectId);
+              const statusLine = event.completed
+                ? "Done"
+                : event.notes?.toLowerCase().includes("collected")
+                  ? "Payment collected"
+                  : event.notes?.toLowerCase().includes("due")
+                    ? "Payment due"
+                    : null;
+              const typeLabel = event.calendarCategory
+                ? event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)
+                : event.type
+                  ? String(event.type).replace(/-/g, " ")
+                  : null;
+              return (
             <View
               key={event.id}
               style={{
                 flexDirection: 'column',
                 borderRadius: 12,
-                marginBottom: 12,
+                marginBottom: 10,
                 borderWidth: 1,
                 overflow: 'hidden',
                 backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5',
@@ -883,7 +1270,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               }}
             >
               <Pressable
-                style={{ flexDirection: 'row', flex: 1, padding: 12 }}
+                style={{ flexDirection: 'row', flex: 1, paddingVertical: 10, paddingHorizontal: 11 }}
                 onPress={() => {
                   if ((event as MasterCalendarEvent).isUserCreated) {
                     setEditingEvent(event as MasterCalendarEvent);
@@ -905,60 +1292,102 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 <View style={{
                   width: 4,
                   borderRadius: 2,
-                  marginRight: 12,
+                  marginRight: 10,
+                  alignSelf: 'stretch',
                   backgroundColor: getEventColor(event),
                 }} />
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '600', flex: 1, color: COLORS.text }}>{event.title}</Text>
-                    <MaterialIcons name={getEventIcon(event) as any} size={16} color={darkMode ? '#FFFFFF' : getEventColor(event)} />
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                    <Ionicons name="calendar-outline" size={14} color={COLORS.subtext} />
-                    <Text style={{ fontSize: 13, color: COLORS.subtext }}>
-                      {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      {event.time && ` at ${event.time}`}
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: COLORS.text }} numberOfLines={2}>
+                    {event.title}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    <Ionicons name="calendar-outline" size={15} color={COLORS.green} />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.text }}>
+                      {new Date(event.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {event.time ? ` · ${event.time}` : ''}
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 5 }}>
                     <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                    <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: darkMode ? 'rgba(255,255,255,0.85)' : COLORS.text, flexShrink: 1 }} numberOfLines={1}>
                       {event.projectName || 'Project'}
-                      {(event as MasterCalendarEvent).isCompletedProject && (
-                        <Text style={{ opacity: darkMode ? 1 : 0.7 }}> (Completed)</Text>
-                      )}
                     </Text>
-                  </View>
-                  {event.notes && (
-                    <Text style={{ fontSize: 12, marginTop: 6, color: COLORS.subtext }} numberOfLines={2}>
-                      {event.notes}
-                    </Text>
-                  )}
-                  {event.calendarCategory && (
-                    <View style={{ marginTop: 4 }}>
+                    {(event as MasterCalendarEvent).isCompletedProject ? (
                       <View style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 6,
-                        alignSelf: 'flex-start',
-                        backgroundColor: `${getEventColor(event)}20`,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)',
                       }}>
                         <Text style={{
-                          fontSize: 11,
-                          fontWeight: '600',
+                          fontSize: 9,
+                          fontWeight: '700',
+                          color: darkMode ? 'rgba(255,255,255,0.75)' : '#475569',
                           textTransform: 'uppercase',
-                          letterSpacing: 0.5,
-                          color: darkMode ? '#FFFFFF' : getEventColor(event),
-                        }}>
-                          {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
-                        </Text>
+                          letterSpacing: 0.3,
+                        }}>Completed</Text>
                       </View>
+                    ) : null}
+                  </View>
+                  {(siteHint || event.subcontractor) ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                      <Ionicons
+                        name={event.subcontractor ? 'person-outline' : 'location-outline'}
+                        size={13}
+                        color={COLORS.subtext}
+                      />
+                      <Text style={{ fontSize: 12, color: COLORS.subtext, flex: 1 }} numberOfLines={1}>
+                        {event.subcontractor ? event.subcontractor : siteHint}
+                        {event.subcontractor && siteHint ? ` · ${siteHint}` : ''}
+                      </Text>
                     </View>
+                  ) : null}
+                  {(statusLine || typeLabel) ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                      {typeLabel ? (
+                        <View style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 8,
+                          backgroundColor: `${getEventColor(event)}18`,
+                        }}>
+                          <Text style={{
+                            fontSize: 10,
+                            fontWeight: '700',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.4,
+                            color: darkMode ? 'rgba(255,255,255,0.92)' : getEventColor(event),
+                          }}>
+                            {typeLabel}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {statusLine ? (
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtext }}>{statusLine}</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  {event.notes && !statusLine ? (
+                    <Text style={{ fontSize: 11, marginTop: 5, color: darkMode ? 'rgba(255,255,255,0.5)' : COLORS.subtext }} numberOfLines={2}>
+                      {event.notes}
+                    </Text>
+                  ) : null}
+                  {(event as MasterCalendarEvent).isUserCreated ? (
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontWeight: '500' }}>
+                      Editable task
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontWeight: '500' }}>
+                      From schedule
+                    </Text>
                   )}
                 </View>
+                <MaterialIcons name={getEventIcon(event) as any} size={18} color={darkMode ? 'rgba(255,255,255,0.35)' : getEventColor(event)} style={{ marginLeft: 4 }} />
               </Pressable>
             </View>
-          ))}
+              );
+            })
+          )}
         </View>
       )}
 
@@ -969,7 +1398,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         animationType="slide"
         onRequestClose={() => {
           setShowDateEventsModal(false);
-          setSelectedDate(null);
         }}
       >
         <View style={{
@@ -983,7 +1411,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             borderTopRightRadius: 24,
             maxHeight: '90%',
             paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-            backgroundColor: COLORS.surface,
+            /* Match ProjectCalendar date modal (project detail calendar) */
+            backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
             overflow: 'hidden',
             elevation: 0,
             shadowColor: 'transparent',
@@ -1017,7 +1446,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               <Pressable
                 onPress={() => {
                   setShowDateEventsModal(false);
-                  setSelectedDate(null);
                 }}
               >
                 <Ionicons name="close" size={24} color={COLORS.text} />
@@ -1054,20 +1482,48 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                       >
-                        <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>Add Event</Text>
+                        <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>New Event</Text>
                       </Pressable>
                     </View>
                   );
                 }
                 return (
                   <>
-                    {eventsOnDate.map((event) => (
+                    {eventsOnDate.map((event) => {
+                      const me = event as MasterCalendarEvent;
+                      const pay =
+                        event.calendarCategory === "payment" || event.type === "payment";
+                      const payDone =
+                        pay &&
+                        (event.completed ||
+                          /collected/i.test(event.notes || ""));
+                      const hasInspectionResult = !!event.inspectionResult;
+                      const { primary: notePrimary, showAiAttribution } =
+                        splitEventNotesForDisplay(event.notes);
+                      const hidePayMeta =
+                        pay &&
+                        /^(payment collected|payment due)\.?$/i.test(
+                          (notePrimary || "").trim()
+                        );
+                      const notesPrimary = hidePayMeta ? "" : notePrimary;
+                      const categoryTint = pay
+                        ? darkMode
+                          ? "rgba(34, 197, 94, 0.12)"
+                          : "rgba(34, 197, 94, 0.1)"
+                        : `${getEventColor(event)}20`;
+                      const typeLabel = event.calendarCategory
+                        ? event.calendarCategory.charAt(0).toUpperCase() +
+                          event.calendarCategory.slice(1)
+                        : event.type
+                          ? String(event.type).replace(/-/g, " ")
+                          : null;
+                      return (
                       <Pressable
                         key={event.id}
                         onPress={() => {
-                          if ((event as MasterCalendarEvent).isUserCreated) {
+                          if (me.isUserCreated) {
                             setShowDateEventsModal(false);
-                            setEditingEvent(event as MasterCalendarEvent);
+                            setEditingEvent(me);
                             setEventTitle(event.title);
                             setEventDate(event.date);
                             setEventTime(event.time || "");
@@ -1083,9 +1539,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           flexDirection: 'row',
                           borderRadius: 12,
                           padding: 12,
-                          marginBottom: 12,
+                          marginBottom: 8,
                           borderWidth: 1,
-                          backgroundColor: COLORS.surface2,
+                          backgroundColor: darkMode ? '#1e293b' : COLORS.surface2,
                           borderColor: COLORS.border,
                         }}
                       >
@@ -1093,42 +1549,70 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           width: 4,
                           borderRadius: 2,
                           marginRight: 12,
+                          alignSelf: 'stretch',
                           backgroundColor: getEventColor(event),
                         }} />
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            marginBottom: 4,
+                            gap: 8,
                           }}>
                             <Text style={{
                               fontSize: 16,
                               fontWeight: '600',
                               flex: 1,
                               color: COLORS.text,
-                            }}>{event.title}</Text>
+                            }} numberOfLines={2}>{event.title}</Text>
                             <MaterialIcons
                               name={getEventIcon(event) as any}
-                              size={16}
-                              color={darkMode ? '#FFFFFF' : getEventColor(event)}
+                              size={18}
+                              color={getEventColor(event)}
                             />
                           </View>
                           <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
+                            flexWrap: 'wrap',
                             gap: 6,
-                            marginTop: 4,
+                            marginTop: 6,
                           }}>
                             <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                            <Text style={{ fontSize: 13, color: COLORS.subtext }}>
+                            <Text style={{ fontSize: 13, color: COLORS.subtext, flexShrink: 1 }} numberOfLines={1}>
                               {event.projectName || 'Project'}
-                              {(event as any).isCompletedProject && (
-                                <Text style={{ opacity: darkMode ? 1 : 0.7 }}> (Completed)</Text>
-                              )}
                             </Text>
+                            {me.isCompletedProject ? (
+                              <View style={{
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                                backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)',
+                              }}>
+                                <Text style={{
+                                  fontSize: 9,
+                                  fontWeight: '700',
+                                  color: darkMode ? 'rgba(255,255,255,0.75)' : '#475569',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.3,
+                                }}>Completed</Text>
+                              </View>
+                            ) : null}
                           </View>
-                          {event.time && (
+                          {event.subcontractor ? (
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginTop: 4,
+                            }}>
+                              <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
+                              <Text style={{ fontSize: 13, color: COLORS.subtext }} numberOfLines={1}>
+                                {event.subcontractor}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {event.time ? (
                             <View style={{
                               flexDirection: 'row',
                               alignItems: 'center',
@@ -1140,45 +1624,147 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                                 {event.time}
                               </Text>
                             </View>
-                          )}
-                          {event.notes && (
-                            <Text style={{
-                              fontSize: 12,
-                              marginTop: 6,
-                              color: COLORS.subtext,
-                            }} numberOfLines={2}>
-                              {event.notes}
-                            </Text>
-                          )}
-                          {event.calendarCategory && (
-                            <View style={{ marginTop: 4 }}>
+                          ) : null}
+                          <View style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginTop: 8,
+                          }}>
+                            {typeLabel ? (
                               <View style={{
                                 paddingHorizontal: 8,
-                                paddingVertical: 4,
+                                paddingVertical: 3,
                                 borderRadius: 6,
                                 alignSelf: 'flex-start',
-                                backgroundColor: `${getEventColor(event)}20`,
+                                backgroundColor: categoryTint,
                               }}>
                                 <Text style={{
                                   fontSize: 11,
                                   fontWeight: '600',
                                   textTransform: 'uppercase',
-                                  letterSpacing: 0.5,
-                                  color: darkMode ? '#FFFFFF' : getEventColor(event),
+                                  letterSpacing: 0.4,
+                                  color: getEventColor(event),
                                 }}>
-                                  {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                                  {typeLabel}
                                 </Text>
                               </View>
-                            </View>
-                          )}
+                            ) : null}
+                            {pay ? (
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                alignSelf: 'flex-start',
+                                backgroundColor: payDone
+                                  ? 'rgba(34, 197, 94, 0.14)'
+                                  : 'rgba(245, 158, 11, 0.14)',
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.4,
+                                  color: payDone ? COLORS.green : '#f59e0b',
+                                }}>
+                                  {payDone ? 'Paid' : 'Due'}
+                                </Text>
+                              </View>
+                            ) : null}
+                            {hasInspectionResult ? (
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                alignSelf: 'flex-start',
+                                backgroundColor:
+                                  event.inspectionResult === 'passed'
+                                    ? 'rgba(34, 197, 94, 0.14)'
+                                    : 'rgba(239, 68, 68, 0.14)',
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.4,
+                                  color: event.inspectionResult === 'passed' ? COLORS.green : '#ef4444',
+                                }}>
+                                  {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
+                                </Text>
+                              </View>
+                            ) : null}
+                            {event.completed &&
+                            !pay &&
+                            !hasInspectionResult &&
+                            event.type !== 'delivery' &&
+                            event.calendarCategory !== 'delivery' ? (
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                alignSelf: 'flex-start',
+                                backgroundColor: 'rgba(34, 197, 94, 0.14)',
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.4,
+                                  color: COLORS.green,
+                                }}>Completed</Text>
+                              </View>
+                            ) : null}
+                            {event.calendarCategory === 'delivery' &&
+                            event.completed &&
+                            !pay ? (
+                              <View style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                alignSelf: 'flex-start',
+                                backgroundColor: 'rgba(34, 197, 94, 0.14)',
+                              }}>
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 0.4,
+                                  color: COLORS.green,
+                                }}>Received</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          {notesPrimary ? (
+                            <Text style={{
+                              fontSize: 12,
+                              marginTop: 6,
+                              color: COLORS.subtext,
+                            }} numberOfLines={3}>
+                              {notesPrimary}
+                            </Text>
+                          ) : null}
+                          {showAiAttribution ? (
+                            <Text style={{
+                              fontSize: 10,
+                              marginTop: 6,
+                              fontWeight: '500',
+                              color: darkMode ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.45)',
+                            }}>From AI Assistant</Text>
+                          ) : null}
                         </View>
-                        {event.completed && (
-                          <View style={{ padding: 8, marginLeft: 8 }}>
+                        {pay && payDone ? (
+                          <View style={{ padding: 8, marginLeft: 8, justifyContent: 'center' }}>
                             <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                           </View>
-                        )}
+                        ) : event.completed && !pay ? (
+                          <View style={{ padding: 8, marginLeft: 8, justifyContent: 'center' }}>
+                            <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
+                          </View>
+                        ) : null}
                       </Pressable>
-                    ))}
+                      );
+                    })}
                   </>
                 );
               })()}
@@ -1201,7 +1787,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 }}
                 onPress={() => {
                   setShowDateEventsModal(false);
-                  setSelectedDate(null);
                 }}
               >
                 <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "700" }}>Close</Text>
@@ -1226,7 +1811,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
               >
-                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Add Event</Text>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>New Event</Text>
               </Pressable>
             </View>
           </View>
@@ -1240,7 +1825,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         animationType="slide"
         onRequestClose={() => {
           setShowEventModal(false);
-          setSelectedDate(null);
           resetForm();
           setEditingEvent(null);
         }}
@@ -1265,7 +1849,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowEventModal(false);
-                  setSelectedDate(null);
                   resetForm();
                   setEditingEvent(null);
                 }}
@@ -1680,13 +2263,8 @@ const DashboardScreen: React.FC = () => {
 
   // Compute projects hash for change detection
   const computeProjectsHash = useCallback(() => {
-    const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
     const allProjects = [...activeProjects, ...estimates]
-      .filter(p => {
-        if (!p || !p.id) return false;
-        const status = (p.status || '').toString().toLowerCase();
-        return validStatuses.includes(status);
-      })
+      .filter(isProjectEligibleForAiDashboardInsights)
       .map(p => ({
         id: String(p.id),
         status: p.status,
@@ -1718,14 +2296,9 @@ const DashboardScreen: React.FC = () => {
       const authState = clerkAuthService.getAuthState();
       const userId = authState.user?.id || authState.user?.email || 'unknown';
 
-      // Get all projects from context to send to AI
-      const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
+      // Active / submitted / estimates only — completed jobs excluded from AI context
       const allProjects = [...activeProjects, ...estimates]
-        .filter(p => {
-          if (!p || !p.id) return false;
-          const status = (p.status || '').toString().toLowerCase();
-          return validStatuses.includes(status);
-        })
+        .filter(isProjectEligibleForAiDashboardInsights)
         .map((p) => {
           const bidPrice = Number(p.bidPrice || 0);
           const estimatedCost = Number(p.estimatedCost || 0);
@@ -1792,36 +2365,30 @@ const DashboardScreen: React.FC = () => {
         });
       }
 
-      // Convert project IDs to strings for consistent comparison
-      // Reuse validStatuses from above (line 226)
-      const currentProjects = [...activeProjects, ...estimates].filter(p => {
-        const status = (p.status || '').toString().toLowerCase();
-        return validStatuses.includes(status);
-      });
-      const currentProjectIds = new Set(
-        currentProjects.map(p => String(p.id))
+      const currentProjects = [...activeProjects, ...estimates].filter(
+        isProjectEligibleForAiDashboardInsights
       );
-      const currentProjectNames = new Set(
-        currentProjects.map(p => String(p.title || p.name || '').toLowerCase().trim())
-      );
-      
-      // Filter out insights for deleted/invalid projects, keep everything else
+      const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
+      const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+
+      // Filter out insights/steps for completed or ineligible projects; drop orphans that name a completed job
       const filteredData = {
         ...response.data,
         insights: (response.data.insights || []).filter((insight: any) => {
-          // If the insight is tied to a specific project, only keep it if that project still exists
           if (insight.projectId) {
             return currentProjectIds.has(String(insight.projectId));
           }
-          // General insights (no projectId) are always kept
+          const blob = `${insight.title || ""} ${insight.body || ""}`;
+          if (aiTextReferencesCompletedJob(blob, completedTitles)) return false;
           return true;
         }),
         nextSteps: (response.data.nextSteps || []).filter((step: any) => {
-          // If the next step is tied to a specific project, only keep it if that project still exists
           if (step.projectId) {
             return currentProjectIds.has(String(step.projectId));
           }
-          // General next steps (no projectId) are always kept
+          const stepText = String(step.label || "");
+          if (stepText.toLowerCase().includes("josh")) return false;
+          if (aiTextReferencesCompletedJob(stepText, completedTitles)) return false;
           return true;
         }),
       };
@@ -1966,65 +2533,44 @@ const DashboardScreen: React.FC = () => {
     fetchAiData(true); // Force refresh
   }, [fetchAiData]);
 
-  // Filter AI insights to exclude deleted projects only
+  // AI insights: eligible projects only (no completed); orphan text must not name a completed job
   const filteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
-    
-    // Get current valid project IDs
-    const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
-    const currentProjects = [...activeProjects, ...estimates].filter(p => {
-      const status = (p.status || '').toString().toLowerCase();
-      return validStatuses.includes(status);
-    });
-    const currentProjectIds = new Set(
-      currentProjects.map(p => String(p.id))
+
+    const currentProjects = [...activeProjects, ...estimates].filter(
+      isProjectEligibleForAiDashboardInsights
     );
-    
-    // Simple filter: if insight has a projectId, only keep if that project exists
-    // General insights (no projectId) are always kept
+    const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
+    const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+
     return aiData.insights.filter((insight) => {
       if (insight.projectId) {
         return currentProjectIds.has(String(insight.projectId));
       }
-      // General insights always shown
+      const blob = `${insight.title || ""} ${insight.body || ""}`;
+      if (aiTextReferencesCompletedJob(blob, completedTitles)) return false;
       return true;
     });
   }, [aiData?.insights, activeProjects, estimates]);
 
   const filteredNextSteps = useMemo(() => {
     if (!aiData?.nextSteps) return [];
-    // Only include projects with valid statuses (active, submitted, in-progress)
-    const validStatuses = ['bid_submitted', 'submitted', 'won', 'in_progress', 'active', 'completed'];
-    const currentProjects = [...activeProjects, ...estimates].filter(p => {
-      const status = (p.status || '').toString().toLowerCase();
-      return validStatuses.includes(status);
-    });
-    const currentProjectIds = new Set(
-      currentProjects.map(p => String(p.id))
+
+    const currentProjects = [...activeProjects, ...estimates].filter(
+      isProjectEligibleForAiDashboardInsights
     );
-    
+    const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
+    const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+
     return aiData.nextSteps.filter((step) => {
-      if (!step.projectId) {
-        // For next steps without projectId, check if label mentions a deleted project
-        const stepText = String(step.label || '').toLowerCase();
-        if (stepText.includes('josh')) {
-          return false; // Filter out next steps mentioning "josh remodel"
-        }
-        return true; // Keep general next steps
+      const stepText = String(step.label || "").toLowerCase();
+      if (stepText.includes("josh")) return false;
+
+      if (step.projectId) {
+        return currentProjectIds.has(String(step.projectId));
       }
-      // Convert step.projectId to string for comparison
-      const stepProjectId = String(step.projectId);
-      if (currentProjectIds.has(stepProjectId)) {
-        return true; // Project ID matches, keep it
-      }
-      
-      // Fallback: Check if step mentions a deleted project by name
-      const stepText = String(step.label || '').toLowerCase();
-      if (stepText.includes('josh')) {
-        return false; // Filter out next steps mentioning "josh remodel"
-      }
-      
-      return false; // Project doesn't exist, filter it out
+      if (aiTextReferencesCompletedJob(stepText, completedTitles)) return false;
+      return true;
     });
   }, [aiData?.nextSteps, activeProjects, estimates]);
 
@@ -2308,6 +2854,7 @@ const DashboardScreen: React.FC = () => {
           <InsightsSection
             projects={projects}
             filteredNextSteps={filteredNextSteps}
+            filteredInsights={filteredInsights}
             aiPmMode={aiPmMode}
             aiLoading={aiLoading}
             aiError={aiError}
@@ -2320,21 +2867,39 @@ const DashboardScreen: React.FC = () => {
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
       <Pressable
-        style={styles.aiFloatingWrapper}
+        style={[
+          styles.aiFloatingWrapper,
+          activeTab === "calendar" && styles.aiFloatingWrapperCalendarTab,
+        ]}
         onPress={() => setAiPmMode((prev) => !prev)}
       >
         <LinearGradient
-          colors={aiPmMode ? ["#22c55e", "#22d3ee"] : ["#4b5563", "#020617"]}
+          colors={
+            aiPmMode
+              ? activeTab === "calendar"
+                ? ["#134e2a", "#115e59"]
+                : ["#15803d", "#0e7490"]
+              : ["#3f3f46", "#18181b"]
+          }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.aiFloating}
+          style={[
+            styles.aiFloating,
+            activeTab === "calendar" && styles.aiFloatingCalendarTab,
+          ]}
         >
           <Ionicons
             name="sparkles"
-            size={18}
-            color={aiPmMode ? "#020617" : "#e5e7eb"}
+            size={activeTab === "calendar" ? 14 : 15}
+            color={aiPmMode ? "#ecfdf5" : "#d4d4d8"}
           />
-          <Text style={styles.aiFloatingText}>
+          <Text
+            style={[
+              styles.aiFloatingText,
+              aiPmMode && styles.aiFloatingTextOn,
+              activeTab === "calendar" && styles.aiFloatingTextCalendarTab,
+            ]}
+          >
             {aiPmMode ? t('dashboard.aiPmModeOn') : t('dashboard.aiPmModeOff')}
           </Text>
         </LinearGradient>
@@ -2497,7 +3062,7 @@ const EnhancedMetricCard = ({
             <View style={styles.metricIconCircle}>
               <Ionicons
                 name={trendDirection === "up" ? "trending-up" : "trending-down"}
-                size={16}
+                size={14}
                 color={gradient || label === "Avg Margin" ? "#020617" : "#22d3ee"}
                   />
                 </View>
@@ -2505,7 +3070,7 @@ const EnhancedMetricCard = ({
           <Text style={[styles.metricValue, (gradient || label === "Avg Margin") && { color: "#020617" }]}>
             {value}
           </Text>
-          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "#020617aa" }]}>
+          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "rgba(2,6,23,0.55)" }]}>
             {label}
           </Text>
 
@@ -2516,15 +3081,15 @@ const EnhancedMetricCard = ({
             <View style={styles.trendRow}>
               <MaterialIcons
                 name={trendDirection === "up" ? "north-east" : "south-east"}
-                size={14}
-                color={trendDirection === "up" ? "#16a34a" : "#f97316"}
+                size={12}
+                color={trendDirection === "up" ? "#15803d" : "#ea580c"}
               />
               <Text
                 style={[
                   styles.trendText,
                   trendDirection === "up"
-                    ? { color: "#16a34a" }
-                    : { color: "#f97316" },
+                    ? { color: "#15803d" }
+                    : { color: "#ea580c" },
                 ]}
               >
                 {trend}
@@ -2535,7 +3100,7 @@ const EnhancedMetricCard = ({
           <Text
             style={[
               styles.metricContext,
-              (gradient || label === "Avg Margin") && { color: "#020617bb" },
+              (gradient || label === "Avg Margin") && styles.metricContextOnLight,
             ]}
           >
             {context}
@@ -2546,19 +3111,102 @@ const EnhancedMetricCard = ({
   );
 };
 
-/* ----------------- NEXT STEP ITEM ----------------- */
+/* ----------------- AI INSIGHTS CONTROL CENTER ROW ----------------- */
 
-const NextStepItem = ({ label, chip }: { label: string; chip: string }) => {
+const bucketChipVisual = (
+  bucket: ActionBucket,
+  dark: boolean
+): { bg: string; text: string; label: string } => {
+  if (bucket === "critical") {
+    return {
+      label: "Critical",
+      bg: dark ? "rgba(248, 113, 113, 0.18)" : "rgba(220, 38, 38, 0.12)",
+      text: dark ? "#fca5a5" : "#b91c1c",
+    };
+  }
+  if (bucket === "today") {
+    return {
+      label: "Today",
+      bg: dark ? "rgba(34, 211, 238, 0.14)" : "rgba(34, 211, 238, 0.12)",
+      text: dark ? "#67e8f9" : "#0e7490",
+    };
+  }
+  return {
+    label: "Quick win",
+    bg: dark ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.12)",
+    text: dark ? "#86efac" : BPS_BRAND_GREEN,
+  };
+};
+
+const InsightsActionRow = ({
+  step,
+  projectLine,
+  darkMode,
+  onRowPress,
+  onDismiss,
+}: {
+  step: AiNextStep;
+  projectLine?: string;
+  darkMode: boolean;
+  onRowPress: () => void;
+  onDismiss: () => void;
+}) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
-  
+  const bucket = bucketForNextStep(step);
+  const chipVis = bucketChipVisual(bucket, darkMode);
+  const title = humanizeNextStepLabel(step.label);
+  const { cta } = inferCtaFromStep(step.label);
+
   return (
-    <View style={styles.nextStepRow}>
-      <View style={styles.nextStepBullet} />
-      <Text style={styles.nextStepLabel}>{label}</Text>
-      <View style={styles.nextStepChip}>
-        <Text style={styles.nextStepChipText}>{chip}</Text>
+    <View style={styles.insightsActionCard}>
+      <Pressable
+        onPress={onRowPress}
+        style={({ pressed }) => [
+          styles.insightsActionMainPress,
+          pressed && styles.insightsActionCardPressed,
+        ]}
+      >
+        <View style={styles.insightsActionTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.insightsActionTitleRow}>
+              <Text style={styles.insightsActionTitle} numberOfLines={2}>
+                {title}
+              </Text>
+              <View style={[styles.insightsBucketChip, { backgroundColor: chipVis.bg }]}>
+                <Text style={[styles.insightsBucketChipText, { color: chipVis.text }]}>
+                  {chipVis.label}
+                </Text>
+              </View>
+            </View>
+            {projectLine ? (
+              <Text style={styles.insightsActionContext} numberOfLines={1}>
+                {projectLine}
+              </Text>
+            ) : null}
+            {step.chip ? (
+              <Text style={styles.insightsActionMeta}>{step.chip}</Text>
+            ) : null}
+          </View>
+          <View style={styles.insightsActionCtaCol}>
+            <Text style={styles.insightsActionCta}>{cta}</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={darkMode ? BPS_BRAND_TEAL : "rgba(14, 116, 144, 0.85)"}
+            />
+          </View>
+        </View>
+      </Pressable>
+      <View style={styles.insightsActionFooter}>
+        <Pressable
+          onPress={onDismiss}
+          hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+          style={styles.insightsActionFooterHit}
+        >
+          <Text style={styles.insightsActionFooterText}>Dismiss</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -2693,8 +3341,12 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   /** Collapsed by default — long lists expand on demand; preview still shows first N */
   const [aiInsightsExpanded, setAiInsightsExpanded] = useState(false);
-  const insightCount = filteredInsights.length;
-  const INSIGHT_PREVIEW_COUNT = 3;
+  const overviewInsightsSorted = useMemo(
+    () => sortInsightsForOverview(filteredInsights),
+    [filteredInsights],
+  );
+  const insightCount = overviewInsightsSorted.length;
+  const INSIGHT_PREVIEW_COUNT = 2;
   const showPreviewPanel =
     aiPmMode && !aiLoading && !aiError && insightCount > 0 && !aiInsightsExpanded;
   const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
@@ -2720,7 +3372,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           <Text style={styles.sectionTitle}>Key Metrics</Text>
           <Text style={styles.sectionSubtitle}>This month at a glance</Text>
                     </View>
-        <Text style={styles.linkText}>Swipe ➜</Text>
+        <Text style={styles.metricsSwipeHint}>Swipe</Text>
                   </View>
 
         <View
@@ -2734,7 +3386,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingRight: 24 }}
+            contentContainerStyle={{ paddingRight: 28, paddingLeft: 2 }}
           >
           <EnhancedMetricCard
             gradient
@@ -2783,7 +3435,9 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
       >
         <View style={{ flex: 1, paddingRight: 8 }}>
           <Text style={styles.sectionTitle}>AI Insights for Today</Text>
-          <Text style={styles.sectionSubtitle}>What your AI project manager sees</Text>
+          <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
+            Top issues first · expand for the full list
+          </Text>
         </View>
         <Ionicons
           name={aiInsightsExpanded ? "chevron-up" : "chevron-down"}
@@ -2817,7 +3471,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             style={styles.aiPanelBorder}
           >
             <View style={styles.aiPanelInner}>
-              {filteredInsights.slice(0, INSIGHT_PREVIEW_COUNT).map((insight) => (
+              {overviewInsightsSorted.slice(0, INSIGHT_PREVIEW_COUNT).map((insight) => (
                 <InsightItem
                   key={insight.id}
                   type={insight.type}
@@ -2833,12 +3487,15 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     pressed && { opacity: 0.85 },
                   ]}
                   accessibilityRole="button"
-                  accessibilityLabel={`Show ${insightsHiddenCount} more insights`}
+                  accessibilityLabel={`View all insights, ${insightsHiddenCount} more`}
                 >
-                  <Text style={styles.aiInsightsShowMoreText}>
-                    +{insightsHiddenCount} more insight{insightsHiddenCount === 1 ? "" : "s"} — tap to show all
-                  </Text>
-                  <Ionicons name="chevron-down" size={18} color="#22c55e" />
+                  <View style={styles.aiInsightsShowMoreInner}>
+                    <Text style={styles.aiInsightsShowMorePrimary}>View all insights</Text>
+                    <Text style={styles.aiInsightsShowMoreSecondary}>
+                      +{insightsHiddenCount} more
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={16} color={Colors.sub} />
                 </Pressable>
               )}
             </View>
@@ -2890,7 +3547,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             {aiPmMode &&
               !aiLoading &&
               !aiError &&
-              filteredInsights.map((insight) => (
+              overviewInsightsSorted.map((insight) => (
                 <InsightItem
                   key={insight.id}
                   type={insight.type}
@@ -2914,7 +3571,15 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           project,
         }: {
           project: any;
-        }) => (
+        }) => {
+          const op = getDashboardProjectOperationalSignal(project);
+          const signalStyle =
+            op.variant === "risk"
+              ? styles.projectSummarySignalRisk
+              : op.variant === "watch"
+                ? styles.projectSummarySignalWatch
+                : styles.projectSummarySignalMuted;
+          return (
           <Pressable
             style={styles.projectSummaryWrapper}
             onPress={() => onProjectPress(project)}
@@ -2935,7 +3600,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     >
                       {project.name}
                     </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                    <View style={styles.projectSummaryValueRow}>
                       <Text style={styles.projectSummaryAmount}>
                         {formatMoneyUSD(project.amount)}
                       </Text>
@@ -2995,10 +3660,14 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     {Math.round(project.progress * 100)}%
                   </Text>
                 </View>
+                <Text style={[styles.projectSummarySignal, signalStyle]} numberOfLines={1}>
+                  {op.text}
+                </Text>
                 </View>
               </View>
           </Pressable>
-        );
+          );
+        };
 
   return (
           <View style={styles.allProjectsContainer}>
@@ -3137,13 +3806,13 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           style={{
             borderRadius: 20,
             padding: 1,
-            marginBottom: 16,
+            marginBottom: 12,
           }}
         >
           <View style={{
             backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
             borderRadius: 18,
-            padding: 16,
+            padding: 14,
           }}>
             <View style={styles.cardHeaderRow}>
               <View>
@@ -3247,7 +3916,8 @@ const AnalyticsMetric = ({
 
 interface InsightsSectionProps {
   projects: any[];
-  filteredNextSteps: any[];
+  filteredNextSteps: AiNextStep[];
+  filteredInsights: AiInsight[];
   aiPmMode: boolean;
   aiLoading: boolean;
   aiError: string | null;
@@ -3257,15 +3927,75 @@ interface InsightsSectionProps {
 const InsightsSection: React.FC<InsightsSectionProps> = ({
   projects,
   filteredNextSteps,
+  filteredInsights,
   aiPmMode,
   aiLoading,
   aiError,
   aiData,
 }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
-  
+  const router = useRouter();
+  const [showAllActions, setShowAllActions] = useState(false);
+  const [dismissedNextStepIds, setDismissedNextStepIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DISMISSED_NEXT_STEPS_STORAGE_KEY);
+        if (!alive || !raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setDismissedNextStepIds(new Set(parsed.map(String)));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** Drop dismissals that no longer match the current feed (e.g. after API refresh). */
+  useEffect(() => {
+    if (filteredNextSteps.length === 0) return;
+    const currentIds = new Set(filteredNextSteps.map(stableNextStepId));
+    setDismissedNextStepIds((prev) => {
+      let removed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (currentIds.has(id)) next.add(id);
+        else removed = true;
+      });
+      if (!removed && next.size === prev.size) return prev;
+      return next;
+    });
+  }, [filteredNextSteps]);
+
+  const dismissNextStep = useCallback(async (step: AiNextStep) => {
+    const id = stableNextStepId(step);
+    if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setDismissedNextStepIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    try {
+      const raw = await AsyncStorage.getItem(DISMISSED_NEXT_STEPS_STORAGE_KEY);
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      if (!list.includes(id)) {
+        list.push(id);
+        await AsyncStorage.setItem(DISMISSED_NEXT_STEPS_STORAGE_KEY, JSON.stringify(list));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const urgentProjects = useMemo(() => {
     return projects.filter(
       (p) =>
@@ -3280,111 +4010,313 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
       : 0;
 
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) m.set(String(p.id), p.name || "Project");
+    return m;
+  }, [projects]);
+
+  const sortedInsights = useMemo(
+    () => sortInsightsForOverview(filteredInsights),
+    [filteredInsights]
+  );
+  const primaryInsight = sortedInsights[0];
+
+  const stepsAfterDismiss = useMemo(
+    () => filteredNextSteps.filter((s) => !dismissedNextStepIds.has(stableNextStepId(s))),
+    [filteredNextSteps, dismissedNextStepIds]
+  );
+
+  const sortedSteps = useMemo(
+    () => sortNextStepsForControlCenter(stepsAfterDismiss),
+    [stepsAfterDismiss]
+  );
+  const grouped = useMemo(() => groupNextStepsByBucket(stepsAfterDismiss), [stepsAfterDismiss]);
+
+  const visibleSteps = useMemo(() => {
+    if (showAllActions) return sortedSteps;
+    return sortedSteps.slice(0, 3);
+  }, [sortedSteps, showAllActions]);
+
+  const patterns = useMemo(
+    () => portfolioPatternBullets(filteredInsights, filteredNextSteps),
+    [filteredInsights, filteredNextSteps]
+  );
+
+  const heroAccent = primaryInsight
+    ? primaryInsight.type === "alert"
+      ? "#f97316"
+      : primaryInsight.type === "opportunity"
+        ? BPS_BRAND_GREEN
+        : BPS_BRAND_TEAL
+    : urgentProjects.length > 0
+      ? "#f97316"
+      : avgMargin > 80
+        ? BPS_BRAND_GREEN
+        : BPS_BRAND_TEAL;
+
+  const openProject = (projectId?: string | null) => {
+    if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (projectId) router.push(`/project-detail/${projectId}`);
+    else router.push("/(tabs)/projects");
+  };
+
+  const renderActionGroup = (label: string, steps: AiNextStep[]) => {
+    if (steps.length === 0) return null;
+    return (
+      <View key={label} style={{ marginBottom: 14 }}>
+        <Text style={styles.insightsGroupLabel}>{label}</Text>
+        {steps.map((step, index) => (
+          <InsightsActionRow
+            key={`${stableNextStepId(step)}-${label}-${index}`}
+            step={step}
+            darkMode={darkMode}
+            projectLine={
+              step.projectId
+                ? projectNameById.get(String(step.projectId))
+                : undefined
+            }
+            onRowPress={() => openProject(step.projectId)}
+            onDismiss={() => dismissNextStep(step)}
+          />
+        ))}
+      </View>
+    );
+  };
+
   return (
     <>
+      {/* Hero: Today's AI brief / biggest risk */}
       <View style={styles.wideContainer}>
-        <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.nextStepsBorder}
+        <View
+          style={[
+            styles.insightsHeroCard,
+            { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
+          ]}
         >
-          <View style={styles.nextStepsInner}>
-            <Text style={styles.insightsCardTitle}>AI Insights</Text>
-            <Text style={styles.insightsBodyText}>
-              {avgMargin > 80 && (
-                <>
-                  Your average margin is trending above {avgMargin.toFixed(1)}%. Consider raising
-                  your minimum markup on new bids.
-                  {"\n\n"}
-                </>
-              )}
-              {urgentProjects.length > 0 && (
-                <>
-                  {urgentProjects.length} project{urgentProjects.length > 1 ? "s are" : " is"} under-utilizing your labor team. Shift crew from completed jobs to in-progress
-                  work to finish sooner.
-                </>
-              )}
-              {urgentProjects.length === 0 && avgMargin <= 80 && (
-                <>
-                  Smart suggestions about your bids, margins, and project risks will appear here
-                  as you add more projects.
-                </>
-              )}
-            </Text>
+          <View style={[styles.insightsHeroAccent, { backgroundColor: heroAccent }]} />
+          <View style={styles.insightsHeroBody}>
+            <View style={styles.insightsHeroEyebrowRow}>
+              <Ionicons name="sparkles" size={14} color={heroAccent} />
+              <Text style={[styles.insightsHeroEyebrow, { color: heroAccent }]}>
+                {aiPmMode
+                  ? primaryInsight
+                    ? heroKickerForInsight(primaryInsight.type)
+                    : urgentProjects.length > 0
+                      ? "Schedule pressure"
+                      : avgMargin > 80
+                        ? "Margin strength"
+                        : "AI control center"
+                  : "AI PM off"}
+              </Text>
+            </View>
+
+            {aiPmMode && aiLoading && (
+              <Text style={styles.insightsHeroHeadline}>Syncing your brief…</Text>
+            )}
+
+            {aiPmMode && !aiLoading && aiError && (
+              <>
+                <Text style={styles.insightsHeroHeadline}>Insights unavailable</Text>
+                <Text style={styles.insightsHeroSupport}>
+                  Pull to refresh or check your connection. Underlying data is unchanged.
+                </Text>
+              </>
+            )}
+
+            {aiPmMode && !aiLoading && !aiError && primaryInsight && (
+              <>
+                <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
+                  {primaryInsight.title}
+                </Text>
+                <Text style={styles.insightsHeroSupport} numberOfLines={3}>
+                  {firstSupportingSentence(primaryInsight.body)}
+                </Text>
+                <LinearGradient
+                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.insightsHeroCtaGradient}
+                >
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.insightsHeroCtaInner,
+                      { opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    onPress={() => openProject(primaryInsight.projectId)}
+                  >
+                    <Text style={styles.insightsHeroCtaText}>
+                      {primaryInsight.projectId ? "Review project" : "View portfolio"}
+                    </Text>
+                    <Ionicons name="arrow-forward" size={18} color="#050B13" />
+                  </Pressable>
+                </LinearGradient>
+              </>
+            )}
+
+            {aiPmMode && !aiLoading && !aiError && !primaryInsight && (
+              <>
+                <Text style={styles.insightsHeroHeadline} numberOfLines={2}>
+                  {urgentProjects.length > 0
+                    ? `${urgentProjects.length} active job${urgentProjects.length > 1 ? "s" : ""} need timeline attention`
+                    : avgMargin > 80
+                      ? `Portfolio margin averaging ${avgMargin.toFixed(1)}%`
+                      : "No major portfolio flags"}
+                </Text>
+                <Text style={styles.insightsHeroSupport} numberOfLines={3}>
+                  {urgentProjects.length > 0
+                    ? "Pull crew forward on in-progress work to protect dates."
+                    : avgMargin > 80
+                      ? "Strong spreads—tighten markup discipline on new bids."
+                      : "Add live costs to sharpen risk and next actions."}
+                </Text>
+                <LinearGradient
+                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.insightsHeroCtaGradient}
+                >
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.insightsHeroCtaInner,
+                      { opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    onPress={() => openProject(null)}
+                  >
+                    <Text style={styles.insightsHeroCtaText}>View projects</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#050B13" />
+                  </Pressable>
+                </LinearGradient>
+              </>
+            )}
+
+            {!aiPmMode && (
+              <Text style={styles.insightsHeroSupport}>
+                Turn on AI PM Mode for a daily brief, ranked actions, and portfolio patterns.
+              </Text>
+            )}
           </View>
-        </LinearGradient>
+        </View>
       </View>
 
-      {/* NEXT STEPS */}
-      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
-        <View>
-          <Text style={styles.sectionTitle}>Next Steps for You</Text>
-          <Text style={styles.sectionSubtitle}>Quick actions to stay ahead</Text>
+      {/* Prioritized actions */}
+      <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>Prioritized actions</Text>
+          <Text style={styles.sectionSubtitle}>Critical first · then today · quick wins</Text>
         </View>
       </View>
 
       <View style={styles.wideContainer}>
-        <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.nextStepsBorder}
+        <View
+          style={[
+            styles.insightsActionsPanel,
+            { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
+          ]}
         >
-          <View style={styles.nextStepsInner}>
-            {aiPmMode && aiLoading && (
-              <Text style={styles.aiPanelPausedText}>Building your next steps…</Text>
-            )}
+          {aiPmMode && aiLoading && (
+            <Text style={styles.insightsAuxText}>Loading actions…</Text>
+          )}
 
-            {aiPmMode &&
-              !aiLoading &&
-              !aiError &&
-              (filteredNextSteps.length >= 4 ? (
-                <ScrollView
-                  nestedScrollEnabled
-                  showsVerticalScrollIndicator
-                  style={styles.nextStepsListScroll}
-                  contentContainerStyle={styles.nextStepsListScrollContent}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {filteredNextSteps.map((step, index) => (
-                    <NextStepItem
-                      key={step.id ? `${step.id}-${index}` : `step-${index}`}
-                      label={step.label}
-                      chip={step.chip}
-                    />
-                  ))}
-                </ScrollView>
+          {aiPmMode && !aiLoading && !aiError && sortedSteps.length > 0 && (
+            <>
+              {showAllActions ? (
+                <>
+                  {renderActionGroup("Critical", grouped.critical)}
+                  {renderActionGroup("Today", grouped.today)}
+                  {renderActionGroup("Quick wins", grouped.quick)}
+                </>
               ) : (
-                filteredNextSteps.map((step, index) => (
-                  <NextStepItem
-                    key={step.id ? `${step.id}-${index}` : `step-${index}`}
-                    label={step.label}
-                    chip={step.chip}
+                visibleSteps.map((step, index) => (
+                  <InsightsActionRow
+                    key={`${stableNextStepId(step)}-c-${index}`}
+                    step={step}
+                    darkMode={darkMode}
+                    projectLine={
+                      step.projectId
+                        ? projectNameById.get(String(step.projectId))
+                        : undefined
+                    }
+                    onRowPress={() => openProject(step.projectId)}
+                    onDismiss={() => dismissNextStep(step)}
                   />
                 ))
-              ))}
+              )}
 
-            {!aiPmMode && (
-              <View style={styles.aiEmptyState}>
-                <Ionicons name="checkmark-circle-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
-                <Text style={styles.aiEmptyStateTitle}>
-                  Turn on AI PM Mode
-                </Text>
-                <Text style={styles.aiPanelPausedText}>
-                  Get personalized next steps based on your projects
-                </Text>
-              </View>
-            )}
+              {sortedSteps.length > 3 ? (
+                <Pressable
+                  onPress={() => {
+                    setShowAllActions((v) => !v);
+                    if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={styles.insightsViewAllRow}
+                >
+                  <Text style={styles.insightsViewAllText}>
+                    {showAllActions ? "Show fewer" : "View all actions"}
+                  </Text>
+                  <Ionicons
+                    name={showAllActions ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color={BPS_BRAND_GREEN}
+                  />
+                </Pressable>
+              ) : null}
+            </>
+          )}
 
-            {aiPmMode && !aiLoading && (aiData?.nextSteps ?? []).length === 0 && (
-              <Text style={styles.aiPanelPausedText}>
-                No immediate actions needed. Keep up the great work!
-              </Text>
-            )}
-          </View>
-        </LinearGradient>
+          {!aiPmMode && (
+            <View style={styles.aiEmptyState}>
+              <Ionicons name="sparkles-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
+              <Text style={styles.aiEmptyStateTitle}>AI PM Mode is off</Text>
+                <Text style={styles.insightsAuxText}>
+                  Toggle the floating badge to enable ranked actions.
+                </Text>
+            </View>
+          )}
+
+          {aiPmMode && !aiLoading && !aiError && sortedSteps.length === 0 && (
+            <Text style={styles.insightsAuxText}>
+              {filteredNextSteps.length > 0
+                ? "All current actions are dismissed. New ones will show when your dashboard refreshes."
+                : "No queued actions. Nice work."}
+            </Text>
+          )}
+        </View>
       </View>
+
+      {/* Portfolio patterns */}
+      {aiPmMode && !aiLoading && !aiError && (
+        <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
+          <View>
+            <Text style={styles.sectionTitle}>What we&apos;re seeing</Text>
+            <Text style={styles.sectionSubtitle}>Across your portfolio</Text>
+          </View>
+        </View>
+      )}
+
+      {aiPmMode && !aiLoading && !aiError && (
+        <View style={styles.wideContainer}>
+          <View
+            style={[
+              styles.insightsPatternsCard,
+              { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
+            ]}
+          >
+            {patterns.map((line, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.insightsPatternRow,
+                  i === patterns.length - 1 && { marginBottom: 0 },
+                ]}
+              >
+                <View style={styles.insightsPatternDot} />
+                <Text style={styles.insightsPatternText}>{line}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
     </>
   );
 };
@@ -3597,7 +4529,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     borderWidth: 0,
   },
   analyticsSection: {
-    marginBottom: 16,
+    marginBottom: 10,
   },
   performanceSnapshotCard: {
     backgroundColor: "transparent", // gradient handles the fill
@@ -3621,7 +4553,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   cardTitle: {
     fontSize: 22, // Slightly larger
@@ -3646,6 +4578,217 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     lineHeight: 23,
     color: Colors.bg === '#000000' ? "#F3F4F6" : "#475569",
   },
+  insightsHeroCard: {
+    flexDirection: "row",
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
+    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    marginBottom: 4,
+  },
+  insightsHeroAccent: {
+    width: 4,
+    alignSelf: "stretch",
+  },
+  insightsHeroBody: {
+    flex: 1,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    paddingRight: 18,
+  },
+  insightsHeroEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+  },
+  insightsHeroEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  insightsHeroHeadline: {
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
+    lineHeight: 28,
+  },
+  insightsHeroSupport: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.82)" : "#64748b",
+  },
+  insightsHeroCtaGradient: {
+    marginTop: 16,
+    alignSelf: "flex-start",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  insightsHeroCtaInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+  },
+  insightsHeroCtaText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#050B13",
+  },
+  insightsActionsPanel: {
+    borderRadius: 20,
+    padding: 16,
+    paddingBottom: 12,
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
+    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    marginBottom: 4,
+  },
+  insightsGroupLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.68)" : "#64748b",
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  insightsActionCard: {
+    borderRadius: 14,
+    marginBottom: 10,
+    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.04)",
+    borderWidth: 1,
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.08)",
+    overflow: "hidden",
+  },
+  insightsActionMainPress: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 8,
+  },
+  insightsActionCardPressed: {
+    opacity: 0.92,
+    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.05)",
+  },
+  insightsActionTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  insightsActionTitleRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+  },
+  insightsActionTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.bg === '#000000' ? "#F8FAFC" : Colors.text,
+    lineHeight: 21,
+  },
+  insightsActionContext: {
+    marginTop: 4,
+    fontSize: 12,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.72)" : "#64748b",
+  },
+  insightsActionMeta: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.58)" : "rgba(15,23,42,0.45)",
+  },
+  insightsActionCtaCol: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
+  },
+  insightsActionCta: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: BPS_BRAND_GREEN,
+  },
+  insightsBucketChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  insightsBucketChipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  insightsActionFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)",
+  },
+  insightsActionFooterHit: {
+    paddingVertical: 2,
+  },
+  insightsActionFooterText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "rgba(15,23,42,0.45)",
+  },
+  insightsViewAllRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  insightsViewAllText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: BPS_BRAND_GREEN,
+  },
+  insightsPatternsCard: {
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
+    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    marginBottom: 8,
+  },
+  insightsPatternRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 10,
+  },
+  insightsPatternDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 6,
+    backgroundColor: BPS_BRAND_GREEN,
+    opacity: 0.9,
+  },
+  insightsPatternText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
+  },
+  /** Loading / empty copy on Insights tab — brighter than generic panel text */
+  insightsAuxText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: Colors.bg === '#000000' ? "#cbd5e1" : "#475569",
+    marginBottom: 10,
+  },
   insightsSectionTitle: {
     fontSize: 20,
     fontWeight: Colors.bg === '#000000' ? "700" : "800",
@@ -3662,6 +4805,12 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontSize: 14,
     fontWeight: "600",
     color: "#15E08A",
+  },
+  metricsSwipeHint: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.38)" : "rgba(15,23,42,0.45)",
+    letterSpacing: 0.2,
   },
 
   // METRICS
@@ -3683,11 +4832,11 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   metricCardSecondary: {
     width: 200,
-    borderRadius: 26,
-    padding: 16,
+    borderRadius: 20,
+    padding: 12,
     backgroundColor: "#0A2641",
     justifyContent: "space-between",
-    minHeight: 140,
+    minHeight: 118,
   },
   metricIconPill: {
     width: 34,
@@ -3708,9 +4857,10 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginBottom: 10,
   },
   metricValue: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "800",
     color: "#FFFFFF",
+    letterSpacing: -0.5,
   },
   metricValueSecondary: {
     fontSize: 30,
@@ -3718,9 +4868,10 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     color: "#FFFFFF",
   },
   metricLabel: {
-    marginTop: 2,
-    fontSize: 14,
-    color: "#E6F5FF",
+    marginTop: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(230,245,255,0.78)",
   },
   metricLabelSecondary: {
     marginTop: 2,
@@ -3802,12 +4953,12 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
   },
   statusPillBase: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   statusPillTextBase: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
   },
   projectMiddleRow: {
@@ -3877,15 +5028,15 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
 
   // PROJECT SUMMARY CARDS
   projectSummaryWrapper: {
-    marginTop: 8,
+    marginTop: 6,
   },
   projectSummaryBorder: {
     borderRadius: 20,
     padding: 1,
   },
   projectSummaryCard: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 11,
     borderRadius: 14,
     backgroundColor: Colors.bg === '#000000' ? Colors.surface2 : Colors.surface2,
     borderWidth: Colors.bg === '#000000' ? 1 : 0,
@@ -3894,32 +5045,54 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   projectSummaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
+    alignItems: "flex-start",
+    marginBottom: 6,
   },
   projectSummaryName: {
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
     color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
     flexShrink: 1,
+    letterSpacing: -0.2,
+  },
+  projectSummaryValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 3,
   },
   projectSummaryAmount: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
-    marginTop: 4,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.bg === '#000000' ? "#F8FAFC" : Colors.text,
   },
   projectSummaryProgress: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    marginTop: 2,
+  },
+  projectSummarySignal: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 5,
+    letterSpacing: 0.15,
+  },
+  projectSummarySignalRisk: {
+    color: "#d97706",
+  },
+  projectSummarySignalWatch: {
+    color: Colors.bg === '#000000' ? "rgba(148,163,184,0.95)" : "#64748b",
+  },
+  projectSummarySignalMuted: {
+    color: Colors.bg === '#000000' ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.75)",
   },
 
   // ANALYTICS
   analyticsGrid: {
     flexDirection: "column",
-    marginTop: 16,
-    gap: 10,
+    marginTop: 12,
+    gap: 8,
   },
   analyticsMetricBorder: {
     width: "48%",
@@ -3933,7 +5106,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     alignItems: "center",
     backgroundColor: Colors.surface2, // Match All Projects cards in both modes
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
     borderWidth: 1, // Match project card border in light mode without resizing
     borderColor: Colors.line,
   },
@@ -4052,14 +5225,14 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
 
   // ENHANCED METRIC CARDS
   metricOuter: {
-    width: width * 0.72,
-    marginRight: 14,
+    width: width * 0.62,
+    marginRight: 10,
   },
   metricGradientCard: {
     flex: 1,
-    borderRadius: 24,
-    padding: 16,
-    minHeight: 140,
+    borderRadius: 20,
+    padding: 12,
+    minHeight: 118,
     justifyContent: "space-between",
   },
   metricTopRow: {
@@ -4067,8 +5240,8 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     justifyContent: "flex-end",
   },
   metricIconCircle: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     borderRadius: 999,
     backgroundColor: "rgba(15,23,42,0.55)",
     justifyContent: "center",
@@ -4078,32 +5251,37 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 14,
+    marginTop: 6,
   },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.7)",
+    backgroundColor: "rgba(15,23,42,0.55)",
   },
   chipText: {
-    fontSize: 11,
-    color: "#e5e7eb",
-    fontWeight: "600",
+    fontSize: 10,
+    color: "rgba(229,231,235,0.88)",
+    fontWeight: "500",
   },
   trendRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
   },
   trendText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "500",
   },
   metricContext: {
-    fontSize: 12,
-    color: "#F3F4F6",
-    marginTop: 10,
+    fontSize: 11,
+    lineHeight: 15,
+    color: "rgba(243,244,246,0.62)",
+    marginTop: 6,
+    fontWeight: "400",
+  },
+  metricContextOnLight: {
+    color: "rgba(2,6,23,0.42)",
   },
 
   // WIDE CONTAINER (matches allProjectsContainer)
@@ -4116,7 +5294,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     paddingHorizontal: 12,
   },
   overviewKeyMetricsBottomSpacing: {
-    marginBottom: 24,
+    marginBottom: 18,
   },
   aiInsightsHeaderTopSpacing: {
     marginTop: 4,
@@ -4124,8 +5302,8 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
 
   // SECTION HEADERS
   sectionHeaderRow: {
-    marginTop: 8,
-    marginBottom: 10,
+    marginTop: 6,
+    marginBottom: 8,
     marginHorizontal: -20,
     paddingHorizontal: 8,
     flexDirection: "row",
@@ -4139,8 +5317,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569", // slate-600 for better contrast
+    color: Colors.bg === '#000000' ? "#e2e8f0" : "#475569", // light slate on dark — easy to read
     marginTop: 2,
+  },
+  overviewAiInsightsSubtitle: {
+    fontSize: 12,
+    opacity: Colors.bg === '#000000' ? 0.72 : 0.85,
+    marginTop: 1,
   },
   aiInsightsCollapsedHint: {
     fontSize: 13,
@@ -4152,10 +5335,25 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    marginTop: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    gap: 8,
+    marginTop: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  aiInsightsShowMoreInner: {
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+  },
+  aiInsightsShowMorePrimary: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.bg === '#000000' ? "#e5e7eb" : Colors.text,
+  },
+  aiInsightsShowMoreSecondary: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Colors.sub,
   },
   aiInsightsShowMoreText: {
     fontSize: 13,
@@ -4164,7 +5362,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   /** Space below AI Insights (hint, preview, or expanded card) before All Projects */
   aiInsightsSectionBottomSpacing: {
-    marginBottom: 22,
+    marginBottom: 16,
   },
 
   // AI INSIGHTS PANEL
@@ -4175,7 +5373,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   aiPanelInner: {
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
   },
   aiPanel: {
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
@@ -4203,7 +5401,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightRow: {
     flexDirection: "row",
     gap: 10,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   insightIconCircle: {
     width: 28,
@@ -4219,8 +5417,9 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
   },
   insightBody: {
-    fontSize: 12,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
+    fontSize: 11,
+    lineHeight: 16,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.72)" : "#64748b",
     marginTop: 2,
   },
 
@@ -4293,27 +5492,43 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   // FLOATING AI BADGE
   aiFloatingWrapper: {
     position: "absolute",
-    right: 20,
-    bottom: 100, // Raised above tab bar with more spacing
+    right: 18,
+    bottom: 96,
     zIndex: 10,
   },
   aiFloating: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 999,
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8, // Android shadow
+    shadowColor: "#000000",
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   aiFloatingText: {
-    marginLeft: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#020617",
+    marginLeft: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#a1a1aa",
+  },
+  aiFloatingTextOn: {
+    color: "#ecfdf5",
+  },
+  aiFloatingWrapperCalendarTab: {
+    opacity: 0.9,
+    bottom: 102,
+  },
+  aiFloatingCalendarTab: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+  },
+  aiFloatingTextCalendarTab: {
+    fontSize: 10,
   },
 });
 export default DashboardScreen;

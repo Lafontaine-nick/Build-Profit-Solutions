@@ -17,6 +17,11 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { formatMoneyUSD } from '../utils/formatters';
+import {
+  splitEventNotesForDisplay,
+  extractUsdAmountKeyFromTitle,
+} from '../utils/calendarEventDisplay';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
@@ -319,7 +324,7 @@ export default function ProjectCalendar({
         id: `timeline-${item.id || `${date}-${item.title || item.name || 'milestone'}`}`,
         title:
           category === 'payment'
-            ? `${item.title || item.name || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`
+            ? `${item.title || item.name || 'Payment'}${amount > 0 ? `: ${formatMoneyUSD(amount)}` : ''}`
             : (item.title || item.name || 'Milestone'),
         date,
         type: categoryToType(category),
@@ -335,8 +340,7 @@ export default function ProjectCalendar({
     const timelinePaymentKeys = new Set<string>();
     result.forEach((e) => {
       if (e.calendarCategory !== 'payment') return;
-      const amountMatch = e.title?.match(/\$[\d,]+/);
-      const amount = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '';
+      const amount = extractUsdAmountKeyFromTitle(e.title);
       timelinePaymentKeys.add(`${e.date}|${amount}`);
     });
 
@@ -381,7 +385,7 @@ export default function ProjectCalendar({
       const isCollected = m.status === 'completed' || m.status === 'paid';
       pushUnique({
         id: `payment-${m.id || `${date}-${amount}`}`,
-        title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: $${amount.toLocaleString()}` : ''}`,
+        title: `${m.name || m.title || 'Payment'}${amount > 0 ? `: ${formatMoneyUSD(amount)}` : ''}`,
         date,
         type: 'other',
         calendarCategory: 'payment',
@@ -472,8 +476,7 @@ export default function ProjectCalendar({
     }
     result.forEach((e) => {
       if (e.calendarCategory !== 'payment') return;
-      const amountMatch = e.title?.match(/\$[\d,]+\.?\d*/);
-      const amountStr = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '0';
+      const amountStr = extractUsdAmountKeyFromTitle(e.title);
       const eventDate = new Date(e.date + 'T12:00:00').getTime();
       const match = timelinePaymentInfo.find((t) => {
         const amtMatch = String(t.amount).replace(/[$,]/g, '') === amountStr || Number(t.amount) === Number(amountStr);
@@ -643,7 +646,7 @@ export default function ProjectCalendar({
     e.type === 'delivery' || e.calendarCategory === 'delivery';
 
   const isPaymentEvent = (e: CalendarEvent) =>
-    e.calendarCategory === 'payment' || (e.type === 'other' && /\$[\d,]+/.test(e.title || ''));
+    e.calendarCategory === 'payment' || (e.type === 'other' && /\$[\d,.]+/.test(e.title || ''));
 
   // Payment completion: only true when timeline (bps.timeline.v2) explicitly says completed. Never trust event.completed.
   const paymentCompletedKeys = useMemo(() => {
@@ -665,8 +668,7 @@ export default function ProjectCalendar({
 
   const isPaymentCompleted = useCallback((e: CalendarEvent) => {
     if (!isPaymentEvent(e)) return false;
-    const amountMatch = e.title?.match(/\$[\d,]+\.?\d*/);
-    const amountStr = amountMatch ? amountMatch[0].replace(/[$,]/g, '') : '0';
+    const amountStr = extractUsdAmountKeyFromTitle(e.title);
     const key = `${e.date}|${amountStr}`;
     const dayMs = 24 * 60 * 60 * 1000;
     for (const k of paymentCompletedKeys) {
@@ -810,8 +812,28 @@ export default function ProjectCalendar({
             {upcomingEvents.map((event) => {
               const isInspection = isInspectionEvent(event);
               const hasInspectionResult = !!event.inspectionResult;
+              const pay = isPaymentEvent(event);
+              const payDone = pay && isPaymentCompleted(event);
+              const { primary: notePrimary, showAiAttribution } = splitEventNotesForDisplay(event.notes);
+              const hidePayMeta =
+                pay && /^(payment collected|payment due)\.?$/i.test((notePrimary || '').trim());
+              const notesPrimary = hidePayMeta ? '' : notePrimary;
+              const categoryTint = pay
+                ? darkMode
+                  ? 'rgba(34, 197, 94, 0.12)'
+                  : 'rgba(34, 197, 94, 0.1)'
+                : `${getEventColor(event)}20`;
               return (
-              <View key={event.id} style={[styles.eventCardWrapper, { backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5', borderColor: darkMode ? '#4f4f4f' : '#d0d0d0' }]}>
+              <View
+                key={event.id}
+                style={[
+                  styles.eventCardWrapper,
+                  {
+                    backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5',
+                    borderColor: darkMode ? '#4f4f4f' : '#d0d0d0',
+                  },
+                ]}
+              >
                 <TouchableOpacity
                   style={styles.eventCardTouchable}
                   onPress={() => handleEventPress(event)}
@@ -820,58 +842,131 @@ export default function ProjectCalendar({
                 <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
                 <View style={styles.eventContent}>
                   <View style={styles.eventHeader}>
-                    <Text style={[styles.eventTitle, { color: COLORS.text }]}>{event.title}</Text>
-                    <View style={styles.eventHeaderRight}>
-                      {hasInspectionResult && (
-                        <View style={[
-                          styles.inspectionResultBadge,
-                          { backgroundColor: event.inspectionResult === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }
-                        ]}>
-                          <Ionicons
-                            name={event.inspectionResult === 'passed' ? 'checkmark-circle' : 'close-circle'}
-                            size={14}
-                            color={event.inspectionResult === 'passed' ? COLORS.green : COLORS.red}
-                          />
-                          <Text style={[
-                            styles.inspectionResultText,
-                            { color: event.inspectionResult === 'passed' ? COLORS.green : COLORS.red }
-                          ]}>
-                            {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
-                          </Text>
-                        </View>
-                      )}
-                      {!hasInspectionResult && (
-                        <MaterialIcons
-                          name={getEventIcon(event) as any}
-                          size={16}
-                          color={getEventColor(event)}
-                        />
-                      )}
-                    </View>
+                    <Text style={[styles.eventTitle, { color: COLORS.text }]} numberOfLines={2}>
+                      {event.title}
+                    </Text>
+                    <MaterialIcons
+                      name={getEventIcon(event) as any}
+                      size={18}
+                      color={getEventColor(event)}
+                    />
                   </View>
+                  <View style={styles.eventDetails}>
+                    <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
+                    <Text style={[styles.eventDetailText, { color: COLORS.subtext }]} numberOfLines={1}>
+                      {projectName}
+                    </Text>
+                  </View>
+                  {event.subcontractor ? (
+                    <View style={styles.eventDetails}>
+                      <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
+                      <Text style={[styles.eventDetailText, { color: COLORS.subtext }]} numberOfLines={1}>
+                        {event.subcontractor}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.eventDetails}>
                     <Ionicons name="calendar-outline" size={14} color={COLORS.subtext} />
                     <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
                       {new Date(event.date).toLocaleDateString('en-US', {
+                        weekday: 'short',
                         month: 'short',
                         day: 'numeric',
                       })}
-                      {event.time && ` at ${event.time}`}
                     </Text>
                   </View>
-                  {event.subcontractor && (
+                  {event.time ? (
                     <View style={styles.eventDetails}>
-                      <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
-                      <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
-                        {event.subcontractor}
-                      </Text>
+                      <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
+                      <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>{event.time}</Text>
                     </View>
-                  )}
-                  {event.notes && (
-                    <Text style={[styles.eventNotes, { color: COLORS.subtext }]} numberOfLines={2}>
-                      {event.notes}
+                  ) : null}
+                  <View style={styles.modalBadgeRow}>
+                    {event.calendarCategory ? (
+                      <View
+                        style={[styles.categoryBadge, { backgroundColor: categoryTint, marginTop: 0 }]}
+                      >
+                        <Text style={[styles.categoryBadgeText, { color: getEventColor(event) }]}>
+                          {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {pay ? (
+                      <View
+                        style={[
+                          styles.modalStatusChip,
+                          {
+                            backgroundColor: payDone
+                              ? 'rgba(34, 197, 94, 0.14)'
+                              : 'rgba(245, 158, 11, 0.14)',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalStatusChipText,
+                            { color: payDone ? COLORS.green : '#f59e0b' },
+                          ]}
+                        >
+                          {payDone ? 'Paid' : 'Due'}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {hasInspectionResult ? (
+                      <View
+                        style={[
+                          styles.modalStatusChip,
+                          {
+                            backgroundColor:
+                              event.inspectionResult === 'passed'
+                                ? 'rgba(34, 197, 94, 0.14)'
+                                : 'rgba(239, 68, 68, 0.14)',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalStatusChipText,
+                            {
+                              color: event.inspectionResult === 'passed' ? COLORS.green : COLORS.red,
+                            },
+                          ]}
+                        >
+                          {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {isDeliveryEvent(event) && isDeliveryReceived(event) ? (
+                      <View
+                        style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}
+                      >
+                        <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>Received</Text>
+                      </View>
+                    ) : null}
+                    {event.completed &&
+                    !hasInspectionResult &&
+                    !isDeliveryEvent(event) &&
+                    !pay ? (
+                      <View style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}>
+                        <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>Completed</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  {notesPrimary ? (
+                    <Text style={[styles.eventNotes, { color: COLORS.subtext }]} numberOfLines={3}>
+                      {notesPrimary}
                     </Text>
-                  )}
+                  ) : null}
+                  {showAiAttribution ? (
+                    <Text
+                      style={[
+                        styles.modalAiCaption,
+                        { color: darkMode ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.45)' },
+                      ]}
+                    >
+                      From AI Assistant
+                    </Text>
+                  ) : null}
                 </View>
                 {!event.completed && !isInspection && !isDeliveryEvent(event) && !isPaymentEvent(event) && (
                   <TouchableOpacity
@@ -901,9 +996,8 @@ export default function ProjectCalendar({
                   </View>
                 )}
                 {isDeliveryEvent(event) && isDeliveryReceived(event) && (
-                  <View style={[styles.receivedBadge, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]}>
-                    <Ionicons name="checkmark-circle" size={14} color={COLORS.green} />
-                    <Text style={[styles.receivedBadgeText, { color: COLORS.green }]}>Received</Text>
+                  <View style={styles.completedBadge}>
+                    <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -1001,10 +1095,27 @@ export default function ProjectCalendar({
                     {eventsOnDate.map((event) => {
                       const isInspection = isInspectionEvent(event);
                       const hasInspectionResult = !!event.inspectionResult;
+                      const pay = isPaymentEvent(event);
+                      const payDone = pay && isPaymentCompleted(event);
+                      const { primary: notePrimary, showAiAttribution } = splitEventNotesForDisplay(event.notes);
+                      const hidePayMeta =
+                        pay && /^(payment collected|payment due)\.?$/i.test((notePrimary || '').trim());
+                      const notesPrimary = hidePayMeta ? '' : notePrimary;
+                      const categoryTint = pay
+                        ? darkMode
+                          ? 'rgba(34, 197, 94, 0.12)'
+                          : 'rgba(34, 197, 94, 0.1)'
+                        : `${getEventColor(event)}20`;
                       return (
                         <View
                           key={event.id}
-                          style={[styles.eventCardModal, { backgroundColor: darkMode ? '#134e4a' : COLORS.surface2, borderColor: COLORS.border }]}
+                          style={[
+                            styles.eventCardModal,
+                            {
+                              backgroundColor: darkMode ? '#1e293b' : COLORS.surface2,
+                              borderColor: COLORS.border,
+                            },
+                          ]}
                         >
                           <TouchableOpacity
                             style={styles.eventCardTouchable}
@@ -1018,82 +1129,156 @@ export default function ProjectCalendar({
                             <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
                             <View style={styles.eventContent}>
                               <View style={styles.eventHeader}>
-                                <Text style={[styles.eventTitle, { color: COLORS.text }]}>{event.title}</Text>
-                                <View style={styles.eventHeaderRight}>
-                                  {hasInspectionResult && (
-                                    <View style={[
-                                      styles.inspectionResultBadge,
-                                      { backgroundColor: event.inspectionResult === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)' }
-                                    ]}>
-                                      <Ionicons
-                                        name={event.inspectionResult === 'passed' ? 'checkmark-circle' : 'close-circle'}
-                                        size={14}
-                                        color={event.inspectionResult === 'passed' ? COLORS.green : COLORS.red}
-                                      />
-                                      <Text style={[
-                                        styles.inspectionResultText,
-                                        { color: event.inspectionResult === 'passed' ? COLORS.green : COLORS.red }
-                                      ]}>
-                                        {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
-                                      </Text>
-                                    </View>
-                                  )}
-                                  {!hasInspectionResult && (
-                                    <MaterialIcons
-                                      name={getEventIcon(event) as any}
-                                      size={16}
-                                      color={getEventColor(event)}
-                                    />
-                                  )}
-                                </View>
+                                <Text style={[styles.eventTitle, { color: COLORS.text }]} numberOfLines={2}>
+                                  {event.title}
+                                </Text>
+                                <MaterialIcons
+                                  name={getEventIcon(event) as any}
+                                  size={18}
+                                  color={getEventColor(event)}
+                                />
                               </View>
-                              {event.time && (
+                              <View style={styles.eventDetails}>
+                                <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
+                                <Text
+                                  style={[styles.eventDetailText, { color: COLORS.subtext }]}
+                                  numberOfLines={1}
+                                >
+                                  {projectName}
+                                </Text>
+                              </View>
+                              {event.subcontractor ? (
+                                <View style={styles.eventDetails}>
+                                  <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
+                                  <Text
+                                    style={[styles.eventDetailText, { color: COLORS.subtext }]}
+                                    numberOfLines={1}
+                                  >
+                                    {event.subcontractor}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              {event.time ? (
                                 <View style={styles.eventDetails}>
                                   <Ionicons name="time-outline" size={14} color={COLORS.subtext} />
                                   <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
                                     {event.time}
                                   </Text>
                                 </View>
-                              )}
-                              {event.subcontractor && (
-                                <View style={styles.eventDetails}>
-                                  <Ionicons name="person-outline" size={14} color={COLORS.subtext} />
-                                  <Text style={[styles.eventDetailText, { color: COLORS.subtext }]}>
-                                    {event.subcontractor}
-                                  </Text>
-                                </View>
-                              )}
-                              {event.notes && (
-                                <Text style={[styles.eventNotes, { color: COLORS.subtext }]} numberOfLines={2}>
-                                  {event.notes}
-                                </Text>
-                              )}
-                              {event.calendarCategory && (
-                                <View style={styles.eventDetails}>
-                                  <View style={[styles.categoryBadge, { backgroundColor: `${getEventColor(event)}20` }]}>
+                              ) : null}
+                              <View style={styles.modalBadgeRow}>
+                                {event.calendarCategory ? (
+                                  <View
+                                    style={[styles.categoryBadge, { backgroundColor: categoryTint, marginTop: 0 }]}
+                                  >
                                     <Text style={[styles.categoryBadgeText, { color: getEventColor(event) }]}>
-                                      {event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)}
+                                      {event.calendarCategory.charAt(0).toUpperCase() +
+                                        event.calendarCategory.slice(1)}
                                     </Text>
                                   </View>
-                                </View>
-                              )}
+                                ) : null}
+                                {pay ? (
+                                  <View
+                                    style={[
+                                      styles.modalStatusChip,
+                                      {
+                                        backgroundColor: payDone
+                                          ? 'rgba(34, 197, 94, 0.14)'
+                                          : 'rgba(245, 158, 11, 0.14)',
+                                      },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.modalStatusChipText,
+                                        { color: payDone ? COLORS.green : '#f59e0b' },
+                                      ]}
+                                    >
+                                      {payDone ? 'Paid' : 'Due'}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                {hasInspectionResult ? (
+                                  <View
+                                    style={[
+                                      styles.modalStatusChip,
+                                      {
+                                        backgroundColor:
+                                          event.inspectionResult === 'passed'
+                                            ? 'rgba(34, 197, 94, 0.14)'
+                                            : 'rgba(239, 68, 68, 0.14)',
+                                      },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.modalStatusChipText,
+                                        {
+                                          color:
+                                            event.inspectionResult === 'passed' ? COLORS.green : COLORS.red,
+                                        },
+                                      ]}
+                                    >
+                                      {event.inspectionResult === 'passed' ? 'Passed' : 'Failed'}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                {isDeliveryEvent(event) && isDeliveryReceived(event) ? (
+                                  <View
+                                    style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}
+                                  >
+                                    <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>
+                                      Received
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                {event.completed &&
+                                !hasInspectionResult &&
+                                !isDeliveryEvent(event) &&
+                                !pay ? (
+                                  <View
+                                    style={[styles.modalStatusChip, { backgroundColor: 'rgba(34, 197, 94, 0.14)' }]}
+                                  >
+                                    <Text style={[styles.modalStatusChipText, { color: COLORS.green }]}>
+                                      Completed
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              {notesPrimary ? (
+                                <Text
+                                  style={[styles.eventNotes, { color: COLORS.subtext }]}
+                                  numberOfLines={3}
+                                >
+                                  {notesPrimary}
+                                </Text>
+                              ) : null}
+                              {showAiAttribution ? (
+                                <Text
+                                  style={[
+                                    styles.modalAiCaption,
+                                    { color: darkMode ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.45)' },
+                                  ]}
+                                >
+                                  From AI Assistant
+                                </Text>
+                              ) : null}
                             </View>
-                            {event.completed && !hasInspectionResult && !isDeliveryEvent(event) && !isPaymentEvent(event) && (
+                            {event.completed && !hasInspectionResult && !isDeliveryEvent(event) && !pay ? (
                               <View style={styles.completedBadge}>
                                 <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                               </View>
-                            )}
-                            {isPaymentEvent(event) && isPaymentCompleted(event) && (
+                            ) : null}
+                            {pay && payDone ? (
                               <View style={styles.completedBadge}>
                                 <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                               </View>
-                            )}
-                            {isDeliveryEvent(event) && isDeliveryReceived(event) && (
-                              <View style={[styles.receivedBadge, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]}>
-                                <Ionicons name="checkmark-circle" size={14} color={COLORS.green} />
-                                <Text style={[styles.receivedBadgeText, { color: COLORS.green }]}>Received</Text>
+                            ) : null}
+                            {isDeliveryEvent(event) && isDeliveryReceived(event) ? (
+                              <View style={styles.completedBadge}>
+                                <Ionicons name="checkmark-circle" size={24} color={COLORS.green} />
                               </View>
-                            )}
+                            ) : null}
                           </TouchableOpacity>
                           {isInspection && !hasInspectionResult && (
                             <View style={styles.inspectionActions}>
@@ -1147,7 +1332,7 @@ export default function ProjectCalendar({
                 }}
               >
                 <Ionicons name="add" size={20} color="#fff" />
-                <Text style={styles.addEventButtonText}>Add Event</Text>
+                <Text style={styles.addEventButtonText}>New Event</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.closeButton, { backgroundColor: COLORS.border }]}
@@ -1516,14 +1701,14 @@ const styles = StyleSheet.create({
   eventCardWrapper: {
     flexDirection: 'column',
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
   eventCardModal: {
     flexDirection: 'column',
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -2019,5 +2204,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  modalBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  modalStatusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  modalStatusChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  modalAiCaption: {
+    fontSize: 10,
+    marginTop: 6,
+    fontWeight: '500',
   },
 });

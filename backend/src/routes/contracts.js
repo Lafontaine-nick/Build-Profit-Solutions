@@ -10,6 +10,51 @@ function sanitizeFilename(value = 'contract.pdf') {
   return safe.toLowerCase().endsWith('.pdf') ? safe : `${safe || 'contract'}.pdf`;
 }
 
+function escapeHtmlFooterText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const launchArgs = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+];
+
+async function launchBrowser(puppeteer) {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return puppeteer.launch({
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+      args: launchArgs,
+    });
+  }
+
+  // Prefer installed Google Chrome (stable path on dev Mac/Windows/Linux) so PDF works without
+  // `npx puppeteer browsers install chrome` matching the same cache dir as the running process.
+  try {
+    return await puppeteer.launch({
+      headless: true,
+      channel: process.env.PUPPETEER_CHANNEL || 'chrome',
+      args: launchArgs,
+    });
+  } catch (e) {
+    console.warn(
+      '[contracts] Launch with channel=chrome failed, using Puppeteer-managed browser:',
+      e instanceof Error ? e.message : e,
+    );
+  }
+
+  return puppeteer.launch({
+    headless: true,
+    args: launchArgs,
+  });
+}
+
 async function getBrowser() {
   // Lazy-load so the rest of the API still starts if puppeteer fails to install in an environment.
   let puppeteer;
@@ -22,16 +67,7 @@ async function getBrowser() {
   }
 
   if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
+    browserPromise = launchBrowser(puppeteer);
   }
   return browserPromise;
 }
@@ -39,6 +75,8 @@ async function getBrowser() {
 router.post('/render-pdf', async (req, res) => {
   const html = String(req.body?.html || '').trim();
   const filename = sanitizeFilename(req.body?.filename || 'contract.pdf');
+  const footerLeft = escapeHtmlFooterText(req.body?.footerLeft);
+  const footerCenter = escapeHtmlFooterText(req.body?.footerCenter);
 
   if (!html) {
     return res.status(400).json({
@@ -61,15 +99,51 @@ router.post('/render-pdf', async (req, res) => {
       timeout: 30000,
     });
 
+    await page.evaluate(() => {
+      const MM_TO_PX = 96 / 25.4;
+      const LETTER_HEIGHT_PX = 11 * 96;
+      // Matches HTML @page top/bottom margins plus the native PDF footer reserve.
+      const topInsetMm = 8;
+      const bottomInsetMm = 11 + 22;
+      const printableHeight = LETTER_HEIGHT_PX - (topInsetMm + bottomInsetMm) * MM_TO_PX;
+
+      document.querySelectorAll('[data-keep-together]').forEach((node) => {
+        const el = node;
+        if (!(el instanceof HTMLElement)) return;
+
+        const pageRoot = el.closest('.page');
+        if (!(pageRoot instanceof HTMLElement)) return;
+
+        const blockTop = el.offsetTop;
+        const blockHeight = el.offsetHeight;
+        const offsetWithinPage = ((blockTop % printableHeight) + printableHeight) % printableHeight;
+        const remainingHeight = printableHeight - offsetWithinPage;
+
+        if (blockHeight > remainingHeight) {
+          el.classList.add('force-page-break-before');
+        }
+      });
+    });
+
+    const footerTemplate = `
+<div style="width:100%;box-sizing:border-box;padding:6px 34px 4px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:9px;line-height:1.25;color:#64748b;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e2e8f0;background:#fff;">
+  <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:10px;">${footerLeft || '&nbsp;'}</span>
+  <span style="flex:1.15;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;text-transform:uppercase;letter-spacing:0.06em;font-size:8px;padding:0 8px;">${footerCenter || '&nbsp;'}</span>
+  <span style="flex-shrink:0;color:#10243b;font-weight:600;white-space:nowrap;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+</div>`.trim();
+
     const pdfBytes = await page.pdf({
       format: 'Letter',
       printBackground: true,
       preferCSSPageSize: true,
+      displayHeaderFooter: true,
+      headerTemplate: '<div style="height:0;margin:0;padding:0;font-size:0;"></div>',
+      footerTemplate,
       margin: {
-        top: '0in',
-        right: '0in',
-        bottom: '0in',
-        left: '0in',
+        top: '0mm',
+        right: '0mm',
+        bottom: '22mm',
+        left: '0mm',
       },
     });
 

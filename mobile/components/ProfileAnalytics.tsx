@@ -64,9 +64,9 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
     // Debug: Log the months we're looking for
   if (__DEV__) {
-      console.log('📅 Performance Snapshot: Looking for projects in these months:', 
+      console.log('📅 Monthly profit trend: months window',
         months.map(m => `${m.month} ${m.year} (index: ${m.monthIndex})`));
-      console.log('📊 Performance Snapshot: Total completed projects:', completedProjects.length);
+      console.log('📊 Monthly profit trend: completed projects count', completedProjects.length);
     }
 
     // Calculate profit for each month from completed projects
@@ -103,7 +103,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
       if (!completionDate || isNaN(completionDate.getTime())) {
         // Skip projects without valid dates
         if (__DEV__) {
-          console.log(`⚠️ Performance Snapshot: Project "${project.title || 'Untitled'}" has invalid completion date`, {
+          console.log(`⚠️ Monthly profit trend: Project "${project.title || 'Untitled'}" has invalid completion date`, {
             endDate: project.endDate,
             projectDataEndDate: project.projectData?.endDate,
             estimateDataEndDate: project.estimateData?.projectEndDate,
@@ -120,7 +120,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
       // Debug: Log the project's completion date and all available dates
       if (__DEV__) {
-        console.log(`📅 Performance Snapshot: Project "${project.title || 'Untitled'}"`, {
+        console.log(`📅 Monthly profit trend: Project "${project.title || 'Untitled'}"`, {
           endDate: project.endDate || project.projectData?.endDate || project.estimateData?.projectEndDate || 'none',
           updatedAt: project.updatedAt || 'none',
           selectedDate: completionDate.toISOString(),
@@ -169,11 +169,11 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
         // Debug logging
       if (__DEV__) {
-          console.log(`📊 Performance Snapshot: Added $${profit.toFixed(0)} profit for ${project.title || 'Untitled'} to ${monthData.month} ${monthData.year}`);
+          console.log(`📊 Monthly profit trend: Added $${profit.toFixed(0)} profit for ${project.title || 'Untitled'} to ${monthData.month} ${monthData.year}`);
         }
       } else if (__DEV__) {
         // Debug: log projects that don't match any month
-        console.log(`⚠️ Performance Snapshot: Project "${project.title || 'Untitled'}" completed ${completionDate.toLocaleDateString()} doesn't match any of the 3 months`);
+        console.log(`⚠️ Monthly profit trend: Project "${project.title || 'Untitled'}" completed ${completionDate.toLocaleDateString()} doesn't match window`);
       }
     });
 
@@ -182,19 +182,28 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
     // Debug logging
     if (__DEV__) {
-      console.log('📊 Performance Snapshot monthly data:', {
+      console.log('📊 Monthly profit trend data:', {
         months: months.map(m => ({ month: m.month, value: m.value, year: m.year })),
         completedProjectsCount: completedProjects.length,
         maxValue,
       });
     }
 
-    // Format and return with height percentages
-    return months.map((month) => ({
-      month: month.month,
-      value: formatCurrencyShort(month.value),
-      heightPct: maxValue > 0 ? Math.max(10, (month.value / maxValue) * 100) : 10, // Min 10% for visibility
-    }));
+    // Format and return with height percentages (visual only; month.value unchanged)
+    return months.map((month) => {
+      const isEmpty = month.value <= 0;
+      const heightPct = isEmpty
+        ? 5
+        : maxValue > 0
+          ? Math.max(14, (month.value / maxValue) * 100)
+          : 14;
+      return {
+        month: month.month,
+        value: formatCurrencyShort(month.value),
+        isEmpty,
+        heightPct,
+      };
+    });
   }, [completedProjects]);
 
   // Auto-scroll to most recent month when data changes
@@ -220,7 +229,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
         </View>
       </View>
 
-      {/* Performance Snapshot chart card */}
+      {/* Monthly completed-profit trend (same data as before; clearer label) */}
       <LinearGradient
         colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
         start={{ x: 0.05, y: 0.15 }}
@@ -229,9 +238,14 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
       >
         <View style={styles.cardInner}>
           <View style={styles.blockHeaderRow}>
-            <View style={styles.blockHeaderLeft}>
-              <Ionicons name="grid-outline" size={18} color="#22C55E" />
-              <Text style={styles.blockTitle}>Performance Snapshot</Text>
+            <View style={styles.blockHeaderTextCol}>
+              <View style={styles.blockHeaderLeft}>
+                <Ionicons name="bar-chart-outline" size={17} color="#22C55E" />
+                <Text style={styles.blockTitle}>Monthly Profit Trend</Text>
+              </View>
+              <Text style={styles.blockSubtitle}>
+                Completed projects by close month
+              </Text>
             </View>
           </View>
 
@@ -247,19 +261,39 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           >
             {monthlyProfitData.map((item, index) => (
               <View key={`${item.month}-${index}`} style={styles.barWrapper}>
-                {/* value label above bar */}
-                <Text style={styles.barValueLabel}>{item.value}</Text>
+                <Text
+                  style={[
+                    styles.barValueLabel,
+                    item.isEmpty && styles.barValueLabelMuted,
+                  ]}
+                >
+                  {item.value}
+                </Text>
 
-                {/* bar itself */}
-                <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.barTrack,
+                    item.isEmpty && styles.barTrackEmpty,
+                  ]}
+                >
                   <View
-                    style={[styles.barFill, { height: `${item.heightPct}%` }]}
+                    style={[
+                      styles.barFill,
+                      item.isEmpty && styles.barFillEmpty,
+                      { height: `${item.heightPct}%` },
+                    ]}
                   />
                 </View>
 
-                {/* month label below */}
-                <View style={styles.monthPill}>
-                  <Text style={styles.chartXAxisLabel}>{item.month}</Text>
+                <View style={[styles.monthPill, item.isEmpty && styles.monthPillMuted]}>
+                  <Text
+                    style={[
+                      styles.chartXAxisLabel,
+                      item.isEmpty && styles.chartXAxisLabelMuted,
+                    ]}
+                  >
+                    {item.month}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -272,13 +306,14 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
         colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
         start={{ x: 0.05, y: 0.15 }}
         end={{ x: 0.95, y: 0.85 }}
-        style={[styles.cardBorder, { marginTop: 16 }]}
+        style={[styles.cardBorder, styles.cardBorderStacked]}
       >
         <View style={styles.cardInner}>
           {/* Profit Analytics Section */}
+          <Text style={styles.sectionEyebrow}>Historical performance</Text>
           <View style={styles.blockHeaderRow}>
             <View style={styles.blockHeaderLeft}>
-              <Feather name="trending-up" size={18} color="#22C55E" />
+              <Feather name="trending-up" size={17} color="#22C55E" />
               <Text style={styles.blockTitle}>Profit Analytics</Text>
             </View>
           </View>
@@ -300,7 +335,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           {/* Profitability by Project Type Section */}
           <View style={styles.blockHeaderRow}>
             <View style={styles.blockHeaderLeft}>
-              <Feather name="triangle" size={18} color="#22C55E" />
+              <Feather name="triangle" size={17} color="#22C55E" />
               <Text style={styles.blockTitle}>
                 Profitability by Project Type
               </Text>
@@ -337,12 +372,13 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
         colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
         start={{ x: 0.05, y: 0.15 }}
         end={{ x: 0.95, y: 0.85 }}
-        style={[styles.cardBorder, { marginTop: 16 }]}
+        style={[styles.cardBorder, styles.cardBorderStacked]}
       >
         <View style={styles.cardInner}>
+          <Text style={styles.sectionEyebrow}>Forward-looking projection</Text>
           <View style={styles.blockHeaderRow}>
             <View style={styles.blockHeaderLeft}>
-              <Feather name="trending-up" size={18} color="#22C55E" />
+              <Feather name="trending-up" size={17} color="#22C55E" />
               <Text style={styles.blockTitle}>Revenue Forecast</Text>
             </View>
           </View>
@@ -352,7 +388,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               <Text style={styles.forecastLabel}>Projected Revenue</Text>
               <Text style={styles.forecastValue}>$38,237</Text>
               <Text style={styles.forecastSub}>
-                3.0 leads/mo · 100.0% won rate
+                Assumes 3 leads/mo · 100% win rate
               </Text>
             </View>
 
@@ -366,11 +402,11 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           <View style={styles.infoRow}>
             <Ionicons
               name="information-circle-outline"
-              size={16}
-              color={darkMode ? "#FFFFFF" : "#475569"}
+              size={15}
+              color={darkMode ? "rgba(255,255,255,0.55)" : "#64748b"}
             />
             <Text style={styles.infoText}>
-              Projection factors in monthly lead volume, average bid size, and win
+              Projection based on monthly lead volume, average bid size, and win
               conversions.
             </Text>
           </View>
@@ -385,6 +421,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   livePillRow: {
     flexDirection: "row",
     justifyContent: "flex-start",
+    marginBottom: 6,
   },
   livePill: {
     flexDirection: "row",
@@ -407,19 +444,30 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   cardBorder: {
     borderRadius: 20,
     padding: 1,
-    marginTop: 10,
+    marginTop: 6,
+  },
+  cardBorderStacked: {
+    marginTop: 12,
   },
   cardInner: {
     backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
     borderWidth: darkMode ? 0 : 1,
     borderColor: darkMode ? "transparent" : Colors.line,
+  },
+  sectionEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: darkMode ? "rgba(148,163,184,0.9)" : "#64748b",
+    marginBottom: 6,
   },
   sectionDivider: {
     height: 1,
     backgroundColor: "rgba(45, 212, 191, 0.25)",
-    marginVertical: 20,
+    marginVertical: 14,
   },
   /* generic block card (legacy) */
   blockCard: {
@@ -439,66 +487,97 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 6,
+  },
+  blockHeaderTextCol: {
+    flex: 1,
+    gap: 4,
   },
   blockHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
   },
+  blockSubtitle: {
+    marginLeft: 25,
+    fontSize: 11,
+    lineHeight: 15,
+    color: darkMode ? "rgba(226,232,240,0.65)" : "#64748b",
+    fontWeight: "500",
+  },
   blockTitle: {
     marginLeft: 8,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
     color: Colors.text,
   },
 
   /* chart */
   chartContainer: {
-    marginTop: 6,
+    marginTop: 4,
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "flex-end",
-    paddingHorizontal: 6,
-    paddingBottom: 4,
+    paddingHorizontal: 4,
+    paddingBottom: 2,
     minWidth: "100%",
   },
   barWrapper: {
     alignItems: "center",
-    minWidth: 60,
-    marginRight: 8,
+    minWidth: 48,
+    marginRight: 5,
   },
   barValueLabel: {
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: "600",
     color: Colors.text,
-    marginBottom: 4,
+    marginBottom: 3,
+  },
+  barValueLabelMuted: {
+    color: darkMode ? "rgba(255,255,255,0.38)" : "rgba(51,65,85,0.55)",
+    fontWeight: "500",
   },
   barTrack: {
-    width: 26,
-    height: 80,
+    width: 22,
+    height: 64,
     borderRadius: 999,
     backgroundColor: darkMode ? Colors.card : Colors.surface,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: darkMode ? Colors.line : "#94A3B8",
     justifyContent: "flex-end",
     overflow: "hidden",
+  },
+  barTrackEmpty: {
+    backgroundColor: darkMode ? "rgba(15,23,42,0.65)" : "rgba(241,245,249,0.9)",
+    borderColor: darkMode ? "rgba(51,65,85,0.55)" : "rgba(148,163,184,0.45)",
   },
   barFill: {
     width: "100%",
     borderRadius: 999,
     backgroundColor: "#22d3ee",
   },
+  barFillEmpty: {
+    backgroundColor: "rgba(34,211,238,0.22)",
+  },
   monthPill: {
-    marginTop: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    marginTop: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 7,
     backgroundColor: Colors.surface2,
     borderWidth: darkMode ? 1 : 0,
     borderColor: Colors.line,
   },
+  monthPillMuted: {
+    backgroundColor: darkMode ? "rgba(30,41,59,0.6)" : "rgba(241,245,249,0.85)",
+  },
   chartXAxisLabel: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: "600",
     color: darkMode ? "#FFFFFF" : "#334155",
+  },
+  chartXAxisLabelMuted: {
+    color: darkMode ? "rgba(255,255,255,0.45)" : "rgba(51,65,85,0.55)",
+    fontWeight: "500",
   },
 
   /* range filters */
@@ -530,8 +609,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
 
   singleProfitRow: {
-    marginTop: 4,
-    marginBottom: 8,
+    marginTop: 2,
+    marginBottom: 6,
   },
   profitLabel: {
     fontSize: 12,
@@ -541,17 +620,18 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     color: Colors.text,
-    marginTop: 4,
+    marginTop: 3,
   },
   profitSubnote: {
-    marginTop: 2,
+    marginTop: 1,
     fontSize: 11,
-    color: darkMode ? "#E5E7EB" : "#475569",
+    lineHeight: 15,
+    color: darkMode ? "rgba(229,231,235,0.75)" : "#475569",
   },
 
   /* project type rows */
   projectRow: {
-    marginTop: 10,
+    marginTop: 8,
   },
   projectRowHeader: {
     flexDirection: "row",
@@ -587,46 +667,49 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   /* forecast */
   forecastRow: {
     flexDirection: "row",
-    marginTop: 10,
+    marginTop: 6,
   },
   forecastTile: {
     flex: 1,
-    marginRight: 10,
-    padding: 12,
-    borderRadius: 16,
+    marginRight: 8,
+    padding: 10,
+    borderRadius: 14,
     backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface,
     borderWidth: 1,
     borderColor: darkMode ? "rgba(255, 255, 255, 0.1)" : Colors.line,
   },
   forecastLabel: {
-    fontSize: 12,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    fontSize: 11,
+    color: darkMode ? "rgba(255,255,255,0.75)" : "#475569",
+    fontWeight: "600",
   },
   forecastValue: {
     fontSize: 18,
     fontWeight: "700",
     color: Colors.text,
-    marginTop: 4,
+    marginTop: 3,
   },
   forecastSub: {
-    marginTop: 2,
+    marginTop: 3,
     fontSize: 11,
-    color: darkMode ? "#F3F4F6" : "#475569",
+    lineHeight: 15,
+    color: darkMode ? "rgba(243,244,246,0.72)" : "#475569",
   },
   infoRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginTop: 12,
-    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface,
-    borderRadius: 14,
-    padding: 12,
+    marginTop: 10,
+    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface,
+    borderRadius: 12,
+    padding: 10,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(255, 255, 255, 0.1)" : Colors.line,
+    borderColor: darkMode ? "rgba(255, 255, 255, 0.08)" : Colors.line,
   },
   infoText: {
-    marginLeft: 6,
+    marginLeft: 8,
     fontSize: 11,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    lineHeight: 16,
+    color: darkMode ? "rgba(255,255,255,0.72)" : "#475569",
     flex: 1,
   },
 });

@@ -17,6 +17,8 @@ interface GreyCalendarProps {
     };
   };
   initialDate?: string;
+  /** Highlighted day (YYYY-MM-DD); stronger ring + label connection in parent */
+  selectedDateString?: string | null;
   events?: Array<{
     date: string;
     type?: string;
@@ -28,6 +30,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   onDayPress,
   markedDates = {},
   initialDate,
+  selectedDateString = null,
   events = [],
 }) => {
   const { theme, darkMode } = useTheme();
@@ -85,11 +88,17 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
       const dayDate = new Date(year, month, day);
       dayDate.setHours(0, 0, 0, 0);
       const isToday = dayDate.getTime() === today.getTime();
+      const isSelected = Boolean(selectedDateString && dateString === selectedDateString);
 
       // Get events for this date
       const dayEvents = events.filter(e => e.date === dateString);
       const hasEvents = dayEvents.length > 0;
-      const eventColor = dayEvents[0]?.color || dayEvents[0]?.type || '#22c55e';
+
+      const dayNumberStyle = isSelected
+        ? styles.dayTextSelected
+        : isToday
+          ? styles.dayTextToday
+          : styles.dayText;
 
       days.push(
         <TouchableOpacity
@@ -98,51 +107,31 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
           onPress={() => handleDayPress(day)}
           activeOpacity={0.7}
         >
-          {isToday ? (
-            <>
-              <Text style={styles.dayTextToday}>
-                {day}
-              </Text>
-              {hasEvents && (
-                <View style={styles.dayEvents}>
-                  {dayEvents.slice(0, 3).map((event, idx) => (
-                    <View
-                      key={idx}
-                      style={[
-                        styles.dayEventDot,
-                        { backgroundColor: event.color || event.type || '#22c55e' },
-                      ]}
-                    />
-                  ))}
-                  {dayEvents.length > 3 && (
-                    <Text style={styles.dayEventMore}>+{dayEvents.length - 3}</Text>
-                  )}
-                </View>
-              )}
-            </>
-          ) : (
-            <>
-              <Text style={styles.dayText}>
-                {day}
-              </Text>
-              {hasEvents && (
-                <View style={styles.dayEvents}>
-                  {dayEvents.slice(0, 3).map((event, idx) => (
-                    <View
-                      key={idx}
-                      style={[
-                        styles.dayEventDot,
-                        { backgroundColor: event.color || event.type || '#22c55e' },
-                      ]}
-                    />
-                  ))}
-                  {dayEvents.length > 3 && (
-                    <Text style={styles.dayEventMore}>+{dayEvents.length - 3}</Text>
-                  )}
-                </View>
-              )}
-            </>
-          )}
+          <View
+            style={[
+              styles.dayInner,
+              isSelected && styles.dayInnerSelected,
+              isToday && !isSelected && styles.dayInnerTodayHint,
+            ]}
+          >
+            <Text style={dayNumberStyle}>{day}</Text>
+            {hasEvents && (
+              <View style={styles.dayEvents}>
+                {dayEvents.slice(0, 3).map((event, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.dayEventDot,
+                      { backgroundColor: event.color || event.type || '#22c55e' },
+                    ]}
+                  />
+                ))}
+                {dayEvents.length > 3 && (
+                  <Text style={styles.dayEventMore}>+{dayEvents.length - 3}</Text>
+                )}
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
       );
     }
@@ -214,7 +203,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   container: {
     backgroundColor: darkMode ? '#2a2a2a' : Colors.cardDark,
     borderRadius: 16,
-    padding: 16,
+    padding: 12,
     borderWidth: darkMode ? 0 : 1,
     borderColor: darkMode ? 'transparent' : Colors.line,
   },
@@ -222,8 +211,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 4,
+    marginBottom: 12,
+    paddingHorizontal: 2,
   },
   arrowButton: {
     width: 36,
@@ -238,10 +227,10 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: 'center',
   },
   monthYear: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: darkMode ? '#ffffff' : Colors.text,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   todayButton: {
     marginTop: 4,
@@ -260,21 +249,21 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayNamesRow: {
     flexDirection: 'row',
-    marginBottom: 12,
-    paddingBottom: 8,
+    marginBottom: 8,
+    paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
   },
   dayNameCell: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   dayNameText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
-    color: darkMode ? '#ffffff' : Colors.sub,
-    letterSpacing: 0.5,
+    color: darkMode ? 'rgba(255,255,255,0.75)' : Colors.sub,
+    letterSpacing: 0.4,
   },
   calendarGrid: {
     flexDirection: 'row',
@@ -282,10 +271,27 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayCell: {
     width: '14.28%',
-    aspectRatio: 1,
+    aspectRatio: 0.92,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 3,
+    marginVertical: 2,
+  },
+  dayInner: {
+    minWidth: 36,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 2,
+  },
+  dayInnerSelected: {
+    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.22)' : 'rgba(13, 148, 136, 0.18)',
+    borderWidth: 2,
+    borderColor: '#2DFFC4',
+  },
+  dayInnerTodayHint: {
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.35)' : 'rgba(13, 148, 136, 0.4)',
   },
   dayCellGradient: {
     width: 32,
@@ -303,14 +309,19 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     justifyContent: 'center',
   },
   dayText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
     color: darkMode ? '#ffffff' : Colors.text,
   },
   dayTextToday: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: darkMode ? '#2DFFC4' : '#0F766E',
+  },
+  dayTextSelected: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: darkMode ? '#FFFFFF' : '#0f172a',
   },
   dayTextHighlighted: {
     fontSize: 15,
@@ -325,9 +336,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     gap: 2,
   },
   dayEventDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   dayEventMore: {
     fontSize: 8,

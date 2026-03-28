@@ -2,11 +2,18 @@ import { ContractDoc } from "../contracts/types";
 import {
   buildContractSections,
   ContractBranding,
+  ContractAudience,
   ContractBuildOptions,
   ContractPdfMode,
   ContractTemplateState,
+  BUILDER_FEE_LABEL,
+  computeClientPricingBreakdown,
+  getScheduleSummaryForContract,
   getStateLegalSummary,
-  resolveExecutiveSummaryText,
+  normalizeContractPdfMode,
+  normalizeContractAudience,
+  normalizeProjectContractCopy,
+  filterContractWarningsForAudience,
   sanitizeContractDoc,
 } from "./contractTemplate";
 
@@ -37,6 +44,8 @@ type ProposalInput = {
   state?: ContractTemplateState;
   projectType?: string;
   contractType?: "home-improvement" | "construction";
+  /** Default `client` — omit internal draft / checklist copy on the terms page. */
+  contractAudience?: ContractAudience;
 };
 
 const formatDate = (value?: string) => {
@@ -53,17 +62,48 @@ const renderInfoRow = (label: string, value?: string) =>
     ? `<div class="meta-row"><div class="meta-label">${esc(label)}</div><div class="meta-value">${esc(value)}</div></div>`
     : "";
 
-/** @page margins only — keep modest so content reads wide on Letter */
-const PAGE_MARGIN_CSS = "8mm 9mm 11mm"; /* top L/R bottom */
+/**
+ * Preserve the original proposal width/side gutters in HTML.
+ * Puppeteer only reserves the extra bottom area needed for the native PDF footer.
+ */
+const PAGE_MARGIN_CSS = "8mm 9mm 11mm";
+
+const resolveProposalOptions = (input?: ProposalInput): ContractBuildOptions => ({
+  pdfMode: input?.pdfMode ?? "detailed",
+  state: input?.state || "other",
+  projectType: input?.projectType,
+  contractType: input?.contractType || "construction",
+  branding: input?.branding || {},
+  contractAudience: normalizeContractAudience(input?.contractAudience),
+});
+
+export function getContractPdfPrintFooterParts(
+  doc: ContractDoc,
+  input?: ProposalInput,
+): { footerLeft: string; footerCenter: string } {
+  const options = resolveProposalOptions(input);
+  const sanitizedDoc = sanitizeContractDoc(doc, options);
+  const company = options.branding.companyName || sanitizedDoc.contractor.legalName || "Build Profit Solutions";
+  const docTitle =
+    options.contractType === "home-improvement"
+      ? "Home Improvement Agreement"
+      : "Construction Services Agreement";
+  const licenseNumber = hasMeaningfulLicenseNumber(options.branding.licenseNumber)
+    ? options.branding.licenseNumber
+    : undefined;
+  const footerBits = [options.branding.companyPhone, options.branding.companyEmail, licenseNumber]
+    .filter(Boolean)
+    .map((value) => String(value));
+
+  return {
+    footerLeft: footerBits.length ? `${company} · ${footerBits.join(" · ")}` : company,
+    footerCenter: docTitle,
+  };
+}
 
 export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
-  const options: ContractBuildOptions = {
-    pdfMode: input?.pdfMode || "client",
-    state: input?.state || "other",
-    projectType: input?.projectType,
-    contractType: input?.contractType || "construction",
-    branding: input?.branding || {},
-  };
+  const options = resolveProposalOptions(input);
+  const pdfMode = normalizeContractPdfMode(options.pdfMode);
   const sanitizedDoc = sanitizeContractDoc(doc, options);
   const sections = buildContractSections(sanitizedDoc, options);
   const brand = options.branding.accentColorHex || "#22c7a8";
@@ -80,32 +120,23 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const contractorTitle = options.branding.contractorTitle || "Contractor";
   const logo = options.branding.logoUrl || sanitizedDoc.contractor.logoUrl;
   const startDate = formatDate(sanitizedDoc.summary.startDate);
-  const endDate = formatDate(sanitizedDoc.summary.endDate);
   const validThrough = formatDate(sanitizedDoc.summary.expiresDate);
+  const scheduleRail = getScheduleSummaryForContract(sanitizedDoc);
   const projectAddress = sanitizedDoc.owner.address || sanitizedDoc.summary.siteAddress;
-  const projectDescription = resolveExecutiveSummaryText(sanitizedDoc, options);
-  const coverSummary =
-    projectDescription ||
-    `${sanitizedDoc.summary.projectName} scope, pricing, and schedule prepared for client review.`;
+  const contractCopy = normalizeProjectContractCopy(sanitizedDoc, options);
+  const coverSummary = contractCopy.scopeSummary;
   const trustItems = [
     options.branding.licenseNumber ? "Licensed" : "",
     options.branding.insuranceStatus ? "Insured" : "",
-    options.branding.verifiedContractor ? "Verified contractor" : "",
+    options.branding.verifiedContractor ? "Verified" : "",
   ].filter(Boolean);
-  const materialsSubtotal = Number(sanitizedDoc.materials || 0);
-  const laborSubtotal = Number(sanitizedDoc.labor || 0);
-  const directCostsSubtotal = Number(sanitizedDoc.permitCosts || 0);
-  const overheadSubtotal = Number(sanitizedDoc.overhead || 0);
-  const markupAmount =
-    materialsSubtotal + laborSubtotal + directCostsSubtotal > 0
-      ? Number(sanitizedDoc.summary.totalBid || 0) -
-        (materialsSubtotal + laborSubtotal + directCostsSubtotal)
-      : 0;
-  const totalBid = Number(sanitizedDoc.summary.totalBid || 0);
-  const estimatedDuration =
-    startDate !== "TBD" && endDate !== "TBD"
-      ? `${startDate} – ${endDate}`
-      : `${sanitizedDoc.summary.durationDays || 30} day${sanitizedDoc.summary.durationDays === 1 ? "" : "s"}`;
+  const pricingBreakdown = computeClientPricingBreakdown(sanitizedDoc);
+  const materialsSubtotal = pricingBreakdown.materials;
+  const laborSubtotal = pricingBreakdown.labor;
+  const directCostsSubtotal = pricingBreakdown.directCosts;
+  const builderFeeAmount = pricingBreakdown.builderFee;
+  const totalBid = pricingBreakdown.contractTotal;
+  const projectTypeDisplay = contractCopy.projectTypeLabel;
   const paymentStructureLabel =
     sanitizedDoc.milestones.length > 0
       ? `${sanitizedDoc.milestones.length} scheduled payment${sanitizedDoc.milestones.length === 1 ? "" : "s"}`
@@ -113,10 +144,12 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const pricingRows = [
     { label: "Materials", value: materialsSubtotal },
     { label: "Labor", value: laborSubtotal },
-    { label: "Direct Costs", value: directCostsSubtotal },
-    { label: "Overhead", value: overheadSubtotal },
-    { label: "Markup", value: markupAmount },
-  ].filter((row) => row.value > 0 || options.pdfMode === "detailed");
+    { label: "Direct costs", value: directCostsSubtotal },
+    { label: BUILDER_FEE_LABEL, value: builderFeeAmount },
+  ];
+  const hasLineItemAppendix =
+    (sanitizedDoc.scope.materialLineItems?.length || 0) > 0 ||
+    (sanitizedDoc.scope.laborLineItems?.length || 0) > 0;
   const groupedMaterials = (sanitizedDoc.scope.materialLineItems || []).reduce(
     (acc: Record<string, typeof sanitizedDoc.scope.materialLineItems>, item) => {
       const key = item.section || item.category || "Materials";
@@ -135,6 +168,9 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     },
     {},
   );
+  const hasMaterialGroups = Object.keys(groupedMaterials).length > 0;
+  const hasLaborGroups = Object.keys(groupedLabor).length > 0;
+
   const paymentTotalPct = sanitizedDoc.milestones.reduce((sum, milestone) => {
     const pct =
       typeof milestone.percentage === "number"
@@ -147,6 +183,136 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     return sum + pct;
   }, 0);
   const displayPaymentPct = Math.abs(paymentTotalPct - 100) < 0.25 ? "100%" : `${paymentTotalPct.toFixed(1)}%`;
+
+  /** Avoid repeating the “General materials” / “Labor” section title as a second table title. */
+  const isRedundantMaterialGroupTitle = (g: string) => {
+    const x = String(g || "")
+      .trim()
+      .toLowerCase();
+    return x === "general materials" || x === "general material" || x === "materials" || x === "material";
+  };
+  const isRedundantLaborGroupTitle = (g: string) => {
+    const x = String(g || "")
+      .trim()
+      .toLowerCase();
+    return x === "labor";
+  };
+
+  const renderMaterialGroupsHtml = Object.entries(groupedMaterials)
+    .map(([group, items]) => {
+      const subtotal = items.reduce((sum, item) => sum + Number(item.materials || 0), 0);
+      const groupHead =
+        isRedundantMaterialGroupTitle(group) || !String(group).trim()
+          ? ""
+          : `<h3 class="appendix-head">${esc(group)}</h3>`;
+      return `
+          <div class="appendix-block">
+            ${groupHead}
+            <table class="appendix-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th class="center">Qty</th>
+                  <th class="center">Unit</th>
+                  <th class="num">Materials</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items
+                  .map(
+                    (item) => `
+                    <tr>
+                      <td>${esc(item.description || "Material")}</td>
+                      <td class="center">${item.quantity || "—"}</td>
+                      <td class="center">${esc(item.unit || "—")}</td>
+                      <td class="num">${money(item.materials || 0)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+                <tr class="subtotal-row">
+                  <td colspan="3">Material subtotal</td>
+                  <td class="num">${money(subtotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>`;
+    })
+    .join("");
+
+  const renderLaborGroupsHtml = Object.entries(groupedLabor)
+    .map(([group, items]) => {
+      const subtotal = items.reduce((sum, item) => sum + Number(item.labor || 0), 0);
+      const groupHead =
+        isRedundantLaborGroupTitle(group) || !String(group).trim()
+          ? ""
+          : `<h3 class="appendix-head">${esc(group)}</h3>`;
+      return `
+          <div class="appendix-block">
+            ${groupHead}
+            <table class="appendix-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th class="num">Labor</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items
+                  .map(
+                    (item) => `
+                    <tr>
+                      <td>${esc(item.description || "Labor")}</td>
+                      <td class="num">${money(item.labor || 0)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+                <tr class="subtotal-row">
+                  <td>Labor subtotal</td>
+                  <td class="num">${money(subtotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>`;
+    })
+    .join("");
+
+  const buildReconciliationHtml = () => `
+      <table class="appendix-table appendix-table--recon">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Materials (contract summary)</td>
+            <td class="num">${money(materialsSubtotal)}</td>
+          </tr>
+          <tr>
+            <td>Labor (contract summary)</td>
+            <td class="num">${money(laborSubtotal)}</td>
+          </tr>
+          <tr>
+            <td>Direct costs (permits, plans, equipment, other direct)</td>
+            <td class="num">${money(directCostsSubtotal)}</td>
+          </tr>
+          <tr>
+            <td>${esc(BUILDER_FEE_LABEL)}</td>
+            <td class="num">${money(builderFeeAmount)}</td>
+          </tr>
+          <tr class="subtotal-row">
+            <td><strong>Contract total (reconciliation)</strong></td>
+            <td class="num"><strong>${money(totalBid)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      ${
+        !pricingBreakdown.reconciles
+          ? `<p class="subtle-p">Note: Roll-up rounding — verify materials, labor, direct costs, and contract total in the estimate match this agreement.</p>`
+          : `<p class="subtle-p">The amounts above reconcile to the contract total shown on the pricing summary.</p>`
+      }
+    `;
 
   const notes =
     input?.notes ||
@@ -170,32 +336,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     ? options.branding.licenseNumber
     : undefined;
 
-  const footerBits = [
-    options.branding.companyPhone,
-    options.branding.companyEmail,
-    licenseNumber,
-  ]
-    .filter(Boolean)
-    .map((v) => esc(String(v)));
-  const footerLeftBody = footerBits.length ? `${esc(company)} · ${footerBits.join(" · ")}` : esc(company);
-  const footerCenterBody = esc(docTitle);
-
-  const includeAppendix = options.pdfMode === "detailed";
-  const totalPages = 5 + (includeAppendix ? 1 : 0);
-
-  let pageIndex = 0;
-  const nextPage = () => {
-    pageIndex += 1;
-    return pageIndex;
-  };
-
-  const pageFooter = () => {
-    const n = pageIndex;
-    return `<div class="page-footer"><div class="page-footer-left">${footerLeftBody}</div><div class="page-footer-center">${footerCenterBody}</div><div class="page-footer-right">Page ${n} of ${totalPages}</div></div>`;
-  };
-
   const coverPage = () => {
-    nextPage();
     return `
     <section class="page cover-page">
       <header class="cover-header">
@@ -255,7 +396,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
 
           ${
             trustItems.length
-              ? `<div class="trust-plain">${trustItems.map((t) => esc(t)).join(" · ")}</div>`
+              ? `<div class="trust-badges">${trustItems.map((t) => `<span class="trust-badge">${esc(t)}</span>`).join("")}</div>`
               : ""
           }
         </div>
@@ -265,7 +406,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <div class="boxed-summary-title">Agreement summary</div>
             ${renderInfoRow("Contract price", money(totalBid))}
             ${renderInfoRow("Start date", startDate)}
-            ${renderInfoRow("Estimated duration", estimatedDuration)}
+            ${renderInfoRow(scheduleRail.label, scheduleRail.value)}
             ${renderInfoRow("Payment structure", paymentStructureLabel)}
             ${validThrough !== "TBD" ? renderInfoRow("Proposal expires", validThrough) : ""}
           </div>
@@ -274,31 +415,56 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           </div>
         </aside>
       </div>
-
-      ${pageFooter()}
     </section>`;
   };
 
-  const pricingPage = () => {
-    nextPage();
-    return `
-    <section class="page">
-      <div class="section-head">
-        <h2 class="section-title">Scope of work</h2>
-      </div>
+  const scopePricingDetailPage = () => {
+    const lineItemDetailHtml =
+      pdfMode === "detailed"
+        ? hasLineItemAppendix
+          ? `<div class="line-item-detail-block">
+          <h3 class="appendix-section-title">Line-item detail</h3>
+          ${
+            hasMaterialGroups
+              ? `<h4 class="line-item-subhead">General materials</h4>
+          ${renderMaterialGroupsHtml}`
+              : ""
+          }
+          ${
+            hasLaborGroups
+              ? `<h4 class="line-item-subhead">Labor</h4>
+          ${renderLaborGroupsHtml}`
+              : ""
+          }
+        </div>`
+          : `<p class="subtle-p">No line-item breakdown was attached; reconciliation below follows the contract summary only.</p>`
+        : "";
 
-      ${
-        sanitizedDoc.scope.bullets?.length
-          ? `<div class="section-block">
-              <h3 class="block-title">Included work</h3>
-              <ul class="bullet-list flush">${sanitizedDoc.scope.bullets.map((bullet) => `<li>${esc(bullet)}</li>`).join("")}</ul>
-            </div>`
-          : ""
-      }
+    const includedWorkHtml =
+      contractCopy.includedWorkBullets?.length > 0
+        ? `<ul class="bullet-list flush appendix-scope-bullets">${contractCopy.includedWorkBullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`
+        : "";
+
+    return `
+    <section class="page page--scope-pricing-flow appendix-page">
+      <div class="section-head">
+        <h2 class="section-title">Scope &amp; pricing detail</h2>
+      </div>
+      <div class="appendix-context">
+        <h3 class="appendix-context-title">Project context</h3>
+        <div class="appendix-meta">
+          <div class="appendix-meta-row"><span class="appendix-meta-label">Project</span><span class="appendix-meta-value">${esc(sanitizedDoc.summary.projectName)}</span></div>
+          <div class="appendix-meta-row"><span class="appendix-meta-label">Client</span><span class="appendix-meta-value">${esc(sanitizedDoc.owner.legalName || "Client")}</span></div>
+          <div class="appendix-meta-row"><span class="appendix-meta-label">Project type</span><span class="appendix-meta-value">${esc(projectTypeDisplay)}</span></div>
+        </div>
+        <h3 class="appendix-context-title">Scope &amp; included work</h3>
+        <p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>
+        ${includedWorkHtml}
+      </div>
 
       <div class="section-block section-block--split">
         <div>
-          <h3 class="block-title">Commercial summary</h3>
+          <h3 class="block-title">Pricing summary</h3>
           <table class="simple-table">
             <tbody>
               ${pricingRows
@@ -316,25 +482,23 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
               </tr>
             </tbody>
           </table>
-          ${
-            options.pdfMode === "client" &&
-            ((sanitizedDoc.scope.materialLineItems?.length || 0) > 0 ||
-              (sanitizedDoc.scope.laborLineItems?.length || 0) > 0)
-              ? `<p class="note-inline">Detailed line items can be provided as an appendix on request.</p>`
-              : ""
-          }
         </div>
         <div>
           <h3 class="block-title">Project assumptions</h3>
           <ul class="bullet-list flush">${notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>
         </div>
       </div>
-      ${pageFooter()}
+
+      ${lineItemDetailHtml}
+
+      <div class="total-reconciliation-block" data-keep-together="reconciliation">
+        <h3 class="appendix-section-title appendix-section-title--recon">Total reconciliation</h3>
+        ${buildReconciliationHtml()}
+      </div>
     </section>`;
   };
 
   const paymentPage = () => {
-    nextPage();
     return `
     <section class="page page--payment">
       <div class="section-head">
@@ -384,16 +548,33 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           </tr>
         </tbody>
       </table>
-      ${pageFooter()}
     </section>`;
   };
 
   const legalTermsPage = () => {
-    nextPage();
-    const reviewNotice =
+    const dedupedWarnings = sections.warnings.filter(
+      (w, i, arr) => arr.findIndex((x) => x.message === w.message) === i,
+    );
+    const audience = normalizeContractAudience(options.contractAudience);
+    const visibleWarnings = filterContractWarningsForAudience(dedupedWarnings, audience);
+    const termsLeadNoticeInternal =
       options.state === "other"
-        ? "Generic draft: review with local counsel before client use."
-        : `Contract language is aligned to the selected jurisdiction (${sections.statePack.heading}). Review before sending.`;
+        ? "Not legal advice. This is a generic business draft—confirm jurisdiction-specific notices, licensing, cancellation rights, and dispute terms with counsel before the client signs."
+        : `Not legal advice. Jurisdiction template (${sections.statePack.heading}): confirm required notices and disclosures before delivery.`;
+    const termsLeadNoticeClient =
+      options.state === "other"
+        ? "Confirm any jurisdiction-specific notices, licensing, cancellation rights, and dispute terms that apply to this project."
+        : `This section uses ${sections.statePack.heading} language. Confirm required notices and disclosures before execution.`;
+    const termsLeadNotice = audience === "internal" ? termsLeadNoticeInternal : termsLeadNoticeClient;
+
+    const termsTopStrip =
+      audience === "internal"
+        ? `<div class="notice-strip notice-strip--legal-top">
+        <strong>Review before client delivery.</strong> ${esc(termsLeadNotice)}
+      </div>`
+        : `<div class="notice-strip notice-strip--legal-client">
+        ${esc(termsLeadNotice)}
+      </div>`;
 
     return `
     <section class="page">
@@ -401,16 +582,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         <h2 class="section-title">Contract terms</h2>
       </div>
 
-      <div class="notice-strip">
-        <strong>Review notice.</strong> ${esc(reviewNotice)}
-      </div>
+      ${termsTopStrip}
 
       ${
-        sections.warnings.length
+        visibleWarnings.length
           ? `<div class="notice-strip notice-strip--warn">
-              <strong>Before sending.</strong>
               <ul class="compact-warn-list">
-                ${sections.warnings.map((w) => `<li>${esc(w.message)}</li>`).join("")}
+                ${visibleWarnings.map((w) => `<li>${esc(w.message)}</li>`).join("")}
               </ul>
             </div>`
           : ""
@@ -434,16 +612,11 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       <div class="section-block state-block">
         <h3 class="block-title">State &amp; jurisdiction</h3>
         <p class="state-paragraph">${esc(stateLegalSummary)}</p>
-        <p class="terms-disclaimer">
-          Generated from user-provided inputs and template clauses. Not legal advice. Review before sending; state-specific counsel may be required.
-        </p>
       </div>
-      ${pageFooter()}
     </section>`;
   };
 
   const signaturePage = () => {
-    nextPage();
     return `
     <section class="page signature-page">
       <div class="section-head">
@@ -491,106 +664,15 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           </div>
         </div>
       </div>
-      ${pageFooter()}
     </section>`;
   };
 
-  const appendixPage = () => {
-    if (!includeAppendix) return "";
-
-    const renderMaterialGroups = Object.entries(groupedMaterials)
-      .map(([group, items]) => {
-        const subtotal = items.reduce((sum, item) => sum + Number(item.materials || 0), 0);
-        return `
-          <div class="appendix-block">
-            <h3 class="appendix-head">${esc(group)}</h3>
-            <table class="appendix-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th class="center">Qty</th>
-                  <th class="center">Unit</th>
-                  <th class="num">Materials</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${items
-                  .map(
-                    (item) => `
-                    <tr>
-                      <td>${esc(item.description || "Material")}</td>
-                      <td class="center">${item.quantity || "—"}</td>
-                      <td class="center">${esc(item.unit || "—")}</td>
-                      <td class="num">${money(item.materials || 0)}</td>
-                    </tr>`,
-                  )
-                  .join("")}
-                <tr class="subtotal-row">
-                  <td colspan="3">Material subtotal</td>
-                  <td class="num">${money(subtotal)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>`;
-      })
-      .join("");
-
-    const renderLaborGroups = Object.entries(groupedLabor)
-      .map(([group, items]) => {
-        const subtotal = items.reduce((sum, item) => sum + Number(item.labor || 0), 0);
-        return `
-          <div class="appendix-block">
-            <h3 class="appendix-head">${esc(group)}</h3>
-            <table class="appendix-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th class="num">Labor</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${items
-                  .map(
-                    (item) => `
-                    <tr>
-                      <td>${esc(item.description || "Labor")}</td>
-                      <td class="num">${money(item.labor || 0)}</td>
-                    </tr>`,
-                  )
-                  .join("")}
-                <tr class="subtotal-row">
-                  <td>Labor subtotal</td>
-                  <td class="num">${money(subtotal)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>`;
-      })
-      .join("");
-
-    nextPage();
-    return `
-      <section class="page">
-        <div class="section-head">
-          <h2 class="section-title">Detailed appendix</h2>
-        </div>
-        ${renderMaterialGroups}
-        ${renderLaborGroups}
-        ${pageFooter()}
-      </section>
-    `;
-  };
-
-  /* Reset page index — footer uses explicit numbers */
-  pageIndex = 0;
-
   const bodyHtml = `
   ${coverPage()}
-  ${pricingPage()}
+  ${scopePricingDetailPage()}
   ${paymentPage()}
   ${legalTermsPage()}
   ${signaturePage()}
-  ${appendixPage()}
   `;
 
   return `<!DOCTYPE html>
@@ -620,39 +702,21 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       color: ${bodyText};
       background: white;
     }
+    section.page + section.page {
+      page-break-before: always;
+      break-before: page;
+    }
     .page {
       position: relative;
-      page-break-after: always;
-      padding: 0 0 10mm;
+      page-break-after: auto;
+      padding: 0;
       width: 100%;
     }
-    .page:last-child { page-break-after: auto; }
 
-    .page-footer {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      font-size: 7.5pt;
-      color: ${muted};
-      border-top: 1px solid #e2e8f0;
-      padding-top: 5px;
+    .cover-page {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
-    .page-footer-left { flex: 1; min-width: 0; }
-    .page-footer-center {
-      flex: 1;
-      min-width: 0;
-      text-align: center;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-size: 7pt;
-      color: ${muted};
-    }
-    .page-footer-right { white-space: nowrap; font-weight: 600; color: ${brandDark}; }
 
     /* —— Cover —— */
     .cover-header {
@@ -836,12 +900,22 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       font-size: 10.5pt;
       line-height: 1.46;
     }
-    .trust-plain {
-      margin-top: 14px;
-      font-size: 8.8pt;
-      color: ${muted};
-      font-weight: 600;
-      letter-spacing: 0.02em;
+    .trust-badges {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .trust-badge {
+      display: inline-block;
+      font-size: 7.5pt;
+      font-weight: 700;
+      color: #475569;
+      letter-spacing: 0.03em;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 5px 10px;
+      border-radius: 3px;
     }
 
     .boxed-summary {
@@ -920,6 +994,18 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       border-left-color: #d97706;
       background: #fffbeb;
     }
+    .notice-strip--legal-top {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+    }
+    .notice-strip--legal-client {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border-left-color: ${brand};
+      background: #f8fafc;
+      font-size: 9.5pt;
+      line-height: 1.45;
+    }
     .compact-warn-list {
       margin: 6px 0 0;
       padding-left: 18px;
@@ -929,12 +1015,6 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       margin: 0 0 10px;
       font-size: 9.5pt;
       line-height: 1.45;
-    }
-    .terms-disclaimer {
-      margin: 0;
-      font-size: 8.5pt;
-      color: ${muted};
-      line-height: 1.4;
     }
     .subtle-p {
       margin: 8px 0 0;
@@ -1006,26 +1086,37 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       color: ${muted};
     }
 
+    .signature-page .section-head {
+      margin-bottom: 14px;
+    }
     .signature-lead {
-      margin: 0 0 16px;
+      margin: 0 0 28px;
       max-width: 100%;
       font-size: 9.5pt;
+      line-height: 1.48;
     }
     .signature-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      gap: 28px;
+      align-items: stretch;
     }
     .signature-box {
-      border: 1px solid #cfd8e3;
-      padding: 12px 14px;
-      min-height: 230px;
+      border: 1px solid #c9d4e0;
+      border-radius: 4px;
+      padding: 20px 18px 22px;
+      min-height: 268px;
+      background: #fcfdfe;
+      display: flex;
+      flex-direction: column;
     }
     .signature-heading {
-      font-size: 10pt;
+      font-size: 10.5pt;
       font-weight: 700;
       color: ${brandDark};
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e2e8f0;
     }
     .meta-row {
       display: flex;
@@ -1041,13 +1132,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       color: ${muted};
     }
     .meta-value { flex: 1; color: ${bodyText}; }
-    .signature-line-block { margin-top: 22px; }
+    .signature-line-block { margin-top: auto; padding-top: 18px; }
     .signature-line {
       border-bottom: 1.5px solid #334155;
-      height: 32px;
+      height: 36px;
       width: 100%;
     }
-    .signature-line.short { height: 26px; }
+    .signature-line.short { height: 28px; }
     .signature-caption {
       margin-top: 5px;
       font-size: 8pt;
@@ -1056,8 +1147,91 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .signature-meta-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 14px;
-      margin-top: 16px;
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .appendix-page { padding-bottom: 12mm; }
+    .appendix-context {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 18px;
+      page-break-inside: auto;
+    }
+    .appendix-context-title {
+      font-size: 8.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: ${brandDark};
+      margin: 0 0 8px;
+    }
+    .appendix-context-title:not(:first-child) { margin-top: 14px; }
+    .appendix-meta { margin-bottom: 4px; }
+    .appendix-meta-row {
+      display: flex;
+      gap: 10px;
+      font-size: 9.5pt;
+      padding: 4px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .appendix-meta-row:last-child { border-bottom: none; }
+    .appendix-meta-label { min-width: 100px; font-weight: 600; color: ${muted}; }
+    .appendix-meta-value { flex: 1; color: ${bodyText}; }
+    .appendix-scope-text { margin: 0 0 8px; font-size: 9.5pt; line-height: 1.45; color: ${bodyText}; }
+    .appendix-scope-bullets { margin-top: 6px; }
+    .appendix-section-title {
+      font-size: 10.5pt;
+      font-weight: 700;
+      color: ${brandDark};
+      margin: 18px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid ${brand};
+    }
+    .appendix-section-title--recon {
+      margin-top: 0;
+    }
+    .appendix-table--recon { margin-top: 8px; }
+    .appendix-table--recon .subtotal-row td {
+      border-top: 2px solid ${brandDark};
+      padding-top: 10px;
+    }
+    .total-reconciliation-block {
+      margin-top: 18px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      break-before: auto;
+    }
+    .total-reconciliation-block.force-page-break-before {
+      page-break-before: always;
+      break-before: page;
+    }
+    .total-reconciliation-block .appendix-table--recon,
+    .total-reconciliation-block .subtle-p {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .page--scope-pricing-flow {
+      position: static;
+      min-height: 0;
+      page-break-inside: auto;
+    }
+    .page--scope-pricing-flow .appendix-block {
+      page-break-inside: auto;
+    }
+    .line-item-detail-block {
+      margin-top: 4px;
+    }
+    .line-item-subhead {
+      font-size: 10pt;
+      font-weight: 700;
+      color: ${brandDark};
+      margin: 14px 0 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #e2e8f0;
     }
 
     .appendix-block { margin-bottom: 18px; page-break-inside: avoid; }
