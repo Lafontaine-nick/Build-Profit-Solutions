@@ -19,6 +19,8 @@ interface SpendingTrendChartProps {
   showLegend?: boolean;
   scrollable?: boolean;
   varianceOverride?: number;
+  /** When true, omit the spent/total figures on the legend row (parent shows the same summary). */
+  hideLegendSpendTotal?: boolean;
 }
 
 function moneyTick(n: number) {
@@ -59,6 +61,7 @@ export default function SpendingTrendChart({
   showLegend = true,
   scrollable = false,
   varianceOverride,
+  hideLegendSpendTotal = false,
 }: SpendingTrendChartProps) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -134,7 +137,7 @@ export default function SpendingTrendChart({
     return { text: "On track", color: "#22c55e" };
   }, [variance]);
 
-  const legendTextColor = Colors.sub;
+  const legendTextColor = darkMode ? "rgba(255,255,255,0.87)" : "#64748b";
   const chartSurface = darkMode ? "rgba(255,255,255,0.10)" : "#CBD5E1";
   const chartBorder = darkMode ? "rgba(255,255,255,0.14)" : "#94A3B8";
   const axisTextColor = darkMode ? "#F9FAFB" : "#1e293b";
@@ -178,30 +181,42 @@ export default function SpendingTrendChart({
       )}
 
       {showLegend && (
-        <View style={{ flexDirection: "row", gap: 16, marginTop: showHeader ? 12 : 0, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 14,
+            marginTop: showHeader ? 12 : 0,
+            marginBottom: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+            justifyContent: "flex-start",
+          }}
+        >
           <LegendDot label="Actual" color={actualColor} textColor={legendTextColor} />
           <LegendDot label="Planned" color={plannedColor} textColor={legendTextColor} />
           <View
             style={{
               backgroundColor: `${statusLabel.color}18`,
-              paddingHorizontal: 8,
-              paddingVertical: 3,
-              borderRadius: 6,
-              marginLeft: 8,
+              paddingHorizontal: 9,
+              paddingVertical: 4,
+              borderRadius: 8,
+              marginLeft: 4,
             }}
           >
-            <Text style={{ color: statusLabel.color, fontSize: 11, fontWeight: "600" }}>
+            <Text style={{ color: statusLabel.color, fontSize: 11, fontWeight: "700" }}>
               {statusLabel.text}
             </Text>
           </View>
-          <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "baseline", gap: 4 }}>
-            <Text style={{ color: Colors.text, fontSize: 15, fontWeight: "700" }}>
-              {moneyTick(actualPoints.at(-1)?.value ?? 0)}
-            </Text>
-            <Text style={{ color: legendTextColor, fontSize: 13, fontWeight: "500" }}>
-              / {moneyTick(budgetTotal)}
-            </Text>
-          </View>
+          {!hideLegendSpendTotal ? (
+            <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+              <Text style={{ color: Colors.text, fontSize: 15, fontWeight: "700" }}>
+                {moneyTick(actualPoints.at(-1)?.value ?? 0)}
+              </Text>
+              <Text style={{ color: legendTextColor, fontSize: 13, fontWeight: "600" }}>
+                / {moneyTick(budgetTotal)}
+              </Text>
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -257,8 +272,8 @@ export default function SpendingTrendChart({
             color: "#2dd4bf",
             type: "dotted",
             thickness: 2,
-            labelText: `Budget ${moneyTick(budgetTotal)}`,
-            labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "500", marginTop: 6 },
+            labelText: `Budget cap: ${moneyTick(budgetTotal)}`,
+            labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600", marginTop: 6 },
           }}
           yAxisThickness={0}
           xAxisThickness={0}
@@ -352,8 +367,8 @@ export default function SpendingTrendChart({
               color: "#2dd4bf",
               type: "dotted",
               thickness: 2,
-              labelText: `Budget ${moneyTick(budgetTotal)}`,
-              labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "500", marginTop: 6 },
+              labelText: `Budget cap: ${moneyTick(budgetTotal)}`,
+              labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600", marginTop: 6 },
             }}
             yAxisThickness={0}
             xAxisThickness={0}

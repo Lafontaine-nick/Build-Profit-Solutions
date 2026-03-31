@@ -15,8 +15,13 @@ import type { Milestone } from "../src/types/timeline";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 
-/** Secondary copy on Timeline in dark mode — full white on black (replaces grey COLORS.subtext). */
-const TIMELINE_DARK_SECONDARY = "#FFFFFF";
+/** Supporting text on Timeline — neutral grey / soft white (not full white; keeps hierarchy). */
+function timelineMuted(dark: boolean) {
+  return dark ? "rgba(255,255,255,0.86)" : "#8891a0";
+}
+function timelineCaption(dark: boolean) {
+  return dark ? "rgba(255,255,255,0.70)" : "#8891a0";
+}
 
 /* -------------------- helpers -------------------- */
 
@@ -91,12 +96,16 @@ function MilestoneCardV2({
 }) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const muted = timelineMuted(darkMode);
+  const caption = timelineCaption(darkMode);
   const pill = statusPillStyle(item.status, darkMode);
-  const isPending = item.status !== "completed" && item.status !== "in_progress";
   const pendingPill = !darkMode && item.status !== "completed" && item.status !== "in_progress";
   const pillBg = pendingPill ? "#CBD5E1" : pill.bg;
   const pillText = pendingPill ? "#111827" : pill.text;
   const pct = clampPct(item.progressPct);
+  const hasAmount = typeof item.amount === "number" && item.amount > 0;
+  const metaLines =
+    (item.assignee ? 1 : 0) + (dependencyTitle ? 1 : 0);
 
   return (
     <View style={styles.milestoneCardContainer}>
@@ -105,45 +114,59 @@ function MilestoneCardV2({
           onPress={() => onPress(item)}
           style={[
             styles.mCard,
-            { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
+            {
+              backgroundColor: Colors.surface2,
+              borderWidth: 1,
+              borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+              borderRadius: 14,
+            },
           ]}
         >
-          {/* Header Row - Title and Amount */}
-          <View style={styles.mHeaderRow}>
-            <View style={styles.mTitleContainer}>
-              <Text style={[styles.mTitle, !darkMode && { color: Colors.text }]} numberOfLines={2}>
-                {item.title}
-              </Text>
-            </View>
-            <View style={styles.mHeaderRight}>
-              {typeof item.amount === "number" && item.amount > 0 ? (
-                <View style={styles.amountPill}>
-                  <Text style={styles.amountText}>${item.amount.toLocaleString()}</Text>
-                </View>
-              ) : null}
-              <Text style={[styles.mPct, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>{Math.round(pct)}%</Text>
-            </View>
+          <Text style={[styles.mTitle, !darkMode && { color: Colors.text }]} numberOfLines={2}>
+            {item.title}
+          </Text>
+
+          <View style={styles.mAmountRow}>
+            {hasAmount ? (
+              <View style={styles.amountPill}>
+                <Text style={styles.amountText}>${item.amount.toLocaleString()}</Text>
+              </View>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            <Text style={[styles.mPctSecondary, { color: caption }]}>{Math.round(pct)}%</Text>
           </View>
 
-          {/* Meta Row - Status and Date */}
-          <View style={[styles.mMetaRow, !darkMode && { borderBottomColor: Colors.line }]}>
+          <View style={[styles.mStatusDateRow, !darkMode && { borderBottomColor: "rgba(15,23,42,0.08)" }]}>
             <View style={[styles.statusPill, { backgroundColor: pillBg, borderWidth: 1, borderColor: pill.border || "transparent" }]}>
               <Text style={[styles.statusText, { color: pillText }]}>{statusLabel(item.status)}</Text>
             </View>
-            <Text style={[styles.mMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>{formatDate(item.plannedDate)}</Text>
+            <Text style={[styles.mDateLine, { color: muted }]}>{formatDate(item.plannedDate)}</Text>
           </View>
 
-          {/* Additional Info */}
-          {item.assignee ? (
-            <Text style={[styles.mMetaText, { marginTop: 8, color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
-              Assigned: {item.assignee}
-            </Text>
-          ) : null}
-
-          {dependencyTitle ? (
-            <Text style={[styles.mMetaText, { marginTop: 8, color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
-              Depends on: {dependencyTitle}
-            </Text>
+          {metaLines > 0 ? (
+            <View
+              style={[
+                styles.mMetaGroup,
+                {
+                  backgroundColor: darkMode ? "rgba(255,255,255,0.045)" : "rgba(15,23,42,0.04)",
+                  borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
+                },
+              ]}
+            >
+              {item.assignee ? (
+                <Text style={styles.mMetaLine}>
+                  <Text style={{ fontWeight: "700", color: caption }}>Assigned </Text>
+                  <Text style={{ color: muted }}>{item.assignee}</Text>
+                </Text>
+              ) : null}
+              {dependencyTitle ? (
+                <Text style={[styles.mMetaLine, { marginTop: item.assignee ? 6 : 0 }]}>
+                  <Text style={{ fontWeight: "700", color: caption }}>Depends on </Text>
+                  <Text style={{ color: muted }}>{dependencyTitle}</Text>
+                </Text>
+              ) : null}
+            </View>
           ) : null}
 
           {typeof item.costDelta === "number" && item.costDelta !== 0 && item.costCategory ? (
@@ -153,13 +176,8 @@ function MilestoneCardV2({
             </Text>
           ) : null}
 
-          {/* Progress Bar */}
-          <View
-            style={[
-              styles.mProgressContainer,
-            ]}
-          >
-            <ProgressBar value={pct} />
+          <View style={styles.mProgressContainer}>
+            <ProgressBar value={pct} emphasis />
           </View>
         </TouchableOpacity>
     </View>
@@ -181,6 +199,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   const [refreshing, setRefreshing] = useState(false);
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const muted = timelineMuted(darkMode);
+  const caption = timelineCaption(darkMode);
 
   const { addExpense, updateExpense, deleteExpense, projectData, updateTimeline } = useProjectData();
   const { updateProject, getProjectById } = useProjectList();
@@ -980,7 +1000,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           !darkMode && { backgroundColor: Colors.bg },
         ]}
       >
-        <Text style={[styles.loadingText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.text }]}>Loading timeline...</Text>
+        <Text style={[styles.loadingText, { color: darkMode ? COLORS.text : Colors.text }]}>Loading timeline...</Text>
       </View>
     );
   }
@@ -1034,7 +1054,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   <Text style={[styles.timelineHeaderTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                     Timeline Details
                   </Text>
-                  <Text style={[styles.timelineHeaderSubtitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
+                  <Text style={[styles.timelineHeaderSubtitle, { color: muted }]}>
                     Track milestones and project progress
                   </Text>
                 </View>
@@ -1042,18 +1062,30 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
               {/* Overall Progress Section */}
               <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
-                <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                <View
+                  style={[
+                    styles.sectionCard,
+                    darkMode && styles.sectionCardElevated,
+                    {
+                      backgroundColor: Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+                      borderRadius: 14,
+                    },
+                  ]}
+                >
+                <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                   <MaterialIcons name="schedule" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Overall Progress
                   </Text>
-                  <Text style={[styles.sectionTitle, { color: "#22d3ee", marginLeft: "auto" }]}>
-                    {Math.round(overall)}%
-                  </Text>
                 </View>
+                <View style={styles.overallPercentBlock}>
+                  <Text style={styles.overallPercentNumber}>{Math.round(overall)}%</Text>
+                </View>
+                <View style={[styles.timelineHairline, { backgroundColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)" }]} />
                 <View style={styles.progressContent}>
-                  <ProgressBar value={overall} />
+                  <ProgressBar value={overall} emphasis />
                 </View>
               </View>
             </View>
@@ -1069,13 +1101,13 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
               style={styles.overviewBorder}
             >
               <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                   <MaterialIcons name="description" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     Daily Logs
                   </Text>
                   {dailyLogs.length > 0 && (
-                    <Text style={[styles.sectionTitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
+                    <Text style={[styles.sectionTitle, { color: muted, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
                       {dailyLogs.length} {dailyLogs.length === 1 ? 'entry' : 'entries'}
                     </Text>
                   )}
@@ -1131,7 +1163,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                               <MaterialIcons 
                                 name="delete-outline" 
                                 size={20} 
-                                color={darkMode ? TIMELINE_DARK_SECONDARY : "#94a3b8"} 
+                                color={muted} 
                               />
                             </TouchableOpacity>
                           </View>
@@ -1145,16 +1177,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                           <View style={styles.logMeta}>
                             {log.crewCount && (
                               <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
-                                <MaterialIcons name="people" size={16} color={darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub} />
-                                <Text style={[styles.logMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
+                                <MaterialIcons name="people" size={16} color={muted} />
+                                <Text style={[styles.logMetaText, { color: muted }]}>
                                   {log.crewCount} {log.crewCount === 1 ? 'person' : 'people'}
                                 </Text>
                               </View>
                             )}
                             {log.hoursWorked && (
                               <View style={[styles.logMetaItem, { backgroundColor: darkMode ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.06)" }]}>
-                                <MaterialIcons name="schedule" size={16} color={darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub} />
-                                <Text style={[styles.logMetaText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
+                                <MaterialIcons name="schedule" size={16} color={muted} />
+                                <Text style={[styles.logMetaText, { color: muted }]}>
                                   {log.hoursWorked} {log.hoursWorked === 1 ? 'hour' : 'hours'}
                                 </Text>
                               </View>
@@ -1166,8 +1198,14 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   </ScrollView>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
-                    <Text style={[styles.emptyText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
-                      No daily logs yet. Use the AI assistant to add a daily log entry.
+                    <View style={[styles.emptyLogsIconWrap, { backgroundColor: darkMode ? "rgba(34,211,238,0.1)" : "rgba(14,165,233,0.08)" }]}>
+                      <MaterialIcons name="edit-note" size={32} color="#22d3ee" />
+                    </View>
+                    <Text style={[styles.emptyLogsTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
+                      No site logs yet
+                    </Text>
+                    <Text style={[styles.emptyLogsBody, { color: muted }]}>
+                      Record daily notes, crew size, and weather tied to this job. Use Ask PM to add an entry anytime.
                     </Text>
                   </View>
                 )}
@@ -1185,8 +1223,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             >
               <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
                 <View style={styles.sectionCardContainer}>
-                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
-                    <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line, borderRadius: 14 }]}>
+                    <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                       <MaterialIcons name="event" size={22} color="#22c55e" />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                         Upcoming (next 3)
@@ -1195,18 +1233,27 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     <View style={styles.upcomingContent}>
                       {upcoming.length > 0 ? (
                         upcoming.map((u) => (
-                          <View key={u.id} style={styles.upcomingItem}>
-                            <Text style={[styles.upcomingBullet, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>•</Text>
-                            <Text style={[styles.upcomingText, { color: darkMode ? COLORS.text : Colors.text }]}>
-                              {u.title}{" "}
-                              <Text style={[styles.upcomingDate, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
-                                — {formatDate(u.plannedDate)}
+                          <View
+                            key={u.id}
+                            style={[
+                              styles.upcomingShell,
+                              {
+                                backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
+                                borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
+                              },
+                            ]}
+                          >
+                            <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
+                            <View style={styles.upcomingTextCol}>
+                              <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
+                                {u.title}
                               </Text>
-                            </Text>
+                              <Text style={[styles.upcomingDateLine, { color: caption }]}>{formatDate(u.plannedDate)}</Text>
+                            </View>
                           </View>
                         ))
                       ) : (
-                        <Text style={[styles.emptyText, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
+                        <Text style={[styles.emptyText, { color: muted }]}>
                           No upcoming milestones
                         </Text>
                       )}
@@ -1227,7 +1274,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
               style={styles.overviewBorder}
             >
               <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                   <MaterialIcons name="list" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
                     All Payments
@@ -1248,7 +1295,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       <Text style={[styles.emptyTimelineTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                         Project hasn't started yet
                       </Text>
-                      <Text style={[styles.emptyTimelineSubtitle, { color: darkMode ? TIMELINE_DARK_SECONDARY : Colors.sub }]}>
+                      <Text style={[styles.emptyTimelineSubtitle, { color: muted }]}>
                         Progress will begin once work starts or a milestone is marked complete.
                       </Text>
                       <View style={styles.starterButtonsContainer}>
@@ -1547,13 +1594,13 @@ const styles = StyleSheet.create({
   },
   overviewInner: {
     borderRadius: 18,
-    padding: 12,
+    padding: 14,
   },
   timelineHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   timelineHeaderTitle: {
     fontSize: 18,
@@ -1562,7 +1609,6 @@ const styles = StyleSheet.create({
   },
   timelineHeaderSubtitle: {
     fontSize: 14,
-    color: TIMELINE_DARK_SECONDARY,
     marginTop: 4,
   },
   sectionCardContainer: {
@@ -1576,74 +1622,100 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
   },
+  sectionCardElevated: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 2,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(34, 197, 94, 0.2)',
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
   sectionTitle: {
     fontSize: 17,
     fontWeight: "700",
     color: COLORS.text,
   },
+  overallPercentBlock: {
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  overallPercentNumber: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -1,
+    color: "#22d3ee",
+    fontVariant: ["tabular-nums"],
+  },
+  timelineHairline: {
+    height: StyleSheet.hairlineWidth,
+    width: "100%",
+    marginTop: 10,
+    marginBottom: 4,
+  },
   progressContent: { 
     padding: 0,
-    marginTop: 8,
+    marginTop: 12,
+    paddingBottom: 2,
   },
   upcomingContent: { 
     padding: 0,
-    marginTop: 8,
-  },
-  upcomingItem: {
-    flexDirection: "row",
+    marginTop: 4,
     gap: 10,
+  },
+  upcomingShell: {
+    flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: 8,
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 72,
   },
-  upcomingBullet: {
-    marginTop: 2,
-    fontSize: 16,
+  upcomingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
   },
-  upcomingText: {
+  upcomingTextCol: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: "700",
-    color: COLORS.text,
+    minWidth: 0,
   },
-  upcomingDate: {
+  upcomingTitleOnly: {
     fontSize: 15,
     fontWeight: "700",
+    lineHeight: 20,
+  },
+  upcomingDateLine: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 4,
   },
   milestonesSection: {
     marginTop: 12,
     marginBottom: 0,
   },
   milestonesList: {
-    marginTop: 16,
-    gap: 16,
+    marginTop: 12,
+    gap: 18,
   },
   milestoneCardContainer: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   milestoneCardBorder: {
     borderRadius: 20,
     padding: 1,
   },
   mCard: {
-    padding: 16,
-  },
-  mHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  mTitleContainer: {
-    flex: 1,
-    marginRight: 12,
+    padding: 15,
   },
   mTitle: { 
     color: COLORS.text, 
@@ -1651,78 +1723,91 @@ const styles = StyleSheet.create({
     fontSize: 17, 
     letterSpacing: Platform.OS === 'ios' ? -0.3 : -0.2,
     lineHeight: 22,
+    marginBottom: 10,
   },
-  mHeaderRight: {
+  mAmountRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
   },
   amountPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    backgroundColor: "rgba(34, 197, 94, 0.2)",
     borderWidth: 1,
-    borderColor: "#22c55e",
+    borderColor: "rgba(34, 197, 94, 0.45)",
   },
   amountText: { 
     color: "#22c55e", 
-    fontWeight: "700", 
-    fontSize: 14 
+    fontWeight: "800", 
+    fontSize: 15,
+    fontVariant: ["tabular-nums"],
   },
-  mPct: { 
-    color: TIMELINE_DARK_SECONDARY, 
-    fontWeight: "700", 
-    fontSize: 16 
+  mPctSecondary: {
+    fontWeight: "600",
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
-  mMetaRow: {
+  mStatusDateRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 10,
     paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(34, 197, 94, 0.15)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(148, 163, 184, 0.14)",
   },
   statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
   },
   statusText: { 
     fontWeight: "700", 
-    fontSize: 13 
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
-  mMetaText: { 
-    color: TIMELINE_DARK_SECONDARY, 
-    fontWeight: "600", 
-    fontSize: 14 
+  mDateLine: {
+    fontWeight: "600",
+    fontSize: 13,
+    fontVariant: ["tabular-nums"],
+  },
+  mMetaGroup: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  mMetaLine: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   costImpact: { 
     color: "#22d3ee", 
     fontWeight: "700", 
     fontSize: 14, 
-    marginTop: 8 
+    marginTop: 10,
+    marginBottom: 4,
   },
   mProgressContainer: {
-    marginTop: 16,
-    borderWidth: 1,
+    marginTop: 14,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
-    padding: 2,
-    borderColor: "rgba(148, 163, 184, 0.3)",
-  },
-  mProgressPendingBorder: {
-    borderWidth: 1,
-    borderRadius: 999,
-    padding: 2,
+    padding: 3,
+    borderColor: "rgba(148, 163, 184, 0.22)",
   },
   emptyText: {
-    color: TIMELINE_DARK_SECONDARY,
     fontSize: 14,
     textAlign: "center",
-    paddingVertical: 24,
+    paddingVertical: 20,
     paddingHorizontal: 20,
     lineHeight: 22,
+    fontWeight: "500",
   },
   emptyTimelineContainer: {
     paddingVertical: 32,
@@ -1746,8 +1831,31 @@ const styles = StyleSheet.create({
     maxHeight: 340, // Adjusted for larger spacing
   },
   emptyLogsContainer: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    alignItems: "center",
+  },
+  emptyLogsIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  emptyLogsTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: -0.2,
+    marginBottom: 8,
+  },
+  emptyLogsBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    fontWeight: "500",
+    maxWidth: 300,
   },
   logCard: {
     paddingHorizontal: 16,
@@ -1810,8 +1918,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 16,
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.2)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.14)',
   },
   logMetaItem: {
     flexDirection: 'row',
@@ -1824,7 +1932,6 @@ const styles = StyleSheet.create({
   logMetaText: {
     fontSize: 13,
     fontWeight: '600',
-    color: TIMELINE_DARK_SECONDARY,
   },
   starterButtonsContainer: {
     width: '100%',

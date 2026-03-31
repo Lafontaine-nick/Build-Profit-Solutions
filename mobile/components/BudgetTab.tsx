@@ -746,7 +746,7 @@ export default function BudgetTab({
     ? {
         background: ['#0b1c38', '#1B365D', '#22c55e'],
         text: '#f1f5f9',
-        subtext: '#cbd5e1',
+        subtext: 'rgba(255,255,255,0.85)',
         card: '#1B365D',
         border: 'rgba(255, 255, 255, 0.1)',
         accent: '#22c55e',
@@ -760,10 +760,15 @@ export default function BudgetTab({
         accent: '#1976d2',
       };
 
-  /** Budget Totals rows use Row() which reads theme.subtext for labels — white in dark mode for readability */
+  /** Match project Overview secondary text: neutral grey / soft white (see [id].tsx mutedLabel). */
+  const pageSubtext = darkMode ? 'rgba(255,255,255,0.85)' : '#8891a0';
+  const pageCaption = darkMode ? 'rgba(255,255,255,0.74)' : '#8891a0';
+
+  /** Budget Totals: row labels + helper lines under margin rows */
   const budgetTotalsTheme = {
     ...theme,
-    subtext: darkMode ? '#FFFFFF' : theme.subtext,
+    subtext: pageSubtext,
+    helperSubtext: pageCaption,
   };
 
   const hasExpenses = (projectData?.expenses || []).length > 0;
@@ -839,15 +844,15 @@ export default function BudgetTab({
               {/* Baseline Locked Indicator */}
               <View style={[styles.baselineIndicator, { 
                 backgroundColor: Colors.surface2, 
-                borderColor: Colors.line 
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line 
               }]}>
-                <Ionicons name="lock-closed" size={14} color={Colors.sub} />
+                <Ionicons name="lock-closed" size={14} color={pageSubtext} />
                 <View style={styles.baselineIndicatorTextWrap}>
-                  <Text style={[styles.baselineIndicatorText, { color: Colors.sub }]}>
-                    Baseline locked from estimate
+                  <Text style={[styles.baselineIndicatorText, { color: pageSubtext }]}>
+                    Budget baseline locked to your estimate
                   </Text>
-                  <Text style={[styles.baselineIndicatorSubtext, { color: Colors.sub }]}>
-                    Changes are tracked automatically
+                  <Text style={[styles.baselineIndicatorSubtext, { color: pageCaption }]}>
+                    Expenses and POs are tracked automatically
                   </Text>
                 </View>
               </View>
@@ -862,7 +867,7 @@ export default function BudgetTab({
                   <Text style={[styles.zeroStateTitle, { color: theme.text }]}>
                     No costs logged yet
                   </Text>
-                  <Text style={[styles.zeroStateSubtitle, { color: theme.subtext }]}>
+                  <Text style={[styles.zeroStateSubtitle, { color: pageCaption }]}>
                     Most contractors log their first expense within the first day.
                   </Text>
                   
@@ -895,12 +900,12 @@ export default function BudgetTab({
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={[styles.zeroStateHelperText, { color: theme.subtext }]}>
+                  <Text style={[styles.zeroStateHelperText, { color: pageCaption }]}>
                     Add materials, labor, or misc costs
                   </Text>
                   <View style={styles.zeroStateSuggestionRow}>
-                    <Ionicons name="bulb-outline" size={14} color={theme.subtext} />
-                    <Text style={[styles.zeroStateSuggestionText, { color: theme.subtext }]}>
+                    <Ionicons name="bulb-outline" size={14} color={pageCaption} />
+                    <Text style={[styles.zeroStateSuggestionText, { color: pageCaption }]}>
                       Suggested: Log materials from your first supplier
                     </Text>
                   </View>
@@ -911,7 +916,7 @@ export default function BudgetTab({
               <View style={styles.budgetHeaderRow}>
                 <View>
                   <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Details</Text>
-                  <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                  <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
                     Once expenses are logged, you&apos;ll see actual vs planned in real time.
                   </Text>
                 </View>
@@ -919,8 +924,8 @@ export default function BudgetTab({
 
               {/* Totals Card */}
               <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
-          <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
+          <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : Colors.line }]}>
             <MaterialIcons name='account-balance-wallet' size={22} color='#22c55e' />
             <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 12 }]}>
               Budget Totals
@@ -931,27 +936,33 @@ export default function BudgetTab({
             label='Planned Budget'
             value={money(planned, currency)}
             theme={budgetTotalsTheme}
+            variant='book'
           />
           <Row
             label='Approved Change Orders'
             value={`+ ${money(coApproved, currency)}`}
             theme={budgetTotalsTheme}
+            variant='book'
           />
           <Row
             label='Adjusted Budget'
             value={money(adjustedBudget, currency)}
             theme={budgetTotalsTheme}
+            variant='book'
           />
           <Row
             label='Actual Expenses'
             value={money(actual, currency)}
             theme={budgetTotalsTheme}
+            variant='book'
           />
           <Row
             label='Committed POs'
             value={money(purchaseOrdersTotal, currency)}
             theme={budgetTotalsTheme}
+            variant='book'
           />
+          <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.08)' }]} />
           <Row
             label='Forecast Final Cost'
             sublabel={
@@ -963,13 +974,14 @@ export default function BudgetTab({
             }
             value={money(profitForecast.forecastFinalCost, currency)}
             theme={budgetTotalsTheme}
-            valueColor='#ef4444'
+            variant='intel'
           />
           <Row
             label='Projected Profit'
             value={money(profitForecast.projectedProfit, currency)}
             theme={budgetTotalsTheme}
             valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
+            variant='intel'
           />
           <Row
             label='Spend-to-Date Margin'
@@ -977,6 +989,7 @@ export default function BudgetTab({
             value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
             theme={budgetTotalsTheme}
             valueColor={profitStatusColor}
+            variant='intel'
           />
           <Row
             label='Projected Margin'
@@ -984,16 +997,21 @@ export default function BudgetTab({
             value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
             theme={budgetTotalsTheme}
             valueColor={profitStatusColor}
+            variant='intel'
           />
           <Row
             label='Profit Variance vs Estimate'
             value={money(profitForecast.profitVarianceVsEstimate, currency)}
             theme={budgetTotalsTheme}
             valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
+            variant='intel'
           />
           <View style={styles.remainingSection}>
             <Text style={[styles.remainingLabel, { color: budgetTotalsTheme.subtext }]}>
               Remaining
+            </Text>
+            <Text style={[styles.remainingBarHint, { color: pageCaption }]}>
+              Bar fill shows share of adjusted budget used. Light ticks at 25%, 50%, and 75%.
             </Text>
           <Bar
             pct={remainingPercent}
@@ -1051,7 +1069,7 @@ export default function BudgetTab({
                   <View style={styles.budgetHeaderRow}>
                     <View>
                       <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Categories</Text>
-                      <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                      <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
                         Track spending by category
                       </Text>
                     </View>
@@ -1069,62 +1087,54 @@ export default function BudgetTab({
                     
                     return (
                       <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
-                        <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                        <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
                       <Pressable
                         onPress={() => setSelectedCategory(itemName)}
                         style={{ flex: 1 }}
                       >
-                        {/* Header with Category and Icon */}
-                        <View style={[styles.budgetCardHeader, { justifyContent: 'center', position: 'relative', width: '100%' }]}>
-                          {/* Over Budget Badge - Top Right */}
+                        <View style={styles.budgetCardHeader}>
                           {isOverBudget && (
-                            <View style={[styles.warningBadge, { backgroundColor: theme.accent, position: 'absolute', top: 0, right: 0 }]}>
+                            <View style={[styles.warningBadge, { backgroundColor: theme.accent, position: 'absolute', top: 0, right: 0, zIndex: 2 }]}>
                               <Text style={styles.warningBadgeText}>Over Budget</Text>
                             </View>
                           )}
-                          <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-                            <View style={{ alignItems: 'center', marginBottom: 4 }}>
-                              <MaterialIcons name={categoryIconName as any} size={22} color="#22c55e" />
-                            </View>
-                            <View style={{ alignItems: 'center' }}>
-                              <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
-                                {itemName}
-                              </Text>
-                              <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
+                          <View style={styles.budgetCardHeaderMain}>
+                            <MaterialIcons name={categoryIconName as any} size={22} color="#22c55e" style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <View style={styles.budgetCardTitleRow}>
+                                <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left', flex: 1 }]} numberOfLines={2}>
+                                  {itemName}
+                                </Text>
+                                <Text style={[styles.budgetCurrentTag, { color: pageCaption }]}>Current</Text>
+                              </View>
+                              <Text style={[styles.budgetTapHint, { color: theme.accent }]}>
                                 Tap to view transactions →
                               </Text>
                             </View>
                           </View>
                         </View>
 
-                        {/* Current Label - Centered */}
-                        <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                          <Text style={[styles.budgetAmountLabel, { color: theme.subtext }]}>Current</Text>
-                        </View>
-
-                        {/* Budget and Spent Row */}
                         <View style={styles.budgetStatusRow}>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.statusLabel, { color: theme.subtext }]}>Budget:</Text>
-                            <Text style={[styles.statusValue, { color: theme.subtext, fontSize: 15, marginTop: 4 }]}>
+                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Budget</Text>
+                            <Text style={[styles.statusValue, { color: theme.text, fontSize: 16, marginTop: 3, fontWeight: '700' }]}>
                               {money(budgetValue, currency)}
                             </Text>
                           </View>
                           <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                            <Text style={[styles.statusLabel, { color: theme.subtext }]}>Spent:</Text>
+                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Spent</Text>
                             <Text style={[styles.statusValue, { 
                               color: isOverBudget ? theme.accent : theme.text,
-                              fontSize: 15,
+                              fontSize: 16,
                               fontWeight: '700',
-                              marginTop: 4
+                              marginTop: 3
                             }]}>
                               {money(spent, currency)}
                             </Text>
                           </View>
                         </View>
 
-                        {/* Progress Bar */}
-                        <View style={[styles.progressBarContainer, { marginTop: 16 }]}>
+                        <View style={styles.progressBarContainer}>
                           <View style={[styles.progressBarBackground, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
                             <LinearGradient
                               colors={isOverBudget ? ['#ef4444', '#f59e0b'] : ['#22c55e', '#22d3ee']}
@@ -1138,19 +1148,19 @@ export default function BudgetTab({
                               ]} 
                             />
                           </View>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                            <Text style={[styles.progressText, { color: theme.subtext }]}>
-                              {spentPercent.toFixed(1)}% used
-                            </Text>
+                          <View style={styles.categoryMetaRow}>
                             {isOverBudget ? (
-                              <Text style={[styles.statusLabel, { color: theme.accent, fontSize: 12 }]}>
-                                ⚠️ Over by {money(spent - budgetValue, currency)}
+                              <Text style={[styles.categoryRemainingEmphasis, { color: theme.accent }]}>
+                                Over by {money(spent - budgetValue, currency)}
                               </Text>
                             ) : (
-                              <Text style={[styles.statusLabel, { color: theme.subtext, fontSize: 12 }]}>
-                                ✓ Remaining: {money(budgetValue - spent, currency)}
+                              <Text style={[styles.categoryRemainingEmphasis, { color: theme.text }]}>
+                                Remaining {money(budgetValue - spent, currency)}
                               </Text>
                             )}
+                            <Text style={[styles.categoryPercentMuted, { color: pageCaption }]}>
+                              {spentPercent.toFixed(1)}% used
+                            </Text>
                           </View>
                         </View>
                       </Pressable>
@@ -1177,7 +1187,7 @@ export default function BudgetTab({
                 <View style={styles.budgetHeaderRow}>
                   <View>
                     <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Orders</Text>
-                    <Text style={[styles.budgetHeaderSubtitle, { color: theme.subtext }]}>
+                    <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
                       Purchase orders and change orders
                     </Text>
                   </View>
@@ -1211,35 +1221,31 @@ export default function BudgetTab({
                   
                   return (
                     <View key="purchase-orders-card" style={[styles.budgetCardContainer, { marginTop: 0 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Purchase Orders')}
                           style={{ flex: 1 }}
                         >
-                          {/* Header with Category and Icon */}
                           <View style={styles.budgetCardHeader}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
-                              <MaterialIcons name="receipt-long" size={22} color="#22c55e" />
-                              <View style={{ alignItems: 'center' }}>
-                                <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
-                                  Purchase Orders
-                                </Text>
-                                <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
+                            <View style={styles.budgetCardHeaderMain}>
+                              <MaterialIcons name="receipt-long" size={22} color="#22c55e" style={{ marginTop: 2 }} />
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <View style={styles.budgetCardTitleRow}>
+                                  <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left', flex: 1 }]}>
+                                    Purchase Orders
+                                  </Text>
+                                  <Text style={[styles.budgetCurrentTag, { color: pageCaption }]}>Current</Text>
+                                </View>
+                                <Text style={[styles.budgetTapHint, { color: theme.accent }]}>
                                   Tap to view transactions →
                                 </Text>
                               </View>
                             </View>
                           </View>
 
-                          {/* Current Label - Centered */}
-                          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                            <Text style={[styles.budgetAmountLabel, { color: theme.subtext }]}>Current</Text>
-                          </View>
-
-                          {/* Total Amount */}
-                          <View style={styles.budgetStatusRow}>
-                            <Text style={[styles.statusLabel, { color: theme.subtext }]}>Total:</Text>
-                            <Text style={[styles.statusValue, { color: theme.text }]}>
+                          <View style={styles.budgetCardFooterRow}>
+                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Total</Text>
+                            <Text style={[styles.statusValue, { color: theme.text, fontSize: 17, fontWeight: '700' }]}>
                               {money(poTotal, currency)}
                             </Text>
                           </View>
@@ -1274,35 +1280,31 @@ export default function BudgetTab({
                   
                   return (
                     <View key="change-orders-card" style={[styles.budgetCardContainer, { marginTop: 12 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Change Orders')}
                           style={{ flex: 1 }}
                         >
-                      {/* Header with Category and Icon */}
                       <View style={styles.budgetCardHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
-                          <Text style={{ fontSize: 24 }}>📝</Text>
-                          <View style={{ alignItems: 'center' }}>
-                            <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'center' }]}>
-                              Change Orders
-                            </Text>
-                            <Text style={{ color: theme.accent, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
+                        <View style={styles.budgetCardHeaderMain}>
+                          <Text style={{ fontSize: 22, marginTop: 2 }}>📝</Text>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <View style={styles.budgetCardTitleRow}>
+                              <Text style={[styles.budgetCardTitle, { color: theme.text, textAlign: 'left', flex: 1 }]}>
+                                Change Orders
+                              </Text>
+                              <Text style={[styles.budgetCurrentTag, { color: pageCaption }]}>Current</Text>
+                            </View>
+                            <Text style={[styles.budgetTapHint, { color: theme.accent }]}>
                               Tap to view transactions →
                             </Text>
                           </View>
                         </View>
                       </View>
 
-                      {/* Current Label - Centered */}
-                      <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                        <Text style={[styles.budgetAmountLabel, { color: theme.subtext }]}>Current</Text>
-                      </View>
-
-                      {/* Total Amount */}
-                      <View style={styles.budgetStatusRow}>
-                        <Text style={[styles.statusLabel, { color: theme.subtext }]}>Total:</Text>
-                        <Text style={[styles.statusValue, { color: theme.text }]}>
+                      <View style={styles.budgetCardFooterRow}>
+                        <Text style={[styles.statusLabel, { color: pageCaption }]}>Total</Text>
+                        <Text style={[styles.statusValue, { color: theme.text, fontSize: 17, fontWeight: '700' }]}>
                           {money(coTotal, currency)}
                         </Text>
                       </View>
@@ -1843,26 +1845,32 @@ function Row({
   value,
   theme,
   valueColor,
+  variant = 'book',
 }: {
   label: string;
   sublabel?: string;
   value: string;
   theme: any;
   valueColor?: string;
+  variant?: 'book' | 'intel';
 }) {
+  const helperColor = theme.helperSubtext ?? theme.subtext;
+  const isIntel = variant === 'intel';
   return (
-    <View style={styles.row}>
-      <View>
+    <View style={[styles.row, isIntel ? styles.rowIntel : styles.rowBook]}>
+      <View style={styles.rowLabelCol}>
         <Text style={[styles.rowLabel, { color: theme.subtext }]}>{label}</Text>
         {sublabel ? (
-          <Text style={[styles.rowLabel, { color: theme.subtext, fontSize: 11, opacity: 0.8, marginTop: 1 }]}>{sublabel}</Text>
+          <Text style={[styles.rowSublabel, { color: helperColor }]}>{sublabel}</Text>
         ) : null}
       </View>
       <Text
         style={[
           styles.rowValue,
+          isIntel && styles.rowValueIntel,
           { color: valueColor || theme.text, fontVariant: ['tabular-nums'] },
         ]}
+        numberOfLines={2}
       >
         {value}
       </Text>
@@ -1904,26 +1912,34 @@ function TabPill({
   colors: any;
   darkMode: boolean;
 }) {
+  const activeLabelColor = darkMode ? '#050B13' : '#071018';
+  if (active) {
+    return (
+      <Pressable onPress={onPress} style={styles.tabPillWrap}>
+        <LinearGradient
+          colors={['#22c55e', '#22d3ee']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.tabPillGradient}
+        >
+          <Text style={[styles.tabPillText, { color: activeLabelColor }]}>{label}</Text>
+        </LinearGradient>
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       onPress={onPress}
       style={[
-        styles.tabPill,
+        styles.tabPillWrap,
+        styles.tabPillInactive,
         {
-          backgroundColor: active
-            ? 'rgba(34, 197, 94, 0.2)'
-            : darkMode
-              ? 'rgba(30, 41, 59, 0.6)'
-              : colors.surface2,
-          borderColor: active ? '#22c55e' : colors.line,
+          backgroundColor: darkMode ? 'rgba(30, 41, 59, 0.6)' : colors.surface2,
+          borderColor: colors.line,
         },
       ]}
     >
-      <Text
-        style={[styles.tabPillText, { color: active ? '#22c55e' : colors.text }]}
-      >
-        {label}
-      </Text>
+      <Text style={[styles.tabPillText, { color: colors.text }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1982,19 +1998,6 @@ function Bar({
     }
   };
 
-  const getThresholdColor = () => {
-    switch (tone) {
-      case 'red':
-        return 'rgba(239, 68, 68, 0.4)';
-      case 'orange':
-        return 'rgba(249, 115, 22, 0.35)';
-      case 'yellow':
-        return 'rgba(250, 204, 21, 0.35)';
-      default:
-        return '#f59e0b';
-    }
-  };
-
   const getBarGradient = (): [string, string] => {
     switch (tone) {
       case 'red':
@@ -2009,26 +2012,13 @@ function Bar({
     }
   };
 
+  const tickColor = 'rgba(148, 163, 184, 0.28)';
+
   return (
     <View style={styles.barContainer}>
-      <View
-        style={[
-          styles.barThreshold,
-          { left: '25%', backgroundColor: 'rgba(34, 197, 94, 0.35)' },
-        ]}
-      />
-      <View
-        style={[
-          styles.barThreshold,
-          { left: '50%', backgroundColor: 'rgba(250, 204, 21, 0.35)' },
-        ]}
-      />
-      <View
-        style={[
-          styles.barThreshold,
-          { left: '75%', backgroundColor: getThresholdColor() },
-        ]}
-      />
+      <View style={[styles.barThreshold, { left: '25%', backgroundColor: tickColor }]} />
+      <View style={[styles.barThreshold, { left: '50%', backgroundColor: tickColor }]} />
+      <View style={[styles.barThreshold, { left: '75%', backgroundColor: tickColor }]} />
       <LinearGradient
         colors={getBarGradient()}
         start={{ x: 0, y: 0 }}
@@ -2091,13 +2081,13 @@ const styles = StyleSheet.create({
   },
   overviewInner: {
     borderRadius: 18,
-    padding: 12,
+    padding: 14,
   },
   budgetHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   budgetHeaderTitle: {
     fontSize: 18,
@@ -2107,8 +2097,7 @@ const styles = StyleSheet.create({
   },
   budgetHeaderSubtitle: {
     fontSize: 13,
-    color: "#8DA0B8",
-    marginTop: 2,
+    marginTop: 3,
   },
   sectionCardContainer: {
     marginTop: 12,
@@ -2124,44 +2113,102 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(148, 163, 184, 0.1)',
+    borderBottomColor: 'rgba(148, 163, 184, 0.08)',
+  },
+  sectionCardElevated: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 2,
   },
   totalsContent: {
     padding: 0,
+  },
+  totalsDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 10,
+    marginBottom: 6,
   },
   totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
+    alignItems: 'flex-start',
+  },
+  rowBook: {
+    paddingVertical: 5,
+  },
+  rowIntel: {
+    paddingVertical: 8,
+  },
+  rowLabelCol: {
+    flex: 1,
+    paddingRight: 12,
   },
   rowLabel: { 
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  rowSublabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+    fontWeight: '500',
   },
   rowValue: { 
     fontSize: 16, 
     fontWeight: '500',
     lineHeight: 22,
+    textAlign: 'right',
+    maxWidth: '46%',
+    flexShrink: 0,
   },
-  remainingSection: { marginTop: 12 },
-  remainingLabel: { fontSize: 16, marginBottom: 8 },
-  remainingText: { fontSize: 16, fontWeight: '500', marginTop: 8 },
+  rowValueIntel: {
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  remainingSection: { marginTop: 14 },
+  remainingLabel: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  remainingBarHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  remainingText: { fontSize: 16, fontWeight: '600', marginTop: 10, textAlign: 'right' },
   actionButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  tabContainer: { flexDirection: 'row', gap: 8, marginTop: 24, marginBottom: 16 },
-  tabPill: {
-    paddingHorizontal: 16,
-    height: 40,
-    borderRadius: 16,
+  tabContainer: { flexDirection: 'row', gap: 8, marginTop: 20, marginBottom: 14 },
+  tabPillWrap: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  tabPillGradient: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    shadowColor: '#22c55e',
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  tabPillInactive: {
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 14,
   },
-  tabPillText: { fontSize: 14, fontWeight: '600' },
+  tabPillText: { fontSize: 13, fontWeight: '600' },
   tabContent: { borderRadius: 24, borderWidth: 1 },
   expensesContent: { padding: 8 },
   headerRow: { paddingHorizontal: 16, paddingVertical: 8 },
@@ -2194,13 +2241,39 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   budgetCard: {
-    padding: 16,
+    padding: 14,
   },
   budgetCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  budgetCardHeaderMain: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    flex: 1,
+    paddingRight: 8,
+  },
+  budgetCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  budgetCurrentTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginTop: 3,
+  },
+  budgetTapHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
   },
   budgetCardTitle: {
     fontSize: 17,
@@ -2242,17 +2315,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   progressBarContainer: {
-    marginBottom: 16,
+    marginBottom: 4,
+    marginTop: 4,
   },
   progressBarBackground: {
-    height: 10,
-    borderRadius: 5,
+    height: 8,
+    borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   progressText: {
     fontSize: 12,
@@ -2262,10 +2336,34 @@ const styles = StyleSheet.create({
   budgetStatusRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.12)',
+  },
+  categoryMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    marginTop: 8,
+  },
+  categoryRemainingEmphasis: {
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  categoryPercentMuted: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  budgetCardFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingTop: 12,
+    marginTop: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.12)',
   },
   statusLabel: {
     fontSize: 13,
@@ -2612,8 +2710,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 2,
-    backgroundColor: 'rgba(148, 163, 184, 0.35)',
+    width: 1,
+    backgroundColor: 'rgba(148, 163, 184, 0.28)',
   },
   modalOverlay: {
     flex: 1,
@@ -2633,7 +2731,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   summaryCardLabel: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 16,
     fontWeight: '600',
   },

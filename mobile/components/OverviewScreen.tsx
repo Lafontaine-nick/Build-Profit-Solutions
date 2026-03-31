@@ -356,42 +356,46 @@ export default function OverviewScreen({
     return '#9ca3af';
   };
 
-  // Helper to generate spending data for the chart - start to TODAY only (no future dates)
+  // Cumulative spend 0 → currentSpent along calendar (start → min(today, end)); avoids divide-by-tiny-progress blowups.
   const generateSpendingData = (proj: ProjectOverview) => {
     const start = new Date(proj.startISO || new Date().toISOString());
     const end = new Date(proj.endISO || new Date().toISOString());
     const currentSpent = Number(proj.spent || 0);
-    const now = Date.now();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const timeSpan = end.getTime() - start.getTime();
-    const elapsed = Math.min(Math.max(0, now - start.getTime()), timeSpan);
-    const currentProgress = timeSpan > 0 ? elapsed / timeSpan : 0;
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
 
-    const elapsedDays = Math.max(1, Math.ceil(elapsed / (1000 * 60 * 60 * 24)));
+    const chartEndMs = Math.min(today.getTime(), end.getTime());
+    const spanMs = chartEndMs - start.getTime();
+
+    if (!Number.isFinite(spanMs) || spanMs <= 0) {
+      return [{ date: today.toISOString().split('T')[0], spent: currentSpent }];
+    }
+
+    const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
     const daysBetweenPoints = 5;
     const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
 
     const points: { date: string; spent: number }[] = [];
     for (let i = 0; i <= numPoints; i++) {
-      const progress = i / numPoints;
-      const date = new Date(start.getTime() + elapsed * progress);
-
+      const t = i / numPoints;
+      const date = new Date(start.getTime() + spanMs * t);
       if (date.getTime() > today.getTime()) break;
-
-      const spent = Math.round(currentSpent * (progress / Math.max(currentProgress, 0.01)));
-
       points.push({
         date: date.toISOString().split('T')[0],
-        spent,
+        spent: Math.round(currentSpent * t),
       });
     }
 
-    if (points.length === 0 || points[points.length - 1].spent !== currentSpent) {
-      points.push({
-        date: today.toISOString().split('T')[0],
-        spent: currentSpent,
-      });
+    if (points.length === 0) {
+      return [{ date: today.toISOString().split('T')[0], spent: currentSpent }];
+    }
+
+    const last = points[points.length - 1];
+    if (last.spent !== currentSpent) {
+      last.date = new Date(chartEndMs).toISOString().split('T')[0];
+      last.spent = currentSpent;
     }
 
     return points;
@@ -736,35 +740,37 @@ export default function OverviewScreen({
           {(() => {
             const spendingData = generateSpendingData({ ...project, spent: actualSpent });
             const formatLabel = (d: Date) =>
-              d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
             const points: { ts: number; label: string; spent: number }[] = spendingData.map((p) => {
-              const d = new Date(p.date);
+              const d = new Date(p.date + (p.date.includes('T') ? '' : 'T12:00:00'));
               return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
             });
             const labels = points.map((p) => p.label);
             const actualValues = points.map((p) => p.spent);
-            const n = labels.length;
             const actualCumulative = labels.map((label, idx) => ({
               label,
               value: actualValues[idx] ?? 0,
             }));
-            const plannedAtToday = Number(adjustedBudget || 0) * (scheduleProgress / 100);
-            const plannedCumulative = labels.map((label, idx) => ({
-              label,
-              value: n <= 1 ? (idx === 0 ? 0 : plannedAtToday) : Math.round((plannedAtToday * idx) / (n - 1)),
-            }));
 
-            const varianceAtToday = actualSpent - plannedAtToday;
+            const projectStart = new Date(project.startISO || new Date().toISOString());
+            const projectEnd = new Date(project.endISO || new Date().toISOString());
+            projectStart.setHours(0, 0, 0, 0);
+            projectEnd.setHours(0, 0, 0, 0);
+            const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
+            const adj = Number(adjustedBudget || 0);
+            const plannedCumulative = points.map((p) => {
+              const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
+              return { label: p.label, value: Math.round(adj * frac) };
+            });
 
             return (
           <SpendingTrendChart
                 actualCumulative={actualCumulative}
                 plannedCumulative={plannedCumulative}
-                totalBudget={Number(adjustedBudget || 0)}
+                totalBudget={adj}
                 showHeader={false}
                 showLegend={true}
                 scrollable
-                varianceOverride={varianceAtToday}
           />
             );
           })()}

@@ -382,41 +382,41 @@ export default function ProjectOverviewTab({
   );
 }
 
-// Helper to generate mock spending data from project data
+// Helper to generate mock spending data — cumulative 0 → currentSpent over elapsed calendar (no / currentProgress blowup).
 function generateMockSpendingData(data: ProjectOverviewData) {
   const start = new Date(data.startDate || Date.now());
   const end = new Date(data.endDate || Date.now());
-  const progressPct = data.progressPct / 100;
   const currentSpent = data.spent;
-  
-  // Generate 5-7 data points from start to now
   const numPoints = 7;
-  const timeSpan = end.getTime() - start.getTime();
-  const now = Date.now();
-  const currentProgress = Math.min((now - start.getTime()) / timeSpan, 1);
-  
-  const points = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  const chartEndMs = Math.min(today.getTime(), end.getTime());
+  const spanMs = chartEndMs - start.getTime();
+
+  const points: { date: string; spent: number }[] = [];
+  if (spanMs <= 0) {
+    return [{ date: today.toISOString().split('T')[0], spent: currentSpent }];
+  }
+
   for (let i = 0; i <= numPoints; i++) {
-    const progress = (i / numPoints) * currentProgress;
-    const date = new Date(start.getTime() + (timeSpan * progress));
-    const spent = Math.round(currentSpent * (progress / currentProgress));
-    
-    if (spent > 0 && date <= new Date()) {
-      points.push({
-        date: date.toISOString().split('T')[0],
-        spent,
-      });
+    const t = i / numPoints;
+    const date = new Date(start.getTime() + spanMs * t);
+    if (date.getTime() > today.getTime()) break;
+    const spent = Math.round(currentSpent * t);
+    if (spent > 0 || i === 0) {
+      points.push({ date: date.toISOString().split('T')[0], spent });
     }
   }
-  
-  // Ensure we have at least the current spending
+
   if (points.length === 0 || points[points.length - 1].spent !== currentSpent) {
     points.push({
-      date: new Date().toISOString().split('T')[0],
+      date: today.toISOString().split('T')[0],
       spent: currentSpent,
     });
   }
-  
+
   return points;
 }
 

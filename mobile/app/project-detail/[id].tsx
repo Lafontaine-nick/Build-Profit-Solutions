@@ -1561,42 +1561,52 @@ function ProjectDetailContent() {
       return '#22c55e'; // green: plenty of time
     };
 
-    // Generate spending data for chart - start to TODAY only (no future dates)
+    // Generate spending data for chart — cumulative spend from $0 at project start to totalSpent at chart end.
+    // Linear along elapsed calendar time (start → min(today, end)). Never divide by near-zero "progress through
+    // full project" (that blew up the last point to hundreds of thousands and broke Y-axis / budget cap).
     const generateSpendingData = () => {
       const start = new Date(safeProjectData?.startISO || new Date().toISOString());
       const end = new Date(safeProjectData?.endISO || new Date().toISOString());
-      const now = Date.now();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const timeSpan = end.getTime() - start.getTime();
-      const elapsed = Math.min(Math.max(0, now - start.getTime()), timeSpan);
-      const currentProgress = timeSpan > 0 ? elapsed / timeSpan : 0;
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
 
-      // One point every ~5 days from start to today only
-      const elapsedDays = Math.max(1, Math.ceil(elapsed / (1000 * 60 * 60 * 24)));
+      const chartEndMs = Math.min(today.getTime(), end.getTime());
+      const spanMs = chartEndMs - start.getTime();
+
+      if (!Number.isFinite(spanMs) || spanMs <= 0) {
+        return [
+          {
+            date: today.toISOString().split('T')[0],
+            spent: totalSpent,
+          },
+        ];
+      }
+
+      const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
       const daysBetweenPoints = 5;
       const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
 
       const points: { date: string; spent: number }[] = [];
       for (let i = 0; i <= numPoints; i++) {
-        const progress = i / numPoints;
-        const date = new Date(start.getTime() + elapsed * progress);
-
+        const t = i / numPoints;
+        const date = new Date(start.getTime() + spanMs * t);
         if (date.getTime() > today.getTime()) break;
-
-        const spent = Math.round(totalSpent * (progress / Math.max(currentProgress, 0.01)));
-
         points.push({
           date: date.toISOString().split('T')[0],
-          spent,
+          spent: Math.round(totalSpent * t),
         });
       }
 
-      if (points.length === 0 || points[points.length - 1].spent !== totalSpent) {
-        points.push({
-          date: today.toISOString().split('T')[0],
-          spent: totalSpent,
-        });
+      if (points.length === 0) {
+        return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
+      }
+
+      const last = points[points.length - 1];
+      if (last.spent !== totalSpent) {
+        last.date = new Date(chartEndMs).toISOString().split('T')[0];
+        last.spent = totalSpent;
       }
 
       return points;
@@ -1780,21 +1790,16 @@ function ProjectDetailContent() {
       endDateDisplay: formatDate(safeProjectData?.endISO),
       scheduleStatusLabel: getScheduleStatusLabel(),
       timelineProgressPercent: getTimelineProgressPercent(),
-      varianceAtToday: (() => {
-        const start = new Date(safeProjectData?.startISO || 0).getTime();
-        const end = new Date(safeProjectData?.endISO || 0).getTime();
-        const total = end - start;
-        const elapsed = Math.min(Math.max(0, Date.now() - start), total);
-        const plannedAtToday = total > 0 ? Math.round(adjustedBudget * (elapsed / total)) : 0;
-        return totalSpent - plannedAtToday;
-      })(),
     };
   }, [safeProjectData, currentDate, liveTimelineMilestones]); // Include liveTimelineMilestones so Schedule matches Timeline tab
 
   const name = safeProjectData?.title || 'Project';
-  const lastUpdated = safeProjectData?.lastUpdated
-    ? new Date(safeProjectData.lastUpdated).toLocaleDateString()
-    : 'Invalid Date';
+  const lastUpdatedLine = useMemo(() => {
+    if (!safeProjectData?.lastUpdated) return 'Last updated: —';
+    const d = new Date(safeProjectData.lastUpdated);
+    if (Number.isNaN(d.getTime())) return 'Last updated: —';
+    return `Last updated: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  }, [safeProjectData?.lastUpdated]);
 
   const renderTabContent = () => {
     try {
@@ -1815,62 +1820,55 @@ function ProjectDetailContent() {
               >
                 <View style={styles.overviewInner}>
               {/* SECTION TITLE */}
-              <View style={styles.cardHeaderRow}>
-                <View>
-                  <Text style={styles.cardTitle}>Project Overview</Text>
-                </View>
+              <View style={styles.overviewPageHeader}>
+                <Text style={styles.overviewPageTitle}>Project Overview</Text>
+                <Text style={styles.overviewPageSubtitle}>
+                  Summary of your project status and spending
+                </Text>
               </View>
-              <Text style={styles.cardSubtitle}>
-                Summary of your project status & spending
-              </Text>
 
               {/* 1. OVERVIEW SUMMARY */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
 
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={styles.overviewNameRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                       <View style={styles.iconBadge}>
                         <Feather name="info" size={16} color="#22c55e" />
                       </View>
-                      <Text style={styles.cardTitle}>{name}</Text>
+                      <Text style={styles.overviewProjectTitle} numberOfLines={2}>{name}</Text>
                     </View>
                   </View>
 
-                  <Text style={styles.cardSubtitle}>Updated {lastUpdated}</Text>
+                  <Text style={styles.overviewMetaLine}>{lastUpdatedLine}</Text>
 
-                  <View style={{ marginTop: 16 }}>
-                    {/* Budget Row */}
-                    <View style={styles.summaryRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.mutedLabel}>Budget</Text>
-                        <Text style={styles.largeNumber}>
-                          {metrics.budgetDisplay}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <View style={styles.overviewMetricsBlock}>
+                    <View style={styles.overviewBudgetAnchor}>
+                      <Text style={styles.mutedLabel}>Budget</Text>
+                      <Text style={styles.overviewBudgetAmount}>
+                        {metrics.budgetDisplay}
+                      </Text>
+                    </View>
+
+                    <View style={styles.overviewSecondaryGrid}>
+                      <View style={styles.overviewSecondaryCell}>
                         <Text style={styles.mutedLabel}>Spent So Far</Text>
-                        <Text style={styles.mediumNumber}>
-                          {metrics.spentDisplay}
-                        </Text>
+                        <Text style={styles.mediumNumber}>{metrics.spentDisplay}</Text>
+                      </View>
+                      <View style={[styles.overviewSecondaryCell, styles.overviewSecondaryCellRight]}>
+                        <Text style={styles.mutedLabel}>Remaining</Text>
+                        <Text style={styles.mediumNumber}>{metrics.remainingDisplay}</Text>
                       </View>
                     </View>
 
-                    {/* Remaining Row - Full Width */}
-                    <View style={[styles.summaryRow, { marginTop: 16 }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.mutedLabel}>Remaining</Text>
-                        <Text style={styles.mediumNumber}>
-                          {metrics.remainingDisplay}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                    <View style={styles.overviewBudgetUsedRow}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
                         <Text style={styles.mutedLabel}>Budget Used</Text>
-                        <Text style={[styles.mutedLabel, { fontSize: 10, opacity: 0.7, marginTop: 1 }]}>Percent of budget spent so far</Text>
-                        <Text style={[styles.mediumNumber, { color: metrics.budgetColor }]}>
-                          {metrics.budgetProgress.toFixed(0)}%
-                        </Text>
+                        <Text style={styles.overviewHelperMuted}>Percent of budget spent so far</Text>
                       </View>
+                      <Text style={[styles.overviewBudgetUsedPercent, { color: metrics.budgetColor }]}>
+                        {metrics.budgetProgress.toFixed(0)}%
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -1879,12 +1877,12 @@ function ProjectDetailContent() {
               {/* 2. FINANCIAL HEALTH */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={styles.overviewCardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                       <View style={styles.iconBadge}>
                         <Feather name="pie-chart" size={16} color="#22c55e" />
                       </View>
-                      <Text style={styles.cardTitle}>Financial Health</Text>
+                      <Text style={styles.overviewSectionTitle}>Financial Health</Text>
                     </View>
                     <View style={{
                       backgroundColor: (metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
@@ -1907,7 +1905,7 @@ function ProjectDetailContent() {
                       </Text>
                     </View>
                   </View>
-                  <View style={{ marginTop: 16 }}>
+                  <View style={styles.overviewFinancialBody}>
                     <View style={styles.budgetRow}>
                       <Text style={styles.budgetLabel}>Contract Value</Text>
                       <Text style={styles.budgetValue}>
@@ -1918,13 +1916,13 @@ function ProjectDetailContent() {
                       <View>
                         <Text style={styles.budgetLabel}>Projected Final Cost</Text>
                         {metrics.profitForecast?.forecastMethod === 'run-rate' && (
-                          <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Trend forecast</Text>
+                          <Text style={styles.budgetHelperLine}>Trend forecast</Text>
                         )}
                         {metrics.profitForecast?.forecastMethod === 'completed' && (
-                          <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Actual (job complete)</Text>
+                          <Text style={styles.budgetHelperLine}>Actual (job complete)</Text>
                         )}
                       </View>
-                      <Text style={[styles.budgetValue, { color: '#EF4444' }]}>
+                      <Text style={styles.budgetValue}>
                         ${(metrics.profitForecast?.forecastFinalCost ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>
@@ -1938,9 +1936,13 @@ function ProjectDetailContent() {
                       </Text>
                     </View>
                     <View style={styles.budgetRow}>
-                      <View>
+                      <View style={{ flex: 1, paddingRight: 10 }}>
                         <Text style={styles.budgetLabel}>Spend-to-Date Margin</Text>
-                        <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on costs logged so far</Text>
+                        <Text style={styles.budgetHelperLine}>
+                          {metrics.totalSpent <= 0.005
+                            ? 'No costs logged yet'
+                            : 'Based on costs logged so far'}
+                        </Text>
                       </View>
                       <Text style={[
                         styles.budgetValue,
@@ -1957,7 +1959,7 @@ function ProjectDetailContent() {
                     <View style={styles.budgetRow}>
                       <View>
                         <Text style={styles.budgetLabel}>Projected Margin</Text>
-                        <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+                        <Text style={styles.budgetHelperLine}>Based on current spend vs completion progress</Text>
                       </View>
                       <Text style={[
                         styles.budgetValue,
@@ -1978,12 +1980,12 @@ function ProjectDetailContent() {
               {/* 3. PROJECT STATUS */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.projectStatusCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={styles.overviewCardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                       <View style={styles.iconBadge}>
                         <Feather name="bar-chart-2" size={16} color="#22c55e" />
                       </View>
-                      <Text style={styles.cardTitle}>Project Status</Text>
+                      <Text style={styles.overviewSectionTitle}>Project Status</Text>
                     </View>
                   </View>
 
@@ -2001,9 +2003,9 @@ function ProjectDetailContent() {
 
                   <View style={styles.projectStatusMetrics}>
                     <View style={styles.projectStatusMetricRow}>
-                      <View>
+                      <View style={{ flex: 1, paddingRight: 10 }}>
                         <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
-                        <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of budget spent so far</Text>
+                        <Text style={styles.projectStatusHelper}>Percent of budget spent so far</Text>
                       </View>
                       <Text style={styles.projectStatusMetricValue}>{metrics.budgetProgress.toFixed(0)}%</Text>
                     </View>
@@ -2011,7 +2013,7 @@ function ProjectDetailContent() {
                       <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, metrics.budgetProgress)}%`, backgroundColor: metrics.budgetColor }]} />
                     </View>
 
-                    <View style={[styles.projectStatusMetricRow, { marginTop: 16 }]}>
+                    <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
                       <Text style={styles.projectStatusMetricLabel}>Schedule</Text>
                       <Text style={styles.projectStatusMetricValue}>{metrics.scheduleProgress.toFixed(0)}%</Text>
                     </View>
@@ -2038,36 +2040,50 @@ function ProjectDetailContent() {
               {/* 4. SPENDING TREND */}
               {(() => {
                 const formatLabel = (d: Date) =>
-                  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
                 const points: { ts: number; label: string; spent: number }[] = metrics.spendingData.map(
                   (p: { date: string; spent: number }) => {
-                    const d = new Date(p.date);
+                    const d = new Date(p.date + (p.date.includes('T') ? '' : 'T12:00:00'));
                     return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
                   }
                 );
                 const labels = points.map((p) => p.label);
                 const actualValues = points.map((p) => p.spent);
                 const actualCumulative = labels.map((label, idx) => ({ label, value: actualValues[idx] ?? 0 }));
-                const n = labels.length;
-                const plannedAtToday = metrics.adjustedBudget * metrics.timelineProgressPercent / 100;
-                const plannedCumulative = labels.map((label, idx) => ({
-                  label,
-                  value: n <= 1 ? (idx === 0 ? 0 : plannedAtToday) : Math.round((plannedAtToday * idx) / (n - 1)),
-                }));
+
+                // Planned = linear burn from $0 at project start to full adjusted budget by project end (calendar).
+                // Matches varianceAtToday logic so the chart, badge, and header totals stay consistent.
+                const projectStart = new Date(safeProjectData?.startISO || new Date().toISOString());
+                const projectEnd = new Date(safeProjectData?.endISO || new Date().toISOString());
+                projectStart.setHours(0, 0, 0, 0);
+                projectEnd.setHours(0, 0, 0, 0);
+                const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
+                const plannedCumulative = points.map((p) => {
+                  const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
+                  return {
+                    label: p.label,
+                    value: Math.round(metrics.adjustedBudget * frac),
+                  };
+                });
 
                 return (
                   <View style={styles.spendingCard}>
                     <View style={styles.spendingCardInner}>
                       <View style={styles.spendingHeaderRow}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                           <View style={styles.iconBadge}>
                             <Feather name="trending-up" size={16} color="#22c55e" />
                           </View>
-                          <Text style={styles.cardTitle}>Spending Trend</Text>
+                          <Text style={styles.overviewSectionTitle}>Spending Trend</Text>
                         </View>
-                        <Text style={styles.cardSubtitleRight}>
-                          {metrics.spentPercentUsed.toFixed(1)}% Used
-                        </Text>
+                        <View style={styles.spendingSummaryBlock}>
+                          <Text style={styles.spendingSummaryPrimary}>
+                            {metrics.spentPercentUsed.toFixed(1)}% used
+                          </Text>
+                          <Text style={styles.spendingSummarySecondary}>
+                            {metrics.spentDisplay} / {metrics.totalBudgetDisplay}
+                          </Text>
+                        </View>
                       </View>
 
                       <View style={styles.chartBox}>
@@ -2078,7 +2094,7 @@ function ProjectDetailContent() {
                           showHeader={false}
                           showLegend={true}
                           scrollable
-                          varianceOverride={metrics.varianceAtToday}
+                          hideLegendSpendTotal
                         />
                       </View>
                     </View>
@@ -2089,39 +2105,39 @@ function ProjectDetailContent() {
               {/* 5. BUDGET SUMMARY */}
               <View style={styles.innerCardContainer}>
                 <View style={styles.innerCard}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={styles.overviewCardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                       <View style={styles.iconBadge}>
                         <Feather name="dollar-sign" size={16} color="#22c55e" />
                       </View>
-                      <Text style={styles.cardTitle}>Budget Summary</Text>
+                      <Text style={styles.overviewSectionTitle}>Budget Summary</Text>
                     </View>
                   </View>
 
-                  <View style={{ marginTop: 16 }}>
-                    <View style={styles.budgetRow}>
+                  <View style={styles.budgetSummaryTable}>
+                    <View style={styles.budgetSummaryRow}>
                       <Text style={styles.budgetLabel}>Base Budget</Text>
-                      <Text style={styles.budgetValue}>{metrics.baseBudgetDisplay}</Text>
+                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.baseBudgetDisplay}</Text>
                     </View>
-                    <View style={styles.budgetRow}>
+                    <View style={styles.budgetSummaryRow}>
                       <Text style={styles.budgetLabel}>Approved Change Orders</Text>
-                      <Text style={styles.budgetValue}>
+                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>
                         {metrics.changeOrdersDisplay}
                       </Text>
                     </View>
-                    <View style={styles.budgetRow}>
+                    <View style={styles.budgetSummaryRow}>
                       <Text style={styles.budgetLabel}>Total Budget</Text>
-                      <Text style={styles.budgetValue}>{metrics.totalBudgetDisplay}</Text>
+                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.totalBudgetDisplay}</Text>
                     </View>
-                    <View style={styles.budgetRow}>
+                    <View style={styles.budgetSummaryRow}>
                       <Text style={styles.budgetLabel}>Spent So Far</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValuePositive]}>
+                      <Text style={[styles.budgetValue, styles.budgetValueRight, styles.budgetValuePositive]}>
                         {metrics.spentDisplay}
                       </Text>
                     </View>
-                    <View style={styles.budgetRow}>
+                    <View style={styles.budgetSummaryRowLast}>
                       <Text style={styles.budgetLabel}>Remaining</Text>
-                      <Text style={styles.budgetValue}>{metrics.remainingDisplay}</Text>
+                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.remainingDisplay}</Text>
                     </View>
                   </View>
                 </View>
@@ -2134,14 +2150,6 @@ function ProjectDetailContent() {
         case 'Budget':
           return (
             <View style={styles.wideContainer}>
-              <View style={styles.budgetHelperText}>
-                <Text style={[styles.budgetHelperTextMain, { color: Colors.sub }]}>
-                  Budget locked from estimate
-                </Text>
-                <Text style={[styles.budgetHelperTextSub, { color: Colors.sub }]}>
-                  Changes are tracked automatically
-                </Text>
-              </View>
               <BudgetTab data={budgetData} embedded profitForecastOverride={overviewMetrics.profitForecast} />
             </View>
           );
@@ -2642,17 +2650,24 @@ function ProjectDetailContent() {
 
         {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
         <Pressable
-          style={styles.aiFloatingWrapper}
+          style={[
+            styles.aiFloatingWrapper,
+            (activeTab === 'Budget' || activeTab === 'Timeline') && styles.aiFloatingWrapperBudget,
+          ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setShowAIAssistant(true);
           }}
         >
           <LinearGradient
-            colors={["#22c55e", "#22d3ee"]}
+            colors={
+              activeTab === 'Budget' || activeTab === 'Timeline'
+                ? ['rgba(34, 197, 94, 0.72)', 'rgba(34, 211, 238, 0.72)']
+                : ['#22c55e', '#22d3ee']
+            }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.aiFloating}
+            style={[styles.aiFloating, (activeTab === 'Budget' || activeTab === 'Timeline') && styles.aiFloatingBudgetTab]}
           >
             <Ionicons
               name="sparkles"
@@ -4095,7 +4110,156 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   overviewInner: {
     backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderRadius: 20,
-    padding: 12,
+    padding: 14,
+  },
+  overviewPageHeader: {
+    marginBottom: 14,
+  },
+  overviewPageTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.35,
+    color: Colors.text,
+  },
+  overviewPageSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: darkMode ? "rgba(255,255,255,0.87)" : "#64748b",
+  },
+  overviewCardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  overviewSectionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.25,
+    color: Colors.text,
+  },
+  overviewProjectTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    color: Colors.text,
+    flex: 1,
+  },
+  overviewNameRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  overviewMetaLine: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: darkMode ? "rgba(255,255,255,0.85)" : "#64748b",
+    fontWeight: "500",
+  },
+  overviewMetricsBlock: {
+    marginTop: 14,
+  },
+  overviewBudgetAnchor: {
+    marginBottom: 4,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.08)",
+  },
+  overviewBudgetAmount: {
+    fontSize: 30,
+    fontWeight: "800",
+    letterSpacing: -0.65,
+    color: Colors.text,
+    marginTop: 6,
+  },
+  overviewSecondaryGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 14,
+    marginBottom: 14,
+  },
+  overviewSecondaryCell: {
+    flex: 1,
+  },
+  overviewSecondaryCellRight: {
+    alignItems: "flex-end",
+  },
+  overviewBudgetUsedRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingTop: 4,
+  },
+  overviewHelperMuted: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
+    marginTop: 3,
+    fontWeight: "400",
+  },
+  overviewBudgetUsedPercent: {
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: -0.35,
+  },
+  overviewFinancialBody: {
+    marginTop: 14,
+  },
+  budgetHelperLine: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3,
+    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
+    fontWeight: "400",
+  },
+  budgetSummaryTable: {
+    marginTop: 14,
+  },
+  budgetSummaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)",
+  },
+  budgetSummaryRowLast: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+  },
+  budgetValueRight: {
+    textAlign: "right",
+    maxWidth: "52%",
+  },
+  projectStatusHelper: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
+    marginTop: 3,
+    fontWeight: "400",
+  },
+  projectStatusMetricRowSpaced: {
+    marginTop: 18,
+  },
+  spendingSummaryBlock: {
+    alignItems: "flex-end",
+    marginLeft: 10,
+    maxWidth: "46%",
+  },
+  spendingSummaryPrimary: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#22d3ee",
+  },
+  spendingSummarySecondary: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 4,
+    color: darkMode ? "rgba(255,255,255,0.87)" : "#64748b",
   },
   headerRow: {
     flexDirection: "row",
@@ -4234,7 +4398,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 18,
   },
   innerCardContainer: {
-    marginTop: 12,
+    marginTop: 14,
   },
   innerCardBorder: {
     borderRadius: 20,
@@ -4242,17 +4406,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   innerCard: {
     backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 16,
+    padding: 15,
     borderWidth: darkMode ? 1 : 1,
-    borderColor: Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
   },
   projectStatusCard: {
     backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 14,
-    padding: 20,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: darkMode ? 1 : 1,
-    borderColor: Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -4286,9 +4450,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "600",
   },
   mutedLabel: {
-    fontSize: 13,
-    color: darkMode ? "#FFFFFF" : "#475569",
-    marginBottom: 2,
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+    color: darkMode ? "rgba(255,255,255,0.85)" : "#8891a0",
+    marginBottom: 4,
   },
   largeNumber: {
     fontSize: 24,
@@ -4296,8 +4462,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: Colors.text,
   },
   mediumNumber: {
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 19,
+    fontWeight: "700",
     color: darkMode ? "#22d3ee" : "#0ea5e9",
   },
   summaryRow: {
@@ -4316,21 +4482,21 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: '#F9FAFB',
   },
   projectStatusStatusRow: {
-    marginTop: 16,
+    marginTop: 12,
   },
   projectStatusMetrics: {
-    marginTop: 24,
+    marginTop: 20,
   },
   projectStatusMetricRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
   projectStatusMetricLabel: {
     fontSize: 14,
-    color: darkMode ? '#FFFFFF' : '#475569',
-    fontWeight: '500',
+    color: darkMode ? 'rgba(255,255,255,0.9)' : '#334155',
+    fontWeight: '600',
   },
   projectStatusMetricValue: {
     fontSize: 15,
@@ -4338,20 +4504,20 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? '#F9FAFB' : Colors.text,
   },
   projectStatusBarTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     overflow: 'hidden',
   },
   projectStatusBarFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 999,
   },
   projectStatusDivider: {
-    height: 1,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-    marginTop: 24,
-    marginBottom: 20,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
+    marginTop: 20,
+    marginBottom: 18,
   },
   projectStatusDates: {
     gap: 12,
@@ -4362,9 +4528,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: 'center',
   },
   projectStatusDateLabel: {
-    fontSize: 14,
-    color: darkMode ? '#FFFFFF' : '#475569',
-    fontWeight: '500',
+    fontSize: 13,
+    color: darkMode ? 'rgba(255,255,255,0.85)' : '#8891a0',
+    fontWeight: '600',
   },
   projectStatusDateValue: {
     fontSize: 15,
@@ -4391,7 +4557,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   statusChipCompactDot: {
     fontSize: 12,
-    color: '#FFFFFF',
+    color: darkMode ? 'rgba(255,255,255,0.45)' : '#94a3b8',
     fontWeight: '400',
   },
   statusChip: {
@@ -4455,16 +4621,23 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   budgetRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
+    alignItems: "flex-start",
+    paddingVertical: 6,
+    marginBottom: 6,
   },
   budgetLabel: {
     fontSize: 14,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    flex: 1,
+    paddingRight: 12,
+    color: darkMode ? "rgba(255,255,255,0.93)" : "#475569",
+    fontWeight: "500",
   },
   budgetValue: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
+    textAlign: "right",
+    flexShrink: 0,
+    maxWidth: "48%",
     color: darkMode ? "#F9FAFB" : Colors.text,
   },
   budgetValuePositive: {
@@ -4505,7 +4678,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineEdgeLabel: {
     fontSize: 11,
-    color: darkMode ? "#7C8BA0" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.82)" : "#64748b",
   },
   // Health styles
   healthRow: {
@@ -4538,7 +4711,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   teamNotAssignedText: {
     fontSize: 14,
-    color: darkMode ? "#7C8BA0" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.82)" : "#64748b",
     fontStyle: "italic",
   },
   // Spending Trend Card styles
@@ -4547,14 +4720,16 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   spendingCardInner: {
     backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 16,
+    padding: 15,
     borderWidth: darkMode ? 1 : 1,
-    borderColor: Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
   },
   spendingHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 2,
   },
   // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
   aiFloatingWrapper: {
@@ -4563,6 +4738,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     bottom: 80, // Above bottom edge, not overlapping content
     zIndex: 10,
   },
+  aiFloatingWrapperBudget: {
+    bottom: 84,
+  },
   aiFloating: {
     flexDirection: "row",
     alignItems: "center",
@@ -4570,10 +4748,18 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     shadowColor: "#22c55e",
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8, // Android shadow
+    shadowOpacity: 0.55,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  aiFloatingBudgetTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   aiFloatingText: {
     marginLeft: 8,
@@ -4949,18 +5135,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.sub,
-  },
-  budgetHelperText: {
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  budgetHelperTextMain: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  budgetHelperTextSub: {
-    fontSize: 12,
-    marginTop: 2,
   },
   // AI Suggestions styles
   aiSuggestionsContainer: {

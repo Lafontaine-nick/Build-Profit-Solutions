@@ -403,7 +403,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             <Ionicons
               name="information-circle-outline"
               size={15}
-              color={darkMode ? "rgba(255,255,255,0.55)" : "#64748b"}
+              color={darkMode ? "rgba(255,255,255,0.78)" : "#475569"}
             />
             <Text style={styles.infoText}>
               Projection based on monthly lead volume, average bid size, and win
@@ -436,7 +436,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   livePillText: {
     marginLeft: 6,
     fontSize: 12,
-    color: darkMode ? "#FFFFFF" : "#000000",
+    color: darkMode ? "rgba(255,255,255,0.92)" : "#0f172a",
     fontWeight: "500",
   },
 
@@ -461,7 +461,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: darkMode ? "rgba(148,163,184,0.9)" : "#64748b",
+    color: darkMode ? "rgba(226,232,240,0.92)" : "#475569",
     marginBottom: 6,
   },
   sectionDivider: {
@@ -501,7 +501,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginLeft: 25,
     fontSize: 11,
     lineHeight: 15,
-    color: darkMode ? "rgba(226,232,240,0.65)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.82)" : "#475569",
     fontWeight: "500",
   },
   blockTitle: {
@@ -533,7 +533,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 3,
   },
   barValueLabelMuted: {
-    color: darkMode ? "rgba(255,255,255,0.38)" : "rgba(51,65,85,0.55)",
+    color: darkMode ? "rgba(255,255,255,0.68)" : "rgba(51,65,85,0.68)",
     fontWeight: "500",
   },
   barTrack: {
@@ -576,7 +576,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? "#FFFFFF" : "#334155",
   },
   chartXAxisLabelMuted: {
-    color: darkMode ? "rgba(255,255,255,0.45)" : "rgba(51,65,85,0.55)",
+    color: darkMode ? "rgba(255,255,255,0.72)" : "rgba(51,65,85,0.68)",
     fontWeight: "500",
   },
 
@@ -614,7 +614,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   profitLabel: {
     fontSize: 12,
-    color: darkMode ? "#F3F4F6" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.88)" : "#334155",
   },
   profitValue: {
     fontSize: 20,
@@ -626,7 +626,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 1,
     fontSize: 11,
     lineHeight: 15,
-    color: darkMode ? "rgba(229,231,235,0.75)" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.82)" : "#475569",
   },
 
   /* project type rows */
@@ -650,7 +650,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   projectSubLabel: {
     marginTop: 2,
     fontSize: 12,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.86)" : "#475569",
   },
   progressTrack: {
     marginTop: 6,
@@ -680,7 +680,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   forecastLabel: {
     fontSize: 11,
-    color: darkMode ? "rgba(255,255,255,0.75)" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.88)" : "#334155",
     fontWeight: "600",
   },
   forecastValue: {
@@ -693,7 +693,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 3,
     fontSize: 11,
     lineHeight: 15,
-    color: darkMode ? "rgba(243,244,246,0.72)" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.82)" : "#475569",
   },
   infoRow: {
     flexDirection: "row",
@@ -709,7 +709,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginLeft: 8,
     fontSize: 11,
     lineHeight: 16,
-    color: darkMode ? "rgba(255,255,255,0.72)" : "#475569",
+    color: darkMode ? "rgba(255,255,255,0.86)" : "#475569",
     flex: 1,
   },
 });

@@ -235,9 +235,9 @@ const getProjectRevenue = (project: any): number => {
 const statusTheme: Record<string, { bg: string; border: string; color: string }> = {
   Active: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
   Completed: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
-  Submitted: { bg: 'rgba(148, 163, 184, 0.24)', border: 'rgba(148, 163, 184, 0.4)', color: '#e2e8f0' },
+  Submitted: { bg: 'rgba(148, 163, 184, 0.24)', border: 'rgba(148, 163, 184, 0.4)', color: '#f1f5f9' },
   Won: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
-  Draft: { bg: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.35)', color: '#cbd5e1' },
+  Draft: { bg: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.35)', color: '#e2e8f0' },
 };
 
 /** Overview AI insights: urgency first, then impact; deprioritize low-material receipt chatter. */
@@ -387,7 +387,8 @@ const computePipelineTotals = (projects: any[]) => {
 const PAYMENT_KEYWORDS = ['payment', 'deposit', 'milestone', 'weekly pay', 'draw'];
 const INSPECTION_KEYWORDS = ['inspection', 'inspect'];
 const PHASE_KEYWORDS = ['concrete', 'framing', 'drywall', 'electrical', 'plumbing', 'roof', 'foundation', 'demo', 'paint', 'phase', 'install', 'installation', 'start'];
-const DELIVERY_KEYWORDS = ['delivery', 'deliver', 'pickup', 'pick up', 'purchase order', 'po ', 'lumber', 'cabinet', 'tile'];
+const PO_KEYWORDS = ['purchase order', 'po ', 'p.o.', 'p.o ', ' po ', 'po#', 'po #', 'p.o#'];
+const DELIVERY_KEYWORDS = ['delivery', 'deliver', 'pickup', 'pick up', 'lumber', 'cabinet', 'tile', 'material'];
 const DEADLINE_KEYWORDS = ['deadline', 'due', 'permit', 'completion', 'complete by', 'final', 'project completion', 'framing completion'];
 const NOISE_KEYWORDS = ['daily log', 'receipt', 'checklist', 'internal reminder', 'small task', 'note only', 'todo'];
 
@@ -396,8 +397,32 @@ const CALENDAR_CATEGORY_COLORS = {
   inspection: '#f59e0b', // yellow
   phase: '#3b82f6', // blue
   delivery: '#8b5cf6', // purple
+  purchase_order: '#2dd4bf',
   deadline: '#ef4444', // red
+  other: '#f97316',
 } as const;
+
+function formatCalendarCategoryLabel(
+  cat: NonNullable<CalendarEvent["calendarCategory"]> | undefined
+): string | null {
+  if (!cat) return null;
+  if (cat === "purchase_order") return "Purchase order";
+  if (cat === "phase") return "Crew";
+  if (cat === "other") return "Other";
+  return cat.charAt(0).toUpperCase() + cat.slice(1);
+}
+
+function inferUserCalendarCategory(event: CalendarEvent): CalendarEvent["calendarCategory"] {
+  const text = `${event.title || ""} ${event.notes || ""}`.toLowerCase();
+  const has = (keywords: readonly string[]) => keywords.some((k) => text.includes(k));
+  if (has(PAYMENT_KEYWORDS) || event.type === "payment") return "payment";
+  if (has(INSPECTION_KEYWORDS) || event.type === "inspection") return "inspection";
+  if (has(PO_KEYWORDS)) return "purchase_order";
+  if (event.type === "delivery" || has(DELIVERY_KEYWORDS)) return "delivery";
+  if (has(DEADLINE_KEYWORDS) || event.type === "deadline") return "deadline";
+  if (has(PHASE_KEYWORDS) || event.type === "work") return "phase";
+  return "other";
+}
 
 const EVENT_TYPE_COLORS: Record<CalendarEvent["type"], string> = {
   inspection: "#f59e0b",
@@ -510,7 +535,25 @@ const toLocalISODate = (d = new Date()) => {
   return `${y}-${m}-${day}`;
 };
 
-type UpcomingFilterKey = "all" | "inspection" | "payment" | "tasks" | "ai";
+/** YYYY-MM-DD at local midnight — `new Date("2026-04-02")` is UTC and shifts the calendar day in US timezones. */
+function parseISODateAsLocalDay(iso: string): Date {
+  const dayPart = (iso || "").split("T")[0];
+  const parts = dayPart.split("-").map((p) => parseInt(p, 10));
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return new Date(NaN);
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+type UpcomingFilterKey =
+  | "all"
+  | "payment"
+  | "inspection"
+  | "delivery"
+  | "purchase_order"
+  | "deadline"
+  | "phase"
+  | "other"
+  | "ai";
 
 const matchesUpcomingFilter = (e: MasterCalendarEvent, f: UpcomingFilterKey): boolean => {
   if (f === "all") return true;
@@ -520,16 +563,20 @@ const matchesUpcomingFilter = (e: MasterCalendarEvent, f: UpcomingFilterKey): bo
   if (f === "payment") {
     return e.calendarCategory === "payment" || e.type === "payment";
   }
-  if (f === "tasks") {
-    const c = e.calendarCategory;
-    return (
-      c === "phase" ||
-      c === "delivery" ||
-      c === "deadline" ||
-      e.type === "work" ||
-      e.type === "delivery" ||
-      e.type === "deadline"
-    );
+  if (f === "delivery") {
+    return e.calendarCategory === "delivery";
+  }
+  if (f === "purchase_order") {
+    return e.calendarCategory === "purchase_order" || e.id.startsWith("po-");
+  }
+  if (f === "deadline") {
+    return e.calendarCategory === "deadline" || e.type === "deadline";
+  }
+  if (f === "phase") {
+    return e.calendarCategory === "phase" || e.type === "work";
+  }
+  if (f === "other") {
+    return e.calendarCategory === "other" || e.type === "other";
   }
   if (f === "ai") return Boolean(e.isUserCreated);
   return true;
@@ -566,13 +613,21 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return d.toISOString().split('T')[0];
   };
 
-  const categoryToType = (category: 'payment' | 'inspection' | 'phase' | 'delivery' | 'deadline'): CalendarEvent['type'] => {
+  const categoryToType = (category: NonNullable<CalendarEvent["calendarCategory"]>): CalendarEvent["type"] => {
     switch (category) {
-      case 'payment': return 'payment';
-      case 'inspection': return 'inspection';
-      case 'phase': return 'work';
-      case 'delivery': return 'delivery';
-      case 'deadline': return 'deadline';
+      case "payment":
+        return "payment";
+      case "inspection":
+        return "inspection";
+      case "phase":
+        return "work";
+      case "delivery":
+      case "purchase_order":
+        return "delivery";
+      case "deadline":
+        return "deadline";
+      case "other":
+        return "other";
     }
   };
 
@@ -624,7 +679,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         const projectId = String(project.id);
         const projectName = project.title || project.name || 'Untitled Project';
         const projectData = project.projectData || project;
-        const isCompletedProject = (project.status || '').toString().toLowerCase() === 'completed';
+        const statusNorm = normalizePortfolioStatus(project.status);
+        const isCompletedProject =
+          statusNorm === "completed" || statusNorm === "complete" || statusNorm === "closed";
 
         // Double-check project is still valid before loading any data
         if (!validProjectIds.has(projectId)) {
@@ -647,15 +704,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 
                 const text = `${event.title || ''} ${event.notes || ''}`.toLowerCase();
                 if (includesAny(text, NOISE_KEYWORDS)) return;
-                
-                let category: CalendarEvent['calendarCategory'] | null = null;
-                if (event.type === 'payment' || includesAny(text, PAYMENT_KEYWORDS)) category = 'payment';
-                else if (event.type === 'inspection' || includesAny(text, INSPECTION_KEYWORDS)) category = 'inspection';
-                else if (event.type === 'delivery' || includesAny(text, DELIVERY_KEYWORDS)) category = 'delivery';
-                else if (event.type === 'deadline' || includesAny(text, DEADLINE_KEYWORDS)) category = 'deadline';
-                else if (event.type === 'work' || includesAny(text, PHASE_KEYWORDS)) category = 'phase';
-                
-                if (!category) return;
+
+                const category = inferUserCalendarCategory(event);
                 // Ensure projectId and projectName are set correctly (always use current project)
                 pushUnique({ 
                   ...event, 
@@ -741,14 +791,15 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 const text = `${item.title || item.name || ''} ${item.description || ''}`.toLowerCase();
                 if (includesAny(text, NOISE_KEYWORDS)) return;
 
-                let category: CalendarEvent['calendarCategory'] | null = null;
+                let category: CalendarEvent["calendarCategory"];
                 const amount = Number(item.amount || item.paymentAmount || 0);
-                if (amount > 0 || includesAny(text, PAYMENT_KEYWORDS)) category = 'payment';
-                else if (includesAny(text, INSPECTION_KEYWORDS)) category = 'inspection';
-                else if (includesAny(text, DELIVERY_KEYWORDS)) category = 'delivery';
-                else if (includesAny(text, DEADLINE_KEYWORDS)) category = 'deadline';
-                else if (includesAny(text, PHASE_KEYWORDS)) category = 'phase';
-                if (!category) return;
+                if (amount > 0 || includesAny(text, PAYMENT_KEYWORDS)) category = "payment";
+                else if (includesAny(text, INSPECTION_KEYWORDS)) category = "inspection";
+                else if (includesAny(text, PO_KEYWORDS)) category = "purchase_order";
+                else if (includesAny(text, DELIVERY_KEYWORDS)) category = "delivery";
+                else if (includesAny(text, DEADLINE_KEYWORDS)) category = "deadline";
+                else if (includesAny(text, PHASE_KEYWORDS)) category = "phase";
+                else category = "other";
 
                 pushUnique({
                   id: `timeline-${projectId}-${item.id || `${date}-${item.title || item.name || 'milestone'}`}`,
@@ -780,10 +831,10 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             if (!date) return;
             pushUnique({
               id: `po-${projectId}-${po.id || `${po.poNumber || 'po'}-${date}`}`,
-              title: `Delivery: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
+              title: `PO: ${po.vendor || 'Vendor'}${po.category ? ` - ${po.category}` : ''}`,
               date,
-              type: 'delivery',
-              calendarCategory: 'delivery',
+              type: "delivery",
+              calendarCategory: "purchase_order",
               notes: po.description || po.notes || (po.poNumber ? `PO ${po.poNumber}` : undefined),
               completed: po.status === 'Received',
               createdAt: po.orderDate || nowIso,
@@ -854,7 +905,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return allEvents.filter(event => event.date === dateStr);
   }, [allEvents]);
 
-  // Upcoming events (next 7 days) — same window as before; filter is presentation-only
+  // Upcoming events (next 7 days) — exclude completed jobs; local date match so payments/POs aren’t dropped by UTC shift
   const upcomingEvents = React.useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -862,9 +913,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     nextWeek.setDate(nextWeek.getDate() + 7);
     return allEvents
       .filter((e) => {
+        const me = e as MasterCalendarEvent;
+        if (me.isCompletedProject) return false;
         if (e.completed) return false;
-        const eventDate = new Date(e.date);
-        eventDate.setHours(0, 0, 0, 0);
+        const eventDate = parseISODateAsLocalDay(e.date);
+        if (Number.isNaN(eventDate.getTime())) return false;
         return eventDate >= today && eventDate <= nextWeek;
       })
       .filter((e) => matchesUpcomingFilter(e, upcomingFilter))
@@ -875,7 +928,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         if (a.time && b.time) return a.time.localeCompare(b.time);
         return a.time ? -1 : b.time ? 1 : 0;
       })
-      .slice(0, 8);
+      .slice(0, 30);
   }, [allEvents, upcomingFilter]);
 
   const hasAnyUpcomingInWindow = React.useMemo(() => {
@@ -884,9 +937,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     const nextWeek = new Date(today);
     nextWeek.setDate(nextWeek.getDate() + 7);
     return allEvents.some((e) => {
+      const me = e as MasterCalendarEvent;
+      if (me.isCompletedProject) return false;
       if (e.completed) return false;
-      const eventDate = new Date(e.date);
-      eventDate.setHours(0, 0, 0, 0);
+      const eventDate = parseISODateAsLocalDay(e.date);
+      if (Number.isNaN(eventDate.getTime())) return false;
       return eventDate >= today && eventDate <= nextWeek;
     });
   }, [allEvents]);
@@ -1038,13 +1093,15 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
   const getEventIcon = React.useCallback((event: CalendarEvent & { projectId: string; projectName: string }) => {
     if (event.calendarCategory) {
       const categoryIcons: Record<string, string> = {
-        payment: 'attach-money',
-        inspection: 'fact-check',
-        phase: 'construction',
-        delivery: 'local-shipping',
-        deadline: 'event-busy',
+        payment: "attach-money",
+        inspection: "fact-check",
+        phase: "construction",
+        delivery: "local-shipping",
+        purchase_order: "receipt",
+        deadline: "event-busy",
+        other: "description",
       };
-      return categoryIcons[event.calendarCategory] || 'calendar';
+      return categoryIcons[event.calendarCategory] || "calendar";
     }
     const typeIcons: Record<string, string> = {
       inspection: 'clipboard-check',
@@ -1065,7 +1122,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         surface: '#0f172a',
         surface2: '#1e293b',
         text: '#FFFFFF',
-        subtext: '#FFFFFF',
+        subtext: 'rgba(255,255,255,0.92)',
         border: '#334155',
         green: '#22c55e',
       }
@@ -1074,7 +1131,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         surface: '#f8fafc',
         surface2: '#f1f5f9',
         text: '#0f172a',
-        subtext: '#64748b',
+        subtext: '#475569',
         border: '#e2e8f0',
         green: '#22c55e',
       };
@@ -1084,14 +1141,20 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     { key: "inspection", label: "Inspections", color: CALENDAR_CATEGORY_COLORS.inspection },
     { key: "phase", label: "Crew", color: CALENDAR_CATEGORY_COLORS.phase },
     { key: "delivery", label: "Deliveries", color: CALENDAR_CATEGORY_COLORS.delivery },
+    { key: "purchase_order", label: "PO", color: CALENDAR_CATEGORY_COLORS.purchase_order },
     { key: "deadline", label: "Deadlines", color: CALENDAR_CATEGORY_COLORS.deadline },
+    { key: "other", label: "Other", color: CALENDAR_CATEGORY_COLORS.other },
   ] as const;
 
   const upcomingFilterChips: { key: UpcomingFilterKey; label: string }[] = [
     { key: "all", label: "All" },
-    { key: "inspection", label: "Inspections" },
     { key: "payment", label: "Payments" },
-    { key: "tasks", label: "Tasks" },
+    { key: "inspection", label: "Inspections" },
+    { key: "delivery", label: "Deliveries" },
+    { key: "purchase_order", label: "POs" },
+    { key: "deadline", label: "Deadlines" },
+    { key: "phase", label: "Crew" },
+    { key: "other", label: "Other" },
     { key: "ai", label: "AI" },
   ];
 
@@ -1128,7 +1191,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             style={{
               fontSize: 12,
               marginTop: 3,
-              color: darkMode ? "rgba(255,255,255,0.55)" : COLORS.subtext,
+              color: darkMode ? "rgba(255,255,255,0.86)" : COLORS.subtext,
               fontWeight: "500",
             }}
           >
@@ -1157,7 +1220,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 style={{
                   fontSize: 11,
                   fontWeight: "600",
-                  color: darkMode ? "rgba(255,255,255,0.65)" : COLORS.subtext,
+                  color: darkMode ? "rgba(255,255,255,0.86)" : COLORS.subtext,
                 }}
               >
                 {item.label}
@@ -1180,7 +1243,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 style={{
                   fontSize: 11,
                   marginTop: 2,
-                  color: darkMode ? "rgba(255,255,255,0.5)" : "#64748b",
+                  color: darkMode ? "rgba(255,255,255,0.74)" : "#475569",
                   fontWeight: "500",
                 }}
               >
@@ -1233,7 +1296,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             <Text
               style={{
                 fontSize: 13,
-                color: darkMode ? "rgba(255,255,255,0.55)" : COLORS.subtext,
+                color: darkMode ? "rgba(255,255,255,0.8)" : COLORS.subtext,
                 marginBottom: 8,
               }}
             >
@@ -1251,11 +1314,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   : event.notes?.toLowerCase().includes("due")
                     ? "Payment due"
                     : null;
-              const typeLabel = event.calendarCategory
-                ? event.calendarCategory.charAt(0).toUpperCase() + event.calendarCategory.slice(1)
-                : event.type
-                  ? String(event.type).replace(/-/g, " ")
-                  : null;
+              const typeLabel =
+                formatCalendarCategoryLabel(event.calendarCategory) ||
+                (event.type ? String(event.type).replace(/-/g, " ") : null);
               return (
             <View
               key={event.id}
@@ -1309,7 +1370,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 5 }}>
                     <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: darkMode ? 'rgba(255,255,255,0.85)' : COLORS.text, flexShrink: 1 }} numberOfLines={1}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: darkMode ? 'rgba(255,255,255,0.92)' : COLORS.text, flexShrink: 1 }} numberOfLines={1}>
                       {event.projectName || 'Project'}
                     </Text>
                     {(event as MasterCalendarEvent).isCompletedProject ? (
@@ -1322,7 +1383,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         <Text style={{
                           fontSize: 9,
                           fontWeight: '700',
-                          color: darkMode ? 'rgba(255,255,255,0.75)' : '#475569',
+                          color: darkMode ? 'rgba(255,255,255,0.86)' : '#334155',
                           textTransform: 'uppercase',
                           letterSpacing: 0.3,
                         }}>Completed</Text>
@@ -1368,21 +1429,21 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                     </View>
                   ) : null}
                   {event.notes && !statusLine ? (
-                    <Text style={{ fontSize: 11, marginTop: 5, color: darkMode ? 'rgba(255,255,255,0.5)' : COLORS.subtext }} numberOfLines={2}>
+                    <Text style={{ fontSize: 11, marginTop: 5, color: darkMode ? 'rgba(255,255,255,0.8)' : COLORS.subtext }} numberOfLines={2}>
                       {event.notes}
                     </Text>
                   ) : null}
                   {(event as MasterCalendarEvent).isUserCreated ? (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontWeight: '500' }}>
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : 'rgba(0,0,0,0.58)', fontWeight: '500' }}>
                       Editable task
                     </Text>
                   ) : (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)', fontWeight: '500' }}>
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : 'rgba(0,0,0,0.58)', fontWeight: '500' }}>
                       From schedule
                     </Text>
                   )}
                 </View>
-                <MaterialIcons name={getEventIcon(event) as any} size={18} color={darkMode ? 'rgba(255,255,255,0.35)' : getEventColor(event)} style={{ marginLeft: 4 }} />
+                <MaterialIcons name={getEventIcon(event) as any} size={18} color={darkMode ? 'rgba(255,255,255,0.74)' : getEventColor(event)} style={{ marginLeft: 4 }} />
               </Pressable>
             </View>
               );
@@ -1511,12 +1572,9 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                           ? "rgba(34, 197, 94, 0.12)"
                           : "rgba(34, 197, 94, 0.1)"
                         : `${getEventColor(event)}20`;
-                      const typeLabel = event.calendarCategory
-                        ? event.calendarCategory.charAt(0).toUpperCase() +
-                          event.calendarCategory.slice(1)
-                        : event.type
-                          ? String(event.type).replace(/-/g, " ")
-                          : null;
+                      const typeLabel =
+                        formatCalendarCategoryLabel(event.calendarCategory) ||
+                        (event.type ? String(event.type).replace(/-/g, " ") : null);
                       return (
                       <Pressable
                         key={event.id}
@@ -1592,7 +1650,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                                 <Text style={{
                                   fontSize: 9,
                                   fontWeight: '700',
-                                  color: darkMode ? 'rgba(255,255,255,0.75)' : '#475569',
+                                  color: darkMode ? 'rgba(255,255,255,0.86)' : '#334155',
                                   textTransform: 'uppercase',
                                   letterSpacing: 0.3,
                                 }}>Completed</Text>
@@ -1749,7 +1807,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                               fontSize: 10,
                               marginTop: 6,
                               fontWeight: '500',
-                              color: darkMode ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.45)',
+                              color: darkMode ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.62)',
                             }}>From AI Assistant</Text>
                           ) : null}
                         </View>
@@ -2715,7 +2773,7 @@ const DashboardScreen: React.FC = () => {
             title={t('dashboard.title')}
             subtitle={`${t('dashboard.welcome')}, ${user.name}`}
             titleColor={Colors.text}
-            subtitleColor={darkMode ? "#FFFFFF" : "#475569"}
+            subtitleColor={darkMode ? "rgba(255,255,255,0.92)" : "#334155"}
             belowTitle={(() => {
               const aiStatusText = aiPmMode
                 ? "AI PM Active"
@@ -2723,10 +2781,10 @@ const DashboardScreen: React.FC = () => {
               const isDark = darkMode;
               const aiStatusColor = aiPmMode
                 ? (isDark ? "#6ee7b7" : "#16a34a")
-                : (isDark ? "#FFFFFF" : "#94A3B8");
+                : (isDark ? "#FFFFFF" : "#475569");
               const dotColor = aiPmMode
                 ? "#22c55e"
-                : (isDark ? "#FFFFFF" : "#94A3B8");
+                : (isDark ? "#FFFFFF" : "#475569");
               const ruleBasedTime = aiData?.ruleBasedUpdatedAt
                 ? formatTimeShort(aiData.ruleBasedUpdatedAt)
                 : null;
@@ -2972,7 +3030,7 @@ const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) 
       style={styles.segmentTab}
     >
       <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
+        <Ionicons name={icon} size={16} color={darkMode ? "#FFFFFF" : "#334155"} />
         <Text style={styles.segmentLabel}>
           {label}
         </Text>
@@ -3070,7 +3128,7 @@ const EnhancedMetricCard = ({
           <Text style={[styles.metricValue, (gradient || label === "Avg Margin") && { color: "#020617" }]}>
             {value}
           </Text>
-          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "rgba(2,6,23,0.55)" }]}>
+          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "rgba(2,6,23,0.75)" }]}>
             {label}
           </Text>
 
@@ -3273,7 +3331,7 @@ const InsightItem = ({
             <Ionicons 
               name="information-circle-outline" 
               size={14} 
-              color={darkMode ? "#FFFFFF" : "#6b7280"} 
+              color={darkMode ? "rgba(255,255,255,0.9)" : "#475569"} 
             />
           </Pressable>
         </View>
@@ -3336,7 +3394,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   filteredNextSteps,
 }) => {
   const { t } = useTranslation();
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
   /** Collapsed by default — long lists expand on demand; preview still shows first N */
@@ -3442,7 +3500,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         <Ionicons
           name={aiInsightsExpanded ? "chevron-up" : "chevron-down"}
           size={22}
-          color={Colors.sub}
+          color={darkMode ? "rgba(255,255,255,0.88)" : "#475569"}
         />
       </Pressable>
 
@@ -3495,7 +3553,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                       +{insightsHiddenCount} more
                     </Text>
                   </View>
-                  <Ionicons name="chevron-down" size={16} color={Colors.sub} />
+                  <Ionicons name="chevron-down" size={16} color={darkMode ? "rgba(255,255,255,0.88)" : "#475569"} />
                 </Pressable>
               )}
             </View>
@@ -3524,7 +3582,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
             {!aiError && !aiPmMode && (
               <View style={styles.aiEmptyState}>
-                <Ionicons name="sparkles-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
+                <Ionicons name="sparkles-outline" size={32} color={darkMode ? "rgba(255,255,255,0.8)" : "#475569"} style={{ marginBottom: 12 }} />
                 <Text style={styles.aiEmptyStateTitle}>
                   Turn on AI PM Mode
                 </Text>
@@ -4266,7 +4324,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
           {!aiPmMode && (
             <View style={styles.aiEmptyState}>
-              <Ionicons name="sparkles-outline" size={32} color={Colors.sub} style={{ marginBottom: 12 }} />
+              <Ionicons name="sparkles-outline" size={32} color={darkMode ? "rgba(255,255,255,0.8)" : "#475569"} style={{ marginBottom: 12 }} />
               <Text style={styles.aiEmptyStateTitle}>AI PM Mode is off</Text>
                 <Text style={styles.insightsAuxText}>
                   Toggle the floating badge to enable ranked actions.
@@ -4380,7 +4438,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   aiTimestampText: {
     fontSize: 10,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.sub,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#475569",
     opacity: 1,
   },
   refreshButton: {
@@ -4563,7 +4621,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   cardSubtitle: {
     marginTop: 2,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569", // slate-600 for better contrast
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#334155",
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -4576,7 +4634,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginTop: 12,
     fontSize: 15,
     lineHeight: 23,
-    color: Colors.bg === '#000000' ? "#F3F4F6" : "#475569",
+    color: Colors.bg === '#000000' ? "#F8FAFC" : "#334155",
   },
   insightsHeroCard: {
     flexDirection: "row",
@@ -4619,7 +4677,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginTop: 8,
     fontSize: 14,
     lineHeight: 20,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.82)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : "#475569",
   },
   insightsHeroCtaGradient: {
     marginTop: 16,
@@ -4652,7 +4710,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontWeight: "700",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.68)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : "#475569",
     marginBottom: 10,
     marginTop: 4,
   },
@@ -4694,13 +4752,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightsActionContext: {
     marginTop: 4,
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.72)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
   },
   insightsActionMeta: {
     marginTop: 4,
     fontSize: 11,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.58)" : "rgba(15,23,42,0.45)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.84)" : "rgba(15,23,42,0.65)",
   },
   insightsActionCtaCol: {
     alignItems: "flex-end",
@@ -4739,7 +4797,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightsActionFooterText: {
     fontSize: 12,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "rgba(15,23,42,0.45)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.86)" : "rgba(15,23,42,0.65)",
   },
   insightsViewAllRow: {
     flexDirection: "row",
@@ -4780,13 +4838,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "500",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : "#334155",
   },
   /** Loading / empty copy on Insights tab — brighter than generic panel text */
   insightsAuxText: {
     fontSize: 13,
     lineHeight: 19,
-    color: Colors.bg === '#000000' ? "#cbd5e1" : "#475569",
+    color: Colors.bg === '#000000' ? "#e2e8f0" : "#334155",
     marginBottom: 10,
   },
   insightsSectionTitle: {
@@ -4799,7 +4857,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontSize: 14,
     lineHeight: 20,
     marginTop: 4,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#475569",
   },
   linkText: {
     fontSize: 14,
@@ -4809,7 +4867,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   metricsSwipeHint: {
     fontSize: 11,
     fontWeight: "500",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.38)" : "rgba(15,23,42,0.45)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.78)" : "rgba(15,23,42,0.65)",
     letterSpacing: 0.2,
   },
 
@@ -4950,7 +5008,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   projectLocationText: {
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
   },
   statusPillBase: {
     paddingHorizontal: 11,
@@ -4975,11 +5033,11 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   projectMetaText: {
     marginTop: 2,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#334155",
   },
   projectMetaLabel: {
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#475569",
   },
   progressRow: {
     flexDirection: "row",
@@ -5006,7 +5064,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   progressLabel: {
     marginTop: 4,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#334155",
   },
   aiTagChip: {
     flexDirection: "row",
@@ -5082,10 +5140,10 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     color: "#d97706",
   },
   projectSummarySignalWatch: {
-    color: Colors.bg === '#000000' ? "rgba(148,163,184,0.95)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(203,213,225,0.98)" : "#475569",
   },
   projectSummarySignalMuted: {
-    color: Colors.bg === '#000000' ? "rgba(148,163,184,0.55)" : "rgba(71,85,105,0.75)",
+    color: Colors.bg === '#000000' ? "rgba(226,232,240,0.92)" : "rgba(51,65,85,0.92)",
   },
 
   // ANALYTICS
@@ -5199,7 +5257,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.sub,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
     marginTop: 6,
     textAlign: "center",
     maxWidth: 240,
@@ -5261,7 +5319,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   chipText: {
     fontSize: 10,
-    color: "rgba(229,231,235,0.88)",
+    color: "rgba(229,231,235,0.94)",
     fontWeight: "500",
   },
   trendRow: {
@@ -5276,12 +5334,12 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   metricContext: {
     fontSize: 11,
     lineHeight: 15,
-    color: "rgba(243,244,246,0.62)",
+    color: "rgba(243,244,246,0.88)",
     marginTop: 6,
     fontWeight: "400",
   },
   metricContextOnLight: {
-    color: "rgba(2,6,23,0.42)",
+    color: "rgba(2,6,23,0.68)",
   },
 
   // WIDE CONTAINER (matches allProjectsContainer)
@@ -5317,18 +5375,18 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "#e2e8f0" : "#475569", // light slate on dark — easy to read
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#334155",
     marginTop: 2,
   },
   overviewAiInsightsSubtitle: {
     fontSize: 12,
-    opacity: Colors.bg === '#000000' ? 0.72 : 0.85,
+    opacity: Colors.bg === '#000000' ? 0.94 : 0.96,
     marginTop: 1,
   },
   aiInsightsCollapsedHint: {
     fontSize: 13,
     lineHeight: 18,
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
     paddingHorizontal: 4,
   },
   aiInsightsShowMoreRow: {
@@ -5353,7 +5411,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   aiInsightsShowMoreSecondary: {
     fontSize: 11,
     fontWeight: "500",
-    color: Colors.sub,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.82)" : "#475569",
   },
   aiInsightsShowMoreText: {
     fontSize: 13,
@@ -5395,7 +5453,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   aiPanelPausedText: {
     fontSize: 12,
-    color: Colors.bg === '#000000' ? Colors.sub : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : "#334155",
     marginBottom: 10,
   },
   insightRow: {
@@ -5419,7 +5477,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightBody: {
     fontSize: 11,
     lineHeight: 16,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.72)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
     marginTop: 2,
   },
 
@@ -5512,7 +5570,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginLeft: 6,
     fontSize: 11,
     fontWeight: "600",
-    color: "#a1a1aa",
+    color: "#d4d4d8",
   },
   aiFloatingTextOn: {
     color: "#ecfdf5",
