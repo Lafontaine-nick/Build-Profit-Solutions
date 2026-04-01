@@ -60,7 +60,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           : 'No date',
         date: exp.date,
         notes: exp.notes,
-        receiptUri: exp.receiptUri,
+        receiptUri: exp.receiptUri ?? null,
       }));
     
     // Apply search filter if active
@@ -155,7 +155,12 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               </View>
               <View style={styles.headerTextBlock}>
                 <Text style={[styles.headerTitle, { color: Colors.text }]}>Materials & Equipment</Text>
-                <Text style={[styles.headerSubtitle, { color: Colors.sub }]}>
+                <Text
+                  style={[
+                    styles.headerSubtitle,
+                    { color: darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub },
+                  ]}
+                >
                   Transactions & Invoices
                 </Text>
               </View>
@@ -172,11 +177,20 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               style={styles.totalCardBorder}
             >
               <View style={styles.totalCard}>
-                <View style={styles.totalLeft}>
-                  <View style={styles.totalIconContainer}>
-                    <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
+                <View style={styles.totalLeftBlock}>
+                  <View style={styles.totalTopRow}>
+                    <View style={styles.totalIconContainer}>
+                      <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
+                    </View>
+                    <Text
+                      style={[
+                        styles.totalLabel,
+                        { color: darkMode ? "rgba(226, 232, 240, 0.72)" : Colors.sub },
+                      ]}
+                    >
+                      Total Spent
+                    </Text>
                   </View>
-                    <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
                 </View>
                 <Text style={styles.totalValue}>
                   $
@@ -189,11 +203,13 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
                 <View style={[styles.totalCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}>
-                  <View style={styles.totalLeft}>
-                    <View style={[styles.totalIconContainer, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
-                      <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
+                  <View style={styles.totalLeftBlock}>
+                    <View style={styles.totalTopRow}>
+                      <View style={[styles.totalIconContainer, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                        <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
+                      </View>
+                      <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
                     </View>
-                    <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
                   </View>
                   <Text style={styles.totalValue}>
                     $
@@ -274,7 +290,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               <TextInput
                 style={[styles.searchInput, { color: Colors.text }]}
                 placeholder="Search transactions..."
-                placeholderTextColor={Colors.sub}
+                placeholderTextColor={darkMode ? "rgba(226, 232, 240, 0.52)" : Colors.sub}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoFocus
@@ -301,7 +317,12 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                 />
               </View>
               <Text style={[styles.emptyTitle, { color: Colors.text }]}>No transactions yet</Text>
-              <Text style={[styles.emptySubtitle, { color: Colors.sub }]}>
+              <Text
+                style={[
+                  styles.emptySubtitle,
+                  { color: darkMode ? "rgba(226, 232, 240, 0.68)" : Colors.sub },
+                ]}
+              >
                 Expenses will appear here as they're added.
               </Text>
             </View>
@@ -337,7 +358,7 @@ interface Transaction {
   amount: number;
   dateLabel: string;
   date?: string;
-  notes?: string;
+  notes?: string | null;
   receiptUri?: string | null;
 }
 
@@ -347,6 +368,8 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const supportSub = darkMode ? "rgba(226, 232, 240, 0.76)" : Colors.sub;
+  const hintMuted = darkMode ? "rgba(226, 232, 240, 0.52)" : Colors.sub;
   const scale = useRef(new Animated.Value(1)).current;
 
   const pressIn = () => {
@@ -395,15 +418,28 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
                 />
               </View>
               <View style={styles.txTextBlock}>
-                  <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
-                  <Text style={[styles.txCategory, { color: Colors.sub }]} numberOfLines={1}>
+                <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
+                <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
                   {transaction.category}
                 </Text>
-                  <View style={[styles.txFooter, !darkMode && { borderTopColor: Colors.line }]}>
-                    <Text style={[styles.txDate, { color: Colors.sub }]}>{transaction.dateLabel}</Text>
+                {transaction.notes ? (
+                  <Text style={[styles.txNotes, { color: supportSub }]} numberOfLines={2}>
+                    {transaction.notes}
+                  </Text>
+                ) : null}
+                <View style={[styles.txFooter, !darkMode && { borderTopColor: Colors.line }]}>
+                  <View style={styles.txFooterLeft}>
+                    <Text style={[styles.txDate, { color: hintMuted }]}>{transaction.dateLabel}</Text>
+                    {transaction.receiptUri ? (
+                      <View style={styles.txReceiptPill}>
+                        <MaterialCommunityIcons name="receipt" size={12} color="rgba(34, 197, 94, 0.85)" />
+                        <Text style={styles.txReceiptPillText}>Receipt</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <View style={styles.txEditRow}>
-                    <Text style={styles.txEditText}>Tap to edit</Text>
-                    <Ionicons name="chevron-forward" size={14} color={BRAND_GREEN} />
+                    <Text style={[styles.txEditText, { color: hintMuted }]}>Tap to edit</Text>
+                    <Ionicons name="chevron-forward" size={13} color={hintMuted} />
                   </View>
                 </View>
               </View>
@@ -432,14 +468,27 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
                 </View>
                 <View style={styles.txTextBlock}>
                   <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
-                  <Text style={[styles.txCategory, { color: Colors.sub }]} numberOfLines={1}>
+                  <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
                     {transaction.category}
                   </Text>
+                  {transaction.notes ? (
+                    <Text style={[styles.txNotes, { color: supportSub }]} numberOfLines={2}>
+                      {transaction.notes}
+                    </Text>
+                  ) : null}
                   <View style={[styles.txFooter, { borderTopColor: Colors.line }]}>
-                    <Text style={[styles.txDate, { color: Colors.sub }]}>{transaction.dateLabel}</Text>
+                    <View style={styles.txFooterLeft}>
+                      <Text style={[styles.txDate, { color: hintMuted }]}>{transaction.dateLabel}</Text>
+                      {transaction.receiptUri ? (
+                        <View style={styles.txReceiptPill}>
+                          <MaterialCommunityIcons name="receipt" size={12} color="rgba(34, 197, 94, 0.85)" />
+                          <Text style={styles.txReceiptPillText}>Receipt</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <View style={styles.txEditRow}>
-                      <Text style={styles.txEditText}>Tap to edit</Text>
-                      <Ionicons name="chevron-forward" size={14} color={BRAND_GREEN} />
+                      <Text style={[styles.txEditText, { color: hintMuted }]}>Tap to edit</Text>
+                      <Ionicons name="chevron-forward" size={13} color={hintMuted} />
                     </View>
                   </View>
                 </View>
@@ -543,16 +592,21 @@ const styles = StyleSheet.create({
   },
   totalCard: {
     borderRadius: 18,
-    paddingVertical: 18,
+    paddingVertical: 20,
     paddingHorizontal: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#000000",
   },
-  totalLeft: {
+  totalLeftBlock: {
+    flex: 1,
+    marginRight: 12,
+  },
+  totalTopRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 12,
   },
   totalIconContainer: {
     width: 36,
@@ -566,16 +620,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(34, 197, 94, 0.15)",
   },
   totalLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
     color: "#8DA0B8",
-    letterSpacing: 0.3,
+    letterSpacing: 0.55,
+    textTransform: "uppercase",
   },
   totalValue: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: "800",
     color: "#22c55e",
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   },
 
   /* ADD BUTTON */
@@ -584,8 +639,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   addButtonGradient: {
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingVertical: 15,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: BRAND_GREEN,
@@ -685,12 +740,12 @@ const styles = StyleSheet.create({
 
   /* LIST */
   listContainer: {
-    gap: 12,
+    gap: 14,
   },
 
   /* TRANSACTION CARD */
   txPressable: {
-    marginBottom: 12,
+    marginBottom: 2,
   },
   txCardBorder: {
     borderRadius: 20,
@@ -703,10 +758,10 @@ const styles = StyleSheet.create({
   },
   txCard: {
     borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     backgroundColor: "#000000",
   },
@@ -740,24 +795,55 @@ const styles = StyleSheet.create({
   txCategory: {
     fontSize: 13,
     color: "#8DA0B8",
-    marginBottom: 8,
+    marginBottom: 4,
     lineHeight: 18,
+  },
+  txNotes: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 10,
+    fontWeight: "500",
   },
   txFooter: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "space-between",
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
+    paddingTop: 10,
+    marginTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148, 163, 184, 0.14)",
+  },
+  txFooterLeft: {
+    flex: 1,
+    marginRight: 8,
+    gap: 6,
   },
   txDate: {
     fontSize: 12,
     color: "#8DA0B8",
     fontWeight: "500",
   },
+  txReceiptPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 211, 238, 0.22)",
+  },
+  txReceiptPillText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(226, 232, 240, 0.75)",
+    letterSpacing: 0.2,
+  },
   txRight: {
     alignItems: "flex-end",
+    paddingTop: 2,
   },
   txAmount: {
     fontSize: 18,
@@ -772,9 +858,8 @@ const styles = StyleSheet.create({
   },
   txEditText: {
     fontSize: 11,
-    color: "#22c55e",
     fontWeight: "600",
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
   },
 });
 

@@ -205,7 +205,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         isRedundantMaterialGroupTitle(group) || !String(group).trim()
           ? ""
           : `<h3 class="appendix-head">${esc(group)}</h3>`;
-      return `
+    return `
           <div class="appendix-block">
             ${groupHead}
             <table class="appendix-table">
@@ -674,7 +674,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   ${legalTermsPage()}
   ${signaturePage()}
   `;
-
+  
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -1265,3 +1265,4 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
 </body>
 </html>`;
 }
+ 

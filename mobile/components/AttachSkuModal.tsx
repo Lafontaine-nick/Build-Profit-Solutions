@@ -61,6 +61,21 @@ import { saveMaterial, removeSavedMaterial, isMaterialSaved } from '../services/
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 
+/** Backend (esp. older production) may still return placehold.co "fake" thumbnails — never show those as product photos. */
+function isPlaceholderImageUrl(u: string | null | undefined): boolean {
+  if (!u || typeof u !== 'string') return false;
+  const lower = u.toLowerCase();
+  if (lower.includes('placehold.co') || lower.includes('placekitten') || lower.includes('dummyimage')) {
+    return true;
+  }
+  try {
+    if (decodeURIComponent(u).toLowerCase().includes('placehold.co')) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 type Store = "hd" | "lowes";
 type Item = {
   sku: string;
@@ -71,7 +86,59 @@ type Item = {
   store: Store;
   zip: string;
   image?: string | null;
+  /** Proxied CDN alternates to try if primary `image` fails (Home Depot path variants). */
+  imageFallbacks?: string[];
 };
+
+function SkuResultThumb({
+  primaryUri,
+  fallbackUris,
+  sku,
+  failedImages,
+  setFailedImages,
+}: {
+  primaryUri: string | null | undefined;
+  fallbackUris: string[];
+  sku: string;
+  failedImages: Set<string>;
+  setFailedImages: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) {
+  const chain = React.useMemo(() => {
+    const raw = [primaryUri, ...fallbackUris].filter(
+      (u): u is string => typeof u === 'string' && u.startsWith('http') && u.trim().length > 0
+    );
+    return [...new Set(raw)];
+  }, [primaryUri, fallbackUris]);
+
+  const [attempt, setAttempt] = React.useState(0);
+
+  React.useEffect(() => {
+    setAttempt(0);
+  }, [chain.join('|')]);
+
+  const uri = chain[attempt];
+
+  if (!uri || failedImages.has(sku)) {
+    return (
+      <MaterialCommunityIcons name="package-variant" size={32} color="#8DA0B8" />
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri, cache: 'force-cache' }}
+      style={{ width: '100%', height: '100%' }}
+      resizeMode="cover"
+      onError={() => {
+        if (attempt < chain.length - 1) {
+          setAttempt((a) => a + 1);
+        } else {
+          setFailedImages((prev) => new Set([...prev, sku]));
+        }
+      }}
+    />
+  );
+}
 
 export default function AttachSkuModal({
   visible,
@@ -196,6 +263,7 @@ export default function AttachSkuModal({
     console.log('✅ Starting search...');
     setLoading(true);
     setError(null);
+    setFailedImages(new Set());
     setResults([]); // Clear previous results
     
     const PRODUCTION_API_BASE = 'https://build-profit-solutions-backend.onrender.com';
@@ -358,6 +426,13 @@ export default function AttachSkuModal({
             imageUrl = (store === 'hd' ? 'https://www.homedepot.com' : 'https://www.lowes.com') + imageUrl;
           }
         }
+
+        if (isPlaceholderImageUrl(imageUrl)) {
+          if (index < 3) {
+            console.log('🖼️ Ignoring placeholder image URL from API; will derive from SKU if possible');
+          }
+          imageUrl = null;
+        }
         
         // If no image URL, try to generate one from the SKU or product URL
         // This is a fallback for when the API doesn't return images
@@ -416,42 +491,45 @@ export default function AttachSkuModal({
           }
         }
         
-        // For Home Depot, if we have an image URL but it might fail, store alternative patterns
-        // This will be used in the Image component's onError handler
-        let alternativeImageUrls = [];
-        if (imageUrl && imageUrl.includes('homedepot-static.com') && x.sku) {
-          const productIdMatch = x.sku.match(/(?:HD-)?(\d{6,})/);
+        // Home Depot: extra CDN path variants to try if primary fails (React Native onError chain).
+        let alternativeImageUrls: string[] = [];
+        if (store === 'hd' && x.sku) {
+          const productIdMatch = String(x.sku).match(/(?:HD-)?(\d{6,})/);
           if (productIdMatch && productIdMatch[1]) {
             const productId = productIdMatch[1];
             const first2 = productId.substring(0, 2);
             const next2 = productId.substring(2, 4);
-            // Alternative patterns to try if main one fails
             alternativeImageUrls = [
-              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/hd/${productId}.jpg`, // HD size
-              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/lg/${productId}.jpg`, // Large size
-              `https://images.homedepot-static.com/productImages/${productId}/sd/${productId}.jpg`, // No subdirectory
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/hd/${productId}.jpg`,
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/lg/${productId}.jpg`,
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/md/${productId}.jpg`,
+              `https://images.homedepot-static.com/productImages/${first2}/${next2}/${productId}/xs/${productId}.jpg`,
+              `https://images.homedepot-static.com/productImages/${productId}/sd/${productId}.jpg`,
             ];
           }
         }
-        
+
         // Route ALL external image URLs through our proxy to ensure they load in React Native
-        let finalImageUrl = imageUrl;
+        let finalImageUrl: string | null = null;
         if (imageUrl && imageUrl.startsWith('http')) {
-          // Use the SAME API base that was used for the successful search request
-          // This ensures images work when we fallback to production backend
           finalImageUrl = `${actualApiBase}/api/sku/image-proxy?url=${encodeURIComponent(imageUrl)}`;
-          // Log for debugging (first 3 items)
           if (index < 3) {
             console.log('🖼️ Original image URL:', imageUrl.substring(0, 100));
             console.log('🖼️ Proxied image URL:', finalImageUrl.substring(0, 150));
             console.log('🖼️ Using API_BASE:', actualApiBase);
           }
         }
-        
+
+        const proxiedAlternatives = alternativeImageUrls.map(
+          (u) => `${actualApiBase}/api/sku/image-proxy?url=${encodeURIComponent(u)}`
+        );
+        const imageFallbacks = proxiedAlternatives.filter((u) => u && u !== finalImageUrl);
+
         return {
           ...x,
           price: x.price == null ? null : Number(x.price),
           image: finalImageUrl,
+          imageFallbacks,
         };
       });
       // Log detailed image info for debugging
@@ -987,38 +1065,15 @@ export default function AttachSkuModal({
                         alignItems: 'center',
                         overflow: 'hidden',
                       }}>
-                        {item.image && 
-                         typeof item.image === 'string' && 
-                         item.image.trim().length > 0 && 
-                         item.image !== 'null' && 
-                         item.image !== 'undefined' &&
-                         item.image.startsWith('http') &&
-                         !failedImages.has(item.sku) ? (
-                          <Image
-                            source={{ 
-                              uri: item.image,
-                              cache: 'force-cache'
-                            }}
-                            style={{ 
-                              width: '100%', 
-                              height: '100%',
-                            }}
-                            resizeMode="cover"
-                            onError={(e) => {
-                              console.log('❌ Image load error for:', item.title?.substring(0, 30));
-                              console.log('❌ Image URL (full):', item.image);
-                              console.log('❌ SKU:', item.sku);
-                              console.log('❌ Error details:', JSON.stringify(e.nativeEvent, null, 2));
-                              // Mark this image as failed so we show placeholder next time
-                              setFailedImages(prev => new Set([...prev, item.sku]));
-                            }}
-                            onLoad={() => {
-                              console.log('✅ Image loaded successfully:', item.title?.substring(0, 30));
-                              console.log('✅ Image URL:', item.image?.substring(0, 100));
-                            }}
-                            onLoadStart={() => {
-                              console.log('🔄 Starting to load image:', item.image?.substring(0, 100));
-                            }}
+                        {(item.image ||
+                          (item.imageFallbacks && item.imageFallbacks.length > 0)) &&
+                        !failedImages.has(item.sku) ? (
+                          <SkuResultThumb
+                            primaryUri={item.image}
+                            fallbackUris={item.imageFallbacks || []}
+                            sku={item.sku}
+                            failedImages={failedImages}
+                            setFailedImages={setFailedImages}
                           />
                         ) : (
                           <MaterialCommunityIcons

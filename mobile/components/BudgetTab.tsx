@@ -1564,12 +1564,10 @@ export default function BudgetTab({
           >
             {/* Total Spent Card */}
             <View style={styles.summaryCard}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.summaryCardLabel}>Total Change Order Amount</Text>
-                <Text style={styles.summaryCardAmount}>
-                  ${(editingChangeOrder ? parseFloat(editingChangeOrder.amount || '0') : parseFloat(newChangeOrder.amount || '0')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
+              <Text style={styles.summaryCardLabel}>Total Change Order Amount</Text>
+              <Text style={styles.summaryCardAmount}>
+                ${(editingChangeOrder ? parseFloat(editingChangeOrder.amount || '0') : parseFloat(newChangeOrder.amount || '0')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
             </View>
             
             <View style={styles.field}>
@@ -1577,7 +1575,7 @@ export default function BudgetTab({
             <TextInput
                 style={styles.modalInput}
               placeholder="e.g., Additional Kitchen Cabinets"
-                placeholderTextColor="rgba(255,255,255,0.4)"
+                placeholderTextColor="rgba(226,232,240,0.58)"
               value={editingChangeOrder ? editingChangeOrder.title : newChangeOrder.title}
               onChangeText={(text) => {
                 if (editingChangeOrder) {
@@ -1604,7 +1602,7 @@ export default function BudgetTab({
                 <TextInput
                     style={styles.breakdownInput}
                   placeholder="0.00"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor="rgba(226,232,240,0.58)"
                   keyboardType="numeric"
                   underlineColorAndroid="transparent"
                   value={editingChangeOrder ? (editingChangeOrder.materialsAmount?.toString() || '') : newChangeOrder.materialsAmount}
@@ -1640,7 +1638,7 @@ export default function BudgetTab({
                 <TextInput
                     style={styles.breakdownInput}
                   placeholder="0.00"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor="rgba(226,232,240,0.58)"
                   keyboardType="numeric"
                   underlineColorAndroid="transparent"
                   value={editingChangeOrder ? (editingChangeOrder.laborAmount?.toString() || '') : newChangeOrder.laborAmount}
@@ -1671,7 +1669,7 @@ export default function BudgetTab({
             <TextInput
                 style={[styles.modalInput, styles.modalTextArea]}
               placeholder="Additional details about this change order..."
-                placeholderTextColor="rgba(255,255,255,0.4)"
+                placeholderTextColor="rgba(226,232,240,0.58)"
               multiline
               numberOfLines={3}
               value={editingChangeOrder ? editingChangeOrder.notes : newChangeOrder.notes}
@@ -1776,11 +1774,18 @@ export default function BudgetTab({
                   Alert.alert('Error', 'Please fill in title and at least one amount (materials or labor)');
                 }
               }}
-              style={styles.modalSaveButton}
+              style={styles.modalSaveButtonWrap}
             >
-              <Text style={styles.modalSaveButtonText} numberOfLines={1}>
-                ✓ {editingChangeOrder ? 'Update Change Order' : 'Add Change Order'}
-              </Text>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.modalSaveButtonGradient}
+              >
+                <Text style={styles.modalSaveButtonText} numberOfLines={1}>
+                  ✓ {editingChangeOrder ? 'Update Change Order' : 'Add Change Order'}
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -2573,24 +2578,24 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   modalLabel: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     marginBottom: 8,
-    color: 'rgba(255,255,255,0.9)',
-    letterSpacing: -0.2,
+    color: 'rgba(255,255,255,0.95)',
+    letterSpacing: 0.15,
   },
   modalSubLabel: {
     fontSize: 13,
     marginBottom: 12,
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(226, 232, 240, 0.62)',
     fontWeight: '500',
   },
   breakdownBox: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     marginBottom: 8,
     shadowColor: 'transparent',
     shadowOffset: { width: 0, height: 0 },
@@ -2721,25 +2726,30 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   summaryCard: {
-    backgroundColor: '#020617',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    marginBottom: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     shadowColor: 'transparent',
     elevation: 0,
   },
   summaryCardLabel: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 16,
+    color: 'rgba(226, 232, 240, 0.72)',
+    fontSize: 12,
     fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   summaryCardAmount: {
-    color: '#10f297',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: -0.5,
+    color: '#22c55e',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    marginTop: 10,
+    textAlign: 'right',
   },
   modalContent: {
     width: '100%',
@@ -2753,19 +2763,21 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   modalTitle: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 26,
+    fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.35,
+    lineHeight: 32,
   },
   modalInput: {
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 16,
-    fontSize: 16,
+    fontSize: 15,
     color: '#FFFFFF',
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.16)',
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
   modalTextArea: {
@@ -2896,8 +2908,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     paddingTop: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
   headerIconContainer: {
     width: 48,
@@ -2912,21 +2924,22 @@ const styles = StyleSheet.create({
   modalSubtitle: {
     fontSize: 14,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 2,
+    color: 'rgba(226, 232, 240, 0.78)',
+    marginTop: 6,
+    lineHeight: 20,
   },
   backBtnWrapper: {
-    marginRight: 12,
+    marginRight: 16,
   },
   backBtnBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 21,
     backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2938,24 +2951,24 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     padding: 20,
-    paddingTop: 12,
-    gap: 10,
-    borderTopWidth: 1,
+    paddingTop: 16,
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(148, 163, 184, 0.12)',
     backgroundColor: 'transparent',
   },
   modalCancelButton: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.18)',
+    borderColor: 'rgba(148, 163, 184, 0.28)',
     height: 50,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalCancelButtonText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(226, 232, 240, 0.78)',
     fontSize: 15,
     fontWeight: '600',
   },
@@ -3054,24 +3067,27 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 4,
   },
-  modalSaveButton: {
+  modalSaveButtonWrap: {
     flex: 1,
-    backgroundColor: '#10f297',
-    shadowColor: '#10f297',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 4,
-    height: 50,
     borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#22c55e',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalSaveButtonGradient: {
+    height: 50,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   modalSaveButtonText: {
-    color: '#020617',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.25,
     textAlign: 'center',
   },
 });

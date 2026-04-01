@@ -54,7 +54,8 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const projectId = params.projectId as string;
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
   const { addExpense } = useProjectData();
   
   const [vendor, setVendor] = useState("");
@@ -318,6 +319,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
             >
               {/* Vendor */}
               <View style={styles.fieldGroup}>
@@ -332,7 +334,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   <TextInput
                     style={styles.input}
                     placeholder="e.g., Home Depot, ABC Contractors"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
                     returnKeyType="next"
@@ -353,7 +355,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   <TextInput
                     style={styles.input}
                     placeholder="$ 0.00"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor={placeholderTint}
                     value={amount}
                     onChangeText={(text) => {
                       // simple numeric filter
@@ -407,7 +409,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   <TextInput
                     style={styles.input}
                     placeholder="e.g., Foundation, Framing, Rough-in"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor={placeholderTint}
                     value={scope}
                     onChangeText={setScope}
                     returnKeyType="next"
@@ -428,7 +430,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   <TextInput
                     style={[styles.input, styles.textArea]}
                     placeholder="What was purchased or service provided?"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor={placeholderTint}
                     value={description}
                     onChangeText={setDescription}
                     multiline
@@ -449,7 +451,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   <TextInput
                     style={styles.input}
                     placeholder="e.g., PO-1003"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
+                    placeholderTextColor={placeholderTint}
                     value={poNumber}
                     onChangeText={setPoNumber}
                     returnKeyType="done"
@@ -573,7 +575,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   );
 };
 
-const getStyles = (Colors: any) => StyleSheet.create({
+const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#000000",
@@ -591,19 +593,19 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 12,
-    marginBottom: 24,
+    paddingTop: 10,
+    marginBottom: 22,
   },
   headerIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: isDark ? "rgba(34, 197, 94, 0.12)" : Colors.surface2,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
+    marginRight: 16,
     borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.3)",
+    borderColor: isDark ? "rgba(148, 163, 184, 0.2)" : Colors.line,
   },
   headerTitleRow: {
     flexDirection: "row",
@@ -632,27 +634,28 @@ const getStyles = (Colors: any) => StyleSheet.create({
     lineHeight: 32,
   },
   headerSubtitle: {
-    fontSize: 13,
-    color: "#8DA0B8",
-    marginTop: 4,
+    fontSize: 14,
+    color: isDark ? "rgba(226, 232, 240, 0.78)" : Colors.sub,
+    marginTop: 6,
     fontWeight: "500",
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
+    lineHeight: 20,
   },
 
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 24,
   },
 
   fieldGroup: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
 
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#FFFFFF",
-    marginBottom: 10,
+    marginBottom: 8,
     letterSpacing: 0.2,
   },
 
@@ -662,22 +665,22 @@ const getStyles = (Colors: any) => StyleSheet.create({
     padding: 1,
   },
   inputWrapper: {
-    borderRadius: 12,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: Colors.surface2,
+    paddingVertical: 14,
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Colors.surface2,
     borderWidth: 1,
-    borderColor: "#6B7280", // Grey border
+    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
   },
   textAreaWrapper: {
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: Colors.surface2,
+    paddingVertical: 14,
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Colors.surface2,
     borderWidth: 1,
-    borderColor: "#6B7280", // Grey border
+    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -690,7 +693,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.text,
     fontWeight: "500",
   },
@@ -703,20 +706,19 @@ const getStyles = (Colors: any) => StyleSheet.create({
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 12,
+    marginTop: 10,
+    gap: 10,
   },
   chip: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
-    marginRight: 10,
-    marginBottom: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.line,
-    backgroundColor: Colors.surface2,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Colors.surface2,
   },
   chipActive: {
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    backgroundColor: "rgba(34, 197, 94, 0.18)",
     borderColor: "#22c55e",
   },
   chipText: {
@@ -735,77 +737,77 @@ const getStyles = (Colors: any) => StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 28 : 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.line,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
     backgroundColor: "#000000",
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#22c55e", // Light green border
-    backgroundColor: Colors.surface2,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
   saveButton: {
     flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#22d3ee", // Light blue border
+    borderRadius: 14,
     overflow: "hidden",
   },
   saveButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: BRAND_GREEN,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   cancelText: {
     fontSize: 15,
     fontWeight: "600",
-    color: Colors.text,
+    color: isDark ? "rgba(226, 232, 240, 0.78)" : Colors.sub,
   },
   saveText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#020617",
-    letterSpacing: 0.3,
+    color: "#FFFFFF",
+    letterSpacing: 0.25,
   },
 
   /* RECEIPT */
   receiptUploadButton: {
-    borderWidth: 2,
-    borderColor: "#6B7280",
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surface2,
+    borderWidth: 1.5,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+    borderStyle: "dashed",
+    borderRadius: 16,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Colors.surface2,
     marginTop: 8,
   },
   receiptUploadText: {
-    color: '#8DA0B8',
+    color: isDark ? "rgba(226, 232, 240, 0.82)" : Colors.text,
     fontSize: 14,
-    marginTop: 8,
-    fontWeight: '500',
+    marginTop: 10,
+    fontWeight: "600",
   },
   receiptUploadSubtext: {
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: isDark ? "rgba(226, 232, 240, 0.52)" : Colors.sub,
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 6,
+    fontWeight: "500",
   },
 
   /* MODAL */

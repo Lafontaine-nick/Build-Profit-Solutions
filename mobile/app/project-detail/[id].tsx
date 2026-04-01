@@ -2652,7 +2652,8 @@ function ProjectDetailContent() {
         <Pressable
           style={[
             styles.aiFloatingWrapper,
-            (activeTab === 'Budget' || activeTab === 'Timeline') && styles.aiFloatingWrapperBudget,
+            (activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team') &&
+              styles.aiFloatingWrapperBudget,
           ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2661,13 +2662,17 @@ function ProjectDetailContent() {
         >
           <LinearGradient
             colors={
-              activeTab === 'Budget' || activeTab === 'Timeline'
+              activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team'
                 ? ['rgba(34, 197, 94, 0.72)', 'rgba(34, 211, 238, 0.72)']
                 : ['#22c55e', '#22d3ee']
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={[styles.aiFloating, (activeTab === 'Budget' || activeTab === 'Timeline') && styles.aiFloatingBudgetTab]}
+            style={[
+              styles.aiFloating,
+              (activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team') &&
+                styles.aiFloatingBudgetTab,
+            ]}
           >
             <Ionicons
               name="sparkles"

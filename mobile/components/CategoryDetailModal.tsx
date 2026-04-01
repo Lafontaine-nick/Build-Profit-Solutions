@@ -29,6 +29,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
   const debugLog = (...args: any[]) => { if (DEBUG_MODAL) console.log(...args); };
   const { theme: appTheme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(appTheme), [appTheme]);
+  const supportSub = useMemo(
+    () => (darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub),
+    [darkMode, Colors.sub]
+  );
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
@@ -487,8 +491,8 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   <Text style={[styles.headerTitle, !darkMode && { color: Colors.text }]}>
                     {categoryName.replace('/', ' & ')}
                   </Text>
-                  <Text style={[styles.headerSubtitle, !darkMode && { color: Colors.sub }]}>
-                    {isPurchaseOrdersCategory ? 'Transactions & Invoices' : 'Transactions & Invoices'}
+                  <Text style={[styles.headerSubtitle, { color: supportSub }]}>
+                    Transactions & Invoices
                   </Text>
                 </View>
                 </View>
@@ -600,7 +604,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
             >
               <View style={styles.totalCardInner}>
                 <View style={styles.totalCard}>
-                  <Text style={styles.totalLabel}>
+                  <Text style={[styles.totalLabel, { color: supportSub }]}>
                     {isPurchaseOrdersCategory 
                       ? (activePOTab === 'total' ? 'Total POs' : activePOTab === 'committed' ? 'Committed POs' : 'Received POs')
                       : 'Total Spent'}
@@ -1286,19 +1290,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                         ) : item.status === 'Received' ? (
                           <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
                             <TouchableOpacity
-                              style={{
-                                flex: 1,
-                                paddingVertical: 12,
-                                paddingHorizontal: 16,
-                                borderRadius: 10,
-                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                                borderWidth: 1,
-                                borderColor: 'rgba(59, 130, 246, 0.4)',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                              }}
                               onPress={() => {
                                 const actualPO = projectData.purchaseOrders?.find((po: any) => po.id === item.id);
                                 if (actualPO) {
@@ -1306,15 +1297,18 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                 }
                               }}
                               style={{
+                                flex: 1,
                                 paddingVertical: 12,
                                 paddingHorizontal: 16,
-                                borderRadius: 10,
+                                borderRadius: 12,
                                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                 borderWidth: 1,
-                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                                borderColor: 'rgba(148, 163, 184, 0.2)',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                               }}
                             >
-                              <Text style={{ color: '#8DA0B8', fontSize: 13, fontWeight: '600' }}>Edit</Text>
+                              <Text style={{ color: supportSub, fontSize: 13, fontWeight: '600' }}>Edit</Text>
                             </TouchableOpacity>
                           </View>
                         ) : (
@@ -1729,8 +1723,8 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: 'transparent',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
   },
   headerTop: {
     flexDirection: 'row',
@@ -1766,11 +1760,12 @@ const styles = StyleSheet.create({
     lineHeight: 34,
   },
   headerSubtitle: {
-    color: "#8DA0B8",
+    color: "rgba(226, 232, 240, 0.78)",
     fontSize: 14,
-    marginTop: 2,
-    fontWeight: '500',
-    letterSpacing: 0.1,
+    marginTop: 6,
+    fontWeight: "500",
+    letterSpacing: 0.12,
+    lineHeight: 20,
   },
   backButtonWrapper: {
     marginRight: 12,
@@ -1810,11 +1805,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingTop: 22,
     paddingBottom: 120,
   },
   totalCardContainer: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
   totalCardBorder: {
     borderRadius: 20,
@@ -1828,38 +1823,40 @@ const styles = StyleSheet.create({
   totalCardInner: {
     backgroundColor: "#000000",
     borderRadius: 18,
-    padding: 24,
+    paddingVertical: 22,
+    paddingHorizontal: 22,
   },
   totalCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "stretch",
   },
   totalLabel: {
-    color: "#8DA0B8",
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: "600",
-    letterSpacing: 0.2,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   totalValue: {
     color: "#22c55e",
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
-    letterSpacing: -0.6,
+    letterSpacing: -0.7,
+    marginTop: 10,
+    textAlign: "right",
   },
   poTabContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 20,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 22,
   },
   poTab: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   poActiveTab: {
     // Keep same borderWidth to prevent layout shift
@@ -1870,12 +1867,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   addButtonWrapper: {
-    marginBottom: 24,
+    marginBottom: 22,
   },
   addButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 22,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#22c55e',
@@ -1891,7 +1888,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   transactionsContainer: {
-    gap: 14,
+    gap: 16,
   },
   transactionCardBorder: {
     borderRadius: 20,
@@ -1905,7 +1902,8 @@ const styles = StyleSheet.create({
   transactionCard: {
     backgroundColor: "#000000",
     borderRadius: 18,
-    padding: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     marginBottom: 0,
   },
   // Enhanced spacing for Purchase Orders
@@ -1934,25 +1932,25 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
   description: {
-    color: "#8DA0B8",
-    fontSize: 14,
+    color: "rgba(226, 232, 240, 0.72)",
+    fontSize: 13,
     marginTop: 6,
-    lineHeight: 20,
+    lineHeight: 19,
     fontWeight: "500",
   },
   transactionFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148, 163, 184, 0.14)",
   },
   date: {
-    color: "#8DA0B8",
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.1,
+    color: "rgba(226, 232, 240, 0.62)",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.08,
   },
   poBadge: {
     backgroundColor: "rgba(34, 197, 94, 0.12)",
@@ -2010,10 +2008,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   tapToEdit: {
-    color: "#22c55e",
-    fontSize: 12,
+    color: "rgba(226, 232, 240, 0.5)",
+    fontSize: 11,
     fontWeight: "600",
-    letterSpacing: 0.15,
+    letterSpacing: 0.12,
   },
   bottomSpacer: {
     height: 32,

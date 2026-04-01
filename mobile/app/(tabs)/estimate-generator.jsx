@@ -3377,7 +3377,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   stepperPanelInner: {
     backgroundColor: '#000000',
     borderRadius: 18,
-    padding: 14,
+    padding: 16,
   },
   // Thinner nav pill - matches dashboard segmented control
   navPillBorder: {
@@ -3444,10 +3444,10 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     shadowColor: "#22c55e",
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8, // Android shadow
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
   },
   aiFloatingText: {
     marginLeft: 8,
@@ -9057,10 +9057,14 @@ export default function EstimateGeneratorScreen() {
         const laborHeight = (calc.labor / maxValue) * maxBarHeight;
         const overheadHeight = (calc.overhead / maxValue) * maxBarHeight;
         const markupHeight = (calc.profit / maxValue) * maxBarHeight;
+        const summaryMuted = darkMode ? 'rgba(248, 250, 252, 0.88)' : '#4a5568';
+        const summaryMutedSoft = darkMode ? 'rgba(248, 250, 252, 0.7)' : '#5c667a';
+        const heroDivider = darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.line;
+        const chipBorder = darkMode ? 'rgba(45, 255, 196, 0.22)' : Colors.line;
         
         return (
           <View style={[s.wideContainer, {
-            paddingVertical: 20,
+            paddingVertical: 22,
             backgroundColor: darkMode ? Colors.card : Colors.bg,
             marginBottom: 16,
             marginTop: 16,
@@ -9073,47 +9077,83 @@ export default function EstimateGeneratorScreen() {
                 style={{
                   borderRadius: 20,
                   padding: 1,
-                  marginBottom: 12,
+                  marginBottom: 14,
                 }}
               >
               <View style={{
                 backgroundColor: darkMode ? '#000000' : Colors.bg,
                 borderRadius: 18,
-                padding: 12,
+                padding: 16,
                 borderWidth: darkMode ? 0 : 1,
                 borderColor: darkMode ? 'transparent' : Colors.line,
               }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="heart" size={20} color="#22c55e" />
-                    <Text style={{ color: Colors.text, fontSize: 14, marginLeft: 8, fontWeight: '600' }}>{healthScore}</Text>
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingBottom: 14,
+                  marginBottom: 14,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: heroDivider,
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                  }}>
+                    <Ionicons name="heart" size={18} color="#22c55e" />
+                    <Text style={{ color: Colors.text, fontSize: 13, marginLeft: 6, fontWeight: '700' }}>{healthScore}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: darkMode ? 'rgba(34, 211, 238, 0.1)' : 'rgba(34, 211, 238, 0.08)',
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                  }}>
                     <Ionicons name="trending-up" size={16} color="#22d3ee" />
-                    <Text style={{ color: '#22d3ee', fontSize: 12, marginLeft: 4 }}>+4.9%</Text>
+                    <Text style={{ color: '#22d3ee', fontSize: 12, marginLeft: 4, fontWeight: '600' }}>+4.9%</Text>
                   </View>
                 </View>
                 
-                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', marginBottom: 8, fontWeight: '600', letterSpacing: 1 }}>
+                <Text style={{ color: summaryMutedSoft, fontSize: 12, textAlign: 'center', marginBottom: 8, fontWeight: '600', letterSpacing: 1.2 }}>
                   TOTAL BID
                 </Text>
                 
-                <Text style={{ color: Colors.text, fontSize: 36, textAlign: 'center', fontWeight: '700', marginBottom: 12 }}>
+                <Text style={{ color: Colors.text, fontSize: 36, textAlign: 'center', fontWeight: '700', marginBottom: 14 }}>
                   {money(calc.total)}
                 </Text>
                 
-                <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 20 }}>
-                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginRight: 8 }}>
-                    <Text style={{ color: Colors.sub, fontSize: 11 }}>{money(calc.unitPrice)} / sqft</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
+                  <View style={{
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: chipBorder,
+                  }}>
+                    <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>{money(calc.unitPrice)} / sqft</Text>
                   </View>
-                  <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
-                    <Text style={{ color: Colors.sub, fontSize: 11 }}>Markup {bid.markupPct || 0}%</Text>
+                  <View style={{
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: chipBorder,
+                  }}>
+                    <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>Markup {bid.markupPct || 0}%</Text>
                   </View>
                 </View>
                 
                 {/* Bar Chart */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: maxBarHeight + 40, marginBottom: 8 }}>
-                  <View style={{ alignItems: 'center', flex: 1 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: maxBarHeight + 52, marginBottom: 4, paddingHorizontal: 2 }}>
+                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
                     <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.materials)}</Text>
                     <LinearGradient
                       colors={['#3b82f6', '#60a5fa']}
@@ -9126,9 +9166,16 @@ export default function EstimateGeneratorScreen() {
                         borderTopRightRadius: 8,
                       }}
                     />
-                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Materi</Text>
+                    <Text
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
+                    >
+                      Materials
+                    </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1 }}>
+                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
                     <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.labor)}</Text>
                     <LinearGradient
                       colors={['#22c55e', '#4ade80']}
@@ -9141,9 +9188,16 @@ export default function EstimateGeneratorScreen() {
                         borderTopRightRadius: 8,
                       }}
                     />
-                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Labor</Text>
+                    <Text
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
+                    >
+                      Labor
+                    </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1 }}>
+                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
                     <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.overhead)}</Text>
                     <View
                       style={{
@@ -9154,9 +9208,16 @@ export default function EstimateGeneratorScreen() {
                         borderTopRightRadius: 8,
                       }}
                     />
-                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Overhe</Text>
+                    <Text
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
+                    >
+                      Overhead
+                    </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1 }}>
+                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
                     <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.profit)}</Text>
                     <View
                       style={{
@@ -9167,7 +9228,14 @@ export default function EstimateGeneratorScreen() {
                         borderTopRightRadius: 8,
                       }}
                     />
-                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4 }}>Markup</Text>
+                    <Text
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
+                    >
+                      Markup
+                    </Text>
                   </View>
                 </View>
               </View>
@@ -9181,40 +9249,41 @@ export default function EstimateGeneratorScreen() {
                 style={{
                   borderRadius: 20,
                   padding: 1,
-                  marginBottom: 12,
-                  marginTop: 12,
+                  marginBottom: 14,
+                  marginTop: 14,
                 }}
               >
                 <View style={{
                   backgroundColor: darkMode ? '#000000' : Colors.bg,
                   borderRadius: 18,
-                  padding: 20,
+                  padding: 18,
                   borderWidth: darkMode ? 0 : 1,
                   borderColor: darkMode ? 'transparent' : Colors.line,
                 }}>
-                  <View style={{ marginBottom: 12 }}>
+                  <View style={{ marginBottom: 14 }}>
                     <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
                       Cost Breakdown
                     </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                    <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
                       Materials, labor, overhead & markup
                     </Text>
                   </View>
                   {/* Full width cards with grey border and background */}
-                  <View style={{ gap: 12 }}>
+                  <View style={{ gap: 10 }}>
                     <View style={{ 
                       backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                       borderWidth: 1,
                       borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                      borderRadius: 18, 
-                      padding: 16, 
+                      borderRadius: 16, 
+                      paddingVertical: 14,
+                      paddingHorizontal: 14, 
                       flexDirection: 'row', 
                       justifyContent: 'space-between', 
                       alignItems: 'center' 
                     }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3b82f6', marginRight: 10 }} />
-                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Materials</Text>
+                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Materials</Text>
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.materials)}</Text>
                     </View>
@@ -9223,15 +9292,16 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                       borderWidth: 1,
                       borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                      borderRadius: 18, 
-                      padding: 16, 
+                      borderRadius: 16, 
+                      paddingVertical: 14,
+                      paddingHorizontal: 14, 
                       flexDirection: 'row', 
                       justifyContent: 'space-between', 
                       alignItems: 'center' 
                     }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e', marginRight: 10 }} />
-                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Labor</Text>
+                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Labor</Text>
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.labor)}</Text>
                     </View>
@@ -9240,15 +9310,16 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                       borderWidth: 1,
                       borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                      borderRadius: 18, 
-                      padding: 16, 
+                      borderRadius: 16, 
+                      paddingVertical: 14,
+                      paddingHorizontal: 14, 
                       flexDirection: 'row', 
                       justifyContent: 'space-between', 
                       alignItems: 'center' 
                     }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
-                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Overhead</Text>
+                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Overhead</Text>
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.overhead)}</Text>
                     </View>
@@ -9257,15 +9328,16 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                       borderWidth: 1,
                       borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                      borderRadius: 18, 
-                      padding: 16, 
+                      borderRadius: 16, 
+                      paddingVertical: 14,
+                      paddingHorizontal: 14, 
                       flexDirection: 'row', 
                       justifyContent: 'space-between', 
                       alignItems: 'center' 
                     }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#a78bfa', marginRight: 10 }} />
-                        <Text style={{ color: Colors.sub, fontSize: 14 }}>Markup ({bid.markupPct || 0}%)</Text>
+                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Markup ({bid.markupPct || 0}%)</Text>
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.profit)}</Text>
                     </View>
@@ -9275,22 +9347,22 @@ export default function EstimateGeneratorScreen() {
               
               {/* Project Actions - no border */}
               <View style={{
-                paddingTop: 24,
-                paddingBottom: 24,
-                marginBottom: 35,
+                paddingTop: 20,
+                paddingBottom: 22,
+                marginBottom: 32,
                 backgroundColor: darkMode ? Colors.card : Colors.bg,
               }}>
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 2 }}>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
                     Project Actions
                   </Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13 }}>
+                  <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
                     Save, submit or mark as won • Estimates save automatically
                   </Text>
                 </View>
                 
                   {/* Action Buttons Grid - grey buttons, Mark as Won has green-to-blue background */}
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
                     {/* Save Bid - grey button */}
                     <TouchableOpacity
                       activeOpacity={0.8}
@@ -9299,10 +9371,10 @@ export default function EstimateGeneratorScreen() {
                         minWidth: '47%', 
                         backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                         borderWidth: 1,
-                        borderColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                        borderRadius: 18, 
-                        paddingVertical: 10, 
-                        paddingHorizontal: 12 
+                        borderColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : Colors.line,
+                        borderRadius: 16, 
+                        paddingVertical: 13, 
+                        paddingHorizontal: 14 
                       }}
                       onPress={saveCurrentEstimate}
                     >
@@ -9321,10 +9393,10 @@ export default function EstimateGeneratorScreen() {
                           minWidth: '47%', 
                           backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                           borderWidth: 1,
-                          borderColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                          borderRadius: 18, 
-                          paddingVertical: 10, 
-                          paddingHorizontal: 12 
+                          borderColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : Colors.line,
+                          borderRadius: 16, 
+                          paddingVertical: 13, 
+                          paddingHorizontal: 14 
                         }}
                         onPress={() => setShowRecoveryModal(true)}
                       >
@@ -9345,16 +9417,16 @@ export default function EstimateGeneratorScreen() {
                         minWidth: '47%', 
                         backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
                         borderWidth: 1,
-                        borderColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                        borderRadius: 18, 
-                        paddingVertical: 10, 
-                        paddingHorizontal: 12 
+                        borderColor: darkMode ? 'rgba(34, 197, 94, 0.28)' : Colors.line,
+                        borderRadius: 16, 
+                        paddingVertical: 13, 
+                        paddingHorizontal: 14 
                       }}
                       onPress={handleSubmitBid}
                     >
                       <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                        <Ionicons name="send-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
-                        <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>Submit Bid</Text>
+                        <Ionicons name="send-outline" size={16} color={darkMode ? '#22d3ee' : Colors.text} />
+                        <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '800' }}>Submit Bid</Text>
                       </View>
                     </TouchableOpacity>
                     
@@ -9363,20 +9435,20 @@ export default function EstimateGeneratorScreen() {
                       colors={['#2DFFC4', '#00A6FF']}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
-                      style={{ flex: 1, minWidth: '47%', borderRadius: 18 }}
+                      style={{ flex: 1, minWidth: '47%', borderRadius: 16, shadowColor: '#22c55e', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}
                     >
                       <TouchableOpacity
                         activeOpacity={0.8}
                         style={{ 
-                          borderRadius: 18, 
-                          paddingVertical: 10, 
-                          paddingHorizontal: 12 
+                          borderRadius: 16, 
+                          paddingVertical: 13, 
+                          paddingHorizontal: 14 
                         }}
                         onPress={handleMarkAsWon}
                       >
                         <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
                           <Ionicons name="trophy-outline" size={16} color="#000" />
-                          <Text style={{ color: '#000', fontSize: 13, fontWeight: '700' }}>Mark as Won</Text>
+                          <Text style={{ color: '#000', fontSize: 13, fontWeight: '800' }}>Mark as Won</Text>
                         </View>
                       </TouchableOpacity>
                     </LinearGradient>
@@ -15819,15 +15891,15 @@ export default function EstimateGeneratorScreen() {
             ]}
           >
           {/* Current Step Info */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(25, 225, 128, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(25, 225, 128, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
               <MaterialIcons name={getStepIcon(step)} size={20} color="#19E180" />
             </View>
-            <View>
+            <View style={{ flexShrink: 1 }}>
               <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
                 {step === 0 ? 'Bid Summary' : STEPS[step - 1]?.title}
               </Text>
-              <Text style={{ color: Colors.sub, fontSize: 12 }}>
+              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.74)' : '#4a5568', fontSize: 12, marginTop: 2, lineHeight: 16 }}>
                 {step === 0 ? 'Financial breakdown and totals' : STEPS[step - 1]?.subtitle}
               </Text>
             </View>
@@ -15864,7 +15936,7 @@ export default function EstimateGeneratorScreen() {
                       <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
                         REVIEW YOUR ESTIMATE
                       </Text>
-                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                      <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : '#4a5568', fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
                         You&apos;re doing great. {totalSteps} steps to complete.
                       </Text>
                     </>
@@ -15876,7 +15948,7 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
                       STEP {currentStepNumber} OF {totalSteps} — {stepTitle}
                     </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                    <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : '#4a5568', fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
                       You&apos;re doing great. {Math.max(0, stepsRemaining - 1)} steps left.
                     </Text>
                   </>
@@ -15886,7 +15958,15 @@ export default function EstimateGeneratorScreen() {
           )}
           
           {/* Step Icons Row */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 4 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              alignItems: 'flex-start',
+            }}
+          >
             {/* Bid Summary - Special icon without number, appears before step 1 */}
             <TouchableOpacity
               onPress={() => {
@@ -15895,36 +15975,44 @@ export default function EstimateGeneratorScreen() {
               }}
               style={{
                 alignItems: 'center',
-                marginHorizontal: 6,
-                opacity: step === 0 ? 1 : 1,
+                marginHorizontal: 9,
+                minWidth: 44,
               }}
             >
               <View style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
+                width: 42,
+                height: 42,
+                borderRadius: 21,
                 backgroundColor: darkMode
-                  ? (step === 0 ? 'rgba(25, 225, 128, 0.25)' : 'rgba(255, 255, 255, 0.12)')
+                  ? (step === 0 ? 'rgba(25, 225, 128, 0.22)' : 'rgba(255, 255, 255, 0.1)')
                   : (step === 0 ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
-                borderWidth: darkMode ? (step === 0 ? 2 : 1) : (step === 0 ? 2 : 1),
+                borderWidth: step === 0 ? 2 : 1,
                 borderColor: darkMode
-                  ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.25)')
+                  ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.22)')
                   : (step === 0 ? '#19E180' : '#9CA3AF'),
                 justifyContent: 'center',
                 alignItems: 'center',
-                marginBottom: 4,
+                marginBottom: 6,
+                ...(step === 0 && Platform.OS === 'ios'
+                  ? { shadowColor: '#19E180', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
+                  : {}),
+                ...(step === 0 && Platform.OS === 'android' ? { elevation: 5 } : {}),
               }}>
                 <MaterialIcons
                   name={getStepIcon(0)}
-                  size={18}
-                  color={darkMode ? (step === 0 ? '#19E180' : 'rgba(229, 231, 235, 0.8)') : (step === 0 ? '#19E180' : '#000000')}
+                  size={19}
+                  color={darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : '#000000')}
                 />
               </View>
-              <Text style={{
-                color: darkMode ? (step === 0 ? '#19E180' : 'rgba(229, 231, 235, 0.8)') : (step === 0 ? '#19E180' : Colors.sub),
-                fontSize: 10,
-                fontWeight: darkMode ? (step === 0 ? '700' : '500') : (step === 0 ? '700' : '600'),
-              }}>
+              <Text
+                style={{
+                  color: darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : Colors.sub),
+                  fontSize: 11,
+                  fontWeight: darkMode ? (step === 0 ? '800' : '500') : (step === 0 ? '800' : '600'),
+                  textAlign: 'center',
+                  minWidth: 28,
+                }}
+              >
                 S
               </Text>
             </TouchableOpacity>
@@ -15944,36 +16032,44 @@ export default function EstimateGeneratorScreen() {
                 }}
                 style={{
                   alignItems: 'center',
-                  marginHorizontal: 6,
-                  opacity: step === stepItem.id ? 1 : 1,
+                  marginHorizontal: 9,
+                  minWidth: 44,
                 }}
               >
                 <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                backgroundColor: darkMode
-                  ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.25)' : 'rgba(255, 255, 255, 0.12)')
-                  : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
-                borderWidth: darkMode ? (step === stepItem.id ? 2 : 1) : (step === stepItem.id ? 2 : 1),
-                borderColor: darkMode
-                  ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.25)')
-                  : (step === stepItem.id ? '#19E180' : '#9CA3AF'),
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: darkMode
+                    ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.22)' : 'rgba(255, 255, 255, 0.1)')
+                    : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
+                  borderWidth: step === stepItem.id ? 2 : 1,
+                  borderColor: darkMode
+                    ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.22)')
+                    : (step === stepItem.id ? '#19E180' : '#9CA3AF'),
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginBottom: 4,
+                  marginBottom: 6,
+                  ...(step === stepItem.id && Platform.OS === 'ios'
+                    ? { shadowColor: '#19E180', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
+                    : {}),
+                  ...(step === stepItem.id && Platform.OS === 'android' ? { elevation: 5 } : {}),
                 }}>
                   <MaterialIcons
                     name={getStepIcon(stepItem.id)}
-                    size={18}
-                  color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(229, 231, 235, 0.8)') : (step === stepItem.id ? '#19E180' : '#000000')}
+                    size={19}
+                    color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : '#000000')}
                   />
                 </View>
-                <Text style={{
-                  color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(229, 231, 235, 0.8)') : (step === stepItem.id ? '#19E180' : Colors.sub),
-                  fontSize: 10,
-                  fontWeight: darkMode ? (step === stepItem.id ? '700' : '500') : (step === stepItem.id ? '700' : '600'),
-                }}>
+                <Text
+                  style={{
+                    color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : Colors.sub),
+                    fontSize: 11,
+                    fontWeight: darkMode ? (step === stepItem.id ? '800' : '500') : (step === stepItem.id ? '800' : '600'),
+                    textAlign: 'center',
+                    minWidth: 28,
+                  }}
+                >
                   {stepItem.id}
                 </Text>
               </TouchableOpacity>

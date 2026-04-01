@@ -26,6 +26,7 @@ type Props = {
 export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = getColors(theme);
+  const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
   const [poNumber, setPONumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [category, setCategory] = useState("Materials");
@@ -154,12 +155,10 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
         >
           {/* Total Amount Card */}
           <View style={styles.summaryCard}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.summaryCardLabel}>Total Purchase Order Amount</Text>
-              <Text style={styles.summaryCardAmount}>
-                ${poAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Text>
-            </View>
+            <Text style={styles.summaryCardLabel}>Total Purchase Order Amount</Text>
+            <Text style={styles.summaryCardAmount}>
+              ${poAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
           </View>
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>PO Number *</Text>
@@ -174,7 +173,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   ref={poRef}
                   style={styles.input}
                   placeholder="PO-123456"
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  placeholderTextColor={placeholderTint}
                   value={poNumber}
                   onChangeText={setPONumber}
                   autoCapitalize="characters"
@@ -198,7 +197,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   ref={vendorRef}
                   style={styles.input}
                   placeholder="e.g., Home Depot, ABC Supply"
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  placeholderTextColor={placeholderTint}
                   value={vendor}
                   onChangeText={setVendor}
                   autoCapitalize="words"
@@ -246,7 +245,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   ref={amountRef}
                   style={styles.input}
                   placeholder="$ 0.00"
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  placeholderTextColor={placeholderTint}
                   value={amount}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -331,7 +330,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                 <TextInput
                   style={styles.input}
                   placeholder="e.g., Kitchen, Unit 3, Bathroom"
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  placeholderTextColor={placeholderTint}
                   value={scope}
                   onChangeText={setScope}
                   returnKeyType="next"
@@ -352,7 +351,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   ref={descriptionRef}
                   style={[styles.input, styles.textArea]}
                   placeholder="What items are being ordered?"
-                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  placeholderTextColor={placeholderTint}
                   value={description}
                   onChangeText={setDescription}
                   onFocus={() => {
@@ -368,12 +367,9 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
           </ScrollView>
 
           {/* Actions */}
-          <View style={[styles.actions, { borderTopColor: Colors.line }]}>
-            <TouchableOpacity 
-              onPress={handleCancel} 
-              style={[styles.cancelButton, { borderColor: '#22c55e', backgroundColor: Colors.surface2 }]}
-            >
-              <Text style={[styles.cancelText, { color: Colors.text }]}>Cancel</Text>
+          <View style={styles.actions}>
+            <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
+              <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => {
@@ -403,24 +399,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     paddingTop: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(148, 163, 184, 0.12)",
   },
   backBtnWrapper: {
-    marginRight: 12,
+    marginRight: 16,
   },
   backBtnBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 21,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -440,68 +436,75 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "700",
-    letterSpacing: -0.5,
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.35,
+    lineHeight: 32,
   },
   subtitle: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(226, 232, 240, 0.78)",
     fontSize: 14,
     fontWeight: "500",
-    marginTop: 2,
+    marginTop: 6,
+    lineHeight: 20,
   },
   form: {
     flex: 1,
     padding: 20,
   },
   summaryCard: {
-    backgroundColor: '#020617',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
+    borderRadius: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    marginBottom: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: 'transparent',
+    borderColor: "rgba(148, 163, 184, 0.14)",
+    shadowColor: "transparent",
     elevation: 0,
   },
   summaryCardLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 16,
-    fontWeight: '600',
+    color: "rgba(226, 232, 240, 0.72)",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   summaryCardAmount: {
-    color: '#10f297',
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: -0.5,
+    color: "#22c55e",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    marginTop: 10,
+    textAlign: "right",
   },
   fieldGroup: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#FFFFFF",
-    marginBottom: 10,
+    marginBottom: 8,
     letterSpacing: 0.2,
   },
   inputWrapper: {
-    borderRadius: 12,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    paddingVertical: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderWidth: 1,
-    borderColor: "#6B7280",
+    borderColor: "rgba(148, 163, 184, 0.16)",
   },
   textAreaWrapper: {
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    paddingVertical: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderWidth: 1,
-    borderColor: "#6B7280",
+    borderColor: "rgba(148, 163, 184, 0.16)",
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -514,7 +517,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: "white",
     fontWeight: "500",
   },
@@ -530,50 +533,50 @@ const styles = StyleSheet.create({
   },
   categoryButton: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    paddingVertical: 14,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingVertical: 13,
     paddingHorizontal: 8,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    minHeight: 70,
+    borderColor: "rgba(148, 163, 184, 0.14)",
+    minHeight: 72,
   },
   categoryButtonActive: {
-    backgroundColor: "rgba(16, 242, 151, 0.15)",
-    borderColor: "#10f297",
-    borderWidth: 2,
+    backgroundColor: "rgba(34, 197, 94, 0.14)",
+    borderColor: "#22c55e",
+    borderWidth: 1,
   },
   categoryButtonText: {
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(226, 232, 240, 0.55)",
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
     marginTop: 4,
   },
   categoryButtonTextActive: {
-    color: "#10f297",
+    color: "#22c55e",
   },
   dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#6B7280',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: "rgba(148, 163, 184, 0.16)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
   },
   dateButtonText: {
     color: "white",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "500",
   },
   deliveryHint: {
-    color: "#10f297",
-    fontSize: 13,
-    marginTop: 6,
+    color: "rgba(34, 211, 238, 0.85)",
+    fontSize: 12,
+    marginTop: 8,
     fontWeight: "600",
   },
   textArea: {
@@ -583,45 +586,47 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 28 : 22,
     gap: 12,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148, 163, 184, 0.12)",
     backgroundColor: "#020617",
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.28)",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
     alignItems: "center",
     justifyContent: "center",
   },
   cancelText: {
     fontSize: 15,
     fontWeight: "600",
+    color: "rgba(226, 232, 240, 0.78)",
   },
   saveButton: {
     flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#22d3ee",
+    borderRadius: 14,
     overflow: "hidden",
   },
   saveButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#22c55e",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   saveText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#020617",
-    letterSpacing: 0.3,
+    color: "#FFFFFF",
+    letterSpacing: 0.25,
   },
 }); 

@@ -39,26 +39,30 @@ router.get('/search', async (req, res) => {
     
     // Try real API first, fallback to mock data if API fails
     let results = [];
-    
+    /** Where results actually came from (do not infer from SKU — real HD/Lowe's IDs often start with 1…) */
+    let resultsOrigin = 'mock';
+
     const searchPromise = (async () => {
       // Try APIs in priority order to get REAL product data and images
-      
+
       // 1. Try SerpAPI first (you have a key configured - Google Shopping results with real images)
       if (process.env.SERPAPI_KEY && process.env.SERPAPI_KEY !== 'YOUR_SERPAPI_KEY_HERE') {
         try {
           console.log('🔑 Trying SerpAPI (Google Shopping) for real product data and images...');
           const serpApiPromise = searchWithSerpAPI(q, store, zip);
-          const serpApiTimeout = new Promise((_, reject) => 
+          const serpApiTimeout = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('SerpAPI timeout')), 8000)
           );
           results = await Promise.race([serpApiPromise, serpApiTimeout]);
           if (results.length > 0) {
             console.log(`✅ SerpAPI returned ${results.length} results with REAL product images!`);
-            return; // Success - we have real data and images!
+            resultsOrigin = 'serpapi';
+            return;
           }
         } catch (serpError) {
-          const isRateLimit = serpError.message?.includes('RATE_LIMIT_EXCEEDED') || 
-                              serpError.message?.toLowerCase().includes('too many requests');
+          const isRateLimit =
+            serpError.message?.includes('RATE_LIMIT_EXCEEDED') ||
+            serpError.message?.toLowerCase().includes('too many requests');
           if (isRateLimit) {
             console.warn('⚠️ SerpAPI rate limit reached, trying next API...');
           } else {
@@ -66,65 +70,65 @@ router.get('/search', async (req, res) => {
           }
         }
       }
-      
+
       // 2. Try WebScrapingAPI (direct website scraping with JavaScript rendering)
       if (process.env.WEBSCRAPINGAPI_KEY && process.env.WEBSCRAPINGAPI_KEY !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE') {
         try {
           console.log('🔑 Trying WebScrapingAPI for real product data and images...');
           const webApiPromise = searchWithWebScrapingAPI(q, store, zip);
-          const webApiTimeout = new Promise((_, reject) => 
+          const webApiTimeout = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('WebScrapingAPI timeout')), 8000)
           );
           results = await Promise.race([webApiPromise, webApiTimeout]);
           if (results.length > 0) {
             console.log(`✅ WebScrapingAPI returned ${results.length} results with REAL product images!`);
-            return; // Success - we have real data and images!
+            resultsOrigin = 'webscraping';
+            return;
           }
         } catch (webError) {
           console.warn('⚠️ WebScrapingAPI failed:', webError.message, '- trying next API...');
         }
       }
-      
+
       // 3. Try Home Depot/Lowe's direct API (no key needed, but often blocked)
       try {
         console.log('🔑 Trying Home Depot/Lowe\'s direct API...');
         const directApiPromise = searchDirectStoreAPI(q, store, zip);
-        const directApiTimeout = new Promise((_, reject) => 
+        const directApiTimeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Direct API timeout')), 5000)
         );
         results = await Promise.race([directApiPromise, directApiTimeout]);
         if (results.length > 0) {
           console.log(`✅ Direct API returned ${results.length} results with REAL product images!`);
-          return; // Success - we have real images!
+          resultsOrigin = 'direct';
+          return;
         }
       } catch (directError) {
         console.warn('⚠️ Direct API failed:', directError.message);
       }
-      
+
       // 4. Last resort: Fallback to mock data
       console.log('⚡ All APIs failed, using mock data (estimated prices, placeholder images)');
       results = await generateEnhancedMockResults(q, store, zip);
+      resultsOrigin = 'mock';
     })();
-    
+
     // Race against global timeout
     await Promise.race([searchPromise, globalTimeout]);
-    
-    // Add metadata to indicate if this is mock data
-    const isMockData = results.length > 0 && results[0]?.sku && (results[0].sku.startsWith('HD-1') || results[0].sku.startsWith('LW-1'));
-    
-    // Check if we hit rate limits (results might be from fallback)
-    const usedFallback = isMockData && results.length > 0;
-    
-    res.json({ 
+
+    const isMockData = resultsOrigin === 'mock';
+    const rateLimited = false;
+
+    res.json({
       results,
       metadata: {
         isMockData,
-        message: isMockData 
-          ? '⚠️ Using estimated prices. SerpAPI rate limit reached - using fallback data. Try again in a few minutes for real pricing.' 
+        message: isMockData
+          ? 'Using estimated prices (mock catalog). Configure SerpAPI on the server for live shopping results.'
           : '✅ Real pricing data',
-        dataSource: isMockData ? 'mock' : 'api',
-        rateLimited: usedFallback
-      }
+        dataSource: resultsOrigin,
+        rateLimited,
+      },
     });
   } catch (error) {
     console.error('SKU search error:', error);
@@ -196,10 +200,13 @@ async function searchDirectStoreAPI(query, store, zip) {
       const response = await axios.post(searchUrl, graphqlQuery, {
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'application/json'
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/json',
+          Origin: 'https://www.homedepot.com',
+          Referer: 'https://www.homedepot.com/',
         },
-        timeout: 5000 // Reduced to 5 seconds for faster failure
+        timeout: 8000,
       });
       
       if (response.data?.data?.searchModel?.products) {
@@ -3948,39 +3955,18 @@ async function generateEnhancedMockResults(query, store, zip) {
         const batch = resultsNeedingImages.slice(i, i + batchSize);
         const imagePromises = batch.map(async (result) => {
           try {
-            const productImage = await fetchProductImage(result.url, result.store);
+            const productImage = await fetchProductImage(result.url, result.store, result.title || '');
             if (productImage) {
               result.image = productImage;
               console.log(`✅ Found REAL product image for ${result.title.substring(0, 30)} (${result.store})`);
             } else {
-              // If fetching failed, use category-based placeholder as fallback
-              const titleLower = result.title.toLowerCase();
-              if (titleLower.includes('lumber') || titleLower.includes('wood') || titleLower.includes('board') || titleLower.includes('stud')) {
-                result.image = 'https://placehold.co/400x400/8B7355/FFFFFF/png?text=Lumber';
-              } else if (titleLower.includes('concrete') || titleLower.includes('cement')) {
-                result.image = 'https://placehold.co/400x400/808080/FFFFFF/png?text=Concrete';
-              } else if (titleLower.includes('plywood') || titleLower.includes('sheet')) {
-                result.image = 'https://placehold.co/400x400/D4A574/FFFFFF/png?text=Plywood';
-              } else if (titleLower.includes('drywall') || titleLower.includes('sheetrock')) {
-                result.image = 'https://placehold.co/400x400/E8E8E8/000000/png?text=Drywall';
-              } else if (titleLower.includes('rebar')) {
-                result.image = 'https://placehold.co/400x400/C0C0C0/000000/png?text=Rebar';
-              } else if (titleLower.includes('insulation')) {
-                result.image = 'https://placehold.co/400x400/FFD700/000000/png?text=Insulation';
-              } else {
-                result.image = 'https://placehold.co/400x400/4A90E2/FFFFFF/png?text=Product';
-              }
-              console.log(`⚠️ Using placeholder for ${result.title.substring(0, 30)} (real image fetch failed)`);
+              // No fake thumbnails — leave null so the app can try SKU-based CDN URLs client-side
+              result.image = null;
+              console.log(`⚠️ No product image for ${result.title.substring(0, 30)} (client may still try CDN from SKU)`);
             }
           } catch (error) {
-            // Use placeholder as fallback on error
-            const titleLower = result.title.toLowerCase();
-            if (titleLower.includes('lumber') || titleLower.includes('wood') || titleLower.includes('board') || titleLower.includes('stud')) {
-              result.image = 'https://placehold.co/400x400/8B7355/FFFFFF/png?text=Lumber';
-            } else {
-              result.image = 'https://placehold.co/400x400/4A90E2/FFFFFF/png?text=Product';
-            }
-            console.log(`⚠️ Error fetching image for ${result.title.substring(0, 30)}: ${error.message}, using placeholder`);
+            result.image = null;
+            console.log(`⚠️ Error fetching image for ${result.title.substring(0, 30)}: ${error.message}`);
           }
         });
         // Wait for batch to complete before starting next batch
@@ -3993,116 +3979,208 @@ async function generateEnhancedMockResults(query, store, zip) {
 }
 
 /**
- * Fetch product image URL by scraping search results page
- * Since product detail URLs from mock data are invalid, we scrape the search page instead
- * This finds the first matching product image from search results
+ * Pull a Home Depot product image URL from HTML (PDP, search, or embedded JSON).
  */
-async function fetchProductImage(productUrl, store) {
+function extractHomeDepotProductImageFromHtml(html) {
+  if (!html || typeof html !== 'string') return null;
+
+  const directImagePattern =
+    /https:\/\/images\.(?:homedepot-static|thdstatic)\.com\/productImages\/[^"'\s<>]+\.(?:jpg|jpeg|webp)/gi;
+  const rawMatches = html.match(directImagePattern) || [];
+  const directMatches = [...new Set(rawMatches)];
+  if (directMatches.length > 0) {
+    const thumbish = (u) => /thumb|small|icon|35x35|50x50|sprite/i.test(u);
+    directMatches.sort((a, b) => (thumbish(a) ? 1 : 0) - (thumbish(b) ? 1 : 0));
+    return directMatches[0];
+  }
+
+  const productImagePatterns = [
+    /"imageUrl"\s*:\s*"([^"]+)"/gi,
+    /"primaryImageUrl"\s*:\s*"([^"]+)"/gi,
+    /data-image-url="([^"]+)"/gi,
+    /<img[^>]+src="(https:\/\/images\.(?:homedepot-static|thdstatic)\.com[^"]+)"/gi,
+  ];
+
+  for (const pattern of productImagePatterns) {
+    const matches = [...html.matchAll(pattern)];
+    for (const match of matches) {
+      let imageUrl = match[1] || match[0];
+      if (!imageUrl) continue;
+      imageUrl = imageUrl.replace(/\\\//g, '/').replace(/\\u002F/g, '/');
+      if (
+        (imageUrl.includes('homedepot-static.com') || imageUrl.includes('thdstatic.com')) &&
+        /\.(jpg|jpeg|png|webp)/i.test(imageUrl)
+      ) {
+        return imageUrl;
+      }
+    }
+  }
+
+  const ldIter = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+  for (const m of ldIter) {
+    try {
+      const jsonData = JSON.parse(m[1]);
+      const nodes = Array.isArray(jsonData) ? jsonData : [jsonData];
+      for (const node of nodes) {
+        const img = node?.image;
+        if (typeof img === 'string' && (img.includes('homedepot-static') || img.includes('thdstatic'))) return img;
+        if (Array.isArray(img) && img.length) {
+          const first = img[0];
+          const u = typeof first === 'string' ? first : first?.url;
+          if (u && (u.includes('homedepot-static') || u.includes('thdstatic'))) return u;
+        }
+      }
+    } catch (e) {
+      /* next script */
+    }
+  }
+
+  const ogImageMatch = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i);
+  if (ogImageMatch?.[1]) {
+    const og = ogImageMatch[1].replace(/&amp;/g, '&');
+    if (og.includes('homedepot-static.com/productImages') || og.includes('thdstatic.com/productImages')) return og;
+  }
+
+  return null;
+}
+
+/**
+ * Verify that a CDN URL returns a real image (not HTML error page).
+ */
+async function verifyHomeDepotImageUrl(url) {
+  try {
+    const r = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 6000,
+      maxContentLength: 800000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        Referer: 'https://www.homedepot.com/',
+      },
+      validateStatus: (s) => s === 200,
+    });
+    const len = r.data?.length || 0;
+    if (len < 400) return null;
+    const ct = String(r.headers['content-type'] || '');
+    if (ct.includes('text/html')) return null;
+    return url;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Try standard homedepot-static path patterns for a numeric internet item id.
+ */
+async function tryHomeDepotCdnFromItemId(itemId) {
+  if (!itemId || String(itemId).length < 6) return null;
+  const id = String(itemId);
+  const first2 = id.substring(0, 2);
+  const next2 = id.substring(2, 4);
+  const candidates = [
+    `https://images.homedepot-static.com/productImages/${first2}/${next2}/${id}/sd/${id}.jpg`,
+    `https://images.homedepot-static.com/productImages/${first2}/${next2}/${id}/lg/${id}.jpg`,
+    `https://images.homedepot-static.com/productImages/${first2}/${next2}/${id}/hd/${id}.jpg`,
+    `https://images.homedepot-static.com/productImages/${id}/sd/${id}.jpg`,
+  ];
+  for (const u of candidates) {
+    const ok = await verifyHomeDepotImageUrl(u);
+    if (ok) return u;
+  }
+  return null;
+}
+
+/**
+ * Fetch product image: try PDP, then title-based search (HD), then verified CDN from item id.
+ * @param {string} titleHint - Product title for HD search when PDP has no embed (mock catalog).
+ */
+async function fetchProductImage(productUrl, store, titleHint = '') {
   if (!productUrl || !productUrl.includes('http')) {
     return null;
   }
-  
-  try {
-    // For Home Depot, if URL is a product detail page that might not exist, try search page instead
-    let urlToScrape = productUrl;
-    if (store === 'hd' && productUrl.includes('/p/')) {
-      // Extract product title from URL or use search
-      // Try to get image from search results page instead
-      const searchQuery = productUrl.match(/\/p\/HD-(\d+)/)?.[1] || '';
-      if (searchQuery) {
-        // Use a generic search that would include this product
-        urlToScrape = `https://www.homedepot.com/s/lumber`; // Generic search
-      }
-    }
-    
-    const response = await axios.get(urlToScrape, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-      timeout: 8000, // Increased timeout for search pages
+
+  const browserHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  const fetchHtml = async (url) => {
+    const response = await axios.get(url, {
+      headers: browserHeaders,
+      timeout: 10000,
       maxRedirects: 5,
     });
-    
-    const html = response.data;
-    
+    return typeof response.data === 'string' ? response.data : null;
+  };
+
+  try {
     if (store === 'hd') {
-      // Home Depot search results: Look for product images in the page
-      // Pattern 1: Direct image URLs from Home Depot CDN (most reliable)
-      const directImagePattern = /https:\/\/images\.homedepot-static\.com\/productImages\/[^"'\s<>]+\.jpg/gi;
-      const directMatches = html.match(directImagePattern);
-      if (directMatches && directMatches.length > 0) {
-        // Return first valid product image
-        return directMatches[0];
+      const itemIdMatch = productUrl.match(/\/p\/HD-(\d+)/i) || productUrl.match(/HD-(\d{6,})/i);
+      const itemId = itemIdMatch ? itemIdMatch[1] : null;
+
+      try {
+        const html = await fetchHtml(productUrl);
+        const fromPdp = html ? extractHomeDepotProductImageFromHtml(html) : null;
+        if (fromPdp) return fromPdp;
+      } catch (e) {
+        /* PDP may 404 or block */
       }
-      
-      // Pattern 2: Look for product image URLs in data attributes or JSON
-      const productImagePatterns = [
-        /"imageUrl"\s*:\s*"([^"]+)"/gi,
-        /"primaryImageUrl"\s*:\s*"([^"]+)"/gi,
-        /data-image-url="([^"]+)"/gi,
-        /<img[^>]+src="(https:\/\/images\.homedepot-static\.com[^"]+)"/gi,
-      ];
-      
-      for (const pattern of productImagePatterns) {
-        const matches = [...html.matchAll(pattern)];
-        if (matches.length > 0) {
-          // Get first valid image URL
-          for (const match of matches) {
-            const imageUrl = match[1] || match[0];
-            if (imageUrl && imageUrl.includes('homedepot-static.com') && (imageUrl.includes('.jpg') || imageUrl.includes('.png'))) {
-              return imageUrl.replace(/\\\//g, '/').replace(/\\u002F/g, '/');
-            }
+
+      const hint = String(titleHint || '').trim();
+      if (hint.length >= 3) {
+        const words = hint.replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 10);
+        const searchTerm = words.join(' ');
+        if (searchTerm.length >= 3) {
+          try {
+            const searchUrl = `https://www.homedepot.com/s/${encodeURIComponent(searchTerm)}`;
+            const html = await fetchHtml(searchUrl);
+            const fromSearch = html ? extractHomeDepotProductImageFromHtml(html) : null;
+            if (fromSearch) return fromSearch;
+          } catch (e) {
+            /* search failed */
+          }
+          try {
+            const mobileUrl = `https://m.homedepot.com/s/${encodeURIComponent(searchTerm)}`;
+            const mHtml = await fetchHtml(mobileUrl);
+            const fromMobile = mHtml ? extractHomeDepotProductImageFromHtml(mHtml) : null;
+            if (fromMobile) return fromMobile;
+          } catch (e) {
+            /* mobile search failed */
           }
         }
       }
-      
-      // Pattern 2: JSON-LD structured data
-      const jsonLdMatch = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
-      if (jsonLdMatch) {
-        try {
-          const jsonData = JSON.parse(jsonLdMatch[1]);
-          if (jsonData.image) {
-            if (Array.isArray(jsonData.image)) {
-              return jsonData.image[0] || null;
-            }
-            return jsonData.image;
-          }
-        } catch (e) {
-          // Continue
-        }
+
+      if (itemId) {
+        const fromCdn = await tryHomeDepotCdnFromItemId(itemId);
+        if (fromCdn) return fromCdn;
       }
-      
-      // Pattern 3: Open Graph image
-      const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
-      if (ogImageMatch && ogImageMatch[1]) {
-        return ogImageMatch[1];
-      }
-    } else if (store === 'lowes') {
-      // Lowes: Similar patterns
-      const jsonLdMatch = html.match(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
-      if (jsonLdMatch) {
-        try {
-          const jsonData = JSON.parse(jsonLdMatch[1]);
-          if (jsonData.image) {
-            if (Array.isArray(jsonData.image)) {
-              return jsonData.image[0] || null;
-            }
-            return jsonData.image;
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-      
-      // Open Graph image
-      const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
-      if (ogImageMatch && ogImageMatch[1]) {
-        return ogImageMatch[1];
-      }
+
+      return null;
     }
-    
+
+    if (store === 'lowes') {
+      const html = await fetchHtml(productUrl);
+      if (!html) return null;
+
+      const ldIter = html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+      for (const m of ldIter) {
+        try {
+          const jsonData = JSON.parse(m[1]);
+          const node = Array.isArray(jsonData) ? jsonData[0] : jsonData;
+          const img = node?.image;
+          if (typeof img === 'string') return img;
+          if (Array.isArray(img) && img[0]) return typeof img[0] === 'string' ? img[0] : img[0]?.url;
+        } catch (e) {
+          /* continue */
+        }
+      }
+
+      const ogImageMatch = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i);
+      if (ogImageMatch?.[1]) return ogImageMatch[1].replace(/&amp;/g, '&');
+    }
+
     return null;
   } catch (error) {
     console.log(`⚠️ Image fetch error for ${productUrl}: ${error.message}`);
@@ -4139,6 +4217,8 @@ router.get('/image-proxy', async (req, res) => {
       'encrypted-tbn2.gstatic.com',
       'encrypted-tbn3.gstatic.com',
       'images.homedepot-static.com',
+      'images.thdstatic.com',
+      'thdstatic.com',
       'mobileimages.lowes.com',
       'www.homedepot.com',
       'www.lowes.com',
@@ -4162,13 +4242,22 @@ router.get('/image-proxy', async (req, res) => {
       });
     }
     
+    const referer =
+      imageUrl.hostname.includes('homedepot-static.com') ||
+      imageUrl.hostname.includes('thdstatic.com') ||
+      imageUrl.hostname.includes('homedepot.com')
+        ? 'https://www.homedepot.com/'
+        : imageUrl.hostname.includes('lowes.com')
+          ? 'https://www.lowes.com/'
+          : 'https://www.google.com/';
+
     // Fetch the image
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'image/*',
-        'Referer': 'https://www.google.com/',
+        Referer: referer,
       },
       timeout: 10000,
     });

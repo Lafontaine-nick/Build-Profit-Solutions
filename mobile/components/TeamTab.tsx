@@ -20,7 +20,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
@@ -190,21 +189,26 @@ function initials(name: string) {
 const Chip = ({
   text,
   tone = "outline",
+  compact = false,
 }: {
   text: string;
   tone?: "outline" | "solid" | "warn";
+  /** Secondary / role context — smaller, lighter */
+  compact?: boolean;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
-  
+  const subTint = darkMode ? 'rgba(226, 232, 240, 0.68)' : Colors.sub;
+
   return (
   <View
     style={[
       styles.chip,
+      compact && styles.chipCompact,
         tone === "outline" && {
-          backgroundColor: Colors.surface2,
-          borderColor: Colors.line,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
           borderWidth: darkMode ? 1 : 0,
         },
       tone === "solid" && {
@@ -220,7 +224,8 @@ const Chip = ({
     <Text
       style={[
         styles.chipText,
-          tone === "outline" && { color: Colors.sub },
+        compact && styles.chipTextCompact,
+          tone === "outline" && { color: subTint },
         tone !== "outline" && { color: Colors.text, fontWeight: "800" },
       ]}
       numberOfLines={1}
@@ -238,15 +243,15 @@ const StatusPill = ({ s }: { s: Status }) => {
         colors={["#22c55e", "#22d3ee"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.pill}
+        style={styles.pillStatus}
       >
         <Text style={styles.pillText}>{statusLabel[s]}</Text>
       </LinearGradient>
     );
   }
   return (
-    <View style={[styles.pill, { backgroundColor: statusColor(s) }]}>
-      <Text style={styles.pillText}>{statusLabel[s]}</Text>
+    <View style={[styles.pillStatus, styles.pillStatusMuted, { backgroundColor: statusColor(s) }]}>
+      <Text style={styles.pillTextOffDuty}>{statusLabel[s]}</Text>
     </View>
   );
 };
@@ -256,19 +261,16 @@ const MemberRowCompact = ({
   m,
   onEdit,
   onStatusToggle,
+  supportSubColor,
 }: {
   m: Member;
   onEdit: (m: Member) => void;
   onStatusToggle?: (m: Member) => void;
+  supportSubColor: string;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
-  const d = daysUntil(m.licenseExpiryISO);
-  const showWarn = m.licenseVerified && d !== undefined && d <= 30 && d >= 0;
-
-  const skills = m.skills.slice(0, 2);
-  const extra = Math.max(0, m.skills.length - skills.length);
 
   const handleStatusToggle = (e: any) => {
     e.stopPropagation();
@@ -277,65 +279,64 @@ const MemberRowCompact = ({
     }
   };
 
+  const subtitle = [m.role, m.phone].filter(Boolean).join(' • ');
+
   return (
     <View style={styles.memberRowWrapper}>
       <TouchableOpacity
         onPress={() => onEdit(m)}
         activeOpacity={0.85}
       >
-        <View style={[styles.memberRow, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: darkMode ? 1 : 0, borderRadius: 14 }]}>
-            <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-          <View style={styles.initial}>
-            <Text style={styles.initialText}>{initials(m.name)}</Text>
-          </View>
+        <View style={[styles.memberRow, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: darkMode ? 1 : 0, borderRadius: 16 }]}>
+          <View style={styles.memberRowInner}>
+            <View style={styles.initial}>
+              <Text style={styles.initialText}>{initials(m.name)}</Text>
+            </View>
 
-          <View style={{ flex: 1 }}>
-            <View style={styles.memberTopRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.name, !darkMode && { color: "#000000" }]} numberOfLines={1}>
-                  {m.name}
-                </Text>
-                <Text style={styles.role} numberOfLines={1}>
-                  {m.role}
-                  {m.phone ? ` • ${m.phone}` : ""}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={handleStatusToggle} activeOpacity={0.7}>
+            <View style={styles.memberMainCol}>
+              <Text style={[styles.name, !darkMode && { color: "#000000" }]} numberOfLines={1}>
+                {m.name}
+              </Text>
+              <Text
+                style={[styles.memberSubtitle, { color: supportSubColor }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {subtitle || m.role}
+              </Text>
+              <TouchableOpacity onPress={handleStatusToggle} activeOpacity={0.7} style={styles.statusRow}>
                 <StatusPill s={m.status} />
               </TouchableOpacity>
+              <View style={styles.memberMetaRow}>
+                <Chip text={m.role} tone="outline" compact />
+              </View>
             </View>
 
-            <View style={styles.memberMetaRow}>
-              <Chip text={m.role} />
+            <View style={styles.memberActionsCol}>
+              <TouchableOpacity
+                onPress={() => callNumber(m.phone)}
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="call" size={16} color="rgba(34, 197, 94, 0.85)" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => smsNumber(m.phone)}
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="chat-bubble" size={16} color="rgba(255, 255, 255, 0.65)" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => emailTo(m.email)}
+                style={styles.iconBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="mail" size={16} color="rgba(34, 211, 238, 0.85)" />
+              </TouchableOpacity>
             </View>
-          </View>
-
-          {/* Small iOS-style icon actions */}
-          <View style={styles.memberActionsCol}>
-            <TouchableOpacity
-              onPress={() => callNumber(m.phone)}
-              style={styles.iconBtn}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name="call" size={18} color="#22c55e" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => smsNumber(m.phone)}
-              style={styles.iconBtn}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name="chat-bubble" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => emailTo(m.email)}
-              style={styles.iconBtn}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name="mail" size={18} color="#22d3ee" />
-            </TouchableOpacity>
           </View>
         </View>
-          </View>
       </TouchableOpacity>
     </View>
   );
@@ -348,10 +349,18 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   onSave: (m: Member) => void;
   onDelete: (id: string) => void;
 }) => {
-  const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const supportSub = darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub;
+  const placeholderTint = darkMode ? 'rgba(226, 232, 240, 0.58)' : Colors.sub;
+  const inputSurface = darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2;
+  const inputBorder = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
+  const chipIdleBg = darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2;
+  const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
+  const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+  const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+
   const [name, setName] = useState(member.name);
   const [phone, setPhone] = useState(member.phone || "");
   const [email, setEmail] = useState(member.email || "");
@@ -373,227 +382,225 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
     });
   };
 
+  const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
+
+  const inputStyle = [
+    styles.addMemberInput,
+    {
+      backgroundColor: inputSurface,
+      borderColor: inputBorder,
+      color: Colors.text,
+    },
+  ];
+
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
-      <SafeAreaView style={[styles.editModalContainer, { backgroundColor: Colors.bg }]}>
+      <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
-        
-        {/* Header with Back Arrow */}
-        <View style={[styles.editModalHeader, { borderBottomColor: Colors.line, borderBottomWidth: 1 }]}>
-          <View style={styles.editModalBackBtnWrapper}>
+
+        <View
+          style={[
+            styles.addMemberHeader,
+            {
+              borderBottomColor: headerRule,
+              paddingTop: Platform.OS === "ios" ? 10 : 18,
+            },
+          ]}
+        >
+          <View style={styles.addMemberBackWrap}>
             <LinearGradient
               colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={styles.editModalBackBtnBorder}
+              style={styles.addMemberBackGradient}
             >
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onClose();
                 }}
-                style={[styles.editModalBackBtn, { backgroundColor: Colors.bg }]}
+                style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
+                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
               </TouchableOpacity>
             </LinearGradient>
           </View>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={[styles.editModalTitle, { color: Colors.text }]}>Edit Team Member</Text>
-            <Text style={[styles.editModalSubtitle, { color: Colors.sub }]}>{member.name}</Text>
+          <View style={styles.addMemberTitleBlock}>
+            <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Edit Team Member</Text>
+            <Text style={[styles.addMemberSubtitle, { color: supportSub }]} numberOfLines={2}>
+              {member.name}
+            </Text>
           </View>
         </View>
 
-        {/* Form Content */}
-        <View style={styles.editModalContent}>
-          <ScrollView
-            style={styles.editModalScrollView}
-            contentContainerStyle={styles.editModalScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-          <View style={styles.editFormSection}>
-            <Text style={[styles.editFormLabel, { color: Colors.text }]}>Name</Text>
+        <ScrollView
+          style={styles.addMemberScroll}
+          contentContainerStyle={[styles.addMemberScrollContent, { paddingBottom: 150 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.addMemberForm}>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                Name <Text style={styles.addMemberRequired}>*</Text>
+              </Text>
               <TextInput
-              style={{
-                backgroundColor: Colors.surface2,
-                borderColor: Colors.line,
-                borderWidth: 1,
-                borderRadius: 12,
-                color: Colors.text,
-                fontSize: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-              }}
+                style={inputStyle}
                 value={name}
                 onChangeText={setName}
                 placeholder="Full Name"
-                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                placeholderTextColor={placeholderTint}
               />
-          </View>
+            </View>
 
-          <View style={styles.editFormSection}>
-            <Text style={[styles.editFormLabel, { color: Colors.text }]}>Phone</Text>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Phone</Text>
               <TextInput
-              style={{
-                backgroundColor: Colors.surface2,
-                borderColor: Colors.line,
-                borderWidth: 1,
-                borderRadius: 12,
-                color: Colors.text,
-                fontSize: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-              }}
+                style={inputStyle}
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="(555) 123-4567"
-                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
               />
-          </View>
+            </View>
 
-          <View style={styles.editFormSection}>
-            <Text style={[styles.editFormLabel, { color: Colors.text }]}>Email</Text>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
               <TextInput
-              style={{
-                backgroundColor: Colors.surface2,
-                borderColor: Colors.line,
-                borderWidth: 1,
-                borderRadius: 12,
-                color: Colors.text,
-                fontSize: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-              }}
+                style={inputStyle}
                 value={email}
                 onChangeText={setEmail}
                 placeholder="email@example.com"
-                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                placeholderTextColor={placeholderTint}
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
-          </View>
+            </View>
 
-          <View style={styles.editFormSection}>
-            <Text style={[styles.editFormLabel, { color: Colors.text }]}>Trade/Role</Text>
-            <View style={styles.editFormChips}>
-              {(["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"] as Trade[]).map(t => (
-                <View key={t} style={styles.editFormChipWrapper}>
-                  {role === t ? (
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+              <View style={styles.addMemberChipWrap}>
+                {trades.map((t) =>
+                  role === t ? (
                     <TouchableOpacity
+                      key={t}
                       onPress={() => {
                         setRole(t);
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       }}
-                      style={styles.editFormChipActive}
+                      activeOpacity={0.9}
                     >
-                      <Text style={styles.editFormChipTextActive}>
-                        {t}
-                      </Text>
+                      <LinearGradient
+                        colors={["#22c55e", "#22d3ee"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.addMemberChipSelectedOuter}
+                      >
+                        <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
+                          <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{t}</Text>
+                        </View>
+                      </LinearGradient>
                     </TouchableOpacity>
                   ) : (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setRole(t);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 12,
-                        backgroundColor: Colors.surface2,
-                        borderWidth: 1,
-                        borderColor: Colors.line,
-                      }}
-                      >
-                      <Text style={{ color: Colors.sub, fontWeight: "600", fontSize: 13 }}>
-                          {t}
-                        </Text>
-                      </TouchableOpacity>
-                  )}
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.editFormSection}>
-            <Text style={[styles.editFormLabel, { color: Colors.text }]}>Status</Text>
-            <View style={styles.editFormChips}>
-              {(["active", "off_duty"] as Status[]).map(s => (
-                <View key={s} style={styles.editFormChipWrapper}>
-                  {status === s ? (
                     <TouchableOpacity
+                      key={t}
+                      onPress={() => {
+                        setRole(t);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.addMemberChipIdle,
+                        {
+                          backgroundColor: chipIdleBg,
+                          borderColor: chipIdleBorder,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+              </View>
+            </View>
+
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Status</Text>
+              <View style={styles.addMemberChipWrap}>
+                {(["active", "off_duty"] as Status[]).map((s) =>
+                  status === s ? (
+                    <TouchableOpacity
+                      key={s}
                       onPress={() => {
                         setStatus(s);
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       }}
-                      style={styles.editFormChipActiveWrapper}
+                      activeOpacity={0.9}
                     >
-                      <LinearGradient
-                        colors={s === "active" ? ["#22c55e", "#22d3ee"] : [statusColor(s), statusColor(s)]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.editFormChipActiveGradient}
-                      >
-                        <Text style={styles.editFormChipTextActive}>
-                          {statusLabel[s]}
-                        </Text>
-                      </LinearGradient>
+                      {s === "active" ? (
+                        <LinearGradient
+                          colors={["#22c55e", "#22d3ee"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.addMemberChipSelectedOuter}
+                        >
+                          <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
+                            <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{statusLabel[s]}</Text>
+                          </View>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={[
+                            styles.addMemberChipIdle,
+                            {
+                              backgroundColor: statusColor(s),
+                              borderColor: statusColor(s),
+                              alignItems: "center",
+                              justifyContent: "center",
+                            },
+                          ]}
+                        >
+                          <Text style={styles.editFormChipTextActive}>{statusLabel[s]}</Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
                   ) : (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setStatus(s);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 12,
-                        backgroundColor: Colors.surface2,
-                        borderWidth: 1,
-                        borderColor: Colors.line,
+                    <TouchableOpacity
+                      key={s}
+                      onPress={() => {
+                        setStatus(s);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       }}
-                      >
-                      <Text style={{ color: Colors.sub, fontWeight: "600", fontSize: 13 }}>
-                          {statusLabel[s]}
-                        </Text>
-                      </TouchableOpacity>
-                  )}
-                </View>
-              ))}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.addMemberChipIdle,
+                        {
+                          backgroundColor: chipIdleBg,
+                          borderColor: chipIdleBorder,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{statusLabel[s]}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+              </View>
             </View>
           </View>
+        </ScrollView>
 
-          </ScrollView>
-        </View>
-
-        {/* Action Buttons - Fixed at Bottom */}
         <View
           style={[
-            styles.editFormActions,
+            styles.addMemberActionBar,
             {
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              paddingHorizontal: 20,
-              paddingTop: 12,
-              paddingBottom: Platform.OS === "ios" ? 34 : 20,
-              flexDirection: "row",
-              gap: 10,
-              borderTopWidth: 1,
-              borderTopColor: Colors.line,
+              borderTopColor: actionBarRule,
               backgroundColor: Colors.bg,
-              shadowOpacity: 0,
-              shadowRadius: 0,
-              shadowOffset: { width: 0, height: 0 },
-              elevation: 0,
+              paddingBottom: Platform.OS === "ios" ? 34 : 22,
             },
           ]}
         >
-          {/* Remove Button */}
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -611,16 +618,16 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
               );
             }}
             style={[
-              styles.editFormDeleteBtn,
+              styles.editMemberRemoveBtn,
               {
-                backgroundColor: darkMode ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.1)",
-                borderColor: "#ef4444",
-                borderWidth: 1,
+                backgroundColor: darkMode ? "rgba(239, 68, 68, 0.12)" : "rgba(239, 68, 68, 0.08)",
+                borderColor: darkMode ? "rgba(248, 113, 113, 0.45)" : "rgba(239, 68, 68, 0.35)",
               },
             ]}
+            activeOpacity={0.85}
           >
             <Text
-              style={[styles.editFormDeleteBtnText, { color: "#ef4444" }]}
+              style={[styles.editMemberRemoveText, { color: darkMode ? "#fca5a5" : "#dc2626" }]}
               numberOfLines={1}
               adjustsFontSizeToFit
             >
@@ -630,15 +637,27 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
 
           <TouchableOpacity
             onPress={handleSave}
-            style={styles.editFormSaveBtn}
+            style={[
+              styles.addMemberSaveBtn,
+              Platform.select({
+                ios: {
+                  shadowColor: "#22c55e",
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: 0.22,
+                  shadowRadius: 10,
+                },
+                android: { elevation: 5 },
+              }),
+            ]}
+            activeOpacity={0.9}
           >
             <LinearGradient
               colors={["#22c55e", "#22d3ee"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.editFormSaveBtnGradient}
+              style={styles.addMemberSaveGradient}
             >
-              <Text style={styles.editFormSaveBtnText}>✓ Save Changes</Text>
+              <Text style={styles.addMemberSaveText}>✓ Save Changes</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -655,6 +674,15 @@ const AddMemberModal = ({ onClose, onAdd }: {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const supportSub = darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub;
+  const placeholderTint = darkMode ? 'rgba(226, 232, 240, 0.58)' : Colors.sub;
+  const inputSurface = darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2;
+  const inputBorder = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
+  const chipIdleBg = darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2;
+  const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
+  const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+  const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -683,214 +711,199 @@ const AddMemberModal = ({ onClose, onAdd }: {
 
   const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
 
+  const inputStyle = [
+    styles.addMemberInput,
+    {
+      backgroundColor: inputSurface,
+      borderColor: inputBorder,
+      color: Colors.text,
+    },
+  ];
+
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
-      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }}>
+      <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
         <StatusBar barStyle="light-content" />
-        {/* Header with Back Arrow */}
-        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingTop: Platform.OS === "ios" ? 8 : 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
-          <View style={{ marginRight: 12 }}>
+        <View
+          style={[
+            styles.addMemberHeader,
+            {
+              borderBottomColor: headerRule,
+              paddingTop: Platform.OS === "ios" ? 10 : 18,
+            },
+          ]}
+        >
+          <View style={styles.addMemberBackWrap}>
             <LinearGradient
               colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 22, padding: 1, overflow: "hidden" }}
+              style={styles.addMemberBackGradient}
             >
               <TouchableOpacity
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onClose();
                 }}
-                style={{ width: 44, height: 44, borderRadius: 21, backgroundColor: Colors.bg, justifyContent: "center", alignItems: "center" }}
+                style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : "#000000"} />
               </TouchableOpacity>
             </LinearGradient>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: Colors.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.4, lineHeight: 34 }}>Add Team Member</Text>
-            <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 2, fontWeight: "500" }}>Add a new team member</Text>
+          <View style={styles.addMemberTitleBlock}>
+            <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Add Team Member</Text>
+            <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>Add a new team member</Text>
           </View>
         </View>
 
-        <ScrollView 
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }}
+        <ScrollView
+          style={styles.addMemberScroll}
+          contentContainerStyle={styles.addMemberScrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <View>
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: "600", marginBottom: 10, letterSpacing: 0.2 }}>Name *</Text>
+          <View style={styles.addMemberForm}>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                Name <Text style={styles.addMemberRequired}>*</Text>
+              </Text>
               <TextInput
-                style={{
-                  backgroundColor: Colors.surface2,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                  borderRadius: 12,
-                  color: Colors.text,
-                  fontSize: 14,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                }}
+                style={inputStyle}
                 value={name}
                 onChangeText={setName}
                 placeholder="Full Name"
-                placeholderTextColor={Colors.sub}
+                placeholderTextColor={placeholderTint}
                 autoFocus
               />
             </View>
 
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: "600", marginBottom: 10, letterSpacing: 0.2 }}>Phone</Text>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Phone</Text>
               <TextInput
-                style={{
-                  backgroundColor: Colors.surface2,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                  borderRadius: 12,
-                  color: Colors.text,
-                  fontSize: 14,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                }}
+                style={inputStyle}
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="(555) 123-4567"
-                placeholderTextColor={Colors.sub}
+                placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
               />
             </View>
 
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: "600", marginBottom: 10, letterSpacing: 0.2 }}>Email</Text>
+            <View style={styles.addMemberField}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
               <TextInput
-                style={{
-                  backgroundColor: Colors.surface2,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                  borderRadius: 12,
-                  color: Colors.text,
-                  fontSize: 14,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                }}
+                style={inputStyle}
                 value={email}
                 onChangeText={setEmail}
                 placeholder="email@example.com"
-                placeholderTextColor={Colors.sub}
+                placeholderTextColor={placeholderTint}
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
             </View>
 
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: "600", marginBottom: 10, letterSpacing: 0.2 }}>Trade/Role</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {trades.map(t => (
-                  <TouchableOpacity
-                    key={t}
-                    onPress={() => {
-                      setRole(t);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 12,
-                      backgroundColor: role === t ? "#22c55e" : Colors.surface2,
-                      borderWidth: 1,
-                      borderColor: role === t ? "#22c55e" : Colors.line,
-                    }}
-                  >
-                    <Text style={{ color: role === t ? "#020617" : Colors.sub, fontWeight: role === t ? "800" : "600", fontSize: 13 }}>
-                      {t}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+              <View style={styles.addMemberChipWrap}>
+                {trades.map((t) =>
+                  role === t ? (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => {
+                        setRole(t);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.9}
+                    >
+                      <LinearGradient
+                        colors={["#22c55e", "#22d3ee"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.addMemberChipSelectedOuter}
+                      >
+                        <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
+                          <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{t}</Text>
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => {
+                        setRole(t);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.addMemberChipIdle,
+                        {
+                          backgroundColor: chipIdleBg,
+                          borderColor: chipIdleBorder,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
               </View>
             </View>
           </View>
         </ScrollView>
 
-        {/* Actions */}
-        <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 34 : 20, flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: Colors.line, backgroundColor: Colors.bg }}>
-          <TouchableOpacity 
-            onPress={onClose} 
-            style={{ 
-              flex: 1,
-              backgroundColor: darkMode ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.1)",
-              borderColor: "#ef4444",
-              borderWidth: 1,
-              paddingVertical: 14, 
-              borderRadius: 12, 
-              alignItems: "center" 
-            }}
+        <View
+          style={[
+            styles.addMemberActionBar,
+            {
+              borderTopColor: actionBarRule,
+              backgroundColor: Colors.bg,
+              paddingBottom: Platform.OS === "ios" ? 34 : 22,
+            },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={onClose}
+            style={[
+              styles.addMemberCancelBtn,
+              {
+                backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : "rgba(15, 23, 42, 0.04)",
+                borderColor: darkMode ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+              },
+            ]}
+            activeOpacity={0.85}
           >
-            <Text style={{ color: "#ef4444", fontSize: 15, fontWeight: "600" }}>Cancel</Text>
+            <Text style={[styles.addMemberCancelText, { color: supportSub }]}>Cancel</Text>
           </TouchableOpacity>
-          {darkMode ? (
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handleAdd();
-              }}
-              style={{ flex: 1, borderRadius: 12, overflow: "hidden", ...Platform.select({
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              handleAdd();
+            }}
+            style={[
+              styles.addMemberSaveBtn,
+              Platform.select({
                 ios: {
-                  shadowColor: '#22c55e',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 12,
+                  shadowColor: "#22c55e",
+                  shadowOffset: { width: 0, height: 3 },
+                  shadowOpacity: 0.22,
+                  shadowRadius: 10,
                 },
-                android: {
-                  elevation: 6,
-                },
-              }) }}
+                android: { elevation: 5 },
+              }),
+            ]}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={["#22c55e", "#22d3ee"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.addMemberSaveGradient}
             >
-              <LinearGradient
-                colors={["rgba(34, 197, 94, 0.9)", "rgba(34, 211, 238, 0.9)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ flex: 1, borderRadius: 12, padding: 1 }}
-              >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{ paddingVertical: 14, borderRadius: 11, alignItems: "center" }}
-                >
-                  <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.3 }}>✓ Save</Text>
-                </LinearGradient>
-              </LinearGradient>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity 
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                handleAdd();
-              }} 
-              style={{ flex: 1, borderRadius: 12, overflow: "hidden", ...Platform.select({
-                ios: {
-                  shadowColor: '#22c55e',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 12,
-                },
-                android: {
-                  elevation: 6,
-                },
-              }) }}
-            >
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ paddingVertical: 14, alignItems: "center" }}
-              >
-                <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.3 }}>✓ Save</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
+              <Text style={styles.addMemberSaveText}>✓ Save</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     </Modal>
@@ -1440,8 +1453,8 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
     ]);
   };
 
-  // Header actions (iOS style)
-  const activeCount = data.filter((m) => m.status === "active").length;
+  const supportSub = darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub;
+  const supportMuted = darkMode ? 'rgba(226, 232, 240, 0.62)' : Colors.sub;
 
   return (
     <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
@@ -1459,7 +1472,7 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
               <View style={{ flex: 1 }}>
                 <View style={styles.teamHeaderTopRow}>
                   <Text style={[styles.teamHeaderTitle, { color: Colors.text }]}>Team Details</Text>
-                  <View style={{ flexDirection: "row", gap: 8, marginLeft: 12 }}>
+                  <View style={styles.headerQuickActions}>
                     <TouchableOpacity
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1468,10 +1481,14 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                       activeOpacity={0.85}
                       style={[
                         styles.headerIconBtn,
-                        { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
+                        {
+                          borderColor: darkMode ? 'rgba(34, 211, 238, 0.35)' : Colors.line,
+                          borderWidth: 1,
+                          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.bg,
+                        },
                       ]}
                     >
-                      <MaterialIcons name="campaign" size={20} color="#22c55e" />
+                      <MaterialIcons name="campaign" size={19} color="#22c55e" />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
@@ -1481,14 +1498,18 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                       activeOpacity={0.85}
                       style={[
                         styles.headerIconBtn,
-                        { borderColor: "#22c55e", borderWidth: 1, backgroundColor: darkMode ? "#000000" : Colors.bg },
+                        {
+                          borderColor: darkMode ? 'rgba(34, 211, 238, 0.35)' : Colors.line,
+                          borderWidth: 1,
+                          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.bg,
+                        },
                       ]}
                     >
-                      <MaterialIcons name="person-add" size={20} color="#22c55e" />
+                      <MaterialIcons name="person-add" size={19} color="#22c55e" />
                     </TouchableOpacity>
                   </View>
                 </View>
-                <Text style={[styles.teamHeaderSubtitle, { color: Colors.sub }]}>
+                <Text style={[styles.teamHeaderSubtitle, { color: supportSub }]}>
                   Manage your team members and assignments
                 </Text>
               </View>
@@ -1506,62 +1527,34 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                 <MaterialIcons name='people' size={22} color='#22c55e' />
               <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>Team</Text>
               </View>
-              <View style={styles.statsContent}>
-                <View style={styles.statsRow}>
-                  <View style={styles.statBoxWrapper}>
-                  <View
-                    style={[
-                      styles.statBoxBorder,
-                      {
-                        backgroundColor: Colors.surface2,
-                        borderColor: Colors.line,
-                        borderWidth: 1,
-                        borderRadius: 12,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.statBox, { backgroundColor: 'transparent' }]}>
-                        <Text style={[styles.statVal, { color: "#22c55e" }]}>{stats.active}</Text>
-                      <Text style={[styles.statLabel, { color: Colors.text }]} numberOfLines={1}>Active</Text>
-                      </View>
-                    </View>
-                  </View>
-                  <View style={styles.statBoxWrapper}>
-                  <View
-                    style={[
-                      styles.statBoxBorder,
-                      {
-                        backgroundColor: Colors.surface2,
-                        borderColor: Colors.line,
-                        borderWidth: 1,
-                        borderRadius: 12,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.statBox, { backgroundColor: 'transparent' }]}>
-                      <Text style={[styles.statVal, { color: "#ffd166" }]}>{stats.offDuty}</Text>
-                      <Text style={[styles.statLabel, { color: Colors.text }]} numberOfLines={1}>Off Duty</Text>
-                      </View>
-                    </View>
-                  </View>
-                  <View style={styles.statBoxWrapper}>
-                  <View
-                    style={[
-                      styles.statBoxBorder,
-                      {
-                        backgroundColor: Colors.surface2,
-                        borderColor: Colors.line,
-                        borderWidth: 1,
-                        borderRadius: 12,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.statBox, { backgroundColor: 'transparent' }]}>
-                        <Text style={[styles.statVal, { color: "#22d3ee" }]}>{stats.total}</Text>
-                      <Text style={[styles.statLabel, { color: Colors.text }]} numberOfLines={1}>Total</Text>
-                      </View>
-                    </View>
-                  </View>
+              <View
+                style={[
+                  styles.statsUnified,
+                  {
+                    backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.42)' : Colors.surface2,
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+                  },
+                ]}
+              >
+                <View style={styles.statCell}>
+                  <Text style={[styles.statVal, { color: '#22c55e' }]}>{stats.active}</Text>
+                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
+                    Active
+                  </Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: darkMode ? 'rgba(148,163,184,0.08)' : Colors.line }]} />
+                <View style={styles.statCell}>
+                  <Text style={[styles.statVal, { color: '#ffd166' }]}>{stats.offDuty}</Text>
+                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
+                    Off Duty
+                  </Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: darkMode ? 'rgba(148,163,184,0.08)' : Colors.line }]} />
+                <View style={styles.statCell}>
+                  <Text style={[styles.statVal, { color: '#22d3ee' }]}>{stats.total}</Text>
+                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
+                    Total
+                  </Text>
                 </View>
               </View>
             </View>
@@ -1575,17 +1568,17 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
               style={[
                 styles.searchContainer,
                 {
-                  backgroundColor: Colors.surface2,
-                  borderColor: Colors.line,
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                   borderWidth: 1,
                 },
               ]}
             >
-              <MaterialIcons name="search" size={18} color={Colors.sub} style={styles.searchIcon} />
+              <MaterialIcons name="search" size={18} color={supportMuted} style={styles.searchIcon} />
               <TextInput
                 style={[styles.search, { color: Colors.text }]}
                 placeholder="Search by name, role, or skill..."
-                placeholderTextColor={Colors.sub}
+                placeholderTextColor={supportMuted}
                 value={q}
                 onChangeText={setQ}
                 clearButtonMode="while-editing"
@@ -1598,14 +1591,14 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                   }}
                   style={styles.searchClearBtn}
                 >
-                  <MaterialIcons name="close" size={16} color={Colors.sub} />
+                  <MaterialIcons name="close" size={16} color={supportMuted} />
                 </TouchableOpacity>
               )}
             </View>
 
             {/* Sort Pills */}
             <View style={styles.sortSection}>
-              <Text style={[styles.sectionLabel, { color: Colors.sub }]}>Sort</Text>
+              <Text style={[styles.sectionLabel, { color: supportSub }]}>Sort</Text>
               <View style={styles.sortPillsContainer}>
                 {(["status","alpha"] as const).map((s) => (
                   <TouchableOpacity
@@ -1628,8 +1621,8 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                         </Text>
                       </LinearGradient>
                     ) : (
-                      <View style={[styles.sortPill, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }]}>
-                        <Text style={[styles.sortPillText, { color: Colors.sub }]}>
+                      <View style={[styles.sortPill, { backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2, borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line, borderWidth: 1 }]}>
+                        <Text style={[styles.sortPillText, { color: supportMuted }]}>
                           {s === "alpha" ? "A-Z" : "Status"}
                         </Text>
                       </View>
@@ -1641,7 +1634,7 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
 
             {/* Filter Section */}
             <View style={styles.filterSection}>
-              <Text style={[styles.sectionLabel, { color: Colors.sub }]}>Filter</Text>
+              <Text style={[styles.sectionLabel, { color: supportSub }]}>Filter</Text>
               <TouchableOpacity
                 onPress={() => {
                   if (tradeFilter !== "All") {
@@ -1655,7 +1648,7 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                   tradeFilter !== "All" && { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }
                 ]}
               >
-                <Text style={[styles.filterChipText, tradeFilter === "All" && styles.filterChipTextActive, tradeFilter !== "All" && { color: Colors.sub }]}>
+                <Text style={[styles.filterChipText, tradeFilter === "All" && styles.filterChipTextActive, tradeFilter !== "All" && { color: supportMuted }]}>
                   {tradeFilter === "All" ? "All Trades" : tradeFilter}
                 </Text>
                 {tradeFilter !== "All" && (
@@ -1667,7 +1660,7 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                     }}
                     style={styles.filterChipClose}
                   >
-                    <MaterialIcons name="close" size={14} color={tradeFilter === "All" ? "#0d1b2a" : Colors.sub} />
+                    <MaterialIcons name="close" size={14} color={tradeFilter === "All" ? "#0d1b2a" : supportMuted} />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -1697,7 +1690,7 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                       },
                     ]}
                   >
-                    <Text style={[styles.filterPillText, { color: Colors.sub }]}>{t}</Text>
+                    <Text style={[styles.filterPillText, { color: supportMuted }]}>{t}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1721,18 +1714,24 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
                 { backgroundColor: darkMode ? "#000000" : Colors.bg },
               ]}
             >
-              <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
+              <View style={[styles.sectionHeader, styles.teamMembersSectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
                 <MaterialIcons name='list' size={22} color='#22c55e' />
                 <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>Team Members</Text>
               </View>
-              <View style={{ paddingBottom: 16 }}>
+              <View style={styles.teamMembersListPad}>
                 {data.length > 0 ? (
                   data.map((item) => (
-                    <MemberRowCompact key={item.id} m={item} onEdit={setEditingMember} onStatusToggle={handleStatusToggle} />
+                    <MemberRowCompact
+                      key={item.id}
+                      m={item}
+                      onEdit={setEditingMember}
+                      onStatusToggle={handleStatusToggle}
+                      supportSubColor={supportSub}
+                    />
                   ))
                 ) : (
-                  <View style={{ alignItems: "center", padding: 40 }}>
-                    <Text style={{ color: Colors.sub, fontSize: 16 }}>No team members found</Text>
+                  <View style={styles.emptyTeamWrap}>
+                    <Text style={{ color: supportSub, fontSize: 15, fontWeight: '500' }}>No team members found</Text>
                   </View>
                 )}
               </View>
@@ -1794,37 +1793,44 @@ const styles = StyleSheet.create({
   },
   overviewInner: {
     borderRadius: 18,
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   teamHeaderRow: {
-    marginBottom: 14,
+    marginBottom: 4,
   },
   teamHeaderTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 12,
   },
   teamHeaderTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "700",
     letterSpacing: 0.15,
     color: "#F9FAFB",
     flex: 1,
+    minWidth: 0,
+  },
+  headerQuickActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   teamHeaderSubtitle: {
     fontSize: 14,
-    marginTop: 4,
+    marginTop: 2,
+    lineHeight: 20,
     color: "#8DA0B8",
   },
   headerIconBtn: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(34, 211, 238, 0.3)",
   },
 
   sectionCardContainer: {
@@ -1842,10 +1848,14 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.08)",
+  },
+  teamMembersSectionHeader: {
     marginBottom: 14,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
   },
   sectionTitle: {
     fontSize: 18,
@@ -1854,25 +1864,36 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
   },
 
-  // Stats
-  statsContent: {},
-  statsRow: { flexDirection: "row", gap: 10 },
-  statBoxWrapper: {
-    flex: 1,
-  },
-  statBoxBorder: {
-    borderRadius: 16,
+  // Stats — single grouped module
+  statsUnified: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
+    overflow: "hidden",
+    paddingVertical: 4,
   },
-  statBox: {
-    borderRadius: 15,
-    padding: 12,
+  statCell: {
+    flex: 1,
     alignItems: "center",
-    backgroundColor: "#000000",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 6,
   },
-  statVal: { fontSize: 22, fontWeight: "900" },
-  statLabel: { color: Colors.sub, fontSize: 12, marginTop: 4, textAlign: "center" },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginVertical: 10,
+  },
+  statVal: { fontSize: 24, fontWeight: "900", letterSpacing: -0.5 },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 6,
+    textAlign: "center",
+    letterSpacing: 0.35,
+    textTransform: "uppercase",
+  },
 
   // Filter Card - iOS Grade
   filterCardContainer: {
@@ -1884,7 +1905,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   filterCard: {
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
 
   // Search - iOS Style
@@ -1895,7 +1918,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.15)",
-    marginBottom: 16,
+    marginBottom: 14,
     paddingHorizontal: 12,
     minHeight: 44, // iOS minimum touch target
   },
@@ -1916,14 +1939,16 @@ const styles = StyleSheet.create({
 
   // Sort Section - iOS Segmented Control
   sortSection: {
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 12,
   },
   sectionLabel: {
     color: Colors.sub,
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
     marginBottom: 8,
-    letterSpacing: 0.1,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
   sortPillsContainer: {
     flexDirection: "row",
@@ -1961,7 +1986,7 @@ const styles = StyleSheet.create({
 
   // Filter Section
   filterSection: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   filterChip: {
     flexDirection: "row",
@@ -1994,12 +2019,13 @@ const styles = StyleSheet.create({
 
   // Filter Pills
   filterScrollContainer: {
-    marginTop: 8,
-    marginBottom: 0,
+    marginTop: 6,
+    marginBottom: 2,
   },
   filterScrollContent: {
     paddingRight: 16,
     gap: 8,
+    paddingVertical: 2,
   },
   filterPill: {
     paddingHorizontal: 12,
@@ -2035,11 +2061,20 @@ const styles = StyleSheet.create({
   },
   teamListInner: {
     borderRadius: 19,
-    padding: 12,
+    paddingHorizontal: 14,
     paddingTop: 16,
+    paddingBottom: 8,
+  },
+  teamMembersListPad: {
+    paddingBottom: 8,
+  },
+  emptyTeamWrap: {
+    alignItems: "center",
+    paddingVertical: 36,
+    paddingHorizontal: 20,
   },
   memberRowWrapper: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   memberRowBorder: {
     borderRadius: 18,
@@ -2048,10 +2083,30 @@ const styles = StyleSheet.create({
   },
   memberRow: {
     backgroundColor: "#000000",
-    borderRadius: 17,
-    padding: 14,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     width: "100%",
     alignSelf: "stretch",
+  },
+  memberRowInner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  memberMainCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statusRow: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+  },
+  memberSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   initial: {
     width: 48,
@@ -2063,37 +2118,57 @@ const styles = StyleSheet.create({
   },
   initialText: { color: "#020617", fontWeight: "900", fontSize: 16 },
 
-  memberTopRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  name: { color: Colors.text, fontSize: 16, fontWeight: "900" },
-  role: { color: Colors.sub, fontSize: 13, marginTop: 2 },
+  name: { color: Colors.text, fontSize: 16, fontWeight: "800", letterSpacing: -0.2 },
 
-  memberMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
+  memberMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
 
-  memberActionsCol: { gap: 10, alignItems: "center", justifyContent: "center" },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
+  memberActionsCol: {
+    gap: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000000",
+    paddingTop: 2,
+    minWidth: 36,
+  },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
+    borderColor: "rgba(148, 163, 184, 0.12)",
   },
 
   // Pills & Chips
-  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  pillStatus: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignSelf: "flex-start",
+  },
+  pillStatusMuted: {
+    opacity: 0.95,
+  },
   pillText: { fontSize: 11, fontWeight: "900", color: "#0d1b2a" },
+  pillTextOffDuty: { fontSize: 11, fontWeight: "800", color: "#FFFFFF" },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.15)",
     backgroundColor: "#000000",
-    maxWidth: 150,
+    maxWidth: 160,
   },
-  chipText: { color: Colors.sub, fontSize: 11, fontWeight: "700" },
+  chipCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    maxWidth: 148,
+    borderRadius: 8,
+  },
+  chipText: { color: Colors.sub, fontSize: 11, fontWeight: "600" },
+  chipTextCompact: { fontSize: 10, fontWeight: "600" },
 
   // Bottom Bar
   bottomBar: {
@@ -2114,172 +2189,166 @@ const styles = StyleSheet.create({
   },
   bulkBtnText: { color: "#0d1b2a", fontSize: 16, fontWeight: "800", textAlign: "center" },
 
-  // Edit Modal - Full Page
-  editModalContainer: {
-    flex: 1,
-    backgroundColor: "#000000",
+  // Edit member modal: Off Duty selected chip label (layout shares addMember* styles)
+  editFormChipTextActive: {
+    color: "#0d1b2a",
+    fontSize: 13,
+    fontWeight: "800",
   },
-  editModalHeader: {
+  editMemberRemoveBtn: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  editMemberRemoveText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  addMemberSafe: {
+    flex: 1,
+  },
+  addMemberHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 8 : 16,
-    paddingBottom: 16,
+    paddingBottom: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  editModalBackBtnWrapper: {
-    marginRight: 12,
+  addMemberBackWrap: {
+    marginRight: 16,
   },
-  editModalBackBtnBorder: {
-    borderRadius: 20,
+  addMemberBackGradient: {
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
-  editModalBackBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
-    backgroundColor: "#000000",
+  addMemberBackBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 21,
     justifyContent: "center",
     alignItems: "center",
   },
-  editModalTitle: {
-    color: "#FFFFFF",
-    fontSize: 28,
+  addMemberTitleBlock: {
+    flex: 1,
+    paddingRight: 4,
+    minWidth: 0,
+  },
+  addMemberTitle: {
+    fontSize: 26,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.35,
+    lineHeight: 32,
   },
-  editModalSubtitle: {
-    color: "#8DA0B8",
+  addMemberSubtitle: {
     fontSize: 14,
-    marginTop: 4,
-  },
-  editModalContent: {
-    flex: 1,
-  },
-  editModalScrollView: {
-    flex: 1,
-  },
-  editModalScrollContent: {
-    padding: 20,
-    paddingBottom: 200,
-  },
-  editFormSection: {
-    marginBottom: 20,
-  },
-  editFormLabel: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 8,
-    letterSpacing: -0.2,
-  },
-  editFormInputBorder: {
-    borderRadius: 20,
-    padding: 1,
-  },
-  editFormInput: {
-    backgroundColor: "#000000",
-    color: Colors.text,
-    fontSize: 15,
-    padding: 14,
-    borderRadius: 18,
+    marginTop: 6,
+    lineHeight: 20,
     fontWeight: "500",
   },
-  editFormChips: {
+  addMemberScroll: {
+    flex: 1,
+  },
+  addMemberScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 120,
+  },
+  addMemberForm: {
+    paddingBottom: 8,
+  },
+  addMemberField: {
+    marginBottom: 22,
+  },
+  addMemberRoleBlock: {
+    marginBottom: 8,
+  },
+  addMemberLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 8,
+    letterSpacing: 0.2,
+  },
+  addMemberRequired: {
+    color: "#22c55e",
+    fontWeight: "700",
+  },
+  addMemberInput: {
+    borderWidth: 1,
+    borderRadius: 14,
+    fontSize: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  addMemberChipWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
+    marginTop: 2,
   },
-  editFormChipWrapper: {
-    marginBottom: 0,
-  },
-  editFormChipBorder: {
-    borderRadius: 16,
-    padding: 1,
-    overflow: "hidden",
-  },
-  editFormChip: {
+  addMemberChipIdle: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 15,
-    backgroundColor: "#000000",
+    borderRadius: 14,
+    borderWidth: 1,
   },
-  editFormChipActiveWrapper: {
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  editFormChipActiveGradient: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editFormChipActive: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    backgroundColor: Colors.green,
-    borderWidth: 0,
-  },
-  editFormChipText: {
-    color: "#FFFFFF",
-    fontSize: 14,
+  addMemberChipTextIdle: {
+    fontSize: 13,
     fontWeight: "600",
   },
-  editFormChipTextActive: {
-    color: "#0d1b2a",
-    fontSize: 14,
+  addMemberChipSelectedOuter: {
+    borderRadius: 15,
+    padding: 1.5,
+  },
+  addMemberChipSelectedInner: {
+    borderRadius: 13,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  addMemberChipTextSelected: {
+    fontSize: 13,
     fontWeight: "800",
   },
-  editFormActions: {
+  addMemberActionBar: {
     position: "absolute",
-    bottom: 0,
     left: 0,
     right: 0,
+    bottom: 0,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 16,
     flexDirection: "row",
     gap: 12,
-    backgroundColor: "#000000",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  editFormSaveBtn: {
+  addMemberCancelBtn: {
     flex: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  editFormSaveBtnGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
+    borderWidth: 1,
   },
-  editFormSaveBtnText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  editFormDeleteBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 11,
-  },
-  editFormDeleteBorder: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 1,
-  },
-  editFormDeleteBtnText: {
+  addMemberCancelText: {
     fontSize: 15,
     fontWeight: "600",
+  },
+  addMemberSaveBtn: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  addMemberSaveGradient: {
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addMemberSaveText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.25,
   },
 });

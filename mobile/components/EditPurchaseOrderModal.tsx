@@ -1,12 +1,26 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform } from "react-native";
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
+
+function parseISODateToLocal(iso: string | undefined): Date {
+  if (!iso) return new Date();
+  const dayPart = iso.split('T')[0];
+  const parts = dayPart.split('-').map((p) => parseInt(p, 10));
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return new Date();
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
+function toYYYYMMDD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 type Props = {
   visible: boolean;
@@ -19,10 +33,14 @@ type Props = {
 export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose, onSave, onCancel }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = getColors(theme);
+  const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
   const [poNumber, setPONumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [orderDate, setOrderDate] = useState(() => new Date());
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(() => new Date());
+  const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
 
   useEffect(() => {
     if (visible && purchaseOrder) {
@@ -30,6 +48,12 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
       setVendor(purchaseOrder.vendor);
       setAmount(String(purchaseOrder.amount));
       setDescription(purchaseOrder.description || "");
+      const od = parseISODateToLocal(purchaseOrder.orderDate);
+      setOrderDate(od);
+      const ed = purchaseOrder.expectedDelivery
+        ? parseISODateToLocal(purchaseOrder.expectedDelivery)
+        : new Date(od.getTime() + 14 * 24 * 60 * 60 * 1000);
+      setExpectedDeliveryDate(ed);
     }
   }, [visible, purchaseOrder]);
 
@@ -48,7 +72,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
       vendor: vendor.trim(),
       amount: amountNum,
       description: description.trim(),
-      // Preserve category and expectedDelivery from original
+      expectedDelivery: toYYYYMMDD(expectedDeliveryDate),
     });
 
     Alert.alert('Updated!', 'Purchase Order updated successfully');
@@ -124,7 +148,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 <TextInput
                   style={[styles.input, !darkMode && { color: '#000000' }]}
                   placeholder="e.g., Home Depot, ABC Contractors"
-                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  placeholderTextColor={placeholderTint}
                   value={vendor}
                   onChangeText={setVendor}
                   autoCapitalize="words"
@@ -146,7 +170,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 <TextInput
                   style={[styles.input, !darkMode && { color: '#000000' }]}
                   placeholder="$ 0.00"
-                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  placeholderTextColor={placeholderTint}
                   value={amount}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
@@ -180,7 +204,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   ref={descriptionRef}
                   style={[styles.input, styles.textArea, !darkMode && { color: '#000000' }]}
                   placeholder="What was purchased or service provided?"
-                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  placeholderTextColor={placeholderTint}
                   value={description}
                   onChangeText={setDescription}
                   onFocus={() => {
@@ -195,6 +219,52 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
             </View>
 
             <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: '#000000' }]}>
+                Delivery or pickup date
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowDeliveryDatePicker(true);
+                }}
+                style={[
+                  styles.dateButton,
+                  !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ]}
+              >
+                <Feather
+                  name="truck"
+                  size={16}
+                  color={darkMode ? '#8DA0B8' : '#6B7280'}
+                  style={{ marginRight: 12 }}
+                />
+                <Text style={[styles.dateButtonText, !darkMode && { color: '#000000' }]}>
+                  {expectedDeliveryDate.toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </TouchableOpacity>
+              {showDeliveryDatePicker && (
+                <DateTimePicker
+                  value={expectedDeliveryDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  minimumDate={orderDate}
+                  onChange={(_, date) => {
+                    setShowDeliveryDatePicker(Platform.OS === 'ios');
+                    if (date) setExpectedDeliveryDate(date);
+                  }}
+                />
+              )}
+              <Text style={[styles.deliveryHint, !darkMode && { color: '#059669' }]}>
+                Used for calendar and job-site scheduling
+              </Text>
+            </View>
+
+            <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>PO Number</Text>
               <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <Feather
@@ -206,7 +276,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 <TextInput
                   style={[styles.input, !darkMode && { color: '#000000' }]}
                   placeholder="e.g., PO-1003"
-                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                  placeholderTextColor={placeholderTint}
                   value={poNumber}
                   onChangeText={setPONumber}
                   autoCapitalize="characters"
@@ -221,7 +291,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           </ScrollView>
 
           {/* Actions */}
-          <View style={[styles.actions, { borderTopColor: Colors.line, backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}>
+          <View style={[styles.actions, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}>
             <TouchableOpacity 
               onPress={() => {
                 Keyboard.dismiss();
@@ -259,24 +329,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     paddingTop: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(148, 163, 184, 0.12)",
   },
   backBtnWrapper: {
-    marginRight: 12,
+    marginRight: 16,
   },
   backBtnBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 19,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 21,
+    backgroundColor: "#000000",
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerIconBorder: {
     borderRadius: 15,
@@ -298,11 +368,12 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
   subtitle: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 13,
-    marginTop: 4,
-    fontWeight: '500',
-    letterSpacing: 0.2,
+    color: "rgba(226, 232, 240, 0.78)",
+    fontSize: 14,
+    marginTop: 6,
+    fontWeight: "500",
+    letterSpacing: 0.15,
+    lineHeight: 20,
   },
   closeButton: {
     width: 32,
@@ -359,7 +430,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: "white",
     fontWeight: "500",
   },
@@ -373,22 +444,43 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: "600",
   },
+  dateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.16)",
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  dateButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  deliveryHint: {
+    color: '#22c55e',
+    fontSize: 12,
+    marginTop: 8,
+    fontWeight: '500',
+    opacity: 0.9,
+  },
   actions: {
     flexDirection: "row",
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 28 : 22,
     gap: 12,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148, 163, 184, 0.12)",
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "center",
     justifyContent: "center",
   },
   cancelText: {
@@ -397,25 +489,23 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#22d3ee",
+    borderRadius: 14,
     overflow: "hidden",
   },
   saveButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#22c55e",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   saveText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#020617",
-    letterSpacing: 0.3,
+    color: "#FFFFFF",
+    letterSpacing: 0.25,
   },
 }); 

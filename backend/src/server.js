@@ -1,5 +1,14 @@
 require('express-async-errors');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
+function normalizeEnvKey(name) {
+  const v = process.env[name];
+  if (v == null || typeof v !== 'string') return;
+  const t = v.trim().replace(/^["']|["']$/g, '');
+  if (t !== v) process.env[name] = t;
+}
+normalizeEnvKey('SERPAPI_KEY');
+normalizeEnvKey('WEBSCRAPINGAPI_KEY');
 
 const express = require('express');
 const http = require('http');
@@ -246,8 +255,10 @@ function logServerInfo(port) {
 // Verify SKU Search configuration on startup
 const serpApiKey = process.env.SERPAPI_KEY;
 const webScrapingApiKey = process.env.WEBSCRAPINGAPI_KEY;
-const hasSerpApi = serpApiKey && serpApiKey !== 'YOUR_SERPAPI_KEY_HERE';
-const hasWebScrapingApi = webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE';
+const hasSerpApi = Boolean(serpApiKey && serpApiKey !== 'YOUR_SERPAPI_KEY_HERE');
+const hasWebScrapingApi = Boolean(
+  webScrapingApiKey && webScrapingApiKey !== 'YOUR_WEBSCRAPINGAPI_KEY_HERE'
+);
 
 // Create HTTP servers for both ports
 const server1 = http.createServer(app);
