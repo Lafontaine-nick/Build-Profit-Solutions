@@ -55,7 +55,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
-  const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.58)" : Colors.sub;
+  const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.62)" : Colors.sub;
   const { addExpense } = useProjectData();
   
   const [vendor, setVendor] = useState("");
@@ -593,8 +593,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: 10,
-    marginBottom: 22,
+    paddingTop: 8,
+    marginBottom: 18,
   },
   headerIconButton: {
     width: 44,
@@ -627,19 +627,19 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: "700",
     color: "#FFFFFF",
-    letterSpacing: -0.4,
-    lineHeight: 32,
+    letterSpacing: -0.35,
+    lineHeight: 30,
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: isDark ? "rgba(226, 232, 240, 0.78)" : Colors.sub,
-    marginTop: 6,
+    fontSize: 13,
+    color: isDark ? "rgba(226, 232, 240, 0.82)" : Colors.sub,
+    marginTop: 5,
     fontWeight: "500",
-    letterSpacing: 0.15,
-    lineHeight: 20,
+    letterSpacing: 0.12,
+    lineHeight: 18,
   },
 
   scrollContent: {
@@ -648,7 +648,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   },
 
   fieldGroup: {
-    marginBottom: 22,
+    marginBottom: 18,
   },
 
   label: {
@@ -656,7 +656,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     fontWeight: "600",
     color: "#FFFFFF",
     marginBottom: 8,
-    letterSpacing: 0.2,
+    letterSpacing: 0.25,
   },
 
   /* INPUTS */
@@ -665,11 +665,12 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     padding: 1,
   },
   inputWrapper: {
-    borderRadius: 14,
+    borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 13,
+    minHeight: 50,
     backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Colors.surface2,
     borderWidth: 1,
     borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
@@ -706,27 +707,28 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 10,
-    gap: 10,
+    marginTop: 8,
+    gap: 8,
   },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
+    paddingVertical: 9,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
     backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Colors.surface2,
   },
   chipActive: {
-    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    backgroundColor: "rgba(34, 197, 94, 0.14)",
     borderColor: "#22c55e",
   },
   chipText: {
-    fontSize: 14,
-    color: BRAND_GREEN,
+    fontSize: 13,
+    color: isDark ? "#e2e8f0" : Colors.text,
     fontWeight: "600",
   },
   chipTextActive: {
+    color: "#4ade80",
     fontWeight: "700",
   },
 
@@ -737,14 +739,14 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+    borderTopColor: isDark ? "rgba(148, 163, 184, 0.14)" : Colors.line,
     backgroundColor: "#000000",
   },
   cancelButton: {
@@ -752,7 +754,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.24)" : Colors.line,
     backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
     alignItems: "center",
     justifyContent: "center",
@@ -766,10 +768,10 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: BRAND_GREEN,
+    shadowColor: "#000000",
     shadowOpacity: 0.22,
     shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 4 },
     elevation: 5,
   },
   cancelText: {

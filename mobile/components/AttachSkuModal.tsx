@@ -44,6 +44,7 @@ import {
   KeyboardAvoidingView,
   Image,
   StatusBar,
+  StyleSheet,
 } from "react-native";
 
 /** Get API base URL dynamically (recomputes each time to ensure fresh detection) */
@@ -661,9 +662,9 @@ export default function AttachSkuModal({
           <View style={{
             paddingHorizontal: 20,
             paddingTop: Math.max(insets.top, 12),
-            paddingBottom: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+            paddingBottom: 14,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(0,0,0,0.08)',
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <LinearGradient
@@ -733,9 +734,11 @@ export default function AttachSkuModal({
                     {isRentalMode ? 'Find Rental Equipment' : 'Search Products'}
                   </Text>
                   <Text style={{
-                    fontSize: 14,
-                    color: '#8DA0B8',
-                    marginTop: 2,
+                    fontSize: 13,
+                    color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
+                    marginTop: 4,
+                    lineHeight: 18,
+                    fontWeight: '500',
                   }}>
                     Search for materials and equipment
                   </Text>
@@ -753,14 +756,14 @@ export default function AttachSkuModal({
                     width: 40,
                     height: 40,
                     borderRadius: 20,
-                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2,
                     justifyContent: 'center',
                     alignItems: 'center',
                     borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
                   }}
                 >
-                  <MaterialIcons name="bookmark" size={22} color="#22c55e" />
+                  <MaterialIcons name="bookmark" size={20} color="#22c55e" />
                 </TouchableOpacity>
               )}
             </View>
@@ -770,47 +773,50 @@ export default function AttachSkuModal({
             style={{ flex: 1 }}
             contentContainerStyle={{ 
               flexGrow: 1,
-              paddingBottom: 20,
+              paddingBottom: 28,
               paddingHorizontal: 20,
             }}
             keyboardShouldPersistTaps="handled"
           >
           <View style={{ 
-            paddingTop: 20,
-            gap: 20,
+            paddingTop: 18,
+            gap: 18,
           }}>
 
             {/* Retailer Selection */}
-            <View style={{ marginBottom: 20 }}>
+            <View style={{ marginBottom: 4 }}>
               <Text style={{
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: '600',
                 color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 10,
-                letterSpacing: 0.2,
+                marginBottom: 8,
+                letterSpacing: 0.3,
+                textTransform: 'uppercase',
+                opacity: 0.9,
               }}>
                 Retailer
               </Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flexDirection: "row", gap: 10 }}>
                 <TouchableOpacity
                   onPress={() => setStore("hd")}
                   style={{
                     flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.15)" : Colors.line),
-                    backgroundColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface2),
+                    paddingVertical: 14,
+                    paddingHorizontal: 14,
+                    borderRadius: 14,
+                    borderWidth: 1.5,
+                    borderColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
+                    backgroundColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
                   <Text
                     style={{
-                      color: store === "hd" ? "#000000" : (darkMode ? "#FFFFFF" : "#000000"),
-                      fontWeight: "600",
-                      fontSize: 14,
+                      color: store === "hd" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
+                      fontWeight: "700",
+                      fontSize: 13,
+                      letterSpacing: 0.2,
                     }}
                   >
                     🏠 Home Depot
@@ -820,21 +826,22 @@ export default function AttachSkuModal({
                   onPress={() => setStore("lowes")}
                   style={{
                     flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.15)" : Colors.line),
-                    backgroundColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface2),
+                    paddingVertical: 14,
+                    paddingHorizontal: 14,
+                    borderRadius: 14,
+                    borderWidth: 1.5,
+                    borderColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
+                    backgroundColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
                   <Text
                     style={{
-                      color: store === "lowes" ? "#000000" : (darkMode ? "#FFFFFF" : "#000000"),
-                      fontWeight: "600",
-                      fontSize: 14,
+                      color: store === "lowes" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
+                      fontWeight: "700",
+                      fontSize: 13,
+                      letterSpacing: 0.2,
                     }}
                   >
                     🔨 Lowe's
@@ -844,12 +851,12 @@ export default function AttachSkuModal({
             </View>
 
             {/* Search Input */}
-            <View style={{ marginBottom: 20 }}>
+            <View style={{ marginBottom: 4 }}>
               <Text style={{
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: '600',
                 color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 10,
+                marginBottom: 8,
                 letterSpacing: 0.2,
               }}>
                 Search Query *
@@ -887,7 +894,7 @@ export default function AttachSkuModal({
                       color: darkMode ? '#FFFFFF' : '#000000',
                       fontWeight: '500',
                     }}
-                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                     returnKeyType="search"
                     onSubmitEditing={search}
                     selectionColor="#22c55e"
@@ -916,12 +923,12 @@ export default function AttachSkuModal({
             </View>
 
             {/* ZIP Input */}
-            <View style={{ marginBottom: 20 }}>
+            <View style={{ marginBottom: 4 }}>
               <Text style={{
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: '600',
                 color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 10,
+                marginBottom: 8,
                 letterSpacing: 0.2,
               }}>
                 ZIP Code *
@@ -960,7 +967,7 @@ export default function AttachSkuModal({
                       color: darkMode ? '#FFFFFF' : '#000000',
                       fontWeight: '500',
                     }}
-                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                     returnKeyType="done"
                     selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
@@ -979,9 +986,10 @@ export default function AttachSkuModal({
               }}
               disabled={loading || !q || !zip}
               style={{
-                borderRadius: 12,
+                borderRadius: 14,
                 overflow: 'hidden',
-                marginBottom: 20,
+                marginTop: 4,
+                marginBottom: 8,
                 opacity: (loading || !q || !zip) ? 0.5 : 1,
               }}
             >
@@ -990,13 +998,13 @@ export default function AttachSkuModal({
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={{
-                    paddingVertical: 14,
+                    paddingVertical: 15,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    shadowColor: '#22c55e',
-                    shadowOpacity: 0.25,
-                    shadowRadius: 12,
-                    shadowOffset: { width: 0, height: 6 },
+                    shadowColor: '#000000',
+                    shadowOpacity: darkMode ? 0.35 : 0.12,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 },
                     elevation: 4,
                   }}
                 >
@@ -1004,45 +1012,58 @@ export default function AttachSkuModal({
                     fontSize: 15,
                     fontWeight: '700',
                     color: '#020617',
-                    letterSpacing: 0.3,
+                    letterSpacing: 0.35,
                   }}>
                     {loading ? 'Searching...' : 'Search'}
                   </Text>
                 </LinearGradient>
               </TouchableOpacity>
 
-            {loading && <ActivityIndicator color="#22c55e" size="large" style={{ marginTop: 20 }} />}
-            {error && <Text style={{ color: "#ef4444", textAlign: 'center', marginTop: 10, fontSize: 14 }}>{error}</Text>}
+            {loading && <ActivityIndicator color="#22c55e" size="large" style={{ marginTop: 16 }} />}
+            {error && <Text style={{ color: "#f87171", textAlign: 'center', marginTop: 12, fontSize: 14, lineHeight: 20, paddingHorizontal: 8 }}>{error}</Text>}
 
             {results.length > 0 && (
-              <View style={{ marginTop: 10 }}>
+              <View style={{ marginTop: 6 }}>
                 <View style={{ 
                   flexDirection: 'row', 
                   alignItems: 'center', 
-                  marginBottom: 16,
-                  justifyContent: 'space-between'
+                  marginBottom: 12,
+                  flexWrap: 'wrap',
+                  gap: 10,
                 }}>
-                  <Text style={{ fontSize: 18, fontWeight: "700", color: '#FFFFFF' }}>
+                  <Text style={{ fontSize: 17, fontWeight: "700", color: darkMode ? '#FFFFFF' : '#000000', letterSpacing: -0.2 }}>
                     Search Results
                   </Text>
                   <View style={{
-                    backgroundColor: '#22c55e',
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 20,
+                    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.12)',
+                    paddingHorizontal: 11,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: darkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)',
                   }}>
                     <Text style={{ 
-                      color: '#000000', 
+                      color: darkMode ? '#86efac' : '#166534', 
                       fontWeight: '700', 
-                      fontSize: 14,
-                      letterSpacing: 0.5
+                      fontSize: 12,
+                      letterSpacing: 0.2,
                     }}>
                       {results.length} found
                     </Text>
                   </View>
                 </View>
                 {results.map((item, idx) => (
-                  <View key={`${item.sku || 'item'}-${idx}-${item.title || 'title'}`}>
+                  <View
+                    key={`${item.sku || 'item'}-${idx}-${item.title || 'title'}`}
+                    style={{
+                      marginBottom: idx < results.length - 1 ? 10 : 0,
+                      borderRadius: 14,
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <TouchableOpacity
                       onPress={() => {
                         if (isRentalMode && onSelect) {
@@ -1051,16 +1072,16 @@ export default function AttachSkuModal({
                           onAttach(item);
                         }
                       }}
-                      style={{ paddingVertical: 12, flexDirection: 'row', gap: 12 }}
+                      style={{ paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', gap: 10 }}
                     >
                       {/* Product Image */}
                       <View style={{ 
-                        width: 80, 
-                        height: 80, 
-                        borderRadius: 8,
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        width: 72, 
+                        height: 72, 
+                        borderRadius: 10,
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
                         borderWidth: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
                         justifyContent: 'center',
                         alignItems: 'center',
                         overflow: 'hidden',
@@ -1086,14 +1107,14 @@ export default function AttachSkuModal({
                       
                       {/* Product Info */}
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: "600", fontSize: 15, color: '#FFFFFF' }} numberOfLines={2}>
+                        <Text style={{ fontWeight: "600", fontSize: 14, lineHeight: 19, color: darkMode ? '#FFFFFF' : '#000000' }} numberOfLines={2}>
                           {item.title || 'No title'}
                         </Text>
-                        <Text style={{ color: '#8DA0B8', fontSize: 13, marginTop: 4 }}>
+                        <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.88)' : Colors.sub, fontSize: 12, marginTop: 3, lineHeight: 16 }}>
                           {item.store?.toUpperCase() || 'HD'} • {item.zip || 'N/A'} • {item.sku || "No SKU"}
                         </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8, flexWrap: 'wrap' }}>
-                          <Text style={{ fontWeight: '700', fontSize: 16, color: '#22c55e' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8, flexWrap: 'wrap' }}>
+                          <Text style={{ fontWeight: '700', fontSize: 15, color: '#22c55e' }}>
                             {isRentalMode ? (
                               item.unit ? `Rental • ${item.unit}` : "Rental Equipment"
                             ) : (
@@ -1125,23 +1146,23 @@ export default function AttachSkuModal({
                             return (
                               <View style={{
                                 backgroundColor: badgeColor,
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
-                                borderRadius: 12,
+                                paddingHorizontal: 7,
+                                paddingVertical: 3,
+                                borderRadius: 8,
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                                gap: 4,
+                                gap: 3,
                               }}>
                                 <MaterialIcons 
                                   name={signal === 'good' ? 'trending-down' : signal === 'expensive' ? 'trending-up' : 'trending-flat'} 
-                                  size={12} 
+                                  size={11} 
                                   color="#FFFFFF" 
                                 />
                                 <Text style={{ 
                                   color: '#FFFFFF', 
                                   fontWeight: '700', 
                                   fontSize: 10,
-                                  letterSpacing: 0.3
+                                  letterSpacing: 0.2
                                 }}>
                                   AI: {badgeText}
                                 </Text>
@@ -1151,18 +1172,18 @@ export default function AttachSkuModal({
                         </View>
                         
                         {/* Quantity Selector & Action Buttons */}
-                        <View style={{ marginTop: 8 }}>
-                          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                            <Text style={{ color: '#8DA0B8', fontSize: 12, fontWeight: '600', minWidth: 60 }}>
+                        <View style={{ marginTop: 6 }}>
+                          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                            <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 58 }}>
                               Quantity:
                             </Text>
                             <View style={{ 
                               flexDirection: 'row', 
                               alignItems: 'center', 
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                              borderRadius: 8,
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
+                              borderRadius: 10,
                               borderWidth: 1,
-                              borderColor: 'rgba(255, 255, 255, 0.1)',
+                              borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
                             }}>
                               <TouchableOpacity
                                 onPress={() => {
@@ -1173,17 +1194,17 @@ export default function AttachSkuModal({
                                   }
                                 }}
                                 style={{
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 8,
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
                                 }}
                               >
-                                <MaterialIcons name="remove" size={18} color="#FFFFFF" />
+                                <MaterialIcons name="remove" size={18} color={darkMode ? "#FFFFFF" : Colors.text} />
                               </TouchableOpacity>
                               <Text style={{ 
-                                color: '#FFFFFF', 
+                                color: darkMode ? '#FFFFFF' : Colors.text, 
                                 fontWeight: '700', 
                                 fontSize: 14,
-                                minWidth: 30,
+                                minWidth: 28,
                                 textAlign: 'center'
                               }}>
                                 {quantities.get(item.sku) || 1}
@@ -1195,16 +1216,16 @@ export default function AttachSkuModal({
                                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                 }}
                                 style={{
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 8,
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
                                 }}
                               >
-                                <MaterialIcons name="add" size={18} color="#FFFFFF" />
+                                <MaterialIcons name="add" size={18} color={darkMode ? "#FFFFFF" : Colors.text} />
                               </TouchableOpacity>
                             </View>
                           </View>
                           
-                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                             <TouchableOpacity
                               onPress={() => {
                                 const qty = quantities.get(item.sku) || 1;
@@ -1219,16 +1240,22 @@ export default function AttachSkuModal({
                                 flex: 1,
                                 backgroundColor: '#22c55e',
                                 paddingHorizontal: 12,
-                                paddingVertical: 10,
-                                borderRadius: 8,
+                                paddingVertical: 11,
+                                borderRadius: 10,
                                 alignItems: 'center',
                                 flexDirection: 'row',
                                 justifyContent: 'center',
                                 gap: 6,
+                                minHeight: 44,
+                                shadowColor: '#000000',
+                                shadowOpacity: 0.2,
+                                shadowRadius: 6,
+                                shadowOffset: { width: 0, height: 2 },
+                                elevation: 3,
                               }}
                             >
-                              <MaterialIcons name="add-shopping-cart" size={16} color="#000000" />
-                              <Text style={{ color: '#000000', fontWeight: '700', fontSize: 12 }}>
+                              <MaterialIcons name="add-shopping-cart" size={17} color="#000000" />
+                              <Text style={{ color: '#000000', fontWeight: '700', fontSize: 13 }}>
                                 {isRentalMode ? 'Select Rental' : 'Add to Bid'}
                               </Text>
                             </TouchableOpacity>
@@ -1237,49 +1264,46 @@ export default function AttachSkuModal({
                             <TouchableOpacity
                               onPress={() => toggleSaveItem(item)}
                               style={{
-                                width: 44,
-                                height: 44,
+                                width: 40,
+                                height: 40,
                                 backgroundColor: watchedItems.has(item.sku) 
-                                  ? 'rgba(34, 197, 94, 0.2)' 
-                                  : "rgba(255, 255, 255, 0.1)",
-                                borderRadius: 8,
+                                  ? 'rgba(34, 197, 94, 0.12)' 
+                                  : (darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.bg),
+                                borderRadius: 10,
                                 borderWidth: 1,
                                 borderColor: watchedItems.has(item.sku)
-                                  ? '#22c55e'
-                                  : "rgba(255, 255, 255, 0.15)",
+                                  ? 'rgba(34, 197, 94, 0.45)'
+                                  : (darkMode ? "rgba(148, 163, 184, 0.2)" : Colors.line),
                                 alignItems: 'center',
                                 justifyContent: 'center',
                               }}
                             >
                               <MaterialIcons 
                                 name={watchedItems.has(item.sku) ? "bookmark" : "bookmark-border"} 
-                                size={20} 
-                                color={watchedItems.has(item.sku) ? '#22c55e' : '#FFFFFF'} 
+                                size={18} 
+                                color={watchedItems.has(item.sku) ? '#22c55e' : (darkMode ? 'rgba(248, 250, 252, 0.75)' : Colors.sub)} 
                               />
                             </TouchableOpacity>
                             
                             <TouchableOpacity
                               onPress={() => Linking.openURL(item.url)}
                               style={{
-                                width: 44,
-                                height: 44,
-                                backgroundColor: "rgba(255, 255, 255, 0.1)",
-                                borderRadius: 8,
+                                width: 40,
+                                height: 40,
+                                backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.bg,
+                                borderRadius: 10,
                                 borderWidth: 1,
-                                borderColor: "rgba(255, 255, 255, 0.15)",
+                                borderColor: darkMode ? "rgba(148, 163, 184, 0.2)" : Colors.line,
                                 alignItems: 'center',
                                 justifyContent: 'center',
                               }}
                             >
-                              <MaterialIcons name="open-in-new" size={18} color="#FFFFFF" />
+                              <MaterialIcons name="open-in-new" size={17} color={darkMode ? 'rgba(248, 250, 252, 0.75)' : Colors.sub} />
                             </TouchableOpacity>
                           </View>
                         </View>
                       </View>
                     </TouchableOpacity>
-                    {idx < results.length - 1 && (
-                      <View style={{ height: 1, backgroundColor: "rgba(255, 255, 255, 0.08)", marginVertical: 12 }} />
-                    )}
                   </View>
                 ))}
               </View>
@@ -1287,17 +1311,18 @@ export default function AttachSkuModal({
 
             {!isInputFocused && (
               <View style={{ 
-                backgroundColor: 'rgba(255, 193, 7, 0.1)', 
-                padding: 12, 
-                borderRadius: 8, 
+                backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.12)', 
+                paddingHorizontal: 14, 
+                paddingVertical: 13, 
+                borderRadius: 12, 
                 borderWidth: 1, 
-                borderColor: 'rgba(255, 193, 7, 0.3)',
-                marginTop: 12 
+                borderColor: darkMode ? 'rgba(251, 191, 36, 0.22)' : 'rgba(217, 119, 6, 0.25)',
+                marginTop: results.length > 0 ? 14 : 10,
               }}>
-                <Text style={{ fontSize: 12, color: "#ffc107", fontWeight: "600", marginBottom: 4 }}>
+                <Text style={{ fontSize: 12, color: darkMode ? "#fbbf24" : "#b45309", fontWeight: "700", marginBottom: 6, letterSpacing: 0.2 }}>
                   ⚠️ Price Estimates
                 </Text>
-                <Text style={{ fontSize: 11, color: "#8DA0B8", lineHeight: 16 }}>
+                <Text style={{ fontSize: 12, color: darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub, lineHeight: 18 }}>
                   Prices are estimates from public search results and may change. Always verify current pricing and availability on the retailer's website before purchasing. Build Profit Solutions is not affiliated with Home Depot or Lowe's.
                 </Text>
               </View>

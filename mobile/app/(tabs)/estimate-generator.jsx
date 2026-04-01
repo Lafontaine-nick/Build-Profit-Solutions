@@ -513,9 +513,9 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
-    marginBottom: 0,
+    paddingTop: 8,
+    paddingBottom: 14,
+    marginBottom: 4,
   },
   headerIconButton: {
     width: 40,
@@ -578,42 +578,45 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     flex: 1,
   },
   materialTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '700',
     color: Colors.text,
-    letterSpacing: -0.4,
-    lineHeight: 32,
+    letterSpacing: -0.35,
+    lineHeight: 30,
   },
   materialSubtitle: {
     fontSize: 13,
     color: Colors.sub,
-    marginTop: 4,
+    marginTop: 5,
     fontWeight: '500',
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
+    lineHeight: 18,
+    opacity: 0.92,
   },
   materialFieldGroup: {
-    marginBottom: 20,
+    marginBottom: 18,
   },
   materialLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: Colors.text,
-    marginBottom: 10,
-    letterSpacing: 0.2,
+    marginBottom: 8,
+    letterSpacing: 0.25,
   },
   materialInputBorder: {
     borderRadius: 20,
     padding: 1,
   },
   materialInputWrapper: {
-    borderRadius: 18,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     backgroundColor: Colors.surface2,
     borderWidth: 1,
     borderColor: Colors.line,
-    paddingVertical: 12,
+    paddingVertical: 13,
+    minHeight: 50,
   },
   materialInputIcon: {
     marginRight: 12,
@@ -627,36 +630,37 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
   materialChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 0,
+    marginTop: 2,
+    gap: 8,
   },
   materialChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 16,
+    marginRight: 0,
+    marginBottom: 0,
     borderWidth: 1,
     borderColor: Colors.line,
     backgroundColor: Colors.surface2,
   },
   materialChipActive: {
-    backgroundColor: 'rgba(45, 255, 196, 0.2)',
-    borderColor: '#2DFFC4',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    borderColor: '#22c55e',
   },
   materialChipText: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.text,
     fontWeight: '600',
   },
   materialChipTextActive: {
-    color: '#2DFFC4',
-    fontWeight: '600',
+    color: '#4ade80',
+    fontWeight: '700',
   },
   materialCancelBtn: {
     flex: 1,
-    marginRight: 10,
-    paddingVertical: 14,
-    borderRadius: 12,
+    marginRight: 8,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.line,
     backgroundColor: Colors.surface2,
@@ -665,18 +669,18 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
   },
   materialSaveBtn: {
     flex: 1,
-    marginLeft: 10,
-    borderRadius: 12,
+    marginLeft: 8,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   materialSaveButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: '#000000',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
   materialCancelText: {
@@ -696,12 +700,13 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 14,
+    paddingBottom: 22,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.line,
     backgroundColor: Colors.bg,
   },
@@ -1597,7 +1602,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingHorizontal: 20,
-                  paddingBottom: 100,
+                  paddingBottom: 108,
                 }}
               >
                 {isLabor ? (
@@ -1859,7 +1864,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           <TextInput
                             style={modalStyles.materialInput}
                             placeholder="e.g., Home Depot, ABC Contractors"
-                            placeholderTextColor="rgba(255,255,255,0.4)"
+                            placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                             value={vendor}
                             onChangeText={setVendor}
                             onPressIn={hideFooterForKeyboard}
@@ -1907,7 +1912,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       </View>
 
                       {/* Category (Optional) */}
-                      <View style={[modalStyles.materialFieldGroup, { marginTop: 24 }]}>
+                      <View style={[modalStyles.materialFieldGroup, { marginTop: 18 }]}>
                         <Text style={modalStyles.materialLabel}>Category (Optional)</Text>
                         <View style={modalStyles.materialChipRow}>
                           {['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'].map((c) => (
@@ -3377,7 +3382,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   stepperPanelInner: {
     backgroundColor: '#000000',
     borderRadius: 18,
-    padding: 16,
+    padding: 18,
   },
   // Thinner nav pill - matches dashboard segmented control
   navPillBorder: {
@@ -3542,7 +3547,7 @@ export default function EstimateGeneratorScreen() {
       keyboardDidShowSub.current = null;
     };
   }, []);
-  
+
   // Format phone number with dashes (XXX-XXX-XXXX)
   const formatPhoneNumber = (text) => {
     // Remove all non-digit characters
@@ -9836,21 +9841,21 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+            <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
                 {/* Header */}
-                <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                      <Ionicons name="cube-outline" size={20} color="#2DFFC4" />
+                <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 14, borderWidth: 1, borderColor: 'rgba(45, 255, 196, 0.22)' }}>
+                      <Ionicons name="cube-outline" size={21} color="#2DFFC4" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Materials & Supplies</Text>
-                      <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Live pricing and inflation tracking</Text>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}>Materials & Supplies</Text>
+                      <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.85)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500' }}>Live pricing and inflation tracking</Text>
                     </View>
                   </View>
                   
                   {/* Actions */}
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
                       style={{
                         flex: 1,
@@ -9860,13 +9865,13 @@ export default function EstimateGeneratorScreen() {
                         backgroundColor: materialModal.visible
                           ? Colors.primary
                           : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                        borderRadius: 12,
+                        borderRadius: 14,
                         borderWidth: 1,
                         borderColor: materialModal.visible
                           ? Colors.primary
-                          : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                        paddingVertical: 12,
-                        paddingHorizontal: 16,
+                          : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
+                        paddingVertical: 13,
+                        paddingHorizontal: 14,
                       }}
                       onPress={() => setMaterialModal({ visible: true, item: null })}
                     >
@@ -9882,13 +9887,13 @@ export default function EstimateGeneratorScreen() {
                         backgroundColor: skuModalVisible
                           ? Colors.primary
                           : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                        borderRadius: 12,
+                        borderRadius: 14,
                         borderWidth: 1,
                         borderColor: skuModalVisible
                           ? Colors.primary
-                          : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                        paddingVertical: 12,
-                        paddingHorizontal: 16,
+                          : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
+                        paddingVertical: 13,
+                        paddingHorizontal: 14,
                       }}
                       onPress={() => {
                         console.log('🔍 SKU Search button pressed');
@@ -9908,30 +9913,30 @@ export default function EstimateGeneratorScreen() {
                 </GlassBorderCard>
                 
                 {/* Materials Cart Summary */}
-                <View style={{ marginTop: 16 }}>
-                  <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
+                <View style={{ marginTop: 14 }}>
+                  <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
                     <TouchableOpacity
                       onPress={() => setIsCartExpanded(!isCartExpanded)}
-                      style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isCartExpanded ? 16 : 0 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isCartExpanded ? 14 : 0, paddingVertical: 2 }}
                       activeOpacity={0.7}
                     >
-                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(34, 197, 94, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                        <Ionicons name="cart-outline" size={16} color="#22c55e" />
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(34, 197, 94, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.22)' }}>
+                        <Ionicons name="cart-outline" size={18} color="#22c55e" />
                       </View>
-                      <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', flex: 1 }}>
+                      <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, letterSpacing: -0.2 }}>
                         Materials Cart
                       </Text>
                       {materialsCart.length > 0 && (
-                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
-                          <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>
+                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.14)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
+                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
                             {materialsCart.length}
                           </Text>
                         </View>
                       )}
                       <Ionicons
                         name={isCartExpanded ? "chevron-up" : "chevron-down"}
-                        size={18}
-                        color={Colors.sub}
+                        size={20}
+                        color={darkMode ? 'rgba(203, 213, 225, 0.65)' : Colors.sub}
                       />
                     </TouchableOpacity>
                     
@@ -9956,32 +9961,33 @@ export default function EstimateGeneratorScreen() {
                               
                               return (
                                 <View key={item.id || index} style={{
-                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                  borderRadius: 12,
-                                  padding: 14,
-                                  marginBottom: 10,
+                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                                  borderRadius: 14,
+                                  paddingHorizontal: 14,
+                                  paddingVertical: 12,
+                                  marginBottom: 8,
                                   borderWidth: 1,
-                                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
                                 }}>
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <View style={{ flex: 1, marginRight: 12 }}>
-                                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 4 }}>
+                                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 3, lineHeight: 20 }}>
                                         {item.name || item.description || 'Material'}
                                       </Text>
                                       {!isEditing ? (
                                         <>
-                                          <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 2 }}>
+                                          <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
                                             {item.quantity || item.qty || 0} {item.unit || 'ea'} × {money(item.unitPrice || item.cost || 0)}
                                           </Text>
                                           {item.vendorId && (
-                                            <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                            <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
                                               {VENDORS.find(v => v.id === item.vendorId)?.name || item.vendorId}
                                             </Text>
                                           )}
                                           {item.sku && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
                                               <Ionicons name="barcode-outline" size={12} color="#22d3ee" />
-                                              <Text style={{ color: '#22d3ee', fontSize: 11, marginLeft: 4 }}>
+                                              <Text style={{ color: '#5eead4', fontSize: 11, marginLeft: 4, opacity: 0.95 }}>
                                                 {item.sku}
                                               </Text>
                                             </View>
@@ -10031,23 +10037,25 @@ export default function EstimateGeneratorScreen() {
                                       )}
                                     </View>
                                     <View style={{ alignItems: 'flex-end' }}>
-                                      <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 8 }}>
+                                      <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
                                         {money(item.total || 0)}
                                       </Text>
-                                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                                      <View style={{ flexDirection: 'row', gap: 8 }}>
                                         {!isEditing && (
                                           <TouchableOpacity
                                             onPress={() => setEditingCartItem(index)}
                                             style={{
-                                              width: 28,
-                                              height: 28,
-                                              borderRadius: 14,
-                                              backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                                              width: 32,
+                                              height: 32,
+                                              borderRadius: 16,
+                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
                                               justifyContent: 'center',
                                               alignItems: 'center',
+                                              borderWidth: 1,
+                                              borderColor: 'rgba(34, 197, 94, 0.22)',
                                             }}
                                           >
-                                            <Ionicons name="create-outline" size={14} color="#22c55e" />
+                                            <Ionicons name="create-outline" size={15} color="#4ade80" />
                                           </TouchableOpacity>
                                         )}
                                         <TouchableOpacity
@@ -10056,15 +10064,17 @@ export default function EstimateGeneratorScreen() {
                                             if (editingCartItem === index) setEditingCartItem(null);
                                           }}
                                           style={{
-                                            width: 28,
-                                            height: 28,
-                                            borderRadius: 14,
-                                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 16,
+                                            backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
                                             justifyContent: 'center',
                                             alignItems: 'center',
+                                            borderWidth: 1,
+                                            borderColor: 'rgba(248, 113, 113, 0.28)',
                                           }}
                                         >
-                                          <Ionicons name="trash-outline" size={14} color="#ef4444" />
+                                          <Ionicons name="trash-outline" size={15} color="#f87171" />
                                         </TouchableOpacity>
                                       </View>
                                     </View>
@@ -10085,38 +10095,40 @@ export default function EstimateGeneratorScreen() {
                                   flexDirection: 'row',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  paddingVertical: 10,
-                                  marginTop: 8,
-                                  marginBottom: 12,
-                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                  paddingVertical: 12,
+                                  marginTop: 6,
+                                  marginBottom: 10,
+                                  borderRadius: 12,
+                                  backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
                                   borderWidth: 1,
-                                  borderColor: 'rgba(239, 68, 68, 0.35)',
+                                  borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
                                 }}
                               >
-                                <Ionicons name="trash-outline" size={16} color="#ef4444" style={{ marginRight: 6 }} />
-                                <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>Clear Cart</Text>
+                                <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
+                                <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear Cart</Text>
                               </TouchableOpacity>
                             )}
                             
                             <View style={{
-                              backgroundColor: 'rgba(45, 255, 196, 0.1)',
-                              borderRadius: 12,
-                              padding: 16,
+                              backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.12)',
+                              borderRadius: 14,
+                              paddingHorizontal: 16,
+                              paddingVertical: 14,
                               borderWidth: 1,
-                              borderColor: 'rgba(45, 255, 196, 0.3)',
-                              marginTop: 8,
+                              borderColor: 'rgba(45, 255, 196, 0.26)',
+                              marginTop: 4,
                             }}>
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <Text style={{ color: Colors.sub, fontSize: 12 }}>Items</Text>
-                                <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600' }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, fontWeight: '600' }}>Items</Text>
+                                <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                   {materialsCart.length}
                                 </Text>
                               </View>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                                <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                   Total Materials
                                 </Text>
-                                <Text style={{ color: '#2DFFC4', fontSize: 22, fontWeight: '700' }}>
+                                <Text style={{ color: '#2DFFC4', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                   {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
                                 </Text>
                               </View>
@@ -10483,21 +10495,21 @@ export default function EstimateGeneratorScreen() {
 
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+            <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
               {/* Header */}
-              <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                    <Ionicons name="people-outline" size={20} color="#2DFFC4" />
+              <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 14, borderWidth: 1, borderColor: 'rgba(45, 255, 196, 0.22)' }}>
+                    <Ionicons name="people-outline" size={21} color="#2DFFC4" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Labor & Subcontractors</Text>
-                    <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>In-house and subcontractor labor</Text>
+                    <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}>Labor & Subcontractors</Text>
+                    <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.85)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500' }}>In-house and subcontractor labor</Text>
                   </View>
                 </View>
                 
                 {/* Actions */}
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
                   <TouchableOpacity
                     style={{
                       flex: 1,
@@ -10507,13 +10519,13 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: laborModal.visible
                         ? Colors.primary
                         : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                      borderRadius: 12,
+                      borderRadius: 14,
                       borderWidth: 1,
                       borderColor: laborModal.visible
                         ? Colors.primary
-                        : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
+                        : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
+                      paddingVertical: 13,
+                      paddingHorizontal: 14,
                       minWidth: 0,
                     }}
                     onPress={() => setLaborModal({ visible: true, item: null })}
@@ -10530,13 +10542,13 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: subcontractorModalVisible
                         ? Colors.primary
                         : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                      borderRadius: 12,
+                      borderRadius: 14,
                       borderWidth: 1,
                       borderColor: subcontractorModalVisible
                         ? Colors.primary
-                        : (darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line),
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
+                        : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
+                      paddingVertical: 13,
+                      paddingHorizontal: 14,
                       minWidth: 0,
                     }}
                     onPress={() => setSubcontractorModalVisible(true)}
@@ -10548,30 +10560,30 @@ export default function EstimateGeneratorScreen() {
               </GlassBorderCard>
               
               {/* Labor Cart Summary */}
-              <View style={{ marginTop: 16 }}>
-                <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
+              <View style={{ marginTop: 14 }}>
+                <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
                   <TouchableOpacity
                     onPress={() => setIsLaborCartExpanded(!isLaborCartExpanded)}
-                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isLaborCartExpanded ? 16 : 0 }}
+                    style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isLaborCartExpanded ? 14 : 0, paddingVertical: 2 }}
                     activeOpacity={0.7}
                   >
-                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                      <Ionicons name="people-outline" size={16} color="#2DFFC4" />
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: 'rgba(45, 255, 196, 0.22)' }}>
+                      <Ionicons name="people-outline" size={18} color="#2DFFC4" />
                     </View>
-                    <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', flex: 1, letterSpacing: -0.2 }}>
                       Labor Items
                     </Text>
                     {laborItems.length > 0 && (
-                      <View style={{ backgroundColor: 'rgba(45, 255, 196, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
-                        <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '700' }}>
+                      <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.14)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, marginRight: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
+                        <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
                           {laborItems.length}
                         </Text>
                       </View>
                     )}
                     <Ionicons
                       name={isLaborCartExpanded ? "chevron-up" : "chevron-down"}
-                      size={18}
-                      color={Colors.sub}
+                      size={20}
+                      color={darkMode ? 'rgba(203, 213, 225, 0.65)' : Colors.sub}
                     />
                   </TouchableOpacity>
                   
@@ -10585,7 +10597,7 @@ export default function EstimateGeneratorScreen() {
                           <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 4 }}>
                             No labor items yet
                           </Text>
-                          <Text style={{ color: Colors.sub, fontSize: 13, textAlign: 'center' }}>
+                          <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.78)' : Colors.sub, fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
                             Add in-house labor or search for subcontractors
                           </Text>
                         </View>
@@ -10593,17 +10605,18 @@ export default function EstimateGeneratorScreen() {
                         <>
                           {laborItems.map((item, index) => (
                             <View key={item.id || index} style={{
-                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                              borderRadius: 12,
-                              padding: 14,
-                              marginBottom: 10,
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                              borderRadius: 14,
+                              paddingHorizontal: 14,
+                              paddingVertical: 12,
+                              marginBottom: 8,
                               borderWidth: 1,
-                              borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                              borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
                             }}>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <View style={{ flex: 1, marginRight: 12 }}>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
+                                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', lineHeight: 20 }}>
                                       {item.description || item.name || 'Labor'}
                                     </Text>
                                     {item.laborType === 'subcontractor' && (
@@ -10637,7 +10650,7 @@ export default function EstimateGeneratorScreen() {
                                       </View>
                                     )}
                                   </View>
-                                  <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 2 }}>
+                                  <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
                                     {item.mode === 'sqft' ? (
                                       `${bid.sqft || 0} sqft × ${money(item.rate || 0)}/sqft`
                                     ) : (
@@ -10645,14 +10658,14 @@ export default function EstimateGeneratorScreen() {
                                     )}
                                   </Text>
                                   {item.metadata && (
-                                    <View style={{ marginTop: 4 }}>
+                                    <View style={{ marginTop: 5 }}>
                                       {item.metadata.rating && (
-                                        <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                        <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
                                           ⭐ {item.metadata.rating} ({item.metadata.reviews || 0} reviews)
                                         </Text>
                                       )}
                                       {item.metadata.location && (
-                                        <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                        <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
                                           📍 {item.metadata.location}
                                         </Text>
                                       )}
@@ -10660,7 +10673,7 @@ export default function EstimateGeneratorScreen() {
                                   )}
                                 </View>
                                 <View style={{ alignItems: 'flex-end' }}>
-                                  <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '700', marginBottom: 8 }}>
+                                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
                                     {money(item.total || 0)}
                                   </Text>
                                   <TouchableOpacity
@@ -10683,15 +10696,17 @@ export default function EstimateGeneratorScreen() {
                                       );
                                     }}
                                     style={{
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: 14,
-                                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                      width: 32,
+                                      height: 32,
+                                      borderRadius: 16,
+                                      backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
                                       justifyContent: 'center',
                                       alignItems: 'center',
+                                      borderWidth: 1,
+                                      borderColor: 'rgba(248, 113, 113, 0.28)',
                                     }}
                                   >
-                                    <Ionicons name="trash-outline" size={14} color="#ef4444" />
+                                    <Ionicons name="trash-outline" size={15} color="#f87171" />
                                   </TouchableOpacity>
                                 </View>
                               </View>
@@ -10710,38 +10725,40 @@ export default function EstimateGeneratorScreen() {
                                 flexDirection: 'row',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                paddingVertical: 10,
-                                marginTop: 8,
-                                marginBottom: 12,
-                                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                paddingVertical: 12,
+                                marginTop: 6,
+                                marginBottom: 10,
+                                borderRadius: 12,
+                                backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
                                 borderWidth: 1,
-                                borderColor: 'rgba(239, 68, 68, 0.35)',
+                                borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
                               }}
                             >
-                              <Ionicons name="trash-outline" size={16} color="#ef4444" style={{ marginRight: 6 }} />
-                              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>Clear All</Text>
+                              <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
+                              <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear All</Text>
                             </TouchableOpacity>
                           )}
                           
                           <View style={{
-                            backgroundColor: 'rgba(45, 255, 196, 0.1)',
-                            borderRadius: 12,
-                            padding: 16,
+                            backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.12)',
+                            borderRadius: 14,
+                            paddingHorizontal: 16,
+                            paddingVertical: 14,
                             borderWidth: 1,
-                            borderColor: 'rgba(45, 255, 196, 0.3)',
-                            marginTop: 8,
+                            borderColor: 'rgba(45, 255, 196, 0.26)',
+                            marginTop: 4,
                           }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                              <Text style={{ color: Colors.sub, fontSize: 12 }}>Items</Text>
-                              <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600' }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                              <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, fontWeight: '600' }}>Items</Text>
+                              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                                 {laborItems.length}
                               </Text>
                             </View>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                              <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                 Total Labor
                               </Text>
-                              <Text style={{ color: '#2DFFC4', fontSize: 22, fontWeight: '700' }}>
+                              <Text style={{ color: '#2DFFC4', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                 {money(totalLabor)}
                               </Text>
                             </View>
@@ -11048,31 +11065,49 @@ export default function EstimateGeneratorScreen() {
             markupStatusColor = '#38d39f';
           }
         }
-        
+
+        const step5Muted = darkMode ? 'rgba(215, 225, 240, 0.9)' : Colors.sub;
+        const step5MutedSoft = darkMode ? 'rgba(198, 210, 232, 0.78)' : Colors.sub;
+        const step5FieldLabelStyle = {
+          color: darkMode ? 'rgba(241, 245, 249, 0.93)' : Colors.sub,
+          fontSize: 12,
+          fontWeight: '600',
+          marginBottom: 5,
+        };
+        const step5FieldWrapStyle = { marginBottom: 12 };
+
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={[s.wideContainer, { marginTop: 16, marginBottom: 100 }]}>
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                    <Ionicons name="calculator-outline" size={20} color="#2DFFC4" />
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
+                  <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(45, 255, 196, 0.16)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                    <Ionicons name="calculator-outline" size={21} color="#2DFFC4" />
                   </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Direct costs, overhead & markup</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Enter direct costs, overhead, and your markup rate</Text>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.35 }}>Direct costs, overhead & markup</Text>
+                  <Text style={{ color: step5Muted, fontSize: 13, marginTop: 5, lineHeight: 18 }}>Enter direct costs, overhead, and your markup rate</Text>
                 </View>
               </View>
-              
-              {/* Contractor Type Selector */}
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Business Type</Text>
-                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8 }}>
+
+              {/* Business type — single decision module */}
+              <View style={{
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2,
+                padding: 14,
+                marginBottom: 18,
+              }}>
+                <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: -0.15 }}>Business Type</Text>
+                <Text style={{ color: step5MutedSoft, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
                   Select your business model for personalized recommendations
                 </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                   {Object.entries(contractorTypes).map(([type, info]) => (
                     <TouchableOpacity
                       key={type}
+                      activeOpacity={0.88}
                       onPress={() => {
                         updateBid('contractorType', parseInt(type));
                         // Don't auto-apply markup - let user keep their current value and see recommendations
@@ -11081,68 +11116,71 @@ export default function EstimateGeneratorScreen() {
                       style={{
                         flex: 1,
                         minWidth: '47%',
-                        padding: 12,
-                        borderRadius: 12,
-                        borderWidth: 2,
-                        borderColor: normalizedContractorType === parseInt(type) 
-                          ? '#38d39f' 
-                          : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
+                        paddingVertical: 13,
+                        paddingHorizontal: 12,
+                        borderRadius: 14,
+                        borderWidth: normalizedContractorType === parseInt(type) ? 2 : 1,
+                        borderColor: normalizedContractorType === parseInt(type)
+                          ? '#2DFFC4'
+                          : (darkMode ? 'rgba(255, 255, 255, 0.12)' : Colors.line),
                         backgroundColor: normalizedContractorType === parseInt(type)
-                          ? 'rgba(56, 211, 159, 0.1)'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2),
+                          ? (darkMode ? 'rgba(45, 255, 196, 0.1)' : 'rgba(45, 255, 196, 0.12)')
+                          : (darkMode ? 'rgba(0, 0, 0, 0.35)' : Colors.surface),
                       }}
                     >
-                      <Text style={{ 
-                        color: normalizedContractorType === parseInt(type) ? '#38d39f' : Colors.text, 
-                        fontSize: 13, 
-                        fontWeight: contractorType === parseInt(type) ? '700' : '600',
-                        marginBottom: 4,
+                      <Text style={{
+                        color: normalizedContractorType === parseInt(type) ? '#2DFFC4' : Colors.text,
+                        fontSize: 14,
+                        fontWeight: normalizedContractorType === parseInt(type) ? '800' : '700',
+                        marginBottom: 5,
+                        letterSpacing: -0.2,
                       }}>
                         {info.name}
                       </Text>
-                      <Text style={{ 
-                        color: Colors.sub, 
-                        fontSize: 11,
+                      <Text style={{
+                        color: step5Muted,
+                        fontSize: 12,
+                        lineHeight: 16,
                       }}>
                         {info.description}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
-                
-                {/* Show recommendations if contractor type is set */}
+
                 {contractorInfo && (
                   <View style={{
-                    marginTop: 12,
-                    padding: 12,
-                    borderRadius: 8,
-                    backgroundColor: 'rgba(56, 211, 159, 0.08)',
+                    marginTop: 14,
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderRadius: 12,
+                    backgroundColor: darkMode ? 'rgba(56, 211, 159, 0.09)' : 'rgba(56, 211, 159, 0.1)',
                     borderWidth: 1,
-                    borderColor: 'rgba(56, 211, 159, 0.2)',
+                    borderColor: 'rgba(56, 211, 159, 0.28)',
                   }}>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700', marginBottom: 5 }}>
                       Suggested for {contractorInfo.name}:
                     </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 11 }}>
-                      Markup: {contractorInfo.safeMarkupRange.min}–{contractorInfo.safeMarkupRange.max}% • 
+                    <Text style={{ color: step5Muted, fontSize: 12, lineHeight: 17 }}>
+                      Markup: {contractorInfo.safeMarkupRange.min}–{contractorInfo.safeMarkupRange.max}% •
                       Overhead: {contractorInfo.overheadRange.min}–{contractorInfo.overheadRange.max}%
                     </Text>
-                    <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 4, fontStyle: 'italic' }}>
+                    <Text style={{ color: step5MutedSoft, fontSize: 11, marginTop: 6, fontStyle: 'italic', lineHeight: 15 }}>
                       Typical range — not a limit
                     </Text>
                   </View>
                 )}
               </View>
-              
-              <View style={{ marginTop: 4, marginBottom: 12 }}>
-                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Direct costs</Text>
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+
+              <View style={{ marginBottom: 10 }}>
+                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Direct costs</Text>
+                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
                   Equipment rental, plans, permits, and other direct costs
                 </Text>
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Equipment Rental</Text>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Equipment Rental</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : '') }]}
                   placeholder="0"
@@ -11166,8 +11204,8 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Plans</Text>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Plans</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : '') }]}
                   placeholder="0"
@@ -11191,8 +11229,8 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Permits</Text>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Permits</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : '') }]}
                   placeholder="0"
@@ -11216,8 +11254,8 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Other direct costs</Text>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Other direct costs</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : '') }]}
                   placeholder="0"
@@ -11241,15 +11279,15 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={{ marginTop: 16, marginBottom: 12 }}>
-                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Overhead</Text>
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+              <View style={{ marginTop: 14, marginBottom: 10 }}>
+                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Overhead</Text>
+                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
                   Insurance, equipment maintenance, facilities, and other overhead
                 </Text>
               </View>
 
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Insurance Overhead</Text>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Insurance Overhead</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : '') }]}
                   placeholder="0"
@@ -11272,9 +11310,9 @@ export default function EstimateGeneratorScreen() {
                   blurOnSubmit={true}
                 />
               </View>
-              
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Equipment Maintenance</Text>
+
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Equipment Maintenance</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : '') }]}
                   placeholder="0"
@@ -11297,9 +11335,9 @@ export default function EstimateGeneratorScreen() {
                   blurOnSubmit={true}
                 />
               </View>
-              
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Facilities</Text>
+
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Facilities</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : '') }]}
                   placeholder="0"
@@ -11322,9 +11360,9 @@ export default function EstimateGeneratorScreen() {
                   blurOnSubmit={true}
                 />
               </View>
-              
-              <View style={s.inputGroup}>
-                <Text style={s.label}>Other Overhead</Text>
+
+              <View style={{ ...step5FieldWrapStyle, marginBottom: 14 }}>
+                <Text style={step5FieldLabelStyle}>Other Overhead</Text>
                 <TextInput
                   style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : '') }]}
                   placeholder="0"
@@ -11348,17 +11386,18 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={{ marginTop: 16, marginBottom: 12 }}>
-                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>Markup percentage</Text>
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }}>
+              <View style={{ marginTop: 4, marginBottom: 10 }}>
+                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Markup percentage</Text>
+                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
                   Applied to materials, labor, and all direct costs above
                 </Text>
               </View>
 
-              <View style={s.inputGroup}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={s.label}>Markup %</Text>
+              <View style={{ marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={step5FieldLabelStyle}>Markup %</Text>
                   <TouchableOpacity
+                    activeOpacity={0.88}
                     onPress={() => {
                       // Only update if not already at recommended (not "Apply 0%")
                       if (applyButtonText !== 'Apply 0%') {
@@ -11368,37 +11407,44 @@ export default function EstimateGeneratorScreen() {
                       }
                     }}
                     style={{
-                      backgroundColor: contextualMessage?.type === 'low' 
-                        ? 'rgba(239, 68, 68, 0.15)' 
+                      paddingHorizontal: 11,
+                      paddingVertical: 7,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: contextualMessage?.type === 'low'
+                        ? 'rgba(239, 68, 68, 0.45)'
                         : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                        ? 'rgba(56, 211, 159, 0.15)'
-                        : 'rgba(251, 191, 36, 0.15)',
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 8,
+                        ? 'rgba(56, 211, 159, 0.4)'
+                        : 'rgba(251, 191, 36, 0.45)',
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
                       flexDirection: 'row',
                       alignItems: 'center',
-                      gap: 6,
+                      gap: 5,
                     }}
                   >
-                    <Ionicons 
-                      name="sparkles" 
-                      size={14} 
-                      color={contextualMessage?.type === 'low' 
-                        ? '#ef4444' 
+                    <Ionicons
+                      name="color-wand-outline"
+                      size={15}
+                      color={contextualMessage?.type === 'low'
+                        ? '#f87171'
                         : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                        ? '#38d39f'
-                        : '#fbbf24'} 
+                        ? '#5eead4'
+                        : '#fcd34d'}
                     />
-                    <Text style={{ 
-                      color: contextualMessage?.type === 'low' 
-                        ? '#ef4444' 
-                        : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                        ? '#38d39f'
-                        : '#fbbf24', 
-                      fontSize: 12, 
-                      fontWeight: '600' 
-                    }}>
+                    <Text
+                      style={{
+                        color: contextualMessage?.type === 'low'
+                          ? '#fca5a5'
+                          : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
+                          ? '#99f6e4'
+                          : '#fde68a',
+                        fontSize: 12,
+                        fontWeight: '600',
+                        maxWidth: 200,
+                        textAlign: 'right',
+                      }}
+                      numberOfLines={2}
+                    >
                       {applyButtonText}
                     </Text>
                   </TouchableOpacity>
@@ -11450,32 +11496,33 @@ export default function EstimateGeneratorScreen() {
                   }}
                   blurOnSubmit={true}
                 />
-                
-                {/* Contextual Message */}
+
                 {contextualMessage && (
                   <View style={{
-                    marginTop: 8,
-                    padding: 10,
-                    borderRadius: 8,
-                    backgroundColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.08)' :
-                                    contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.08)' :
-                                    contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.08)' :
-                                    contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.08)' :
-                                    'rgba(56, 211, 159, 0.08)',
+                    marginTop: 10,
+                    paddingVertical: 11,
+                    paddingHorizontal: 13,
+                    borderRadius: 12,
+                    backgroundColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.09)' :
+                                    contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.09)' :
+                                    contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.09)' :
+                                    contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.09)' :
+                                    'rgba(56, 211, 159, 0.09)',
                     borderWidth: 1,
-                    borderColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.2)' :
-                                 contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.2)' :
-                                 contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.3)' :
-                                 contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.3)' :
-                                 'rgba(56, 211, 159, 0.3)',
+                    borderColor: contextualMessage.type === 'low' ? 'rgba(239, 68, 68, 0.28)' :
+                                 contextualMessage.type === 'high' ? 'rgba(251, 191, 36, 0.28)' :
+                                 contextualMessage.type === 'above' ? 'rgba(56, 211, 159, 0.32)' :
+                                 contextualMessage.type === 'inRange' ? 'rgba(56, 211, 159, 0.32)' :
+                                 'rgba(56, 211, 159, 0.32)',
                   }}>
-                    <Text style={{ 
+                    <Text style={{
                       color: contextualMessage.type === 'low' ? '#ef4444' :
                              contextualMessage.type === 'high' ? '#fbbf24' :
                              contextualMessage.type === 'inRange' ? '#38d39f' :
-                             '#38d39f', 
-                      fontSize: 12, 
-                      fontWeight: '600' 
+                             '#38d39f',
+                      fontSize: 12.5,
+                      fontWeight: '600',
+                      lineHeight: 18,
                     }}>
                       {contextualMessage.type === 'low' && '🔴 '}
                       {contextualMessage.type === 'high' && '🟡 '}
@@ -11485,103 +11532,165 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                 )}
-                
-                {/* Health Badge - Always Visible, Based on Net Profit */}
+
                 <View style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  marginTop: 8,
-                  padding: 10,
-                  borderRadius: 8,
+                  marginTop: contextualMessage ? 9 : 10,
+                  paddingVertical: 11,
+                  paddingHorizontal: 13,
+                  borderRadius: 12,
                   backgroundColor: markupStatusColor === '#38d39f' ? 'rgba(56, 211, 159, 0.1)' :
                                   markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.1)' :
                                   markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.1)' :
                                   'rgba(56, 211, 159, 0.1)',
                   borderWidth: 1,
-                  borderColor: markupStatusColor === '#38d39f' ? 'rgba(56, 211, 159, 0.3)' :
-                               markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.3)' :
-                               markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.3)' :
-                               'rgba(56, 211, 159, 0.3)',
+                  borderColor: markupStatusColor === '#38d39f' ? 'rgba(56, 211, 159, 0.35)' :
+                               markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.35)' :
+                               markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.35)' :
+                               'rgba(56, 211, 159, 0.35)',
                 }}>
                   <View style={{
                     width: 8,
                     height: 8,
                     borderRadius: 4,
                     backgroundColor: markupStatusColor,
-                    marginRight: 8,
+                    marginRight: 10,
                   }} />
-                  <Text style={{ color: markupStatusColor, fontSize: 12, fontWeight: '600' }}>
+                  <Text style={{ color: markupStatusColor, fontSize: 12.5, fontWeight: '600', flex: 1, lineHeight: 18 }}>
                     {markupStatusText}
                   </Text>
                 </View>
               </View>
-              
-              {/* Bid Breakdown */}
+
               {calc && (
                 <View style={{
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                  borderRadius: 12,
-                  padding: 16,
-                  marginTop: 8,
-                  marginBottom: 16,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.055)' : Colors.surface2,
+                  borderRadius: 16,
+                  padding: 18,
+                  marginTop: 14,
+                  marginBottom: 6,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
                 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={{ color: Colors.text, fontSize: 13 }}>Total Cost</Text>
-                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
+                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', letterSpacing: -0.2 }}>Total Cost</Text>
+                      <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
                         Materials + labor + plans & permits + equipment rental + other direct (markup applies here; business overhead is below)
                       </Text>
                     </View>
-                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.subtotal || 0)}</Text>
+                    <Text style={{
+                      color: Colors.text,
+                      fontSize: 16,
+                      fontWeight: '700',
+                      textAlign: 'right',
+                      minWidth: 108,
+                      letterSpacing: -0.2,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(calc.subtotal || 0)}
+                    </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ color: '#38d39f', fontSize: 13 }}>+ Markup</Text>
-                    <Text style={{ color: '#38d39f', fontSize: 15, fontWeight: '600' }}>{money(calc.profit || 0)}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={{ color: '#38d39f', fontSize: 13, fontWeight: '700' }}>+ Markup</Text>
+                    <Text style={{
+                      color: '#38d39f',
+                      fontSize: 16,
+                      fontWeight: '700',
+                      textAlign: 'right',
+                      minWidth: 108,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(calc.profit || 0)}
+                    </Text>
                   </View>
-                  <View style={{ height: 1, backgroundColor: darkMode ? 'rgba(255,255,255,0.2)' : Colors.line, marginVertical: 8 }} />
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Bid Price</Text>
-                    <Text style={{ color: '#22d3ee', fontSize: 18, fontWeight: '800' }}>{money(calc?.grandTotal || calc?.total || 0)}</Text>
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line, marginVertical: 10 }} />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
+                    <Text style={{
+                      color: '#22d3ee',
+                      fontSize: 20,
+                      fontWeight: '800',
+                      letterSpacing: -0.35,
+                      textAlign: 'right',
+                      minWidth: 108,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(calc?.grandTotal || calc?.total || 0)}
+                    </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <Text style={{ color: Colors.text, fontSize: 13 }}>Gross Profit (Markup)</Text>
-                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600' }}>{money(calc.profit || 0)}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <Text style={{ color: step5Muted, fontSize: 13, fontWeight: '600' }}>Gross Profit (Markup)</Text>
+                    <Text style={{
+                      color: Colors.text,
+                      fontSize: 15,
+                      fontWeight: '600',
+                      textAlign: 'right',
+                      minWidth: 108,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(calc.profit || 0)}
+                    </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={{ color: '#f97316', fontSize: 13 }}>- Business overhead</Text>
-                      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
+                      <Text style={{ color: '#f97316', fontSize: 13, fontWeight: '700' }}>- Business overhead</Text>
+                      <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
                         Insurance, equipment maintenance, facilities, other — not plans, permits, equipment rental, or other direct (those are in Total Cost)
                       </Text>
                     </View>
-                    <Text style={{ color: '#f97316', fontSize: 15, fontWeight: '600' }}>{money(businessOverheadDeduct)}</Text>
+                    <Text style={{
+                      color: '#f97316',
+                      fontSize: 16,
+                      fontWeight: '700',
+                      textAlign: 'right',
+                      minWidth: 108,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(businessOverheadDeduct)}
+                    </Text>
                   </View>
-                  <View style={{ height: 1, backgroundColor: darkMode ? 'rgba(255,255,255,0.2)' : Colors.line, marginVertical: 8 }} />
+                  <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line, marginVertical: 10 }} />
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View>
-                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Net Profit</Text>
-                      <Text style={{ color: '#38d39f', fontSize: 12, marginTop: 2 }}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', letterSpacing: -0.25 }}>Net Profit</Text>
+                      <Text style={{ color: '#38d39f', fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>
                         {netProfitPct.toFixed(1)}% margin on bid
                       </Text>
                     </View>
-                    <Text style={{ color: '#38d39f', fontSize: 18, fontWeight: '800' }}>{money(Math.max(0, (calc.profit || 0) - businessOverheadDeduct))}</Text>
+                    <Text style={{
+                      color: '#38d39f',
+                      fontSize: 20,
+                      fontWeight: '800',
+                      letterSpacing: -0.35,
+                      textAlign: 'right',
+                      minWidth: 108,
+                      ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                    }}
+                    >
+                      {money(Math.max(0, (calc.profit || 0) - businessOverheadDeduct))}
+                    </Text>
                   </View>
                 </View>
               )}
               </GlassBorderCard>
-              
-              {/* Legal Disclaimer */}
+
               <Text style={{
-                color: Colors.sub,
+                color: step5MutedSoft,
                 fontSize: 11,
                 textAlign: 'center',
-                marginTop: 20,
+                marginTop: 18,
                 marginBottom: 8,
-                paddingHorizontal: 16,
-                opacity: 0.6,
+                paddingHorizontal: 20,
+                opacity: darkMode ? 0.78 : 0.72,
                 fontStyle: 'italic',
+                lineHeight: 17,
               }}>
                 Estimates are scenario-based projections and not guarantees of actual costs or profit.
               </Text>
@@ -11881,34 +11990,55 @@ export default function EstimateGeneratorScreen() {
         };
         
         const timeline = buildTimeline();
+
+        // Step 7 UI-only tokens (no logic changes)
+        const step7Muted = darkMode ? 'rgba(198, 214, 232, 0.9)' : Colors.sub;
+        const step7MutedSoft = darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub;
+        const step7SectionCard = {
+          borderRadius: 16,
+          padding: 14,
+          marginBottom: 14,
+          borderWidth: 1,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+          borderColor: darkMode ? 'rgba(255,255,255,0.11)' : Colors.line,
+        };
+        const step7DateField = {
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.surface2,
+          borderWidth: 1,
+          borderColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line,
+          borderRadius: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 9,
+        };
+        const step7FieldLabel = { color: step7Muted, fontSize: 11, fontWeight: '600', marginBottom: 5, letterSpacing: 0.2 };
         
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
                   <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                     <Ionicons name="calendar-outline" size={18} color="#2DFFC4" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800' }}>Schedule Type</Text>
-                    <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>Choose how progress payments are structured</Text>
+                    <Text style={{ color: step7MutedSoft, fontSize: 12, marginTop: 3, lineHeight: 17 }}>Choose how progress payments are structured</Text>
                   </View>
                 </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
                   <TouchableOpacity
                     style={[
                       {
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
-                        borderRadius: 12,
+                        paddingHorizontal: 16,
+                        paddingVertical: 13,
+                        borderRadius: 14,
                         borderWidth: 2,
                         borderColor: scheduleType === 'milestone-based'
                           ? '#38d39f'
                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                         backgroundColor: scheduleType === 'milestone-based'
-                          ? 'rgba(56, 211, 159, 0.1)'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2),
+                          ? 'rgba(56, 211, 159, 0.12)'
+                          : (darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2),
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -11950,16 +12080,16 @@ export default function EstimateGeneratorScreen() {
                   <TouchableOpacity
                     style={[
                       {
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
-                        borderRadius: 12,
+                        paddingHorizontal: 16,
+                        paddingVertical: 13,
+                        borderRadius: 14,
                         borderWidth: 2,
                         borderColor: scheduleType === 'weekly'
                           ? '#38d39f'
                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                         backgroundColor: scheduleType === 'weekly'
-                          ? 'rgba(56, 211, 159, 0.1)'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2),
+                          ? 'rgba(56, 211, 159, 0.12)'
+                          : (darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2),
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -12003,7 +12133,7 @@ export default function EstimateGeneratorScreen() {
               
               {/* Payment Timeline Preview - Collapsible for first-time users */}
               {timeline.length > 0 && (
-                <View style={{ marginTop: 20, marginBottom: 20 }}>
+                <View style={{ marginTop: 8, marginBottom: 6 }}>
                   <TouchableOpacity
                     onPress={() => {
                       if (shouldShowGuidance) {
@@ -12012,28 +12142,28 @@ export default function EstimateGeneratorScreen() {
                       }
                     }}
                     activeOpacity={shouldShowGuidance ? 0.7 : 1}
-                    style={{ marginBottom: 8 }}
+                    style={{ marginBottom: 10 }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[s.label, { marginBottom: 4, fontSize: 13, letterSpacing: 0.5, textTransform: 'uppercase' }]}>Payment Timeline</Text>
-                        <Text style={{ color: Colors.sub, fontSize: 10, opacity: 0.8, fontStyle: 'italic' }}>
+                        <Text style={[s.label, { marginBottom: 5, fontSize: 12, letterSpacing: 0.6, textTransform: 'uppercase', color: step7Muted }]}>Payment Timeline</Text>
+                        <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, fontStyle: 'italic' }}>
                           Shows when payments are received — not cost timing.
                         </Text>
                       </View>
                       {shouldShowGuidance && (
                         <MaterialIcons
                           name={paymentTimelineExpanded ? 'expand-less' : 'expand-more'}
-                          size={20}
-                          color={Colors.sub}
+                          size={22}
+                          color={step7Muted}
                         />
                       )}
                     </View>
                   </TouchableOpacity>
                   {(!shouldShowGuidance || paymentTimelineExpanded) && (
                     <>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8 }}>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12, paddingVertical: 4 }}>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
                           {timeline.map((item, index) => {
                             const isFinal = item.type === 'final';
                             const isDeposit = item.type === 'deposit';
@@ -12044,20 +12174,20 @@ export default function EstimateGeneratorScreen() {
                             const finalStyle = (isFinal && darkMode) ? {
                               backgroundColor: 'transparent',
                               borderWidth: 2,
-                              borderColor: 'rgba(45, 255, 196, 0.5)',
+                              borderColor: 'rgba(45, 255, 196, 0.45)',
                               borderStyle: 'dashed',
                             } : {};
                             // Deposit: green glow - dark mode only
                             const depositStyle = isDeposit ? {
-                              backgroundColor: 'rgba(56, 211, 159, 0.15)',
+                              backgroundColor: 'rgba(56, 211, 159, 0.16)',
                               borderWidth: 1,
-                              borderColor: 'rgba(56, 211, 159, 0.3)',
+                              borderColor: 'rgba(56, 211, 159, 0.35)',
                             } : {};
                             // Progress: subtle - dark mode only
                             const progressStyle = (!isFinal && !isDeposit && darkMode) ? {
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              backgroundColor: 'rgba(255, 255, 255, 0.06)',
                               borderWidth: 1,
-                              borderColor: 'rgba(255, 255, 255, 0.1)',
+                              borderColor: 'rgba(255, 255, 255, 0.12)',
                             } : {};
                             
                             return (
@@ -12065,9 +12195,10 @@ export default function EstimateGeneratorScreen() {
                                 key={index}
                                 style={[
                                   {
-                                    minWidth: 100,
-                                    padding: 10,
-                                    borderRadius: 12,
+                                    minWidth: 108,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 14,
                                   },
                                   lightTimelineStyle,
                                   finalStyle,
@@ -12075,13 +12206,13 @@ export default function EstimateGeneratorScreen() {
                                   progressStyle,
                                 ]}
                               >
-                                <Text style={{ color: Colors.sub, fontSize: 10, marginBottom: 4, fontWeight: '600' }} numberOfLines={1}>
+                                <Text style={{ color: step7Muted, fontSize: 10, marginBottom: 6, fontWeight: '700', letterSpacing: 0.2 }} numberOfLines={2}>
                                   {item.label}
                                 </Text>
-                                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>
+                                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 3 }}>
                                   {item.pct.toFixed(1)}%
                                 </Text>
-                                <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                                <Text style={{ color: step7MutedSoft, fontSize: 11, fontWeight: '600' }}>
                                   {money(item.amount)}
                                 </Text>
                               </View>
@@ -12090,32 +12221,36 @@ export default function EstimateGeneratorScreen() {
                         </View>
                       </ScrollView>
                       
-                      {/* AI Cash-Flow Insight */}
-                      <View style={{ marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: 'rgba(34, 211, 238, 0.08)', borderWidth: 1, borderColor: 'rgba(34, 211, 238, 0.15)' }}>
+                      <View style={{
+                        marginTop: 14,
+                        padding: 14,
+                        borderRadius: 14,
+                        backgroundColor: darkMode ? 'rgba(34, 211, 238, 0.07)' : 'rgba(34, 211, 238, 0.06)',
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(34, 211, 238, 0.18)' : 'rgba(34, 211, 238, 0.2)',
+                      }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                          <Ionicons name="bulb-outline" size={16} color="#22d3ee" style={{ marginRight: 8, marginTop: 2 }} />
-                          <Text style={{ color: Colors.text, fontSize: 12, flex: 1, lineHeight: 18 }}>
+                          <Ionicons name="bulb-outline" size={17} color="#22d3ee" style={{ marginRight: 10, marginTop: 1 }} />
+                          <Text style={{ color: Colors.text, fontSize: 12.5, flex: 1, lineHeight: 19, fontWeight: '500' }}>
                             {getCashFlowInsight()}
                           </Text>
                         </View>
-                      </View>
-                      
-                      {/* Payment Risk Indicator */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
-                        <View style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          paddingHorizontal: 10,
-                          paddingVertical: 6,
-                          borderRadius: 20,
-                          backgroundColor: riskLabels[paymentRisk].color + '20',
-                          borderWidth: 1,
-                          borderColor: riskLabels[paymentRisk].color + '40',
-                        }}>
-                          <Text style={{ fontSize: 12, marginRight: 6 }}>{riskLabels[paymentRisk].emoji}</Text>
-                          <Text style={{ color: riskLabels[paymentRisk].color, fontSize: 12, fontWeight: '600' }}>
-                            {riskLabels[paymentRisk].label}
-                          </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: 20,
+                            backgroundColor: riskLabels[paymentRisk].color + '22',
+                            borderWidth: 1,
+                            borderColor: riskLabels[paymentRisk].color + '45',
+                          }}>
+                            <Text style={{ fontSize: 13, marginRight: 6 }}>{riskLabels[paymentRisk].emoji}</Text>
+                            <Text style={{ color: riskLabels[paymentRisk].color, fontSize: 12, fontWeight: '700' }}>
+                              {riskLabels[paymentRisk].label}
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     </>
@@ -12320,41 +12455,27 @@ export default function EstimateGeneratorScreen() {
                   ) : (
                     <>
                       {/* Section 1: Upfront Deposit */}
-                  <View style={{ 
-                    backgroundColor: Colors.surface2, 
-                    borderWidth: 1,
-                    borderColor: Colors.line,
-                    borderRadius: 20, 
-                    padding: 16, 
-                    marginBottom: 16 
-                  }}>
+                  <View style={step7SectionCard}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                       <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                         <Ionicons name="wallet-outline" size={18} color="#2DFFC4" />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
-                        <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                        <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Covers materials & job start</Text>
                       </View>
                     </View>
                     
                     {/* Project Dates */}
-                    <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
+                    <View style={{ marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
                       <View style={{ flexDirection: 'row', gap: 12 }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                          <Text style={step7FieldLabel}>Start Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
-                            style={{
-                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                              borderWidth: 1,
-                              borderColor: Colors.line,
-                              borderRadius: 12,
-                              paddingHorizontal: 12,
-                              paddingVertical: 10,
-                            }}
+                            style={step7DateField}
                           >
-                            <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                            <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                               {(bid.startDate || bid.projectStartDate) 
                                 ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                 : 'Select start date'}
@@ -12379,19 +12500,12 @@ export default function EstimateGeneratorScreen() {
                               />
                             </View>
                           )}
-                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6, marginTop: 12 }}>End Date</Text>
+                          <Text style={[step7FieldLabel, { marginTop: 10 }]}>End Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
-                            style={{
-                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                              borderWidth: 1,
-                              borderColor: Colors.line,
-                              borderRadius: 12,
-                              paddingHorizontal: 12,
-                              paddingVertical: 10,
-                            }}
+                            style={step7DateField}
                           >
-                            <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                            <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                               {(bid.endDate || bid.projectEndDate)
                                 ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                 : 'Select end date'}
@@ -12418,22 +12532,15 @@ export default function EstimateGeneratorScreen() {
                           )}
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                          <Text style={step7FieldLabel}>Deposit Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                            style={{
-                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                              borderWidth: 1,
-                              borderColor: Colors.line,
-                              borderRadius: 12,
-                              paddingHorizontal: 12,
-                              paddingVertical: 10,
-                            }}
+                            style={step7DateField}
                           >
                             <Text style={{ color: (() => {
                               const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                               return depositMilestone?.scheduledDate;
-                            })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                            })() ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                               {(() => {
                                 const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                                 const currentDate = depositMilestone?.scheduledDate;
@@ -12712,21 +12819,14 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   
                   {/* Section 2: Weekly Progress Payments */}
-                  <View style={{ 
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2, 
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
-                    borderRadius: 20, 
-                    padding: 16, 
-                    marginBottom: 16 
-                  }}>
+                  <View style={step7SectionCard}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                       <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                         <Ionicons name="calendar-outline" size={18} color="#2DFFC4" />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Weekly Progress Payments</Text>
-                        <Text style={{ color: Colors.sub, fontSize: 11 }}>Keeps cash flow steady during work</Text>
+                        <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Keeps cash flow steady during work</Text>
                       </View>
                     </View>
                     
@@ -13194,13 +13294,13 @@ export default function EstimateGeneratorScreen() {
                   )}
                 </View>
               ) : scheduleType === 'milestone-based' ? (
-                <View style={{ marginTop: 0 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <View>
-                      <Text style={[s.label, { marginBottom: 4 }]}>Payment Milestones</Text>
+                      <Text style={[s.label, { marginBottom: 5, color: step7Muted }]}>Payment milestones</Text>
                       {milestones.length > 0 && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                          <Text style={{ color: Math.abs(milestoneTotalPct - 100) < 0.01 ? '#2DFFC4' : milestoneTotalPct > 100 ? Colors.orange : Colors.sub, fontSize: 12, fontWeight: '600', marginRight: 8 }}>
+                          <Text style={{ color: Math.abs(milestoneTotalPct - 100) < 0.01 ? '#2DFFC4' : milestoneTotalPct > 100 ? Colors.orange : step7MutedSoft, fontSize: 12, fontWeight: '700', marginRight: 8 }}>
                             Total: {Math.abs(milestoneTotalPct - 100) < 0.01 ? '100' : milestoneTotalPct.toFixed(1)}% {Math.abs(milestoneTotalPct - 100) < 0.01 ? '✅' : milestoneTotalPct > 100 ? '⚠️' : ''}
                           </Text>
                           {remainingPctMilestone > 0 && scheduleType !== 'hybrid' && (
@@ -13369,41 +13469,27 @@ export default function EstimateGeneratorScreen() {
                   {/* Upfront Deposit Card for Milestone-Based */}
                   {scheduleType === 'milestone-based' && milestones.length > 0 ? (
                     <>
-                    <View style={{ 
-                      backgroundColor: Colors.surface2, 
-                      borderWidth: 1,
-                      borderColor: Colors.line,
-                      borderRadius: 20, 
-                      padding: 16, 
-                      marginBottom: 16 
-                    }}>
+                    <View style={step7SectionCard}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                           <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(34, 197, 94, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                             <Ionicons name="wallet-outline" size={18} color="#22c55e" />
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
-                            <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                            <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Covers materials & job start</Text>
                           </View>
                         </View>
                         
                         {/* Project Dates */}
-                        <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
-                          <View style={{ gap: 12 }}>
+                        <View style={{ marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
+                          <View style={{ gap: 10 }}>
                             <View>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                              <Text style={step7FieldLabel}>Start Date</Text>
                               <TouchableOpacity
                                 onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
-                                style={{
-                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                  borderWidth: 1,
-                                  borderColor: Colors.line,
-                                  borderRadius: 12,
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 10,
-                                }}
+                                style={step7DateField}
                               >
-                                <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                   {(bid.startDate || bid.projectStartDate) 
                                     ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                     : 'Select start date'}
@@ -13430,19 +13516,12 @@ export default function EstimateGeneratorScreen() {
                               )}
                             </View>
                             <View>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>End Date</Text>
+                              <Text style={step7FieldLabel}>End Date</Text>
                               <TouchableOpacity
                                 onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
-                                style={{
-                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                  borderWidth: 1,
-                                  borderColor: Colors.line,
-                                  borderRadius: 12,
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 10,
-                                }}
+                                style={step7DateField}
                               >
-                                <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                   {(bid.endDate || bid.projectEndDate)
                                     ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                     : 'Select end date'}
@@ -13469,22 +13548,15 @@ export default function EstimateGeneratorScreen() {
                               )}
                             </View>
                             <View>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                              <Text style={step7FieldLabel}>Deposit Date</Text>
                               <TouchableOpacity
                                 onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                                style={{
-                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                  borderWidth: 1,
-                                  borderColor: Colors.line,
-                                  borderRadius: 12,
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 10,
-                                }}
+                                style={step7DateField}
                               >
                                 <Text style={{ color: (() => {
                                   const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                                   return depositMilestone?.scheduledDate;
-                                })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                })() ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                   {(() => {
                                     const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                                     const currentDate = depositMilestone?.scheduledDate;
@@ -13536,7 +13608,7 @@ export default function EstimateGeneratorScreen() {
                           
                           return (
                             <View>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
                                 {[15, 20, 25, 'Custom'].map((preset) => {
                                   const isSelected = preset === 'Custom' 
                                     ? isCustomDeposit 
@@ -13688,22 +13760,24 @@ export default function EstimateGeneratorScreen() {
                                         }
                                       }}
                                       style={{
-                                        paddingVertical: 8,
-                                        paddingHorizontal: 14,
-                                        borderRadius: 12,
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 16,
+                                        borderRadius: 14,
                                         borderWidth: 2,
                                         borderColor: isSelected
                                           ? '#38d39f'
                                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : '#94A3B8'),
                                         backgroundColor: isSelected
-                                          ? 'rgba(56, 211, 159, 0.1)'
-                                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : '#CBD5E1'),
+                                          ? 'rgba(56, 211, 159, 0.12)'
+                                          : (darkMode ? 'rgba(255, 255, 255, 0.04)' : '#CBD5E1'),
+                                        minWidth: 72,
+                                        alignItems: 'center',
                                       }}
                                     >
                                       <Text style={{ 
                                         color: isSelected ? '#38d39f' : Colors.text, 
                                         fontSize: 13, 
-                                        fontWeight: isSelected ? '700' : '600',
+                                        fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
                                       }}>
                                         {displayText}
@@ -13718,21 +13792,14 @@ export default function EstimateGeneratorScreen() {
                     </View>
                     
                     {/* Section 2: Milestone Progress Payments */}
-                    <View style={{ 
-                      backgroundColor: Colors.surface2, 
-                      borderWidth: 1,
-                      borderColor: Colors.line,
-                      borderRadius: 20, 
-                      padding: 16, 
-                      marginBottom: 16 
-                    }}>
+                    <View style={step7SectionCard}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(59, 130, 246, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                           <Ionicons name="checkmark-done-outline" size={18} color="#3b82f6" />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Milestone Progress Payments</Text>
-                          <Text style={{ color: Colors.sub, fontSize: 11 }}>Payments at key project stages</Text>
+                          <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Payments at key project stages</Text>
                         </View>
                       </View>
                       
@@ -13753,9 +13820,9 @@ export default function EstimateGeneratorScreen() {
                         
                         return (
                           <View>
-                            <View style={{ marginBottom: 12 }}>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Number of Milestones</Text>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                            <View style={{ marginBottom: 10 }}>
+                              <Text style={[step7FieldLabel, { marginBottom: 8 }]}>Number of milestones</Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
                                 {[2, 3, 4, 5, 6, 7, 8].map((milestoneCount) => (
                                   <TouchableOpacity
                                     key={milestoneCount}
@@ -13795,21 +13862,21 @@ export default function EstimateGeneratorScreen() {
                                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                     }}
                                     style={{
-                                      minWidth: 50,
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 12,
+                                      minWidth: 48,
+                                      paddingVertical: 9,
+                                      paddingHorizontal: 13,
                                       borderRadius: 12,
                                       backgroundColor: !isCustomMilestones && milestonesCount === milestoneCount
-                                        ? 'rgba(59, 130, 246, 0.2)'
-                                        : (darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1'),
+                                        ? 'rgba(59, 130, 246, 0.22)'
+                                        : (darkMode ? 'rgba(255, 255, 255, 0.055)' : '#CBD5E1'),
                                       borderWidth: 1,
                                       borderColor: !isCustomMilestones && milestonesCount === milestoneCount
-                                        ? 'rgba(59, 130, 246, 0.4)'
-                                        : (darkMode ? 'rgba(255, 255, 255, 0.1)' : '#94A3B8'),
+                                        ? 'rgba(59, 130, 246, 0.45)'
+                                        : (darkMode ? 'rgba(255, 255, 255, 0.12)' : '#94A3B8'),
                                       alignItems: 'center',
                                     }}
                                   >
-                                    <Text style={{ color: !isCustomMilestones && milestonesCount === milestoneCount ? '#3b82f6' : Colors.text, fontSize: 12, fontWeight: !isCustomMilestones && milestonesCount === milestoneCount ? '700' : '600' }}>
+                                    <Text style={{ color: !isCustomMilestones && milestonesCount === milestoneCount ? '#3b82f6' : Colors.text, fontSize: 12, fontWeight: !isCustomMilestones && milestonesCount === milestoneCount ? '800' : '600' }}>
                                       {milestoneCount}
                                     </Text>
                                   </TouchableOpacity>
@@ -13817,8 +13884,8 @@ export default function EstimateGeneratorScreen() {
                               </View>
                               
                               {/* Custom Milestones Input */}
-                              <View style={{ marginTop: 8 }}>
-                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Custom (9+ milestones)</Text>
+                              <View style={{ marginTop: 10 }}>
+                                <Text style={[step7FieldLabel, { marginBottom: 6 }]}>Custom (9+ milestones)</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                   <View style={{ flex: 1 }}>
                                     <TextInput
@@ -13904,27 +13971,29 @@ export default function EstimateGeneratorScreen() {
                             
                             {/* Milestone Dates */}
                             {progressMilestones.length > 0 && (
-                              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.line }}>
-                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 12 }}>Milestone Dates</Text>
-                                <View style={{ gap: 12 }}>
+                              <View style={{
+                                marginTop: 12,
+                                paddingTop: 14,
+                                paddingHorizontal: 12,
+                                paddingBottom: 12,
+                                borderTopWidth: 1,
+                                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                                borderRadius: 12,
+                                backgroundColor: darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+                              }}>
+                                <Text style={{ color: step7Muted, fontSize: 11, fontWeight: '700', marginBottom: 10, letterSpacing: 0.4, textTransform: 'uppercase' }}>Milestone dates</Text>
+                                <View style={{ gap: 8 }}>
                                   {progressMilestones.map((milestone, index) => {
                                     const milestoneNumber = index + 1;
                                     const isCalendarOpen = openMilestoneCalendarId === milestone.id;
                                     return (
                                       <View key={milestone.id || index}>
-                                        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Milestone {milestoneNumber} Date</Text>
+                                        <Text style={[step7FieldLabel, { marginBottom: 4 }]}>Milestone {milestoneNumber}</Text>
                                         <TouchableOpacity
                                           onPress={() => setOpenMilestoneCalendarId(isCalendarOpen ? null : milestone.id || null)}
-                                          style={{
-                                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                            borderWidth: 1,
-                                            borderColor: Colors.line,
-                                            borderRadius: 12,
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 10,
-                                          }}
+                                          style={step7DateField}
                                         >
-                                          <Text style={{ color: milestone.scheduledDate ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                          <Text style={{ color: milestone.scheduledDate ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                             {milestone.scheduledDate
                                               ? new Date(milestone.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                               : `Select Milestone ${milestoneNumber} date`}
@@ -13959,13 +14028,13 @@ export default function EstimateGeneratorScreen() {
                             )}
                             
                             {progressMilestones.length > 0 && (
-                              <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 12 }}>Per Milestone</Text>
+                              <View style={{ paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.line }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                                  <Text style={{ color: step7MutedSoft, fontSize: 11.5, fontWeight: '600' }}>Per milestone</Text>
                                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{milestonePctPerMilestone.toFixed(1)}% ({money(progressMilestones[0]?.paymentAmount || 0)})</Text>
                                 </View>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Progress</Text>
+                                  <Text style={{ color: step7MutedSoft, fontSize: 11.5, fontWeight: '600' }}>Total progress</Text>
                                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{remainingPct.toFixed(1)}% ({money(progressMilestones.reduce((sum, m) => sum + (m.paymentAmount || 0), 0))})</Text>
                                 </View>
                               </View>
@@ -13987,14 +14056,25 @@ export default function EstimateGeneratorScreen() {
                       }
                       
                       return (
-                        <View key={milestone.id || index} style={[s.stepCard, { marginBottom: 12, position: 'relative' }]}>
+                        <View key={milestone.id || index} style={[
+                          s.stepCard,
+                          {
+                            marginBottom: 10,
+                            position: 'relative',
+                            paddingVertical: 12,
+                            paddingHorizontal: 14,
+                            borderRadius: 14,
+                            borderLeftWidth: 3,
+                            borderLeftColor: index % 2 === 0 ? 'rgba(45, 255, 196, 0.35)' : 'rgba(255,255,255,0.06)',
+                          },
+                        ]}>
                           <View
                             style={{
                               position: 'absolute',
-                              top: 8,
-                              right: 8,
+                              top: 6,
+                              right: 6,
                               flexDirection: 'row',
-                              gap: 4,
+                              gap: 2,
                               zIndex: 10,
                             }}
                           >
@@ -14004,58 +14084,59 @@ export default function EstimateGeneratorScreen() {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               }}
                               style={{ 
-                                padding: 12,
-                                minWidth: 44,
-                                minHeight: 44,
+                                padding: 8,
+                                minWidth: 40,
+                                minHeight: 40,
                                 justifyContent: 'center',
                                 alignItems: 'center',
                               }}
                               activeOpacity={0.6}
                               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                              <Ionicons name="create-outline" size={20} color="#22c55e" />
+                              <Ionicons name="create-outline" size={18} color="rgba(34, 197, 94, 0.75)" />
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => handleDeleteMilestone(milestone.id)}
                               style={{ 
-                                padding: 12,
-                                minWidth: 44,
-                                minHeight: 44,
+                                padding: 8,
+                                minWidth: 40,
+                                minHeight: 40,
                                 justifyContent: 'center',
                                 alignItems: 'center',
                               }}
                               activeOpacity={0.6}
                               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                              <Ionicons name="trash-outline" size={20} color="rgba(239, 68, 68, 0.6)" />
+                              <Ionicons name="trash-outline" size={18} color="rgba(239, 68, 68, 0.5)" />
                             </TouchableOpacity>
                           </View>
                           
-                          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8, paddingRight: 60 }}>
+                          <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 6, paddingRight: 88, lineHeight: 20 }}>
                         {milestone.name || `Milestone ${index + 1}`}
                       </Text>
                           {milestone.description && (
-                            <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8 }}>
+                            <Text style={{ color: step7MutedSoft, fontSize: 11.5, marginBottom: 6, lineHeight: 16 }}>
                               {milestone.description}
                             </Text>
                           )}
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 }}>
                             <View>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Amount</Text>
-                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                              <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Amount</Text>
+                              <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>
                                 {money(milestone.paymentAmount || 0)}
                               </Text>
                             </View>
                             <View style={{ alignItems: 'flex-end' }}>
-                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                              <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Percent</Text>
+                              <Text style={{ color: '#22d3ee', fontSize: 15, fontWeight: '800' }}>
                                 {displayPercentage}%
                               </Text>
                             </View>
                       </View>
                       {milestone.scheduledDate && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                              <Ionicons name="calendar-outline" size={14} color={Colors.sub} />
-                              <Text style={{ color: Colors.sub, fontSize: 12, marginLeft: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                              <Ionicons name="calendar-outline" size={13} color={step7MutedSoft} />
+                              <Text style={{ color: step7MutedSoft, fontSize: 11.5, marginLeft: 6 }}>
                                 Due: {milestone.scheduledDate}
                         </Text>
                             </View>
@@ -14068,29 +14149,30 @@ export default function EstimateGeneratorScreen() {
                   {milestones.length > 0 && scheduleType !== 'hybrid' && (
                     <View style={{
                       backgroundColor: 'rgba(45, 255, 196, 0.1)',
-                      borderRadius: 20,
-                      padding: 16,
+                      borderRadius: 16,
+                      padding: 15,
                       borderWidth: 1,
-                      borderColor: 'rgba(45, 255, 196, 0.3)',
+                      borderColor: 'rgba(45, 255, 196, 0.32)',
                       marginBottom: 12,
                     }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Scheduled</Text>
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                      <Text style={{ color: step7Muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 }}>Schedule total</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total scheduled</Text>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
                           {money(milestoneTotal)}
                         </Text>
                       </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Percentage</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(45, 255, 196, 0.2)' }}>
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total percentage</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           {(() => {
                             const isExactly100 = Math.abs(milestoneTotalPct - 100) < 0.01;
                             return (
                               <>
-                                <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: 14, fontWeight: '600', marginRight: 4 }}>
-                                  {isExactly100 ? '100' : milestoneTotalPct.toFixed(1)}%
+                                <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: isExactly100 ? 17 : 14, fontWeight: '800', marginRight: 6 }}>
+                                  {isExactly100 ? '100%' : `${milestoneTotalPct.toFixed(1)}%`}
                                 </Text>
-                                {isExactly100 && <Ionicons name="checkmark-circle" size={16} color="#22c55e" />}
+                                {isExactly100 && <Ionicons name="checkmark-circle" size={20} color="#22c55e" />}
                               </>
                             );
                           })()}
@@ -14117,41 +14199,27 @@ export default function EstimateGeneratorScreen() {
                         const isCustomDeposit = depositPct > 0 && depositPct !== 15 && depositPct !== 20 && depositPct !== 25;
                         
                         return (
-                          <View style={{ 
-                            backgroundColor: Colors.surface2, 
-                            borderWidth: 1,
-                            borderColor: darkMode ? Colors.line : Colors.line,
-                            borderRadius: 20, 
-                            padding: 16, 
-                            marginBottom: 16 
-                          }}>
+                          <View style={step7SectionCard}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                               <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(34, 197, 94, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                                 <Ionicons name="wallet-outline" size={18} color="#22c55e" />
                               </View>
                               <View style={{ flex: 1 }}>
                                 <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Upfront Deposit</Text>
-                                <Text style={{ color: Colors.sub, fontSize: 11 }}>Covers materials & job start</Text>
+                                <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Covers materials & job start</Text>
                               </View>
                             </View>
                             
                             {/* Project Dates */}
-                            <View style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
-                              <View style={{ gap: 12 }}>
+                            <View style={{ marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
+                              <View style={{ gap: 10 }}>
                                 <View>
-                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Start Date</Text>
+                                  <Text style={step7FieldLabel}>Start Date</Text>
                                   <TouchableOpacity
                                     onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
-                                    style={{
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                      borderWidth: 1,
-                                      borderColor: Colors.line,
-                                      borderRadius: 12,
-                                      paddingHorizontal: 12,
-                                      paddingVertical: 10,
-                                    }}
+                                    style={step7DateField}
                                   >
-                                    <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                    <Text style={{ color: (bid.startDate || bid.projectStartDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                       {(bid.startDate || bid.projectStartDate) 
                                         ? new Date((bid.startDate || bid.projectStartDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                         : 'Select start date'}
@@ -14178,19 +14246,12 @@ export default function EstimateGeneratorScreen() {
                                   )}
                                 </View>
                                 <View>
-                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>End Date</Text>
+                                  <Text style={step7FieldLabel}>End Date</Text>
                                   <TouchableOpacity
                                     onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
-                                    style={{
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                      borderWidth: 1,
-                                      borderColor: Colors.line,
-                                      borderRadius: 12,
-                                      paddingHorizontal: 12,
-                                      paddingVertical: 10,
-                                    }}
+                                    style={step7DateField}
                                   >
-                                    <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                    <Text style={{ color: (bid.endDate || bid.projectEndDate) ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                       {(bid.endDate || bid.projectEndDate)
                                         ? new Date((bid.endDate || bid.projectEndDate) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                         : 'Select end date'}
@@ -14217,23 +14278,16 @@ export default function EstimateGeneratorScreen() {
                                   )}
                                 </View>
                                 <View>
-                                  <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Deposit Date</Text>
+                                  <Text style={step7FieldLabel}>Deposit Date</Text>
                                   <TouchableOpacity
                                     onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                                    style={{
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                      borderWidth: 1,
-                                      borderColor: Colors.line,
-                                      borderRadius: 12,
-                                      paddingHorizontal: 12,
-                                      paddingVertical: 10,
-                                    }}
+                                    style={step7DateField}
                                   >
                                     <Text style={{ color: (() => {
                                       const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
                                       const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                                       return depositPayment?.scheduledDate || depositMilestone?.scheduledDate;
-                                    })() ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                    })() ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                       {(() => {
                                         const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
                                         const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
@@ -14288,7 +14342,7 @@ export default function EstimateGeneratorScreen() {
                             </View>
                             
                             <View>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
                                 {[15, 20, 25, 'Custom'].map((preset) => {
                                   const isSelected = preset === 'Custom' 
                                     ? isCustomDeposit 
@@ -14433,22 +14487,24 @@ export default function EstimateGeneratorScreen() {
                                         }
                                       }}
                                       style={{
-                                        paddingVertical: 8,
-                                        paddingHorizontal: 14,
-                                        borderRadius: 12,
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 16,
+                                        borderRadius: 14,
                                         borderWidth: 2,
                                         borderColor: isSelected
                                           ? '#38d39f'
                                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : '#94A3B8'),
                                         backgroundColor: isSelected
-                                          ? 'rgba(56, 211, 159, 0.1)'
-                                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : '#CBD5E1'),
+                                          ? 'rgba(56, 211, 159, 0.12)'
+                                          : (darkMode ? 'rgba(255, 255, 255, 0.04)' : '#CBD5E1'),
+                                        minWidth: 72,
+                                        alignItems: 'center',
                                       }}
                                     >
                                       <Text style={{ 
                                         color: isSelected ? '#38d39f' : Colors.text, 
                                         fontSize: 13, 
-                                        fontWeight: isSelected ? '700' : '600',
+                                        fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
                                       }}>
                                         {displayText}
@@ -14467,21 +14523,14 @@ export default function EstimateGeneratorScreen() {
                   
                   {/* Weekly Progress Payments Card for Time-Based */}
                   {scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
-                    <View style={{ 
-                      backgroundColor: Colors.surface2, 
-                      borderWidth: 1,
-                      borderColor: Colors.line,
-                      borderRadius: 20, 
-                      padding: 16, 
-                      marginBottom: 16 
-                    }}>
+                    <View style={step7SectionCard}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(59, 130, 246, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
                           <Ionicons name="calendar-outline" size={18} color="#3b82f6" />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 2 }}>Weekly Progress Payments</Text>
-                          <Text style={{ color: Colors.sub, fontSize: 11 }}>Keeps cash flow steady during work</Text>
+                          <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 15 }}>Keeps cash flow steady during work</Text>
                         </View>
                       </View>
                       
@@ -14500,9 +14549,9 @@ export default function EstimateGeneratorScreen() {
                         
                         return (
                           <View>
-                            <View style={{ marginBottom: 12 }}>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Number of Weeks</Text>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                            <View style={{ marginBottom: 10 }}>
+                              <Text style={[step7FieldLabel, { marginBottom: 8 }]}>Number of weeks</Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
                                 {[4, 5, 6, 7, 8, 9, 10, 11, 12].map((weekCount) => (
                                   <TouchableOpacity
                                     key={weekCount}
@@ -14531,21 +14580,21 @@ export default function EstimateGeneratorScreen() {
                                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                     }}
                                     style={{
-                                      minWidth: 50,
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 12,
+                                      minWidth: 48,
+                                      paddingVertical: 9,
+                                      paddingHorizontal: 13,
                                       borderRadius: 12,
                                       backgroundColor: !isCustomWeeks && weeks === weekCount
-                                        ? 'rgba(59, 130, 246, 0.2)'
-                                        : (darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1'),
+                                        ? 'rgba(59, 130, 246, 0.22)'
+                                        : (darkMode ? 'rgba(255, 255, 255, 0.055)' : '#CBD5E1'),
                                       borderWidth: 1,
                                       borderColor: !isCustomWeeks && weeks === weekCount
-                                        ? 'rgba(59, 130, 246, 0.4)'
-                                        : (darkMode ? 'rgba(255, 255, 255, 0.1)' : '#94A3B8'),
+                                        ? 'rgba(59, 130, 246, 0.45)'
+                                        : (darkMode ? 'rgba(255, 255, 255, 0.12)' : '#94A3B8'),
                                       alignItems: 'center',
                                     }}
                                   >
-                                    <Text style={{ color: !isCustomWeeks && weeks === weekCount ? '#3b82f6' : Colors.text, fontSize: 12, fontWeight: !isCustomWeeks && weeks === weekCount ? '700' : '600' }}>
+                                    <Text style={{ color: !isCustomWeeks && weeks === weekCount ? '#3b82f6' : Colors.text, fontSize: 12, fontWeight: !isCustomWeeks && weeks === weekCount ? '800' : '600' }}>
                                       {weekCount}
                                     </Text>
                                   </TouchableOpacity>
@@ -14553,8 +14602,8 @@ export default function EstimateGeneratorScreen() {
                               </View>
                               
                               {/* Custom Weeks Input */}
-                              <View style={{ marginTop: 8 }}>
-                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Custom (13+ weeks)</Text>
+                              <View style={{ marginTop: 10 }}>
+                                <Text style={[step7FieldLabel, { marginBottom: 6 }]}>Custom (13+ weeks)</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                   <View style={{ flex: 1 }}>
                                     <TextInput
@@ -14623,27 +14672,29 @@ export default function EstimateGeneratorScreen() {
                             
                             {/* Week Dates */}
                             {progressPayments.length > 0 && (
-                              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.line }}>
-                                <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 12 }}>Week Dates</Text>
-                                <View style={{ gap: 12 }}>
+                              <View style={{
+                                marginTop: 12,
+                                paddingTop: 14,
+                                paddingHorizontal: 12,
+                                paddingBottom: 12,
+                                borderTopWidth: 1,
+                                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                                borderRadius: 12,
+                                backgroundColor: darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+                              }}>
+                                <Text style={{ color: step7Muted, fontSize: 11, fontWeight: '700', marginBottom: 10, letterSpacing: 0.4, textTransform: 'uppercase' }}>Week dates</Text>
+                                <View style={{ gap: 8 }}>
                                   {progressPayments.map((payment, index) => {
                                     const weekNumber = payment.weekNumber || index + 1;
                                     const isCalendarOpen = openWeekCalendarId === payment.id;
                                     return (
                                       <View key={payment.id || index}>
-                                        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Week {weekNumber} Date</Text>
+                                        <Text style={[step7FieldLabel, { marginBottom: 4 }]}>Week {weekNumber}</Text>
                                         <TouchableOpacity
                                           onPress={() => setOpenWeekCalendarId(isCalendarOpen ? null : payment.id || null)}
-                                          style={{
-                                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                            borderWidth: 1,
-                                            borderColor: Colors.line,
-                                            borderRadius: 12,
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 10,
-                                          }}
+                                          style={step7DateField}
                                         >
-                                          <Text style={{ color: payment.scheduledDate ? Colors.text : Colors.sub, fontSize: 13 }}>
+                                          <Text style={{ color: payment.scheduledDate ? Colors.text : step7MutedSoft, fontSize: 13 }}>
                                             {payment.scheduledDate
                                               ? new Date(payment.scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                               : `Select Week ${weekNumber} date`}
@@ -14678,13 +14729,13 @@ export default function EstimateGeneratorScreen() {
                             )}
                             
                             {progressPayments.length > 0 && (
-                              <View style={{ paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)', marginTop: 16 }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 12 }}>Per Week</Text>
+                              <View style={{ paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.line }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                                  <Text style={{ color: step7MutedSoft, fontSize: 11.5, fontWeight: '600' }}>Per week</Text>
                                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{weeklyPctPerWeek.toFixed(1)}% ({money(progressPayments[0]?.amount || weeklyPayments.find(w => w.weekNumber !== 0)?.amount || 0)})</Text>
                                 </View>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Weekly</Text>
+                                  <Text style={{ color: step7MutedSoft, fontSize: 11.5, fontWeight: '600' }}>Total weekly</Text>
                                   <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{remainingPct.toFixed(1)}% ({money(progressPayments.reduce((sum, w) => sum + (w.amount || 0), 0) || weeklyTotal)})</Text>
                                 </View>
                               </View>
@@ -14875,14 +14926,25 @@ export default function EstimateGeneratorScreen() {
                       }
                       
                       return (
-                        <View key={payment.id || index} style={[s.stepCard, { marginBottom: 12, position: 'relative' }]}>
+                        <View key={payment.id || index} style={[
+                          s.stepCard,
+                          {
+                            marginBottom: 10,
+                            position: 'relative',
+                            paddingVertical: 12,
+                            paddingHorizontal: 14,
+                            borderRadius: 14,
+                            borderLeftWidth: 3,
+                            borderLeftColor: index % 2 === 0 ? 'rgba(45, 255, 196, 0.35)' : 'rgba(255,255,255,0.06)',
+                          },
+                        ]}>
                           <View
                             style={{
                               position: 'absolute',
-                              top: 12,
-                              right: 12,
+                              top: 6,
+                              right: 6,
                               flexDirection: 'row',
-                              gap: 8,
+                              gap: 2,
                               zIndex: 10,
                             }}
                             pointerEvents="box-none"
@@ -14892,41 +14954,41 @@ export default function EstimateGeneratorScreen() {
                                 handleEditWeeklyPayment(payment);
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               }}
-                              style={{ padding: 4 }}
+                              style={{ padding: 8 }}
                               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                              <Ionicons name="create-outline" size={18} color="#22c55e" />
+                              <Ionicons name="create-outline" size={18} color="rgba(34, 197, 94, 0.75)" />
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => handleDeleteWeeklyPayment(payment.id)}
-                              style={{ padding: 4 }}
+                              style={{ padding: 8 }}
                               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                              <Ionicons name="trash-outline" size={18} color="rgba(239, 68, 68, 0.6)" />
+                              <Ionicons name="trash-outline" size={18} color="rgba(239, 68, 68, 0.5)" />
                             </TouchableOpacity>
                           </View>
                           
-                          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8, paddingRight: 60 }}>
+                          <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 6, paddingRight: 88, lineHeight: 20 }}>
                             {payment.description || `Week ${payment.weekNumber || index + 1} Payment`}
                       </Text>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 }}>
                             <View>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Amount</Text>
-                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                              <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Amount</Text>
+                              <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>
                                 {money(payment.amount || 0)}
                               </Text>
                             </View>
                             <View style={{ alignItems: 'flex-end' }}>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>Percentage</Text>
-                              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '600' }}>
+                              <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Percent</Text>
+                              <Text style={{ color: '#22d3ee', fontSize: 15, fontWeight: '800' }}>
                                 {displayPercentage}%
                               </Text>
                             </View>
                       </View>
                       {payment.scheduledDate && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                              <Ionicons name="calendar-outline" size={14} color={Colors.sub} />
-                              <Text style={{ color: Colors.sub, fontSize: 12, marginLeft: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                              <Ionicons name="calendar-outline" size={13} color={step7MutedSoft} />
+                              <Text style={{ color: step7MutedSoft, fontSize: 11.5, marginLeft: 6 }}>
                                 Due: {payment.scheduledDate}
                         </Text>
                             </View>
@@ -14939,29 +15001,30 @@ export default function EstimateGeneratorScreen() {
                   {weeklyPayments.length > 0 && scheduleType !== 'hybrid' && (
                     <View style={{
                       backgroundColor: 'rgba(45, 255, 196, 0.1)',
-                      borderRadius: 20,
-                      padding: 16,
+                      borderRadius: 16,
+                      padding: 15,
                       borderWidth: 1,
-                      borderColor: 'rgba(45, 255, 196, 0.3)',
+                      borderColor: 'rgba(45, 255, 196, 0.32)',
                       marginBottom: 12,
                     }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Scheduled</Text>
-                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                      <Text style={{ color: step7Muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 }}>Schedule total</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total scheduled</Text>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
                           {money(weeklyTotal)}
                         </Text>
                       </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Percentage</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(45, 255, 196, 0.2)' }}>
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total percentage</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           {(() => {
                             const isExactly100 = Math.abs(weeklyTotalPct - 100) < 0.01;
                             return (
                               <>
-                                <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: 14, fontWeight: '600', marginRight: 4 }}>
-                                  {isExactly100 ? '100' : weeklyTotalPct.toFixed(1)}%
+                                <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: isExactly100 ? 17 : 14, fontWeight: '800', marginRight: 6 }}>
+                                  {isExactly100 ? '100%' : `${weeklyTotalPct.toFixed(1)}%`}
                                 </Text>
-                                {isExactly100 && <Ionicons name="checkmark-circle" size={16} color="#22c55e" />}
+                                {isExactly100 && <Ionicons name="checkmark-circle" size={20} color="#22c55e" />}
                               </>
                             );
                           })()}
@@ -14979,25 +15042,25 @@ export default function EstimateGeneratorScreen() {
               
               {/* Hybrid mode combined total */}
               {scheduleType === 'hybrid' && (milestones.length > 0 || weeklyPayments.length > 0) && (
-                <View style={[s.stepCard, { backgroundColor: Math.abs(combinedTotalPct - 100) < 0.01 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)', borderColor: Math.abs(combinedTotalPct - 100) < 0.01 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)', marginTop: 16 }]}>
-                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 12 }}>Combined Total</Text>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Scheduled</Text>
-                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '600' }}>
+                <View style={[s.stepCard, { borderRadius: 16, padding: 15, backgroundColor: Math.abs(combinedTotalPct - 100) < 0.01 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)', borderColor: Math.abs(combinedTotalPct - 100) < 0.01 ? 'rgba(34, 197, 94, 0.32)' : 'rgba(245, 158, 11, 0.35)', marginTop: 16 }]}>
+                  <Text style={{ color: step7Muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 10 }}>Combined total</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total scheduled</Text>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>
                       {money(milestoneTotal + weeklyTotal)}
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: Colors.sub, fontSize: 12 }}>Total Percentage</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTopWidth: 1, borderTopColor: Math.abs(combinedTotalPct - 100) < 0.01 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(245, 158, 11, 0.25)' }}>
+                    <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '600' }}>Total percentage</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       {(() => {
                         const isExactly100 = Math.abs(combinedTotalPct - 100) < 0.01;
                         return (
                           <>
-                            <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: 14, fontWeight: '600', marginRight: 4 }}>
-                              {isExactly100 ? '100' : combinedTotalPct.toFixed(1)}%
+                            <Text style={{ color: isExactly100 ? '#22c55e' : Colors.text, fontSize: isExactly100 ? 17 : 14, fontWeight: '800', marginRight: 6 }}>
+                              {isExactly100 ? '100%' : `${combinedTotalPct.toFixed(1)}%`}
                             </Text>
-                            {isExactly100 && <Ionicons name="checkmark-circle" size={16} color="#22c55e" />}
+                            {isExactly100 && <Ionicons name="checkmark-circle" size={20} color="#22c55e" />}
                           </>
                         );
                       })()}
@@ -15013,10 +15076,10 @@ export default function EstimateGeneratorScreen() {
               
               {/* Legal Protection Disclaimer */}
               {(milestones.length > 0 || weeklyPayments.length > 0) && (
-                <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)' }}>
+                <View style={{ marginTop: 18, paddingTop: 14, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <Ionicons name="information-circle-outline" size={14} color={Colors.sub} style={{ marginRight: 6, marginTop: 2, opacity: 0.6 }} />
-                      <Text style={{ color: Colors.sub, fontSize: 10, lineHeight: 16, flex: 1, opacity: 0.8 }}>
+                      <Ionicons name="information-circle-outline" size={16} color={step7Muted} style={{ marginRight: 8, marginTop: 1 }} />
+                      <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 17, flex: 1, fontWeight: '500' }}>
                         ℹ️ Payment schedules vary by contract and jurisdiction. Review before sending.
                       </Text>
                     </View>
@@ -15891,15 +15954,15 @@ export default function EstimateGeneratorScreen() {
             ]}
           >
           {/* Current Step Info */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(25, 225, 128, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-              <MaterialIcons name={getStepIcon(step)} size={20} color="#19E180" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 17 }}>
+            <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(25, 225, 128, 0.22)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+              <MaterialIcons name={getStepIcon(step)} size={21} color="#19E180" />
             </View>
             <View style={{ flexShrink: 1 }}>
-              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', letterSpacing: -0.2 }}>
                 {step === 0 ? 'Bid Summary' : STEPS[step - 1]?.title}
               </Text>
-              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.74)' : '#4a5568', fontSize: 12, marginTop: 2, lineHeight: 16 }}>
+              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.84)' : '#4a5568', fontSize: 12, marginTop: 3, lineHeight: 17 }}>
                 {step === 0 ? 'Financial breakdown and totals' : STEPS[step - 1]?.subtitle}
               </Text>
             </View>
@@ -15962,8 +16025,8 @@ export default function EstimateGeneratorScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{
-              paddingHorizontal: 12,
-              paddingVertical: 8,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
               alignItems: 'flex-start',
             }}
           >
@@ -15975,42 +16038,43 @@ export default function EstimateGeneratorScreen() {
               }}
               style={{
                 alignItems: 'center',
-                marginHorizontal: 9,
-                minWidth: 44,
+                marginHorizontal: 11,
+                minWidth: 50,
               }}
             >
               <View style={{
-                width: 42,
-                height: 42,
-                borderRadius: 21,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
                 backgroundColor: darkMode
-                  ? (step === 0 ? 'rgba(25, 225, 128, 0.22)' : 'rgba(255, 255, 255, 0.1)')
+                  ? (step === 0 ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
                   : (step === 0 ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
-                borderWidth: step === 0 ? 2 : 1,
+                borderWidth: step === 0 ? 2.5 : 1,
                 borderColor: darkMode
-                  ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.22)')
+                  ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
                   : (step === 0 ? '#19E180' : '#9CA3AF'),
                 justifyContent: 'center',
                 alignItems: 'center',
-                marginBottom: 6,
+                marginBottom: 7,
                 ...(step === 0 && Platform.OS === 'ios'
-                  ? { shadowColor: '#19E180', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
+                  ? { shadowColor: '#19E180', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } }
                   : {}),
-                ...(step === 0 && Platform.OS === 'android' ? { elevation: 5 } : {}),
+                ...(step === 0 && Platform.OS === 'android' ? { elevation: 6 } : {}),
               }}>
                 <MaterialIcons
                   name={getStepIcon(0)}
-                  size={19}
+                  size={20}
                   color={darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : '#000000')}
                 />
               </View>
               <Text
                 style={{
-                  color: darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : Colors.sub),
+                  color: darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === 0 ? '#19E180' : Colors.sub),
                   fontSize: 11,
                   fontWeight: darkMode ? (step === 0 ? '800' : '500') : (step === 0 ? '800' : '600'),
                   textAlign: 'center',
-                  minWidth: 28,
+                  minWidth: 30,
+                  letterSpacing: 0.2,
                 }}
               >
                 S
@@ -16032,42 +16096,43 @@ export default function EstimateGeneratorScreen() {
                 }}
                 style={{
                   alignItems: 'center',
-                  marginHorizontal: 9,
-                  minWidth: 44,
+                  marginHorizontal: 11,
+                  minWidth: 50,
                 }}
               >
                 <View style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 21,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
                   backgroundColor: darkMode
-                    ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.22)' : 'rgba(255, 255, 255, 0.1)')
+                    ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
                     : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
-                  borderWidth: step === stepItem.id ? 2 : 1,
+                  borderWidth: step === stepItem.id ? 2.5 : 1,
                   borderColor: darkMode
-                    ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.22)')
+                    ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
                     : (step === stepItem.id ? '#19E180' : '#9CA3AF'),
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginBottom: 6,
+                  marginBottom: 7,
                   ...(step === stepItem.id && Platform.OS === 'ios'
-                    ? { shadowColor: '#19E180', shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
+                    ? { shadowColor: '#19E180', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 0 } }
                     : {}),
-                  ...(step === stepItem.id && Platform.OS === 'android' ? { elevation: 5 } : {}),
+                  ...(step === stepItem.id && Platform.OS === 'android' ? { elevation: 6 } : {}),
                 }}>
                   <MaterialIcons
                     name={getStepIcon(stepItem.id)}
-                    size={19}
+                    size={20}
                     color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : '#000000')}
                   />
                 </View>
                 <Text
                   style={{
-                    color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : Colors.sub),
+                    color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === stepItem.id ? '#19E180' : Colors.sub),
                     fontSize: 11,
                     fontWeight: darkMode ? (step === stepItem.id ? '800' : '500') : (step === stepItem.id ? '800' : '600'),
                     textAlign: 'center',
-                    minWidth: 28,
+                    minWidth: 30,
+                    letterSpacing: 0.2,
                   }}
                 >
                   {stepItem.id}

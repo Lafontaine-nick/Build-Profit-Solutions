@@ -28,6 +28,7 @@ import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
 import api from '../../services/BackendAPI';
 import { useAuth } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
+import { useTranslation } from 'react-i18next';
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -102,6 +103,7 @@ function ProjectDetailContent() {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const { t } = useTranslation();
   const { getToken } = useAuth();
   
   const user = {
@@ -2648,12 +2650,11 @@ function ProjectDetailContent() {
           <View style={{ height: 32 }} />
         </ScrollView>
 
-        {/* FLOATING ASK PM BADGE - Dashboard AI PM Mode Style */}
+        {/* FLOATING AI PM — same look as Dashboard FAB; opens assistant (does not toggle mode) */}
         <Pressable
           style={[
             styles.aiFloatingWrapper,
-            (activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team') &&
-              styles.aiFloatingWrapperBudget,
+            activeTab === 'Calendar' && styles.aiFloatingWrapperCalendarTab,
           ]}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2662,24 +2663,31 @@ function ProjectDetailContent() {
         >
           <LinearGradient
             colors={
-              activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team'
-                ? ['rgba(34, 197, 94, 0.72)', 'rgba(34, 211, 238, 0.72)']
-                : ['#22c55e', '#22d3ee']
+              activeTab === 'Calendar'
+                ? ['#134e2a', '#115e59']
+                : ['#15803d', '#0e7490']
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[
               styles.aiFloating,
-              (activeTab === 'Budget' || activeTab === 'Timeline' || activeTab === 'Team') &&
-                styles.aiFloatingBudgetTab,
+              activeTab === 'Calendar' && styles.aiFloatingCalendarTab,
             ]}
           >
             <Ionicons
               name="sparkles"
-              size={18}
-              color="#020617"
+              size={activeTab === 'Calendar' ? 14 : 15}
+              color="#ecfdf5"
             />
-            <Text style={styles.aiFloatingText}>Ask PM</Text>
+            <Text
+              style={[
+                styles.aiFloatingText,
+                styles.aiFloatingTextOn,
+                activeTab === 'Calendar' && styles.aiFloatingTextCalendarTab,
+              ]}
+            >
+              {t('dashboard.aiPmModeOn')}
+            </Text>
           </LinearGradient>
         </Pressable>
 
@@ -4736,41 +4744,46 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 2,
   },
-  // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
+  // FLOATING AI PM — matches Dashboard FAB (opens assistant on project detail)
   aiFloatingWrapper: {
     position: "absolute",
-    right: 20,
-    bottom: 80, // Above bottom edge, not overlapping content
+    right: 18,
+    bottom: 68,
     zIndex: 10,
-  },
-  aiFloatingWrapperBudget: {
-    bottom: 84,
   },
   aiFloating: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 999,
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
-  },
-  aiFloatingBudgetTab: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    shadowOpacity: 0.22,
-    shadowRadius: 9,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    elevation: 5,
   },
   aiFloatingText: {
-    marginLeft: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#020617",
+    marginLeft: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#d4d4d8",
+  },
+  aiFloatingTextOn: {
+    color: "#ecfdf5",
+  },
+  aiFloatingWrapperCalendarTab: {
+    opacity: 0.9,
+    bottom: 74,
+  },
+  aiFloatingCalendarTab: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+  },
+  aiFloatingTextCalendarTab: {
+    fontSize: 10,
   },
   chartBox: {
     marginTop: 8,

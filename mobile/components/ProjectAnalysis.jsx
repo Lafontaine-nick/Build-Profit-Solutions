@@ -628,6 +628,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     setActiveTab(tabName);
   };
 
+  /** Same contract price as baseline (e.g. cost-only scenario, bid adj 0%) — avoids showing duplicate bid rows. */
+  const scenarioBidMatchesOriginal =
+    Math.abs((sim.totalBid ?? 0) - (sim.originalBid ?? 0)) < 0.01;
+
   return (
     <View style={styles.container}>
       {/* Content */}
@@ -786,7 +790,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <QuickAdjust label="-2% Bid" field="markupPct" delta={-2} />
             </View>
 
-            {/* Live Deltas */}
+            {/* Adjustment summary strip — same deltas, tightened spacing */}
             <View style={styles.deltaRow}>
               {[
                 { label: "Labor", value: adj.laborPct, color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.laborPct < 0 ? palette.green : palette.textDim },
@@ -804,195 +808,203 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               ))}
             </View>
 
-            {/* Simulation Summary - styled like Step 5 bid breakdown */}
+            <Text style={styles.heroSectionEyebrow}>Scenario results</Text>
+
+            {/* A) Key outcomes — same values as before, clearer hierarchy */}
             <View style={[
-              styles.simSummary,
+              styles.heroOutcomes,
               darkMode && {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                borderColor: 'rgba(255, 255, 255, 0.15)',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                borderColor: 'rgba(45, 255, 196, 0.22)',
               },
             ]}>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Labor:</Text>
+              {scenarioBidMatchesOriginal ? (
+                <View style={[styles.heroRow, { alignItems: 'flex-start', marginBottom: 10 }]}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={styles.heroLabel}>Your bid (unchanged in this scenario)</Text>
+                    <Text style={styles.heroSubLabel}>
+                      Same price — costs below reflect the scenario; profit shows the impact.
+                    </Text>
+                  </View>
+                  <Animated.Text
+                    style={[
+                      styles.heroBidValue,
+                      {
+                        color: '#22d3ee',
+                        transform: [{
+                          scale: totalBidAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 1.05],
+                          }),
+                        }],
+                      },
+                    ]}
+                  >
+                    ${sim.totalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Animated.Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.heroRow}>
+                    <Text style={styles.heroLabel}>Original bid</Text>
+                    <Text style={styles.heroValue}>
+                      ${sim.originalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                  <View style={[styles.heroRow, { alignItems: 'flex-start', marginBottom: 10 }]}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={styles.heroLabel}>
+                        {sim.isExecutionMode ? 'Bid (this scenario)' : 'Bid in this scenario'}
+                      </Text>
+                      {!sim.isExecutionMode && (
+                        <Text style={styles.heroSubLabel}>
+                          vs original {sim.totalBid > sim.originalBid ? '+' : ''}
+                          ${(sim.totalBid - sim.originalBid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Text>
+                      )}
+                    </View>
+                    <Animated.Text
+                      style={[
+                        styles.heroBidValue,
+                        {
+                          color: '#22d3ee',
+                          transform: [{
+                            scale: totalBidAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 1.05],
+                            }),
+                          }],
+                        },
+                      ]}
+                    >
+                      ${sim.totalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Animated.Text>
+                  </View>
+                </>
+              )}
+              <View style={styles.heroDivider} />
+              <View style={styles.heroRow}>
+                <Text style={styles.heroLabel}>Estimated net profit</Text>
+                <Text style={[styles.heroValueAccent, { color: sim.netProfit >= 0 ? '#38d39f' : palette.red }]}>
+                  ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={styles.heroRow}>
+                <Text style={styles.heroLabel}>Net profit margin (revenue)</Text>
+                <Animated.Text
+                  style={[
+                    styles.heroValueAccent,
+                    {
+                      color: profitMarginColorAnim.interpolate({
+                        inputRange: [0, 0.5, 0.75, 1],
+                        outputRange: [palette.red, palette.yellow, palette.accent, palette.accent],
+                      }),
+                    },
+                  ]}
+                >
+                  {sim.netProfitMarginPct.toFixed(1)}%
+                </Animated.Text>
+              </View>
+              <View style={styles.heroRow}>
+                <Text style={styles.heroLabel}>Profit change</Text>
+                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta >= 0 ? '#38d39f' : palette.red }]}>
+                  {aiTip.profitDelta >= 0 ? '+' : '-'}
+                  ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={[styles.heroRow, { marginBottom: 0 }]}>
+                <Text style={styles.heroLabel}>Cushion above break-even</Text>
+                <Text style={[styles.heroValueAccent, {
+                  color: (sim.totalBid - sim.subtotal) >= 0 ? '#38d39f' : palette.red,
+                }]}>
+                  ${((sim.totalBid || 0) - (sim.subtotal || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+            </View>
+
+            {/* C) Safety / margin signal — same aiTip.text & color logic */}
+            <View style={[
+              styles.safetyCard,
+              darkMode && {
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                borderColor: 'rgba(255, 255, 255, 0.12)',
+              },
+            ]}>
+              <Text style={[styles.safetyCardTitle, { color: aiTip.color || palette.accent }]}>Margin check</Text>
+              <Text style={[styles.safetyCardBody, { color: aiTip.color || palette.text }]}>
+                {aiTip.text}
+              </Text>
+            </View>
+
+            {/* D) Supporting cost & bid detail — lower visual weight, same numbers */}
+            <View style={[
+              styles.supportingBlock,
+              darkMode && {
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+              },
+            ]}>
+              <Text style={styles.supportingTitle}>Cost & bid detail</Text>
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Labor (revised)</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.simValue}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.supportingValue}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.laborPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.laborPct > 0 ? '+' : ''}${(base.labor * (adj.laborPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
               </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Materials:</Text>
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Materials (revised)</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.simValue}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.supportingValue}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.materialPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.materialPct > 0 ? '+' : ''}${(base.materials * (adj.materialPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
               </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Overhead:</Text>
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Overhead (revised)</Text>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.simValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                  <Text style={styles.supportingValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.overheadPct !== 0) && (
-                    <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
                       {adj.overheadPct > 0 ? '+' : ''}${(base.overhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
               </View>
               {Math.abs(aiTip.bidDelta) > 0.01 && (
-                <View style={styles.simRow}>
-                  <Text style={styles.simLabel}>Total Bid Change:</Text>
-                  <Text style={[styles.simValue, { color: aiTip.bidDelta >= 0 ? '#38d39f' : palette.red }]}>
+                <View style={styles.supportingRow}>
+                  <Text style={styles.supportingLabel}>Total bid change</Text>
+                  <Text style={[styles.supportingValue, { color: aiTip.bidDelta >= 0 ? '#38d39f' : palette.red }]}>
                     {aiTip.bidDelta >= 0 ? '+' : ''}${aiTip.bidDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </View>
               )}
-              <View style={styles.simDivider} />
-              <View style={styles.simRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.simLabelBold}>
-                    {sim.isExecutionMode ? 'Original Bid:' : 'Total Bid (Adjusted):'}
-                  </Text>
-                  {!sim.isExecutionMode && (
-                    <View>
-                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2 }]}>
-                        Original: ${sim.originalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                      <Text style={[styles.simLabel, { fontSize: 11, marginTop: 2, color: '#38d39f' }]}>
-                        Change: {sim.totalBid > sim.originalBid ? '+' : ''}${(sim.totalBid - sim.originalBid).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Animated.Text 
-                  style={[
-                    styles.simValueBoldLarge,
-                    {
-                      color: '#22d3ee',
-                      transform: [{
-                        scale: totalBidAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 1.05]
-                        })
-                      }]
-                    }
-                  ]}
-                >
-                  ${sim.totalBid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Animated.Text>
-              </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Estimated Net Profit:</Text>
-                <Text style={[styles.simValue, { 
-                  color: sim.netProfit >= 0 ? '#38d39f' : palette.red,
-                  fontWeight: '800',
-                  fontSize: 18,
-                }]}>
-                  ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabelBold}>Net Profit Margin (Revenue):</Text>
-                <Animated.Text 
-                  style={[
-                    styles.simValueBold, 
-                    { 
-                      fontWeight: '800',
-                      fontSize: 18,
-                      color: profitMarginColorAnim.interpolate({
-                        inputRange: [0, 0.5, 0.75, 1],
-                        outputRange: [palette.red, palette.yellow, palette.accent, palette.accent]
-                      })
-                    }
-                  ]}
-                >
-                  {sim.netProfitMarginPct.toFixed(1)}%
-                </Animated.Text>
-              </View>
-              <View style={styles.simDivider} />
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Break-even bid:</Text>
-                <Text style={styles.simValue}>
+              <View style={styles.supportingDivider} />
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Break-even bid</Text>
+                <Text style={styles.supportingValue}>
                   ${(sim.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Current bid:</Text>
-                <Text style={[styles.simValue, { fontWeight: '700' }]}>
+              <View style={styles.supportingRow}>
+                <Text style={styles.supportingLabel}>Current bid</Text>
+                <Text style={[styles.supportingValue, { fontWeight: '700' }]}>
                   ${(sim.totalBid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
-              <View style={styles.simRow}>
-                <Text style={styles.simLabel}>Cushion above break-even:</Text>
-                <Text style={[styles.simValue, { 
-                  color: (sim.totalBid - sim.subtotal) >= 0 ? '#38d39f' : palette.red,
-                  fontWeight: '800',
-                  fontSize: 18,
-                }]}>
-                  ${((sim.totalBid || 0) - (sim.subtotal || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
               {sim.netProfitOnCostPct > 0 && (
-                <View style={styles.breakEvenRow}>
-                  <Text style={styles.breakEvenText}>
-                    Break-even if costs rise ~{sim.netProfitOnCostPct.toFixed(0)}%
-                  </Text>
-                </View>
+                <Text style={styles.supportingFootnote}>
+                  Break-even if costs rise ~{sim.netProfitOnCostPct.toFixed(0)}%
+                </Text>
               )}
             </View>
-
-          {/* AI Insight - Scenario Outcome (styled like Step 5) */}
-          <View style={[
-            styles.aiTipCard,
-            darkMode && {
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderColor: 'rgba(255, 255, 255, 0.15)',
-            },
-          ]}>
-            {(aiTip.profitDelta !== 0 || Math.abs(sim.netProfit - aiTip.originalProfit) > 0.01) && (
-              <>
-                <View style={styles.simRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.simLabel, { color: palette.text }]}>Original net profit:</Text>
-                    <Text style={[styles.simLabel, { fontSize: 12, marginTop: 2, color: '#38d39f' }]}>
-                      {aiTip.originalNetProfitPct.toFixed(1)}%
-                    </Text>
-                  </View>
-                  <Text style={[styles.simValue, { color: aiTip.originalProfit >= 0 ? '#22d3ee' : palette.red }]}>
-                    ${aiTip.originalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={styles.simRow}>
-                  <Text style={styles.simLabel}>Change:</Text>
-                  <Text style={[styles.simValue, { color: aiTip.profitDelta >= 0 ? '#38d39f' : palette.red }]}>
-                    {aiTip.profitDelta >= 0 ? '+' : '-'}${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={styles.simRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.simLabel}>Adjusted net profit:</Text>
-                    <Text style={[styles.simLabel, { fontSize: 12, marginTop: 2, color: '#38d39f' }]}>
-                      {sim.netProfitMarginPct.toFixed(1)}%
-                    </Text>
-                  </View>
-                  <Text style={[styles.simValue, { color: sim.netProfit >= 0 ? '#38d39f' : palette.red, fontWeight: '800', fontSize: 18 }]}>
-                    ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-              </>
-            )}
-            <View style={[(aiTip.profitDelta !== 0 || Math.abs(sim.netProfit - aiTip.originalProfit) > 0.01) ? styles.breakEvenRow : { marginTop: 0 }]}>
-              <Text style={[styles.breakEvenText, { color: aiTip.color || palette.text }]}>
-                {aiTip.text}
-              </Text>
-            </View>
-          </View>
         </ScrollView>
 
       {/* More Details Modal */}
@@ -1497,6 +1509,135 @@ const getStyles = (palette) => StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+
+  heroSectionEyebrow: {
+    color: palette.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  heroOutcomes: {
+    backgroundColor: palette.chip,
+    borderWidth: 1,
+    borderColor: palette.divider,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    marginBottom: 14,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  heroLabel: {
+    color: palette.textDim,
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
+    paddingRight: 8,
+  },
+  heroSubLabel: {
+    color: palette.textDim,
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  heroValue: {
+    color: palette.text,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  heroBidValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  heroDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.divider,
+    marginBottom: 14,
+    marginTop: 2,
+  },
+  heroValueAccent: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+
+  safetyCard: {
+    backgroundColor: palette.chip,
+    borderWidth: 1,
+    borderColor: palette.divider,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  safetyCardTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  safetyCardBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+
+  supportingBlock: {
+    backgroundColor: palette.chip,
+    borderWidth: 1,
+    borderColor: palette.divider,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 24,
+  },
+  supportingTitle: {
+    color: palette.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  supportingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  supportingLabel: {
+    color: palette.textDim,
+    fontSize: 12,
+    flex: 1,
+    paddingRight: 8,
+  },
+  supportingValue: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  supportingHint: {
+    fontSize: 10,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  supportingDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.divider,
+    marginVertical: 8,
+  },
+  supportingFootnote: {
+    color: palette.textDim,
+    fontSize: 11,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 6,
+  },
+
   simSummary: {
     backgroundColor: palette.chip,
     borderWidth: 1,

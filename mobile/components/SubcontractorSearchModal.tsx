@@ -17,6 +17,7 @@ import {
   PanResponder,
   Animated,
   StatusBar,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -225,6 +226,15 @@ function SubcontractorSearchModal({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  /** Shared UI tokens — Find Subcontractors + Contractor Profile polish */
+  const subMeta = darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub;
+  const subMeta2 = darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub;
+  const subCard = {
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+  };
   const { createConversation } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -715,17 +725,19 @@ function SubcontractorSearchModal({
             }}
             pointerEvents={showRequestForm ? 'none' : 'auto'}
           >
-          {/* Header Section */}
+          {/* Header Section — title centered; back balances right spacer */}
           <View style={{
-            paddingHorizontal: 24,
-            paddingTop: Math.max(insets.top, 0) + 12,
-            paddingBottom: 16,
+            paddingHorizontal: 22,
+            paddingTop: Math.max(insets.top, 0) + 10,
+            paddingBottom: 14,
             flexDirection: 'row',
             alignItems: 'center',
+            justifyContent: 'space-between',
             backgroundColor: darkMode ? '#000000' : Colors.bg,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
           }}>
-              {/* Back Arrow */}
-              <View style={{ marginRight: 12 }}>
+              <View style={{ width: 52, alignItems: 'flex-start' }}>
                 <LinearGradient
                   colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
                   start={{ x: 0.05, y: 0.15 }}
@@ -755,32 +767,33 @@ function SubcontractorSearchModal({
                   </TouchableOpacity>
                 </LinearGradient>
               </View>
-              
-              {/* Header Text */}
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 24, fontWeight: '700' }}>
+
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
+                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 23, fontWeight: '700', letterSpacing: -0.3, textAlign: 'center' }}>
                   Find Subcontractors
                 </Text>
-                <Text style={{ color: darkMode ? '#8DA0B8' : Colors.sub, fontSize: 14, marginTop: 4 }}>
+                <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500', textAlign: 'center' }}>
                   Search for qualified contractors
                 </Text>
               </View>
+
+              <View style={{ width: 52 }} />
             </View>
 
           {/* Scrollable Content */}
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{ 
-              paddingTop: 16,
+              paddingTop: 18,
               paddingBottom: 40,
             }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
           {/* Trade Selector */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 16 }}>
-            <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', marginBottom: 8, fontSize: 14 }}>Trade</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 14 }}>
+            <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', marginBottom: 10, fontSize: 12, fontWeight: '600', letterSpacing: 0.35, textTransform: 'uppercase', opacity: 0.9 }}>Trade</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
               {TRADE_OPTIONS.map(trade => (
                 <TouchableOpacity
                   key={trade}
@@ -790,19 +803,19 @@ function SubcontractorSearchModal({
                   }}
                   style={{
                     backgroundColor: selectedTrade === trade
-                      ? 'rgba(45, 255, 196, 0.2)'
-                      : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    borderRadius: 20,
-                    marginRight: 8,
-                    borderWidth: 1,
+                      ? 'rgba(34, 197, 94, 0.16)'
+                      : (darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2),
+                    paddingHorizontal: 14,
+                    paddingVertical: 9,
+                    borderRadius: 14,
+                    marginRight: 0,
+                    borderWidth: 1.5,
                     borderColor: selectedTrade === trade
-                      ? '#2DFFC4'
-                      : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
+                      ? '#22c55e'
+                      : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
                   }}
                 >
-                  <Text style={{ color: selectedTrade === trade ? '#2DFFC4' : (darkMode ? '#FFFFFF' : '#000000'), fontWeight: '600', fontSize: 13 }}>
+                  <Text style={{ color: selectedTrade === trade ? (darkMode ? '#86efac' : '#166534') : (darkMode ? '#f1f5f9' : '#000000'), fontWeight: '700', fontSize: 12 }}>
                     {trade}
                   </Text>
                 </TouchableOpacity>
@@ -811,64 +824,83 @@ function SubcontractorSearchModal({
           </View>
 
           {/* Search Inputs */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by name or specialty..."
-                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                 style={{
                   flex: 1,
                   backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  borderRadius: 12,
+                  paddingVertical: 13,
+                  borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                  fontSize: 15,
                 }}
               />
               <TextInput
                 value={zipCode}
                 onChangeText={setZipCode}
                 placeholder="ZIP"
-                placeholderTextColor="rgba(255,255,255,0.4)"
+                placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                 keyboardType="numeric"
                 maxLength={5}
                 style={{
-                  width: 80,
+                  width: 86,
                   backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
                   paddingHorizontal: 12,
-                  paddingVertical: 12,
-                  borderRadius: 12,
+                  paddingVertical: 13,
+                  borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                  fontSize: 15,
+                  textAlign: 'center',
                 }}
               />
             </View>
           </View>
 
           {/* Search & Request Buttons */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 16 }}>
+          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 18 }}>
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 handleSearch();
               }}
+              activeOpacity={0.9}
+              disabled={loading}
               style={{
-                backgroundColor: loading ? '#22c55e' : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                paddingVertical: 14,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: loading ? '#22c55e' : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                marginBottom: 12,
+                borderRadius: 14,
+                overflow: 'hidden',
+                marginBottom: 10,
+                opacity: loading ? 0.88 : 1,
               }}
             >
-              <Text style={{ color: loading ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'), textAlign: 'center', fontWeight: '700', fontSize: 16 }}>
-                Search Subcontractors
-              </Text>
+              <LinearGradient
+                colors={['#22c55e', '#22d3ee']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  paddingVertical: 15,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000000',
+                  shadowOpacity: darkMode ? 0.25 : 0.12,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 3,
+                }}
+              >
+                <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 16, letterSpacing: 0.2 }}>
+                  {loading ? 'Searching...' : 'Search Subcontractors'}
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
 
             {/* Request Subcontractor Button */}
@@ -881,19 +913,19 @@ function SubcontractorSearchModal({
                 console.log('✅ handleRequestSubcontractor called');
               }}
               style={{
-                backgroundColor: showRequestForm ? '#22c55e' : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                paddingVertical: 14,
-                borderRadius: 12,
+                backgroundColor: 'transparent',
+                paddingVertical: 12,
+                borderRadius: 14,
                 borderWidth: 1,
-                borderColor: showRequestForm ? '#22c55e' : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.24)' : Colors.line,
                 flexDirection: 'row',
                 justifyContent: 'center',
                 alignItems: 'center',
                 gap: 8,
               }}
             >
-              <MaterialIcons name="send" size={20} color={showRequestForm ? '#000000' : (darkMode ? '#FFFFFF' : '#000000')} />
-              <Text style={{ color: showRequestForm ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'), textAlign: 'center', fontWeight: '700', fontSize: 15 }}>
+              <MaterialIcons name="send" size={18} color={darkMode ? 'rgba(226, 232, 240, 0.75)' : Colors.sub} />
+              <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.88)' : Colors.text, textAlign: 'center', fontWeight: '600', fontSize: 14 }}>
                 Request Subcontractor
               </Text>
             </TouchableOpacity>
@@ -910,56 +942,62 @@ function SubcontractorSearchModal({
             {/* Results */}
             {!loading && results.length > 0 && (
               <View style={{ marginHorizontal: -20, paddingHorizontal: 28 }}>
-                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
                   {results.length} Subcontractor{results.length !== 1 ? 's' : ''} Found
                 </Text>
                 
                 {results.map(sub => (
-                <LinearGradient
+                <View
                   key={sub.id}
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
                   style={{
-                    borderRadius: 16,
-                    padding: 1,
-                    marginBottom: 12,
+                    borderRadius: 14,
+                    marginBottom: 10,
+                    borderWidth: 1,
+                    borderColor: darkMode ? 'rgba(45, 255, 196, 0.18)' : Colors.line,
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                    overflow: 'hidden',
                   }}
                 >
                   <TouchableOpacity
                     style={{
-                      backgroundColor: '#000000',
-                      borderRadius: 15,
-                      padding: 16,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
                     }}
                     onPress={() => {
                       setSelectedSubcontractor(sub);
                       setShowProfile(true);
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }}
-                    activeOpacity={0.8}
+                    activeOpacity={0.85}
                   >
                   {/* Header Row */}
-                  <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', marginBottom: 8 }}>
                     <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <Text style={{ color: darkMode ? '#f8fafc' : '#000000', fontSize: 16, fontWeight: '700', lineHeight: 22, flex: 1 }}>
                         {sub.name}
                       </Text>
-                        {/* Source Badge */}
+                        {/* Source Badge — toned down */}
                         <View style={{ 
                           flexDirection: 'row', 
                           alignItems: 'center', 
-                          marginLeft: 8,
+                          flexShrink: 0,
                           gap: 4
                         }}>
                           <View style={{
-                            backgroundColor: sub.sourceColor || '#6B7280',
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
+                            backgroundColor: sub.source === 'yelp'
+                              ? (darkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
+                              : (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2),
+                            paddingHorizontal: 7,
+                            paddingVertical: 3,
                             borderRadius: 8,
                             flexDirection: 'row',
                             alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: sub.source === 'yelp'
+                              ? 'rgba(248, 113, 113, 0.28)'
+                              : (darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line),
                           }}>
                             <MaterialIcons 
                               name={
@@ -967,10 +1005,10 @@ function SubcontractorSearchModal({
                                 sub.source === 'yelp' ? 'business' :
                                 sub.source === 'app' ? 'person' : 'apps'
                               } 
-                              size={10} 
-                              color="#FFFFFF" 
+                              size={11} 
+                              color={sub.source === 'yelp' ? (darkMode ? '#fca5a5' : '#b91c1c') : (darkMode ? 'rgba(226,232,240,0.75)' : Colors.sub)} 
                             />
-                            <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '600', marginLeft: 2 }}>
+                            <Text style={{ color: sub.source === 'yelp' ? (darkMode ? '#fca5a5' : '#b91c1c') : (darkMode ? 'rgba(226,232,240,0.85)' : Colors.text), fontSize: 10, fontWeight: '600', marginLeft: 3 }}>
                               {sub.sourceLabel || 'UNKNOWN'}
                             </Text>
                           </View>
@@ -979,19 +1017,19 @@ function SubcontractorSearchModal({
                           )}
                         </View>
                       </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={{ color: '#fbbf24', fontSize: 14, marginRight: 4 }}>⭐ {sub.rating}</Text>
-                        <Text style={{ color: '#a7bed9', fontSize: 13 }}>({sub.reviews} reviews)</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                        <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>⭐ {sub.rating}</Text>
+                        <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <View style={{ backgroundColor: '#38d39f', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
-                          <Text style={{ color: '#0d2745', fontSize: 11, fontWeight: '600' }}>{sub.trade}</Text>
+                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
+                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 11, fontWeight: '700' }}>{sub.trade}</Text>
                         </View>
                         {sub.licensed && (
-                          <Text style={{ color: '#60a5fa', fontSize: 11 }}>✓ Licensed</Text>
+                          <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>✓ Licensed</Text>
                         )}
                         {sub.insured && (
-                          <Text style={{ color: '#60a5fa', fontSize: 11 }}>✓ Insured</Text>
+                          <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>✓ Insured</Text>
                         )}
                         {/* Campaign Info */}
                         {sub.hasCampaign && (
@@ -1040,58 +1078,64 @@ function SubcontractorSearchModal({
                   </View>
 
                   {/* Details */}
-                  <View style={{ marginBottom: 12 }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 2 }}>
+                  <View style={{ marginBottom: 8, gap: 4 }}>
+                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
                       📍 {sub.location} ({sub.distance} mi)
                     </Text>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 2 }}>
+                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
                       💰 ${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr
                     </Text>
-                    <Text style={{ color: '#a7bed9', fontSize: 13 }}>
+                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
                       📅 {sub.availability}
                     </Text>
                   </View>
 
                   {/* Specialties */}
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                     {sub.specialties.map((spec: string) => (
-                      <View key={spec} style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-                        <Text style={{ color: '#FFFFFF', fontSize: 11 }}>{spec}</Text>
+                      <View key={spec} style={{ backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }}>
+                        <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.9)' : Colors.text, fontSize: 11, fontWeight: '500' }}>{spec}</Text>
                       </View>
                     ))}
                   </View>
 
                   {/* Actions */}
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(45, 255, 196, 0.2)',
-                        paddingVertical: 12,
+                        backgroundColor: '#22c55e',
+                        paddingVertical: 11,
                         borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: '#2DFFC4',
                         alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 44,
+                        shadowColor: '#000000',
+                        shadowOpacity: 0.15,
+                        shadowRadius: 6,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 2,
                       }}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                         handleSelectSubcontractor(sub);
                       }}
                     >
-                      <Text style={{ color: '#2DFFC4', fontWeight: '700', fontSize: 14 }}>Add to Bid</Text>
+                      <Text style={{ color: '#020617', fontWeight: '700', fontSize: 14 }}>Add to Bid</Text>
                     </TouchableOpacity>
                     {sub.hasCampaign ? (
                       <TouchableOpacity
                         style={{
                           flex: 1,
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          paddingVertical: 12,
+                          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                          paddingVertical: 11,
                           borderRadius: 10,
                           borderWidth: 1,
-                          borderColor: 'rgba(255, 255, 255, 0.15)',
+                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
                           alignItems: 'center',
                           flexDirection: 'row',
                           justifyContent: 'center',
+                          minHeight: 44,
                         }}
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1104,8 +1148,8 @@ function SubcontractorSearchModal({
                           // Just log for now to test if this prevents freezing
                         }}
                       >
-                        <MaterialIcons name="campaign" size={16} color="#FFFFFF" />
-                        <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14, marginLeft: 4 }}>
+                        <MaterialIcons name="campaign" size={16} color={darkMode ? 'rgba(248,250,252,0.85)' : Colors.text} />
+                        <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13, marginLeft: 4 }}>
                           Contact
                         </Text>
                       </TouchableOpacity>
@@ -1113,12 +1157,14 @@ function SubcontractorSearchModal({
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        paddingVertical: 12,
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                        paddingVertical: 11,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.15)',
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
                         alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 44,
                       }}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1126,12 +1172,12 @@ function SubcontractorSearchModal({
                         setShowProfile(true);
                       }}
                     >
-                      <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>View Profile</Text>
+                      <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13 }}>View Profile</Text>
                     </TouchableOpacity>
                     )}
                   </View>
                   </TouchableOpacity>
-                </LinearGradient>
+                </View>
                 ))}
                 
                 {/* Yelp Attribution Footer */}
@@ -1204,18 +1250,19 @@ function SubcontractorSearchModal({
             <ScrollView 
               showsVerticalScrollIndicator={false} 
               keyboardShouldPersistTaps="handled" 
-              contentContainerStyle={{ paddingBottom: 40 }}
+              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 40 }}
             >
-              {/* Header Section - Scrolls with content */}
-              <View style={{ 
-                paddingTop: 24,
-                paddingHorizontal: 24,
-                paddingBottom: 20,
-                marginTop: 16,
+              {/* Header — respects status bar / notch */}
+              <View style={{
+                paddingTop: Math.max(insets.top, 0) + 14,
+                paddingHorizontal: 22,
+                paddingBottom: 16,
                 flexDirection: 'row',
                 alignItems: 'center',
+                backgroundColor: darkMode ? '#000000' : Colors.bg,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
               }}>
-                {/* Back Arrow */}
                 <View style={{ marginRight: 12 }}>
                   <LinearGradient
                     colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -1234,24 +1281,26 @@ function SubcontractorSearchModal({
                         width: '100%',
                         height: '100%',
                         borderRadius: 19,
-                        backgroundColor: '#000000',
+                        backgroundColor: darkMode ? '#000000' : Colors.surface2,
                         justifyContent: 'center',
                         alignItems: 'center',
                       }}
                     >
-                      <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
                     </TouchableOpacity>
                   </LinearGradient>
                 </View>
-                
-                {/* Header Text */}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700' }}>Request Subcontractor</Text>
-                  <Text style={{ color: '#8DA0B8', fontSize: 14, marginTop: 4 }}>Post your subcontractor needs</Text>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.35 }}>
+                    Request Subcontractor
+                  </Text>
+                  <Text style={{ color: subMeta2, fontSize: 14, marginTop: 5, lineHeight: 20 }}>
+                    Post your subcontractor needs
+                  </Text>
                 </View>
               </View>
 
-              <View style={{ paddingHorizontal: 24 }}>
+              <View style={{ paddingHorizontal: 22, paddingTop: 20 }}>
 
                 {/* Trade Selection */}
       {showProfile && selectedSubcontractor && (
@@ -1261,13 +1310,13 @@ function SubcontractorSearchModal({
           transparent={false}
           onRequestClose={() => setShowProfile(false)}
         >
-          <View style={{ flex: 1, backgroundColor: '#000000' }}>
-            <View style={{ flex: 1, paddingTop: 60 }}>
+          <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
+            <View style={{ flex: 1, paddingTop: 56 }}>
               {/* Back Button */}
               <View style={{
                 position: 'absolute',
-                top: 50,
-                left: 20,
+                top: 48,
+                left: 18,
                 zIndex: 10,
               }}>
                 <LinearGradient
@@ -1302,126 +1351,146 @@ function SubcontractorSearchModal({
 
               {/* Header */}
               <Text style={{ 
-                color: '#e9f1ff', 
-                fontSize: 20, 
+                color: darkMode ? '#f8fafc' : Colors.text, 
+                fontSize: 18, 
                 fontWeight: '700', 
                 textAlign: 'center',
-                marginTop: 20,
-                marginBottom: 20,
-                paddingHorizontal: 20
+                marginTop: 18,
+                marginBottom: 6,
+                paddingHorizontal: 56,
+                letterSpacing: -0.2,
               }}>
                 Contractor Profile
               </Text>
 
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 20 }}>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32 }}>
                 {/* Name & Trade */}
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 26, fontWeight: '700', marginBottom: 8 }}>
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 24, fontWeight: '700', marginBottom: 10, letterSpacing: -0.35, lineHeight: 30 }}>
                     {selectedSubcontractor.name}
                   </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <View style={{ backgroundColor: '#43cea2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
-                      <Text style={{ color: '#0d2745', fontSize: 14, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
+                      <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
                     </View>
                     {selectedSubcontractor.licensed && (
-                      <View style={{ backgroundColor: 'rgba(67, 206, 162, 0.3)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.5)' }}>
-                        <Text style={{ color: '#e9f1ff', fontSize: 13, fontWeight: '600' }}>✓ Licensed</Text>
+                      <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
+                        <Text style={{ color: darkMode ? '#a7f3d0' : '#166534', fontSize: 12, fontWeight: '600' }}>✓ Licensed</Text>
                       </View>
                     )}
                     {selectedSubcontractor.insured && (
-                      <View style={{ backgroundColor: 'rgba(67, 206, 162, 0.3)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.5)' }}>
-                        <Text style={{ color: '#e9f1ff', fontSize: 13, fontWeight: '600' }}>✓ Insured</Text>
+                      <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.28)' }}>
+                        <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 12, fontWeight: '600' }}>✓ Insured</Text>
                       </View>
                     )}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ color: '#fbbf24', fontSize: 20, marginRight: 8 }}>⭐ {selectedSubcontractor.rating}</Text>
-                    <Text style={{ color: '#a7bed9', fontSize: 15 }}>({selectedSubcontractor.reviews} reviews)</Text>
+                    <Text style={{ color: '#fbbf24', fontSize: 18, fontWeight: '700', marginRight: 8 }}>⭐ {selectedSubcontractor.rating}</Text>
+                    <Text style={{ color: subMeta, fontSize: 14 }}>({selectedSubcontractor.reviews} reviews)</Text>
                   </View>
                 </View>
 
                 {/* Key Info Cards */}
-                <View style={{ gap: 12, marginBottom: 24 }}>
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>📍 Location</Text>
-                    <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600' }}>
+                <View style={{ gap: 10, marginBottom: 22 }}>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>📍 Location</Text>
+                    <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                       {selectedSubcontractor.location} ({selectedSubcontractor.distance} miles away)
                     </Text>
                   </View>
 
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>💰 Hourly Rate</Text>
-                    <Text style={{ color: '#43cea2', fontSize: 20, fontWeight: '700' }}>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>💰 Hourly Rate</Text>
+                    <Text style={{ color: '#4ade80', fontSize: 19, fontWeight: '800', letterSpacing: -0.2 }}>
                       ${selectedSubcontractor.hourlyRate.min} - ${selectedSubcontractor.hourlyRate.max}/hr
                     </Text>
                   </View>
 
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>📅 Availability</Text>
-                    <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600' }}>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>📅 Availability</Text>
+                    <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                       {selectedSubcontractor.availability}
                     </Text>
                   </View>
 
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 8 }}>📞 Contact</Text>
-                    <TouchableOpacity 
-                      style={{ marginBottom: 8 }}
-                      onPress={() => {
-                        if (Platform.OS === 'ios' || Platform.OS === 'android') {
-                          Linking.openURL(`tel:${selectedSubcontractor.phone}`);
-                        }
-                      }}
-                    >
-                      <Text style={{ color: '#43cea2', fontSize: 16, fontWeight: '600' }}>
-                        📞 {selectedSubcontractor.phone}
-                    </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (Platform.OS === 'ios' || Platform.OS === 'android') {
-                          Linking.openURL(`mailto:${selectedSubcontractor.email}`);
-                        }
-                      }}
-                    >
-                    <Text style={{ color: '#43cea2', fontSize: 14 }}>
-                        ✉️ {selectedSubcontractor.email}
-                    </Text>
-                    </TouchableOpacity>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 12, letterSpacing: 0.15 }}>📞 Contact</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 }}>
+                      <MaterialIcons name="phone" size={20} color="#4ade80" style={{ marginRight: 12, marginTop: 2 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Phone</Text>
+                        {selectedSubcontractor.phone ? (
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                                Linking.openURL(`tel:${selectedSubcontractor.phone}`);
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#4ade80', fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
+                              {selectedSubcontractor.phone}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={{ color: subMeta, fontSize: 15, lineHeight: 22 }}>Not provided</Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                      <MaterialIcons name="email" size={20} color="#60a5fa" style={{ marginRight: 12, marginTop: 2 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: subMeta2, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>Email</Text>
+                        {selectedSubcontractor.email ? (
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                                Linking.openURL(`mailto:${selectedSubcontractor.email}`);
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#60a5fa', fontSize: 15, fontWeight: '600', lineHeight: 22 }}>
+                              {selectedSubcontractor.email}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={{ color: subMeta, fontSize: 15, lineHeight: 22 }}>Not provided</Text>
+                        )}
+                      </View>
+                    </View>
                   </View>
 
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>🏢 Company</Text>
-                    <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600', marginBottom: 4 }}>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>🏢 Company</Text>
+                    <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 6, lineHeight: 22 }}>
                       {selectedSubcontractor.company || selectedSubcontractor.name}
                     </Text>
-                    <Text style={{ color: '#a7bed9', fontSize: 13 }}>
+                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
                       License: {selectedSubcontractor.licenseNumber || 'Not provided'}
                     </Text>
                   </View>
                 </View>
 
                 {/* Professional Badges */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                     Professional Credentials
                   </Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {/* Licensed Badge */}
                     {selectedSubcontractor.licensed && (
                       <View style={{
-                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.12)',
                         borderWidth: 1,
-                        borderColor: '#10B981',
-                        borderRadius: 20,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        borderColor: 'rgba(52, 211, 153, 0.45)',
+                        borderRadius: 999,
+                        paddingHorizontal: 11,
+                        paddingVertical: 7,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 6
                       }}>
-                        <MaterialIcons name="verified" size={16} color="#10B981" />
-                        <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600' }}>
+                        <MaterialIcons name="verified" size={15} color="#34d399" />
+                        <Text style={{ color: '#6ee7b7', fontSize: 12, fontWeight: '600' }}>
                           Licensed
                         </Text>
                       </View>
@@ -1430,18 +1499,18 @@ function SubcontractorSearchModal({
                     {/* Insured Badge */}
                     {selectedSubcontractor.insured && (
                       <View style={{
-                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         borderWidth: 1,
-                        borderColor: '#3B82F6',
-                        borderRadius: 20,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        borderColor: 'rgba(96, 165, 250, 0.4)',
+                        borderRadius: 999,
+                        paddingHorizontal: 11,
+                        paddingVertical: 7,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 6
                       }}>
-                        <MaterialIcons name="security" size={16} color="#3B82F6" />
-                        <Text style={{ color: '#3B82F6', fontSize: 12, fontWeight: '600' }}>
+                        <MaterialIcons name="security" size={15} color="#60a5fa" />
+                        <Text style={{ color: '#93c5fd', fontSize: 12, fontWeight: '600' }}>
                           Insured
                         </Text>
                       </View>
@@ -1450,18 +1519,18 @@ function SubcontractorSearchModal({
                     {/* Years in Business */}
                     {selectedSubcontractor.yearsExperience && (
                       <View style={{
-                        backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
                         borderWidth: 1,
-                        borderColor: '#8B5CF6',
-                        borderRadius: 20,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        borderColor: 'rgba(167, 139, 250, 0.4)',
+                        borderRadius: 999,
+                        paddingHorizontal: 11,
+                        paddingVertical: 7,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 6
                       }}>
-                        <MaterialIcons name="business" size={16} color="#8B5CF6" />
-                        <Text style={{ color: '#8B5CF6', fontSize: 12, fontWeight: '600' }}>
+                        <MaterialIcons name="business" size={15} color="#a78bfa" />
+                        <Text style={{ color: '#c4b5fd', fontSize: 12, fontWeight: '600' }}>
                           {selectedSubcontractor.yearsExperience} Years
                         </Text>
                       </View>
@@ -1470,18 +1539,18 @@ function SubcontractorSearchModal({
                     {/* Response Time */}
                     {selectedSubcontractor.responseTime && (
                       <View style={{
-                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
                         borderWidth: 1,
-                        borderColor: '#F59E0B',
-                        borderRadius: 20,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        borderColor: 'rgba(251, 191, 36, 0.35)',
+                        borderRadius: 999,
+                        paddingHorizontal: 11,
+                        paddingVertical: 7,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 6
                       }}>
-                        <MaterialIcons name="schedule" size={16} color="#F59E0B" />
-                        <Text style={{ color: '#F59E0B', fontSize: 12, fontWeight: '600' }}>
+                        <MaterialIcons name="schedule" size={15} color="#fbbf24" />
+                        <Text style={{ color: '#fcd34d', fontSize: 12, fontWeight: '600' }}>
                           {selectedSubcontractor.responseTime === 'within_day' ? 'Quick Response' : 
                            selectedSubcontractor.responseTime === 'within_hour' ? '1 Hour' : 'Quick Response'}
                         </Text>
@@ -1491,15 +1560,15 @@ function SubcontractorSearchModal({
                 </View>
 
                 {/* Company Bio */}
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                     About {selectedSubcontractor.name}
                   </Text>
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
+                  <View style={{ ...subCard, padding: 18 }}>
                     <View style={{ alignItems: 'flex-start' }}>
                       {selectedSubcontractor.bio ? (
                         <Text style={{ 
-                          color: '#a7bed9', 
+                          color: subMeta, 
                           fontSize: 15, 
                           lineHeight: 24,
                           textAlign: 'left'
@@ -1507,9 +1576,9 @@ function SubcontractorSearchModal({
                           {selectedSubcontractor.bio}
                         </Text>
                       ) : (
-                        <View style={{ alignItems: 'flex-start', gap: 8 }}>
+                        <View style={{ alignItems: 'flex-start', gap: 6 }}>
                           <Text style={{ 
-                            color: '#e9f1ff', 
+                            color: darkMode ? '#f1f5f9' : Colors.text, 
                             fontSize: 16, 
                             lineHeight: 22,
                             textAlign: 'left',
@@ -1520,52 +1589,48 @@ function SubcontractorSearchModal({
                           </Text>
                           
                           <Text style={{ 
-                            color: '#a7bed9', 
+                            color: subMeta, 
                             fontSize: 14, 
-                            lineHeight: 20,
+                            lineHeight: 22,
                             textAlign: 'left',
-                            marginBottom: 2
                           }}>
                             • {selectedSubcontractor.yearsExperience || 'Extensive'} years of experience
                           </Text>
                           
                           <Text style={{ 
-                            color: '#a7bed9', 
+                            color: subMeta, 
                             fontSize: 14, 
-                            lineHeight: 20,
+                            lineHeight: 22,
                             textAlign: 'left',
-                            marginBottom: 2
                           }}>
                             • {selectedSubcontractor.licensed ? 'Fully licensed and ' : ''}{selectedSubcontractor.insured ? 'insured' : 'bonded'} contractor
                           </Text>
                           
                           <Text style={{ 
-                            color: '#a7bed9', 
+                            color: subMeta, 
                             fontSize: 14, 
-                            lineHeight: 20,
+                            lineHeight: 22,
                             textAlign: 'left',
-                            marginBottom: 2
                           }}>
                             • Specializing in {selectedSubcontractor.specialties?.join(', ') || 'quality workmanship'}
                           </Text>
                           
                           <Text style={{ 
-                            color: '#a7bed9', 
+                            color: subMeta, 
                             fontSize: 14, 
-                            lineHeight: 20,
+                            lineHeight: 22,
                             textAlign: 'left',
-                            marginBottom: 2
                           }}>
                             • Available {selectedSubcontractor.availability.toLowerCase()}
                           </Text>
                           
                           <Text style={{ 
-                            color: '#43cea2', 
+                            color: '#4ade80', 
                             fontSize: 14, 
-                            lineHeight: 20,
+                            lineHeight: 22,
                             textAlign: 'left',
                             fontWeight: '600',
-                            marginTop: 4
+                            marginTop: 6
                           }}>
                             Competitive rates starting at ${selectedSubcontractor.hourlyRate.min}/hour
                           </Text>
@@ -1577,8 +1642,8 @@ function SubcontractorSearchModal({
 
                 {/* Portfolio Photos */}
                 {selectedSubcontractor.portfolioPhotos && selectedSubcontractor.portfolioPhotos > 0 && (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                  <View style={{ marginBottom: 22 }}>
+                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                       Portfolio ({selectedSubcontractor.portfolioPhotos} photos)
                     </Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
@@ -1681,24 +1746,24 @@ function SubcontractorSearchModal({
 
                 {/* Experience & Team */}
                 {(selectedSubcontractor.yearsExperience || selectedSubcontractor.teamSize) && (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                  <View style={{ marginBottom: 22 }}>
+                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                       Experience & Team
                     </Text>
-                    <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
+                    <View style={{ ...subCard, padding: 18 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                         {selectedSubcontractor.yearsExperience && (
                           <View style={{ flex: 1, marginRight: 8 }}>
-                            <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>Experience</Text>
-                            <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600' }}>
+                            <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>Experience</Text>
+                            <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600' }}>
                               {selectedSubcontractor.yearsExperience} years
                             </Text>
                           </View>
                         )}
                         {selectedSubcontractor.teamSize && (
                           <View style={{ flex: 1, marginLeft: 8 }}>
-                            <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 4 }}>Team Size</Text>
-                            <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600' }}>
+                            <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>Team Size</Text>
+                            <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600' }}>
                               {selectedSubcontractor.teamSize} members
                             </Text>
                           </View>
@@ -1706,7 +1771,7 @@ function SubcontractorSearchModal({
                       </View>
                       {selectedSubcontractor.certifications && selectedSubcontractor.certifications.length > 0 && (
                         <View>
-                          <Text style={{ color: '#a7bed9', fontSize: 13, marginBottom: 8 }}>Certifications</Text>
+                          <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Certifications</Text>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                             {selectedSubcontractor.certifications.map((cert: string, index: number) => (
                               <View key={index} style={{ backgroundColor: 'rgba(67, 206, 162, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.3)' }}>
@@ -1722,17 +1787,17 @@ function SubcontractorSearchModal({
 
                 {/* Service Areas */}
                 {selectedSubcontractor.serviceAreas && selectedSubcontractor.serviceAreas.length > 0 && (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                  <View style={{ marginBottom: 22 }}>
+                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                       Service Areas
                     </Text>
-                    <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
+                    <View style={{ ...subCard, padding: 18 }}>
                       {selectedSubcontractor.serviceAreas.map((area: any, index: number) => (
-                        <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: index < selectedSubcontractor.serviceAreas.length - 1 ? 1 : 0, borderBottomColor: 'rgba(67, 206, 162, 0.2)' }}>
-                          <Text style={{ color: '#e9f1ff', fontSize: 16, fontWeight: '600' }}>
+                        <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: index < selectedSubcontractor.serviceAreas.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line }}>
+                          <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600' }}>
                             {area.city}, {area.state}
                           </Text>
-                          <Text style={{ color: '#43cea2', fontSize: 14 }}>
+                          <Text style={{ color: '#4ade80', fontSize: 14, fontWeight: '600' }}>
                             {area.radius} mile radius
                           </Text>
                         </View>
@@ -1743,17 +1808,17 @@ function SubcontractorSearchModal({
 
                 {/* Specialty Pricing */}
                 {selectedSubcontractor.specialtyPricing && Object.keys(selectedSubcontractor.specialtyPricing).length > 0 && (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
+                  <View style={{ marginBottom: 22 }}>
+                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
                       Specialty Pricing
                     </Text>
-                    <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                      {Object.entries(selectedSubcontractor.specialtyPricing).map(([specialty, pricing]: [string, any]) => (
-                        <View key={specialty} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(67, 206, 162, 0.2)' }}>
-                          <Text style={{ color: '#e9f1ff', fontSize: 15, fontWeight: '600' }}>
+                    <View style={{ ...subCard, padding: 18 }}>
+                      {Object.entries(selectedSubcontractor.specialtyPricing).map(([specialty, pricing]: [string, any], index, arr) => (
+                        <View key={specialty} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: index < arr.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line }}>
+                          <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 15, fontWeight: '600' }}>
                             {specialty}
                           </Text>
-                          <Text style={{ color: '#43cea2', fontSize: 14, fontWeight: '600' }}>
+                          <Text style={{ color: '#4ade80', fontSize: 14, fontWeight: '600' }}>
                             ${pricing.min}-${pricing.max}/hr
                           </Text>
                         </View>
@@ -1763,170 +1828,33 @@ function SubcontractorSearchModal({
                 )}
 
                 {/* Specialties */}
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Specialties</Text>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Specialties</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {selectedSubcontractor.specialties.map((spec: string) => (
-                      <View key={spec} style={{ backgroundColor: 'rgba(67, 206, 162, 0.2)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.3)' }}>
-                        <Text style={{ color: '#e9f1ff', fontSize: 13, fontWeight: '500' }}>{spec}</Text>
+                      <View key={spec} style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
+                        <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '600' }}>{spec}</Text>
                       </View>
                     ))}
                   </View>
                 </View>
 
                 {/* Experience */}
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>Experience</Text>
-                  <View style={{ backgroundColor: 'rgba(20, 40, 80, 0.6)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(67, 206, 162, 0.25)' }}>
-                    <Text style={{ color: '#CFE6FF', fontSize: 15, lineHeight: 22 }}>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Experience</Text>
+                  <View style={{ ...subCard, padding: 18 }}>
+                    <Text style={{ color: subMeta, fontSize: 15, lineHeight: 24 }}>
                       {selectedSubcontractor.yearsExperience} years of professional experience in {selectedSubcontractor.trade.toLowerCase()}. 
                       Completed over {selectedSubcontractor.completedJobs} projects with an average rating of {selectedSubcontractor.rating} stars.
                     </Text>
                   </View>
                 </View>
 
-                {/* Enhanced Contact Actions */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#e9f1ff', fontSize: 18, fontWeight: '700', marginBottom: 12 }}>
-                    Contact & Communication
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    {/* Call Button */}
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                        borderWidth: 1,
-                        borderColor: '#10B981',
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8
-                      }}
-                      onPress={() => {
-                        if (Platform.OS === 'ios' || Platform.OS === 'android') {
-                          Linking.openURL(`tel:${selectedSubcontractor.phone || selectedSubcontractor.contactPhone}`);
-                        }
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }}
-                    >
-                      <MaterialIcons name="phone" size={20} color="#10B981" />
-                      <Text style={{ color: '#10B981', fontWeight: '600', fontSize: 14 }}>Call</Text>
-                    </TouchableOpacity>
-                    
-                    {/* Email Button */}
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                        borderWidth: 1,
-                        borderColor: '#3B82F6',
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8
-                      }}
-                      onPress={() => {
-                        if (Platform.OS === 'ios' || Platform.OS === 'android') {
-                          Linking.openURL(`mailto:${selectedSubcontractor.email || selectedSubcontractor.contactEmail}`);
-                        }
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }}
-                    >
-                      <MaterialIcons name="email" size={20} color="#3B82F6" />
-                      <Text style={{ color: '#3B82F6', fontWeight: '600', fontSize: 14 }}>Email</Text>
-                    </TouchableOpacity>
-                    
-                    {/* Message Button */}
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        backgroundColor: 'rgba(139, 92, 246, 0.2)',
-                        borderWidth: 1,
-                        borderColor: '#8B5CF6',
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8
-                      }}
-                      onPress={async () => {
-                        try {
-                          console.log('💬 Message button pressed');
-                          console.log('👤 Selected subcontractor:', selectedSubcontractor?.name);
-                          
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          
-                          // Save contractor data before closing modals
-                          const subId = selectedSubcontractor.id;
-                          const subName = selectedSubcontractor.name;
-                          const subCompany = selectedSubcontractor.company || selectedSubcontractor.name;
-                          const subPhone = selectedSubcontractor.phone;
-                          const subEmail = selectedSubcontractor.email;
-                          
-                          // Create or get conversation
-                          console.log('🔄 Creating conversation...');
-                          const conversationId = await createConversation(
-                            subId,
-                            subName,
-                            subCompany,
-                            subPhone,
-                            subEmail,
-                            'contractor' // You're the contractor messaging a sub
-                          );
-                          
-                          console.log('✅ Conversation created:', conversationId);
-                          
-                          // Close profile modal first
-                          setShowProfile(false);
-                          
-                          // Wait for profile to close, then close main modal and open chat
-                          setTimeout(() => {
-                            onClose(); // Close the main search modal
-                            
-                            // Wait for main modal to close, then open chat
-                            setTimeout(() => {
-                              setCurrentConversationId(conversationId);
-                              setShowChat(true);
-                              console.log('✅ Chat should open now');
-                            }, 500);
-                          }, 300);
-                          
-                        } catch (error) {
-                          console.error('❌ Error opening chat:', error);
-                          Alert.alert('Error', 'Failed to open chat. Please try again.');
-                        }
-                      }}
-                    >
-                      <MaterialIcons name="message" size={20} color="#8B5CF6" />
-                      <Text style={{ color: '#8B5CF6', fontWeight: '600', fontSize: 14 }}>Message</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Quick Action Buttons */}
-                <View style={{ gap: 12, paddingBottom: 20 }}>
+                {/* Primary actions: quote + bid, then call + message */}
+                <View style={{ gap: 10, paddingBottom: 24 }}>
                   {/* Get Quote Button */}
                   <TouchableOpacity
-                    style={{
-                      backgroundColor: '#43cea2',
-                      paddingVertical: 16,
-                      borderRadius: 12,
-                      alignItems: 'center',
-                      shadowColor: '#43cea2',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.4,
-                      shadowRadius: 8,
-                      elevation: 8,
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      gap: 8
-                    }}
+                    activeOpacity={0.9}
                     onPress={() => {
                       Alert.alert(
                         'Get Quote',
@@ -1935,25 +1863,39 @@ function SubcontractorSearchModal({
                       );
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                     }}
+                    style={{ borderRadius: 14, overflow: 'hidden' }}
                   >
-                    <MaterialIcons name="request-quote" size={20} color="#FFFFFF" />
-                    <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 16 }}>Get Custom Quote</Text>
+                    <LinearGradient
+                      colors={['#22c55e', '#22d3ee']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        paddingVertical: 16,
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        gap: 8,
+                        shadowColor: '#000000',
+                        shadowOpacity: 0.2,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 3 },
+                        elevation: 4,
+                      }}
+                    >
+                    <MaterialIcons name="request-quote" size={20} color="#020617" />
+                    <Text style={{ color: '#020617', fontWeight: '800', fontSize: 16, letterSpacing: 0.2 }}>Get Custom Quote</Text>
+                    </LinearGradient>
                   </TouchableOpacity>
                   
                   {/* Add to Bid Button */}
                   <TouchableOpacity
                     style={{
-                      backgroundColor: 'rgba(45, 255, 196, 0.2)',
+                      backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.1)',
                       paddingVertical: 16,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: '#2DFFC4',
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: 'rgba(45, 255, 196, 0.55)',
                       alignItems: 'center',
-                      shadowColor: '#2DFFC4',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.4,
-                      shadowRadius: 8,
-                      elevation: 8,
                       flexDirection: 'row',
                       justifyContent: 'center',
                       gap: 8
@@ -1990,91 +1932,79 @@ function SubcontractorSearchModal({
                       }
                     }}
                   >
-                    <MaterialIcons name="add" size={20} color="#2DFFC4" />
-                    <Text style={{ color: '#2DFFC4', fontWeight: '700', fontSize: 16 }}>Add to Bid</Text>
+                    <MaterialIcons name="add" size={20} color="#4ade80" />
+                    <Text style={{ color: '#86efac', fontWeight: '700', fontSize: 16 }}>Add to Bid</Text>
                   </TouchableOpacity>
-                  
-                  {/* Secondary Actions Row */}
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    {/* Schedule Consultation */}
+
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         borderWidth: 1,
-                        borderColor: '#F59E0B',
+                        borderColor: 'rgba(52, 211, 153, 0.35)',
                         borderRadius: 12,
-                        paddingVertical: 12,
+                        paddingVertical: 14,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: 6
+                        gap: 6,
                       }}
                       onPress={() => {
-                        Alert.alert(
-                          'Schedule Consultation',
-                          'This will open a calendar to book a consultation.',
-                          [{ text: 'OK', style: 'default' }]
-                        );
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                          Linking.openURL(`tel:${selectedSubcontractor.phone || selectedSubcontractor.contactPhone}`);
+                        }
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       }}
                     >
-                      <MaterialIcons name="event" size={18} color="#F59E0B" />
-                      <Text style={{ color: '#F59E0B', fontWeight: '600', fontSize: 13 }}>Schedule</Text>
+                      <MaterialIcons name="phone" size={18} color="#34d399" />
+                      <Text style={{ color: '#6ee7b7', fontWeight: '600', fontSize: 14 }}>Call</Text>
                     </TouchableOpacity>
-                    
-                    {/* Save to Favorites */}
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                        backgroundColor: 'rgba(139, 92, 246, 0.08)',
                         borderWidth: 1,
-                        borderColor: '#EF4444',
+                        borderColor: 'rgba(167, 139, 250, 0.35)',
                         borderRadius: 12,
-                        paddingVertical: 12,
+                        paddingVertical: 14,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: 6
+                        gap: 6,
                       }}
-                      onPress={() => {
-                        Alert.alert(
-                          'Saved to Favorites',
-                          'This contractor has been saved to your favorites.',
-                          [{ text: 'OK', style: 'default' }]
-                        );
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    >
-                      <MaterialIcons name="favorite" size={18} color="#EF4444" />
-                      <Text style={{ color: '#EF4444', fontWeight: '600', fontSize: 13 }}>Save</Text>
-                    </TouchableOpacity>
-                    
-                    {/* Share Profile */}
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        backgroundColor: 'rgba(107, 114, 128, 0.2)',
-                        borderWidth: 1,
-                        borderColor: '#6B7280',
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6
-                      }}
-                      onPress={() => {
-                        Alert.alert(
-                          'Share Profile',
-                          'This will share the contractor profile with others.',
-                          [{ text: 'OK', style: 'default' }]
-                        );
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onPress={async () => {
+                        try {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          const subId = selectedSubcontractor.id;
+                          const subName = selectedSubcontractor.name;
+                          const subCompany = selectedSubcontractor.company || selectedSubcontractor.name;
+                          const subPhone = selectedSubcontractor.phone;
+                          const subEmail = selectedSubcontractor.email;
+                          const conversationId = await createConversation(
+                            subId,
+                            subName,
+                            subCompany,
+                            subPhone,
+                            subEmail,
+                            'contractor'
+                          );
+                          setShowProfile(false);
+                          setTimeout(() => {
+                            onClose();
+                            setTimeout(() => {
+                              setCurrentConversationId(conversationId);
+                              setShowChat(true);
+                            }, 500);
+                          }, 300);
+                        } catch (error) {
+                          console.error('Error opening chat:', error);
+                          Alert.alert('Error', 'Failed to open chat. Please try again.');
+                        }
                       }}
                     >
-                      <MaterialIcons name="share" size={18} color="#6B7280" />
-                      <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 13 }}>Share</Text>
+                      <MaterialIcons name="message" size={18} color="#a78bfa" />
+                      <Text style={{ color: '#c4b5fd', fontWeight: '600', fontSize: 14 }}>Message</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -2083,94 +2013,108 @@ function SubcontractorSearchModal({
           </View>
         </Modal>
       )}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Trade Type *</Text>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
+                    Trade type *
+                  </Text>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 12, padding: 1 }}
+                    style={{ borderRadius: 14, padding: 1 }}
                   >
                     <TextInput
                       style={{
-                        backgroundColor: '#000000',
-                        borderRadius: 11,
-                        padding: 14,
+                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
+                        borderRadius: 13,
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        minHeight: 52,
                         fontSize: 16,
-                        color: '#FFFFFF',
+                        color: darkMode ? '#f8fafc' : Colors.text,
                         borderWidth: 0,
                       }}
                       value={requestFormData.trade || requestFormData.customTrade}
                       onChangeText={(text) => setRequestFormData({ ...requestFormData, trade: '', customTrade: text })}
-                      placeholder="Enter trade type (e.g., Plumbing, Electrical, Tile Setting, Cabinet Making)"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholder="e.g. Plumbing, electrical, tile…"
+                      placeholderTextColor={subMeta2}
                     />
                   </LinearGradient>
                 </View>
 
-                {/* Project Name (Optional) */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Project Name (Optional)</Text>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
+                    Project name <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
+                  </Text>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 12, padding: 1 }}
+                    style={{ borderRadius: 14, padding: 1 }}
                   >
                     <TextInput
                       style={{
-                        backgroundColor: '#000000',
-                        borderRadius: 11,
-                        padding: 14,
+                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
+                        borderRadius: 13,
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        minHeight: 52,
                         fontSize: 16,
-                        color: '#FFFFFF',
+                        color: darkMode ? '#f8fafc' : Colors.text,
                         borderWidth: 0,
                       }}
                       value={requestFormData.projectName}
                       onChangeText={(text) => setRequestFormData({ ...requestFormData, projectName: text })}
-                      placeholder="e.g., Kitchen Remodel, Office Build"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholder="e.g. Kitchen remodel, office build"
+                      placeholderTextColor={subMeta2}
                     />
                   </LinearGradient>
                 </View>
 
-                {/* Budget Range */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Maximum Budget *</Text>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
+                    Maximum budget *
+                  </Text>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 12, padding: 1 }}
+                    style={{ borderRadius: 14, padding: 1 }}
                   >
                     <TextInput
                       style={{
-                        backgroundColor: '#000000',
-                        borderRadius: 11,
-                        padding: 14,
+                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
+                        borderRadius: 13,
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        minHeight: 52,
                         fontSize: 16,
-                        color: '#FFFFFF',
+                        color: darkMode ? '#f8fafc' : Colors.text,
                         borderWidth: 0,
                       }}
                       value={requestFormData.budgetMax}
                       onChangeText={(text) => setRequestFormData({ ...requestFormData, budgetMax: text })}
                       placeholder="$50,000"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholderTextColor={subMeta2}
                       keyboardType="number-pad"
                     />
                   </LinearGradient>
                 </View>
 
-                {/* Timeline */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Timeline *</Text>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
+                    Timeline *
+                  </Text>
                   {[
                     { value: 'Normal', label: 'Normal (4+ weeks)', color: '#10B981' },
-                    { value: 'Soon', label: 'Soon (1-3 weeks)', color: '#F59E0B' },
+                    { value: 'Soon', label: 'Soon (1–3 weeks)', color: '#F59E0B' },
                     { value: 'Urgent', label: 'Urgent (< 1 week)', color: '#EF4444' },
-                  ].map((option) => (
+                  ].map((option) => {
+                    const selected = requestFormData.timeline === option.value;
+                    return (
                     <TouchableOpacity
                       key={option.value}
+                      activeOpacity={0.85}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         setRequestFormData({ ...requestFormData, timeline: option.value as any });
@@ -2179,92 +2123,104 @@ function SubcontractorSearchModal({
                         flexDirection: 'row',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        backgroundColor: requestFormData.timeline === option.value ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.03)',
-                        borderRadius: 12,
-                        padding: 16,
-                        marginBottom: 10,
-                        borderWidth: 1,
-                        borderColor: requestFormData.timeline === option.value ? option.color : 'rgba(255, 255, 255, 0.15)',
+                        backgroundColor: selected
+                          ? (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2)
+                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface),
+                        borderRadius: 14,
+                        paddingVertical: 14,
+                        paddingHorizontal: 16,
+                        marginBottom: 8,
+                        borderWidth: selected ? 1.5 : 1,
+                        borderColor: selected ? option.color : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: option.color, marginRight: 12 }} />
-                        <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '500' }}>{option.label}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: option.color, marginRight: 12 }} />
+                        <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 15, fontWeight: '600' }}>{option.label}</Text>
                       </View>
-                      {requestFormData.timeline === option.value && (
-                        <MaterialIcons name="check-circle" size={24} color={option.color} />
+                      {selected && (
+                        <MaterialIcons name="check-circle" size={22} color={option.color} />
                       )}
                     </TouchableOpacity>
-                  ))}
+                    );
+                  })}
                 </View>
 
-                {/* Description */}
-                <View style={{ marginBottom: 24 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 8 }}>Additional Details (Optional)</Text>
+                <View style={{ marginBottom: 22 }}>
+                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
+                    Additional details <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
+                  </Text>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 12, padding: 1 }}
+                    style={{ borderRadius: 14, padding: 1 }}
                   >
                     <TextInput
                       style={{
-                        backgroundColor: '#000000',
-                        borderRadius: 11,
-                        padding: 14,
+                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
+                        borderRadius: 13,
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
                         fontSize: 15,
-                        color: '#FFFFFF',
+                        color: darkMode ? '#f8fafc' : Colors.text,
                         borderWidth: 0,
-                        height: 100,
+                        minHeight: 112,
                         textAlignVertical: 'top',
                       }}
                       value={requestFormData.description}
                       onChangeText={(text) => setRequestFormData({ ...requestFormData, description: text })}
-                      placeholder="Add specific requirements, preferences, or project details..."
-                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      placeholder="Requirements, site access, materials, or other notes…"
+                      placeholderTextColor={subMeta2}
                       multiline
                       numberOfLines={4}
                     />
                   </LinearGradient>
                 </View>
 
-                {/* Action Buttons */}
-                <View style={{ gap: 12 }}>
+                <View style={{ gap: 10 }}>
                   <TouchableOpacity
+                    activeOpacity={0.9}
                     onPress={createSubRequest}
                     disabled={isSubmitting}
-                    style={{
-                      backgroundColor: isSubmitting ? '#6b7280' : '#22c55e',
-                      paddingVertical: 16,
-                      borderRadius: 12,
-                      alignItems: 'center',
-                    }}
+                    style={{ borderRadius: 14, overflow: 'hidden', opacity: isSubmitting ? 0.65 : 1 }}
                   >
-                    <Text style={{ color: '#000000', textAlign: 'center', fontWeight: '700', fontSize: 17 }}>
-                      {isSubmitting ? 'Sending...' : 'Send Request'}
-                    </Text>
+                    <LinearGradient
+                      colors={isSubmitting ? ['#6b7280', '#4b5563'] : ['#22c55e', '#22d3ee']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{
+                        paddingVertical: 16,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: isSubmitting ? '#f8fafc' : '#020617', textAlign: 'center', fontWeight: '800', fontSize: 16, letterSpacing: 0.3 }}>
+                        {isSubmitting ? 'Sending…' : 'Send request'}
+                      </Text>
+                    </LinearGradient>
                   </TouchableOpacity>
-                  
+
                   <TouchableOpacity
+                    activeOpacity={0.85}
                     onPress={handleBackFromRequest}
                     style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                      paddingVertical: 16,
-                      borderRadius: 12,
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                      paddingVertical: 15,
+                      borderRadius: 14,
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.15)',
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
                     }}
                   >
-                    <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 16 }}>Cancel</Text>
+                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontWeight: '600', fontSize: 15 }}>Cancel</Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Info */}
-                <View style={{ flexDirection: 'row', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 12, padding: 14, marginTop: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.15)' }}>
-                  <MaterialIcons name="info-outline" size={20} color="#22c55e" />
-                  <Text style={{ color: '#FFFFFF', fontSize: 13, marginLeft: 10, flex: 1, lineHeight: 18 }}>
-                    Your request will be posted to qualified subcontractors in your area. They'll appear as leads in your Leads tab.
+                <View style={{ ...subCard, flexDirection: 'row', alignItems: 'flex-start', padding: 16, marginTop: 18 }}>
+                  <MaterialIcons name="info-outline" size={20} color="#34d399" style={{ marginTop: 1 }} />
+                  <Text style={{ color: subMeta, fontSize: 13, marginLeft: 12, flex: 1, lineHeight: 19 }}>
+                    Your request is shared with qualified subs in your area. Matches show up in your Leads tab.
                   </Text>
                 </View>
               </View>
