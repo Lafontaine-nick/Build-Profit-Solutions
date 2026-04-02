@@ -392,12 +392,18 @@ class ApiService {
   // Project methods
   async getProjects(): Promise<Project[]> {
     const response = await this.makeRequest('/api/projects');
-    return response.data;
+    const body = response.data;
+    if (Array.isArray(body)) return body;
+    if (body?.data && Array.isArray(body.data)) return body.data;
+    return [];
   }
 
   async getPublicProjects(): Promise<Project[]> {
     const response = await this.makeRequest('/api/projects/public');
-    return response.data;
+    const body = response.data;
+    if (Array.isArray(body)) return body;
+    if (body?.data && Array.isArray(body.data)) return body.data;
+    return [];
   }
 
   async createProject(project: Partial<Project>): Promise<Project> {

@@ -65,6 +65,28 @@ const authenticateToken = async (req, res, next) => {
 // Load projects from disk on startup
 let projects = loadProjects();
 
+// Public listing (no auth) — used when app has no backend session yet (e.g. onboarding).
+// MUST be registered before GET /:id or Express treats "public" as a project id → 404.
+router.get('/public', async (req, res) => {
+  try {
+    projects = loadProjects();
+    const publicProjects = projects.filter(
+      (p) => p.isPublic === true || p.public === true
+    );
+    res.json({
+      success: true,
+      data: publicProjects,
+      total: publicProjects.length,
+    });
+  } catch (error) {
+    console.error('Error fetching public projects:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch public projects',
+    });
+  }
+});
+
 // Get all projects (filtered by user)
 router.get('/', authenticateToken, async (req, res) => {
   try {
