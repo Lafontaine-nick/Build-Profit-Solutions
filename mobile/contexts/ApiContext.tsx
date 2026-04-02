@@ -42,8 +42,8 @@ interface ApiContextState {
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 
-  // Project actions
-  loadProjects: () => Promise<void>;
+  // Project actions (optional override: use when calling right after setIsAuthenticated — state is still stale)
+  loadProjects: (authenticatedOverride?: boolean) => Promise<void>;
   createProject: (project: Partial<Project>) => Promise<Project | null>;
   updateProject: (
     id: string,
@@ -62,7 +62,7 @@ interface ApiContextState {
   deleteClient: (id: string) => Promise<boolean>;
 
   // Analytics actions
-  loadAnalytics: () => Promise<void>;
+  loadAnalytics: (authenticatedOverride?: boolean) => Promise<void>;
 
   // Profile actions
   updateProfile: (profile: Partial<User>) => Promise<boolean>;
@@ -135,7 +135,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
           setIsAuthenticated(true);
 
           // Load initial data (don't await - let them load in background)
-          Promise.all([loadProjects(), loadClients(), loadAnalytics()]).catch((err) => {
+          Promise.all([
+            loadProjects(true),
+            loadClients(),
+            loadAnalytics(true),
+          ]).catch((err) => {
             if (__DEV__) {
               console.warn('⚠️  Some initial data failed to load:', err);
             }
@@ -174,7 +178,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
         setIsAuthenticated(true);
 
         // Load initial data after login
-        await Promise.all([loadProjects(), loadClients(), loadAnalytics()]);
+        await Promise.all([
+          loadProjects(true),
+          loadClients(),
+          loadAnalytics(true),
+        ]);
 
         return true;
       } else {
@@ -252,11 +260,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
   };
 
   // Project actions
-  const loadProjects = async (): Promise<void> => {
+  const loadProjects = async (
+    authenticatedOverride?: boolean
+  ): Promise<void> => {
     try {
       setIsProjectsLoading(true);
       setError(null);
-      const projectsData = isAuthenticated
+      const authed =
+        authenticatedOverride !== undefined
+          ? authenticatedOverride
+          : isAuthenticated;
+      const projectsData = authed
         ? await apiService.getProjects()
         : await apiService.getPublicProjects();
       if (projectsData) {
@@ -422,11 +436,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
   };
 
   // Analytics actions
-  const loadAnalytics = async (): Promise<void> => {
+  const loadAnalytics = async (
+    authenticatedOverride?: boolean
+  ): Promise<void> => {
     try {
       setIsAnalyticsLoading(true);
       setError(null);
-      const analyticsData = isAuthenticated
+      const authed =
+        authenticatedOverride !== undefined
+          ? authenticatedOverride
+          : isAuthenticated;
+      const analyticsData = authed
         ? await apiService.getAnalytics()
         : await apiService.getPublicAnalytics();
       if (analyticsData) {
