@@ -19,9 +19,18 @@ async function authenticateToken(req, res, next) {
     try {
       const decoded = jwt.decode(token);
       if (decoded && decoded.sub) {
+        let clerkEmail =
+          decoded.email ||
+          (typeof decoded.primary_email_address === 'string'
+            ? decoded.primary_email_address
+            : null);
+        if (!clerkEmail && Array.isArray(decoded.email_addresses)) {
+          clerkEmail =
+            decoded.email_addresses[0]?.email_address || null;
+        }
         req.user = {
           userId: decoded.sub,
-          email: decoded.email || decoded.primary_email_address || null,
+          email: clerkEmail,
           role: decoded.role || 'contractor',
         };
         return next();

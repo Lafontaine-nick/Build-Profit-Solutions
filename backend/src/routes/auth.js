@@ -43,12 +43,19 @@ const authenticateToken = async (req, res, next) => {
         const decoded = jwt.decode(token);
         
         if (decoded && decoded.sub) {
-          // Extract user info from Clerk token
-          // Clerk tokens have 'sub' as the user ID
+          let clerkEmail =
+            decoded.email ||
+            (typeof decoded.primary_email_address === 'string'
+              ? decoded.primary_email_address
+              : null);
+          if (!clerkEmail && Array.isArray(decoded.email_addresses)) {
+            clerkEmail =
+              decoded.email_addresses[0]?.email_address || null;
+          }
           req.user = {
             userId: decoded.sub,
-            email: decoded.email || decoded.primary_email_address || null,
-            role: decoded.role || 'contractor'
+            email: clerkEmail,
+            role: decoded.role || 'contractor',
           };
           return next();
         }
@@ -378,9 +385,45 @@ router.post('/signin', [
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
     const pool = getPool();
+    const rawId = req.user.userId;
+    const isClerkId =
+      typeof rawId === 'string' && rawId.startsWith('user_');
+
+    // `users.id` is SERIAL (integer). Passing a Clerk `user_*` id to WHERE id = $1
+    // makes Postgres throw (invalid input syntax for type integer) → 500.
+    if (isClerkId) {
+      const email = req.user.email;
+      if (email) {
+        const byEmail = await pool.query(
+          `SELECT id, email, first_name, last_name, role, created_at
+           FROM users WHERE LOWER(email) = LOWER($1)`,
+          [email]
+        );
+        if (byEmail.rows.length > 0) {
+          return res.json({ success: true, user: byEmail.rows[0] });
+        }
+      }
+      return res.json({
+        success: true,
+        user: {
+          id: rawId,
+          email: email || '',
+          first_name: '',
+          last_name: '',
+          role: req.user.role || 'contractor',
+          created_at: new Date().toISOString(),
+        },
+      });
+    }
+
+    const numericId = parseInt(String(rawId), 10);
+    if (Number.isNaN(numericId)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
     const user = await pool.query(
       'SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = $1',
-      [req.user.userId]
+      [numericId]
     );
 
     if (user.rows.length === 0) {
@@ -389,7 +432,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      user: user.rows[0]
+      user: user.rows[0],
     });
   } catch (error) {
     console.error('Profile fetch error:', error);

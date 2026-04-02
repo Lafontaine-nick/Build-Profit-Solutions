@@ -90,6 +90,32 @@ interface SyncQueueItem {
   timestamp: number;
 }
 
+/** Normalize GET /api/auth/profile JSON (supports `{ user }` or flat legacy). */
+function profileBodyToUser(body: any): User {
+  const row = body?.user ?? body;
+  if (!row || typeof row !== 'object') {
+    return {
+      id: '',
+      email: '',
+      name: '',
+      role: 'contractor',
+    };
+  }
+  const fn = row.first_name ?? row.firstName ?? '';
+  const ln = row.last_name ?? row.lastName ?? '';
+  const name =
+    [fn, ln].filter(Boolean).join(' ').trim() ||
+    row.name ||
+    row.email ||
+    'User';
+  return {
+    id: String(row.id ?? ''),
+    email: row.email || '',
+    name,
+    role: (row.role as User['role']) || 'contractor',
+  };
+}
+
 class ApiService {
   // ROOT CAUSE FIX: Production URL is hardcoded as default
   // This ensures the app ALWAYS works, even if config/env is wrong
@@ -302,7 +328,10 @@ class ApiService {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      return { isAuthenticated: true, user: response.data };
+      return {
+        isAuthenticated: true,
+        user: profileBodyToUser(response.data),
+      };
     } catch (error) {
       return { isAuthenticated: false };
     }
@@ -310,7 +339,7 @@ class ApiService {
 
   async getCurrentUser(): Promise<User> {
     const response = await this.makeRequest('/api/auth/profile');
-    return response.data;
+    return profileBodyToUser(response.data);
   }
 
   async login(credentials: {
@@ -528,7 +557,7 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify(profile),
     });
-    return response.data;
+    return profileBodyToUser(response.data);
   }
 
   async updatePreferences(preferences: {
@@ -736,7 +765,7 @@ class ApiService {
       
       // For other errors, still log but don't let them crash the app
       if (__DEV__) {
-        console.warn('⚠️  API request error (non-blocking):', error);
+        console.warn('⚠️  API request error (non-blocking):', endpoint, error);
       } else {
         console.error('API request failed:', error);
       }
