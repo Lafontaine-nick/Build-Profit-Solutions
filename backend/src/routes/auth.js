@@ -394,13 +394,20 @@ router.get('/profile', authenticateToken, async (req, res) => {
     if (isClerkId) {
       const email = req.user.email;
       if (email) {
-        const byEmail = await pool.query(
-          `SELECT id, email, first_name, last_name, role, created_at
-           FROM users WHERE LOWER(email) = LOWER($1)`,
-          [email]
-        );
-        if (byEmail.rows.length > 0) {
-          return res.json({ success: true, user: byEmail.rows[0] });
+        try {
+          const byEmail = await pool.query(
+            `SELECT id, email, first_name, last_name, role, created_at
+             FROM users WHERE LOWER(email) = LOWER($1)`,
+            [email]
+          );
+          if (byEmail.rows.length > 0) {
+            return res.json({ success: true, user: byEmail.rows[0] });
+          }
+        } catch (lookupErr) {
+          console.warn(
+            'Clerk profile: email lookup failed, using synthetic user:',
+            lookupErr.message
+          );
         }
       }
       return res.json({
