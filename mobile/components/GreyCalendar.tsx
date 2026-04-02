@@ -201,7 +201,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
 
 const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   container: {
-    backgroundColor: darkMode ? '#2a2a2a' : Colors.cardDark,
+    /* Light: surface2 reads clearly against page bg; dark unchanged */
+    backgroundColor: darkMode ? '#2a2a2a' : Colors.surface2,
     borderRadius: 16,
     padding: 12,
     borderWidth: darkMode ? 0 : 1,

@@ -159,7 +159,7 @@ export default function EnhancedProjectCard({
         styles.container,
         {
           backgroundColor: theme.card,
-          borderColor: theme.border,
+          borderColor: 'rgba(45, 212, 191, 0.3)',
           shadowColor: theme.text,
         },
       ]}
@@ -478,8 +478,6 @@ const styles = StyleSheet.create({
   milestoneLabel: {
     fontSize: 11,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   milestoneName: {
     fontSize: 14,

@@ -172,7 +172,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
   // Reduced visual weight: borders ~15% less opacity, secondary text lower contrast
   const backgroundColor = darkMode ? '#000000' : Colors.bg;
   const textColor = darkMode ? '#FFFFFF' : Colors.text;
-  const textSecondaryColor = darkMode ? 'rgba(156, 163, 175, 0.7)' : Colors.sub; // Reduced opacity for lower contrast
+  const textSecondaryColor = darkMode ? 'rgba(203, 213, 225, 0.82)' : '#475569';
+  /** Card subtitles were hardcoded for dark UI; light mode needs a darker slate for contrast on pale cards */
+  const sectionSubtitleColor = darkMode ? 'rgba(203, 213, 225, 0.82)' : '#334155';
   const borderColor = darkMode ? 'rgba(255, 255, 255, 0.17)' : Colors.line; // Reduced from 0.2 to 0.17 (~15% less)
   const cardColor = darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2; // Reduced from 0.1 to 0.08 (~20% less)
   const accentColor = '#43cea2';
@@ -681,7 +683,8 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
         },
         preferences.tradeTypes[tradeKey] && {
           borderColor: accentColor,
-          borderWidth: 2,
+          borderWidth: 1.5,
+          backgroundColor: darkMode ? 'rgba(45, 212, 191, 0.06)' : 'rgba(45, 212, 191, 0.08)',
         },
       ]}
       onPress={() =>
@@ -694,9 +697,13 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
       <View style={styles.tradeHeader}>
         <MaterialIcons
           name={icon as any}
-          size={24}
+          size={22}
           color={
-            preferences.tradeTypes[tradeKey] ? '#43cea2' : textSecondaryColor
+            preferences.tradeTypes[tradeKey]
+              ? darkMode
+                ? '#5EEAD4'
+                : '#047857'
+              : textSecondaryColor
           }
         />
         <View style={styles.tradeInfo}>
@@ -710,7 +717,12 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
             const impact = getTradeTypeImpact(tradeKey);
             return (
               <View style={styles.tradeImpactRow}>
-                <Text style={[styles.tradeImpactText, { color: '#43cea2' }]}>
+                <Text
+                  style={[
+                    styles.tradeImpactText,
+                    { color: darkMode ? '#5EEAD4' : '#047857' },
+                  ]}
+                >
                   🟢 +{impact.leadsPerMonth} leads/month
                 </Text>
                 <Text style={[styles.tradeImpactText, { color: textSecondaryColor }]}>
@@ -720,18 +732,20 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
             );
           })()}
         </View>
-        <Switch
-          value={preferences.tradeTypes[tradeKey]}
-          onValueChange={value =>
-            updatePreferences('tradeTypes', {
-              ...preferences.tradeTypes,
-              [tradeKey]: value,
-            })
-          }
-          trackColor={{ false: darkMode ? borderColor : Colors.line, true: accentColor }}
-          ios_backgroundColor={darkMode ? borderColor : Colors.line}
-          thumbColor={preferences.tradeTypes[tradeKey] ? 'white' : '#f4f3f4'}
-        />
+        <View style={styles.tradeSwitchWrap}>
+          <Switch
+            value={preferences.tradeTypes[tradeKey]}
+            onValueChange={value =>
+              updatePreferences('tradeTypes', {
+                ...preferences.tradeTypes,
+                [tradeKey]: value,
+              })
+            }
+            trackColor={{ false: darkMode ? borderColor : Colors.line, true: accentColor }}
+            ios_backgroundColor={darkMode ? borderColor : Colors.line}
+            thumbColor={preferences.tradeTypes[tradeKey] ? 'white' : '#f4f3f4'}
+          />
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -812,7 +826,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
 
   const renderTradesTab = () => (
     <LinearGradient
-      colors={['#2DFFC4', '#00A6FF']}
+      colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
       start={{ x: 0.05, y: 0.15 }}
       end={{ x: 0.95, y: 0.85 }}
       style={styles.tradesGradientBorder}
@@ -827,7 +841,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           >
             Job Type
           </Text>
-          <Text style={styles.sectionSubtitle}>Select the types of projects you work on</Text>
+          <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
+            Select the types of projects you work on
+          </Text>
         </View>
         <View style={styles.sectionContent}>
           <ScrollView style={styles.tradesList}>
@@ -1544,7 +1560,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={['#2DFFC4', '#00A6FF']}
+              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.matchQualityGradientBorder}
@@ -1559,21 +1575,28 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                   >
                     Match Quality
                   </Text>
-                  <Text style={styles.sectionSubtitle}>Your preference configuration score</Text>
+                  <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
+                    Your preference configuration score
+                  </Text>
                 </View>
                 <View style={styles.sectionContent}>
                   <View style={styles.matchQualityHeader}>
                     <Text style={[styles.matchQualityLabel, { color: textColor }]}>Match Quality:</Text>
                     <Text style={[styles.matchQualityValue, { color: qualityColor }]}>{qualityLabel}</Text>
                   </View>
-                  <View style={styles.matchQualityProgressContainer}>
+                  <View
+                    style={[
+                      styles.matchQualityProgressContainer,
+                      !darkMode && { backgroundColor: Colors.line },
+                    ]}
+                  >
                     <View style={[styles.matchQualityProgressBar, { width: `${matchQualityPercent}%`, backgroundColor: qualityColor }]} />
                   </View>
                 </View>
               </View>
             </LinearGradient>
           );
-        }, [preferences.tradeTypes, preferences.serviceAreas, preferences.priceRange, preferences.leadMatching.minAIScore, preferences.leadMatching.filterByTrade, preferences.leadMatching.preferredTimelines, preferences.availability.responseTime, cardColor, borderColor, textColor])}
+        }, [preferences.tradeTypes, preferences.serviceAreas, preferences.priceRange, preferences.leadMatching.minAIScore, preferences.leadMatching.filterByTrade, preferences.leadMatching.preferredTimelines, preferences.availability.responseTime, cardColor, borderColor, textColor, sectionSubtitleColor, darkMode, Colors.line])}
 
         {/* Estimated Impact Based on Your Filters */}
         {useMemo(() => {
@@ -1600,7 +1623,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={['#2DFFC4', '#00A6FF']}
+              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.impactGradientBorder}
@@ -1615,7 +1638,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                   >
                     Estimated Impact
                   </Text>
-                  <Text style={styles.sectionSubtitle}>Projected results based on your preferences</Text>
+                  <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
+                    Projected results based on your preferences
+                  </Text>
                 </View>
                 <View style={styles.sectionContent}>
                   <View style={styles.previewStrip}>
@@ -1638,14 +1663,20 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                       </Text>
                     </View>
                   </View>
-                  <Text style={[styles.impactHelperText, { color: textSecondaryColor }]}>
+                  <Text
+                    style={[
+                      styles.impactHelperText,
+                      { color: textSecondaryColor },
+                      !darkMode && { opacity: 1 },
+                    ]}
+                  >
                     Updates as you adjust preferences below
                   </Text>
                 </View>
               </View>
             </LinearGradient>
           );
-        }, [preferences.tradeTypes, preferences.leadMatching.minAIScore, cardColor, borderColor, textColor, textSecondaryColor])}
+        }, [preferences.tradeTypes, preferences.leadMatching.minAIScore, cardColor, borderColor, textColor, textSecondaryColor, sectionSubtitleColor, darkMode])}
         </View>
 
         {/* Filter Rail */}
@@ -1726,7 +1757,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           <View style={styles.deliverySection}>
             <View style={styles.wideContainer}>
               <LinearGradient
-                colors={['#2DFFC4', '#00A6FF']}
+                colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.availabilityGradientBorder}
@@ -1751,13 +1782,15 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                         Availability & Response
                       </Text>
                       {isAvailabilityResponseCollapsed ? (
-                        <Text style={styles.sectionSubtitle}>
+                        <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
                           Response: {preferences.availability.responseTime <= 0.25 ? '< 15 min' :
                                      preferences.availability.responseTime <= 1 ? '< 1 hour' :
                                      preferences.availability.responseTime <= 8 ? 'Same day' : '2+ days'} · {preferences.availability.isAvailable ? 'Available' : 'OOF'}
                         </Text>
                       ) : (
-                        <Text style={styles.sectionSubtitle}>Set your response time and availability preferences</Text>
+                        <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
+                          Set your response time and availability preferences
+                        </Text>
                       )}
                     </View>
                     <MaterialIcons
@@ -1785,7 +1818,11 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                     style={[
                       styles.responseSLAOption,
                       { backgroundColor: cardColor, borderColor },
-                      isSelected && { borderColor: '#43cea2', borderWidth: 2 },
+                      isSelected && {
+                        borderColor: '#43cea2',
+                        borderWidth: 1.5,
+                        backgroundColor: darkMode ? 'rgba(45, 212, 191, 0.08)' : 'rgba(45, 212, 191, 0.1)',
+                      },
                     ]}
                     onPress={() => {
                       updatePreferences('availability', {
@@ -1882,7 +1919,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           {/* AI Matching Rules - Collapsible */}
           <View style={styles.wideContainer}>
             <LinearGradient
-              colors={['#2DFFC4', '#00A6FF']}
+              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.aiMatchingGradientBorder}
@@ -1907,11 +1944,11 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                       AI Matching Rules
                     </Text>
                     {isAIMatchingRulesCollapsed ? (
-                      <Text style={styles.sectionSubtitle}>
+                      <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
                         Min score: {preferences.leadMatching.minAIScore}% · Auto-accept {preferences.leadMatching.autoAccept ? 'ON' : 'OFF'} · Boosts {preferences.leadMatching.filterByTrade ? 'ON' : 'OFF'}
                       </Text>
                     ) : (
-                      <Text style={styles.sectionSubtitle}>
+                      <Text style={[styles.sectionSubtitle, { color: sectionSubtitleColor }]}>
                         Control how leads are scored and prioritized
                       </Text>
                     )}
@@ -1987,7 +2024,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 100,
   },
   headerContainer: {
@@ -2094,19 +2131,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tradeCard: {
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 10,
     borderWidth: 1,
   },
   tradeHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   tradeInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
+    paddingRight: 4,
+  },
+  tradeSwitchWrap: {
+    alignSelf: 'center',
+    marginLeft: 4,
   },
   tradeTitle: {
     fontSize: 16,
@@ -2114,8 +2156,9 @@ const styles = StyleSheet.create({
   },
   tradeDescription: {
     fontSize: 13,
-    marginTop: 2,
-    opacity: 0.7,
+    marginTop: 4,
+    lineHeight: 18,
+    opacity: 0.88,
   },
   tradeImpactRow: {
     flexDirection: 'row',
@@ -2405,35 +2448,38 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   saveButton: {
-    padding: 15,
-    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 14,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 28,
   },
   saveButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
   clearButton: {
-    padding: 14,
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 8,
     backgroundColor: 'transparent',
   },
   clearButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
   },
   saveHelperText: {
     fontSize: 12,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 16,
   },
   wideContainer: {
     marginHorizontal: -20,
@@ -2442,50 +2488,52 @@ const styles = StyleSheet.create({
   matchQualityGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   impactGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   tradesGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   availabilityGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   aiMatchingGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   sectionCard: {
     backgroundColor: '#000000',
     borderRadius: 22,
-    padding: 16,
+    padding: 18,
     borderWidth: 0,
   },
   sectionHeader: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#F9FAFB',
     marginBottom: 4,
+    letterSpacing: -0.2,
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: '#8DA0B8',
+    color: 'rgba(203, 213, 225, 0.78)',
+    lineHeight: 18,
   },
   sectionContent: {
     padding: 0,
-    paddingTop: 6,
+    paddingTop: 8,
   },
   matchQualityHeader: {
     flexDirection: 'row',
@@ -2637,7 +2685,7 @@ const styles = StyleSheet.create({
     marginVertical: 24,
   },
   deliverySection: {
-    marginTop: 24,
+    marginTop: 20,
   },
   deliveryCard: {
     padding: 16,
@@ -2681,15 +2729,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   responseSLATitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 14,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase' as const,
   },
   responseSLAOption: {
-    padding: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   responseSLAOptionContent: {
     flexDirection: 'row',
@@ -2724,11 +2775,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   rankingIndicator: {
-    marginTop: 12,
+    marginTop: 14,
     marginBottom: 16,
     padding: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(67, 206, 162, 0.1)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   rankingIndicatorRow: {
     flexDirection: 'row',
@@ -2743,8 +2796,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   filterRail: {
-    marginTop: 16,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 18,
     marginHorizontal: -20,
     paddingHorizontal: 20,
   },
@@ -2767,31 +2820,37 @@ const styles = StyleSheet.create({
     maxWidth: 120,
   },
   tier1Content: {
-    marginTop: 20,
+    marginTop: 16,
   },
   priorityBoostsSection: {
     marginBottom: 24,
   },
   priorityBoostsTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 8,
+    letterSpacing: 0.25,
+    textTransform: 'uppercase' as const,
   },
   priorityBoostsSubtitle: {
     fontSize: 13,
-    marginBottom: 20,
+    marginBottom: 18,
+    lineHeight: 18,
   },
   hardFiltersSection: {
-    marginBottom: 24,
+    marginBottom: 22,
   },
   hardFiltersTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 8,
+    letterSpacing: 0.25,
+    textTransform: 'uppercase' as const,
   },
   hardFiltersSubtitle: {
     fontSize: 13,
-    marginBottom: 20,
+    marginBottom: 18,
+    lineHeight: 18,
   },
   hardFilterRow: {
     marginBottom: 24,
@@ -2816,8 +2875,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   hardFilterValue: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
+    letterSpacing: -0.5,
   },
   hardFilterSlider: {
     width: '100%',

@@ -23,6 +23,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
 import '../i18n/config'; // Initialize i18n
+import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 
 // Component to apply theme-aware styling and StatusBar
 function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
@@ -451,9 +452,11 @@ export default function RootLayout() {
                   <ThemeProvider>
                     <LanguageProvider>
                       <NotificationProvider>
-                        <ThemeAwareLayout>
-                          <AuthGate useClerk={true} />
-                        </ThemeAwareLayout>
+                        <BetaFeedbackProvider>
+                          <ThemeAwareLayout>
+                            <AuthGate useClerk={true} />
+                          </ThemeAwareLayout>
+                        </BetaFeedbackProvider>
                       </NotificationProvider>
                     </LanguageProvider>
                   </ThemeProvider>

@@ -80,6 +80,9 @@ export default {
         pdfApiBaseUrl: process.env.EXPO_PUBLIC_PDF_API_BASE_URL || '',
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       isDevelopment: isDevelopment,
+      // Beta-only in-app feedback (Profile + FAB + AI “Report”). Disable for public launch.
+      betaFeedbackEnabled: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ENABLED === 'true',
+      betaFeedbackAllowlistEmails: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ALLOWLIST_EMAILS || '',
     },
     runtimeVersion: '1.0.0',
     updates: {

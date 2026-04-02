@@ -14,7 +14,8 @@
     "build": "echo 'No build step required for Node.js'",
     "postinstall": "echo 'Backend dependencies installed successfully' && (npx puppeteer browsers install chrome || true)",
     "verify-sku": "node verify-sku-search.js",
-    "verify-ai-core": "node verify-ai-assistant-core.js"
+    "verify-ai-core": "node verify-ai-assistant-core.js",
+    "migrate:beta-feedback": "node scripts/run-beta-feedback-migration.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

@@ -783,8 +783,8 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    padding: 16,
-    borderRadius: 12,
+    padding: 22,
+    borderRadius: 16,
     alignItems: 'center',
   },
   statValue: {
@@ -799,10 +799,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   leadCard: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: 22,
+    borderRadius: 16,
+    marginBottom: 16,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -912,8 +913,8 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   detailCard: {
-    padding: 16,
-    borderRadius: 12,
+    padding: 22,
+    borderRadius: 16,
     marginBottom: 16,
   },
   detailLabel: {
@@ -928,8 +929,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   interactionsSection: {
-    padding: 16,
-    borderRadius: 12,
+    padding: 22,
+    borderRadius: 16,
   },
   interactionsHeader: {
     flexDirection: 'row',

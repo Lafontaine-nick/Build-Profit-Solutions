@@ -462,10 +462,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   overviewCard: {
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 16,
+    padding: 22,
+    marginBottom: 16,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   overviewTitle: {
     fontSize: 18,
@@ -497,9 +498,10 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   projectCard: {
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 16,
+    padding: 22,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   projectHeader: {
     flexDirection: 'row',

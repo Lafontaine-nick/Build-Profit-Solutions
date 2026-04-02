@@ -56,10 +56,10 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
     () => ['#0b1c38', '#1B365D', '#43cea2'],
     []
   );
-  const conversationBackground = 'rgba(255, 255, 255, 0.05)';
-  const conversationBorder = 'rgba(255, 255, 255, 0.1)';
-  const unreadBorder = '#0b1c38';
-  const unreadBackground = '#43cea2';
+  const conversationBackground = 'rgba(24, 28, 36, 0.96)';
+  const conversationBorder = 'rgba(148, 163, 184, 0.14)';
+  const unreadBorder = '#0a0f14';
+  const unreadBackground = '#14B8A6';
   
   // Sample conversations for preview (remove when real data is available)
   const sampleConversations = useMemo((): Conversation[] => {
@@ -278,7 +278,7 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
       >
         <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
           {/* Header with Back Arrow */}
-          <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top, 16) + 16 }]}>
+          <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top, 16) + 12 }]}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
                 colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -309,14 +309,14 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                 </TouchableOpacity>
               </LinearGradient>
             </View>
-            <View style={styles.headerContent}>
+            <View style={[styles.headerContent, selectedConversation && styles.headerContentChat]}>
               {selectedConversation ? (
                 <>
-                  <Text style={[styles.headerTitle, lightText]}>
+                  <Text style={[styles.headerTitle, styles.headerTitleChat, lightText]}>
                     {selectedConversation.participantName}
                   </Text>
                   {selectedConversation.participantCompany && (
-                    <Text style={[styles.headerSubtitle, lightSub]}>
+                    <Text style={[styles.headerSubtitle, styles.headerSubtitleChat, lightSub]}>
                       {selectedConversation.participantCompany}
                     </Text>
                   )}
@@ -338,8 +338,8 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
               {/* Chat Messages */}
               <ScrollView
                 ref={scrollViewRef}
-                style={{ flex: 1, paddingHorizontal: 20, paddingVertical: 16 }}
-                contentContainerStyle={{ paddingBottom: 20 }}
+                style={styles.chatScroll}
+                contentContainerStyle={styles.chatScrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -367,16 +367,9 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                     return (
                       <View key={message.id}>
                         {showDate && (
-                          <View style={{ alignItems: 'center', marginVertical: 16 }}>
-                            <View
-                              style={{
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 12,
-                              }}
-                            >
-                              <Text style={[{ color: '#a7bed9', fontSize: 12 }, lightSub]}>
+                          <View style={styles.dateSeparatorWrap}>
+                            <View style={styles.dateSeparatorPill}>
+                              <Text style={[styles.dateSeparatorText, lightSub]}>
                                 {new Date(message.timestamp).toLocaleDateString('en-US', {
                                   month: 'long',
                                   day: 'numeric',
@@ -387,38 +380,37 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                           </View>
                         )}
                         <View
-                          style={{
-                            alignSelf: isMe ? 'flex-end' : 'flex-start',
-                            maxWidth: '75%',
-                            marginBottom: 12,
-                          }}
+                          style={[
+                            styles.messageBlock,
+                            isMe ? styles.messageBlockMe : styles.messageBlockThem,
+                          ]}
                         >
                           <View
-                            style={{
-                              backgroundColor: isMe ? '#43cea2' : 'rgba(255, 255, 255, 0.1)',
-                              paddingHorizontal: 16,
-                              paddingVertical: 12,
-                              borderRadius: 16,
-                              borderBottomRightRadius: isMe ? 4 : 16,
-                              borderBottomLeftRadius: isMe ? 16 : 4,
-                            }}
+                            style={[
+                              styles.messageBubble,
+                              isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
+                              darkMode && !isMe && styles.messageBubbleThemDark,
+                            ]}
                           >
                             <Text
-                              style={{
-                                color: isMe ? '#0d2745' : (darkMode ? '#e9f1ff' : Colors.text),
-                                fontSize: 16,
-                              }}
+                              style={[
+                                styles.messageBubbleText,
+                                isMe
+                                  ? styles.messageBubbleTextMe
+                                  : darkMode
+                                    ? styles.messageBubbleTextThemDark
+                                    : { color: Colors.text },
+                              ]}
                             >
                               {message.content}
                             </Text>
                           </View>
                           <Text
-                            style={{
-                              color: darkMode ? '#6B7280' : Colors.sub,
-                              fontSize: 11,
-                              marginTop: 4,
-                              textAlign: isMe ? 'right' : 'left',
-                            }}
+                            style={[
+                              styles.messageTime,
+                              isMe ? styles.messageTimeMe : styles.messageTimeThem,
+                              !darkMode && { color: Colors.sub },
+                            ]}
                           >
                             {formatTime(message.timestamp)}
                           </Text>
@@ -431,53 +423,37 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
 
               {/* Chat Input */}
               <View
-                style={{
-                  paddingHorizontal: 20,
-                  paddingTop: 16,
-                  paddingBottom: Math.max(insets.bottom, 16),
-                  borderTopWidth: 1,
-                  borderTopColor: 'rgba(255, 255, 255, 0.1)',
-                  backgroundColor: darkMode ? '#000000' : Colors.bg,
-                }}
+                style={[
+                  styles.chatInputBar,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 14),
+                    backgroundColor: darkMode ? '#000000' : Colors.bg,
+                  },
+                ]}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-                  {/* Text Input with Gradient Border */}
-                  <View style={{ flex: 1 }}>
+                <View style={styles.chatInputRow}>
+                  <View style={styles.chatInputFlex}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={['rgba(45, 255, 196, 0.45)', 'rgba(0, 166, 255, 0.4)']}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
-                      style={{
-                        borderRadius: 18,
-                        padding: 1,
-                        overflow: 'hidden',
-                      }}
+                      style={styles.chatInputGradient}
                     >
                       <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          borderRadius: 17,
-                          backgroundColor: darkMode ? '#000000' : Colors.surface2,
-                          minHeight: 44,
-                          paddingHorizontal: 12,
-                          paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-                        }}
+                        style={[
+                          styles.chatInputInner,
+                          { backgroundColor: darkMode ? '#0a0d12' : Colors.surface2 },
+                        ]}
                       >
                         <TextInput
                           value={messageText}
                           onChangeText={setMessageText}
                           placeholder="Type a message..."
-                          placeholderTextColor={darkMode ? '#6B7280' : Colors.sub}
-                          style={{ 
-                            flex: 1,
-                            color: darkMode ? '#e9f1ff' : Colors.text, 
-                            fontSize: 15,
-                            paddingRight: 8,
-                            paddingVertical: 0,
-                            maxHeight: 100,
-                            lineHeight: 20,
-                          }}
+                          placeholderTextColor={darkMode ? 'rgba(148, 163, 184, 0.85)' : Colors.sub}
+                          style={[
+                            styles.chatTextInput,
+                            { color: darkMode ? '#e9f1ff' : Colors.text },
+                          ]}
                           multiline
                           maxLength={500}
                           textAlignVertical="center"
@@ -485,38 +461,36 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                       </View>
                     </LinearGradient>
                   </View>
-                  
-                  {/* Send Button with Gradient Border */}
+
                   <Animated.View style={{ transform: [{ scale: sendButtonScale }] }}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={['rgba(45, 255, 196, 0.55)', 'rgba(0, 166, 255, 0.5)']}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        padding: 1,
-                        overflow: 'hidden',
-                      }}
+                      style={styles.chatSendGradient}
                     >
                       <TouchableOpacity
                         onPress={handleSendMessage}
                         disabled={!messageText.trim()}
                         activeOpacity={0.7}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          borderRadius: 21,
-                          backgroundColor: darkMode ? '#000000' : Colors.surface2,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                        }}
+                        style={[
+                          styles.chatSendInner,
+                          { backgroundColor: darkMode ? '#0a0d12' : Colors.surface2 },
+                          !messageText.trim() && styles.chatSendInnerDisabled,
+                        ]}
                       >
                         <Ionicons
                           name="send"
-                          size={18}
-                          color={darkMode ? "#FFFFFF" : "#000000"}
+                          size={17}
+                          color={
+                            messageText.trim()
+                              ? darkMode
+                                ? '#5EEAD4'
+                                : '#0f766e'
+                              : darkMode
+                                ? '#64748B'
+                                : Colors.sub
+                          }
                         />
                       </TouchableOpacity>
                     </LinearGradient>
@@ -572,7 +546,7 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                   >
                     <View style={styles.avatarContainer}>
                       <View style={styles.avatar}>
-                        <MaterialIcons name="person" size={28} color="#43cea2" />
+                        <MaterialIcons name="person" size={26} color="rgba(94, 234, 212, 0.75)" />
                       </View>
                       {hasUnread && (
                         <View
@@ -643,11 +617,11 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   backBtnWrapper: {
     marginRight: 12,
@@ -667,20 +641,35 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     flex: 1,
-    marginLeft: 16,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  headerContentChat: {
+    paddingTop: 2,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  headerTitleChat: {
+    fontSize: 18,
+    letterSpacing: -0.2,
+  },
   headerSubtitle: {
     fontSize: 14,
     color: '#E2E8F0',
     marginTop: 2,
   },
+  headerSubtitleChat: {
+    fontSize: 13,
+    color: 'rgba(203, 213, 225, 0.82)',
+    marginTop: 4,
+  },
   listContent: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   emptyState: {
     flex: 1,
@@ -722,24 +711,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   conversationCardUnread: {
-    backgroundColor: 'rgba(67, 206, 162, 0.1)',
-    borderColor: 'rgba(67, 206, 162, 0.3)',
+    backgroundColor: 'rgba(20, 184, 166, 0.09)',
+    borderColor: 'rgba(45, 212, 191, 0.28)',
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 12,
+    marginRight: 14,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(67, 206, 162, 0.2)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(94, 234, 212, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -762,7 +754,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   participantName: {
     fontSize: 16,
@@ -777,8 +769,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   timestamp: {
-    fontSize: 12,
-    color: '#a7bed9',
+    fontSize: 11,
+    color: 'rgba(186, 199, 216, 0.9)',
   },
   unreadIndicator: {
     width: 6,
@@ -787,34 +779,171 @@ const styles = StyleSheet.create({
     backgroundColor: '#43cea2',
   },
   companyName: {
-    fontSize: 14,
-    color: '#a7bed9',
-    marginBottom: 4,
+    fontSize: 13,
+    color: 'rgba(186, 199, 216, 0.88)',
+    marginBottom: 5,
   },
   conversationFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 2,
   },
   lastMessage: {
-    fontSize: 14,
-    color: '#a7bed9',
+    fontSize: 13,
+    color: 'rgba(203, 213, 225, 0.78)',
     flex: 1,
-    marginRight: 8,
+    marginRight: 10,
+    lineHeight: 18,
   },
   unreadBadge: {
-    backgroundColor: '#43cea2',
-    borderRadius: 12,
-    minWidth: 24,
-    height: 24,
+    backgroundColor: '#14B8A6',
+    borderRadius: 11,
+    minWidth: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
   },
   unreadCount: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#0d2745',
+    color: '#042f2e',
+  },
+  chatScroll: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+  },
+  chatScrollContent: {
+    paddingBottom: 28,
+    paddingTop: 8,
+  },
+  dateSeparatorWrap: {
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dateSeparatorPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dateSeparatorText: {
+    color: 'rgba(186, 199, 216, 0.92)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  messageBlock: {
+    maxWidth: '78%',
+    marginBottom: 16,
+  },
+  messageBlockMe: {
+    alignSelf: 'flex-end',
+  },
+  messageBlockThem: {
+    alignSelf: 'flex-start',
+  },
+  messageBubble: {
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderRadius: 18,
+  },
+  messageBubbleMe: {
+    backgroundColor: '#0f766e',
+    borderBottomRightRadius: 5,
+    borderBottomLeftRadius: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  messageBubbleThem: {
+    backgroundColor: 'rgba(148, 163, 184, 0.14)',
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  messageBubbleThemDark: {
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  messageBubbleText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  messageBubbleTextMe: {
+    color: '#ecfdf5',
+  },
+  messageBubbleTextThemDark: {
+    color: '#e9f1ff',
+  },
+  messageTime: {
+    fontSize: 11,
+    marginTop: 5,
+  },
+  messageTimeMe: {
+    textAlign: 'right',
+    color: 'rgba(148, 163, 184, 0.88)',
+  },
+  messageTimeThem: {
+    textAlign: 'left',
+    color: 'rgba(148, 163, 184, 0.88)',
+  },
+  chatInputBar: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  chatInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  chatInputFlex: {
+    flex: 1,
+  },
+  chatInputGradient: {
+    borderRadius: 22,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  chatInputInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 21,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    paddingVertical: Platform.OS === 'ios' ? 11 : 9,
+  },
+  chatTextInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingRight: 8,
+    paddingVertical: 0,
+    maxHeight: 100,
+    lineHeight: 20,
+  },
+  chatSendGradient: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  chatSendInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatSendInnerDisabled: {
+    opacity: 0.55,
   },
   deleteButton: {
     backgroundColor: '#FF4444',

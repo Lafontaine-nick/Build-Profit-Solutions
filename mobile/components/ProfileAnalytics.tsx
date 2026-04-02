@@ -564,7 +564,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 7,
     backgroundColor: Colors.surface2,
-    borderWidth: darkMode ? 1 : 0,
+    borderWidth: 1,
     borderColor: Colors.line,
   },
   monthPillMuted: {

@@ -636,9 +636,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '600',
-    textTransform: 'uppercase',
     color: '#ffffff',
-    letterSpacing: 0.5,
   },
   calendarGrid: {
     flexDirection: 'row',
@@ -805,7 +803,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 4,
-    textTransform: 'uppercase',
   },
   eventDetailValue: {
     fontSize: 16,

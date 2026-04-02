@@ -1127,12 +1127,12 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         green: '#22c55e',
       }
     : {
-        bg: '#ffffff',
-        surface: '#f8fafc',
-        surface2: '#f1f5f9',
-        text: '#0f172a',
-        subtext: '#475569',
-        border: '#e2e8f0',
+        bg: Colors.bg,
+        surface: Colors.surface,
+        surface2: Colors.surface2,
+        text: Colors.text,
+        subtext: Colors.sub,
+        border: Colors.line,
         green: '#22c55e',
       };
 
@@ -1243,7 +1243,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 style={{
                   fontSize: 11,
                   marginTop: 2,
-                  color: darkMode ? "rgba(255,255,255,0.74)" : "#475569",
+                  color: darkMode ? "rgba(255,255,255,0.74)" : COLORS.subtext,
                   fontWeight: "500",
                 }}
               >
@@ -1274,8 +1274,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       ? "rgba(45, 255, 196, 0.18)"
                       : darkMode
                         ? "rgba(255,255,255,0.06)"
-                        : "rgba(0,0,0,0.04)",
-                    borderColor: active ? "#2DFFC4" : darkMode ? "rgba(255,255,255,0.12)" : COLORS.border,
+                        : Colors.surface2,
+                    borderColor: active ? "#2DFFC4" : darkMode ? "rgba(255,255,255,0.12)" : Colors.line,
                   }}
                 >
                   <Text
@@ -1326,8 +1326,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                 marginBottom: 10,
                 borderWidth: 1,
                 overflow: 'hidden',
-                backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5',
-                borderColor: darkMode ? '#4f4f4f' : '#d0d0d0',
+                backgroundColor: darkMode ? '#3d3d3d' : Colors.surface2,
+                borderColor: darkMode ? '#4f4f4f' : Colors.line,
               }}
             >
               <Pressable
@@ -1434,11 +1434,11 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                     </Text>
                   ) : null}
                   {(event as MasterCalendarEvent).isUserCreated ? (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : 'rgba(0,0,0,0.58)', fontWeight: '500' }}>
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : Colors.sub, fontWeight: '500' }}>
                       Editable task
                     </Text>
                   ) : (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : 'rgba(0,0,0,0.58)', fontWeight: '500' }}>
+                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : Colors.sub, fontWeight: '500' }}>
                       From schedule
                     </Text>
                   )}
@@ -4146,12 +4146,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     <>
       {/* Hero: Today's AI brief / biggest risk */}
       <View style={styles.wideContainer}>
-        <View
-          style={[
-            styles.insightsHeroCard,
-            { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
-          ]}
-        >
+        <View style={styles.insightsHeroCard}>
           <View style={[styles.insightsHeroAccent, { backgroundColor: heroAccent }]} />
           <View style={styles.insightsHeroBody}>
             <View style={styles.insightsHeroEyebrowRow}>
@@ -4266,12 +4261,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       </View>
 
       <View style={styles.wideContainer}>
-        <View
-          style={[
-            styles.insightsActionsPanel,
-            { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
-          ]}
-        >
+        <View style={styles.insightsActionsPanel}>
           {aiPmMode && aiLoading && (
             <Text style={styles.insightsAuxText}>Loading actions…</Text>
           )}
@@ -4354,12 +4344,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
       {aiPmMode && !aiLoading && !aiError && (
         <View style={styles.wideContainer}>
-          <View
-            style={[
-              styles.insightsPatternsCard,
-              { borderColor: darkMode ? "rgba(255,255,255,0.08)" : Colors.line },
-            ]}
-          >
+          <View style={styles.insightsPatternsCard}>
             {patterns.map((line, i) => (
               <View
                 key={i}
@@ -4640,8 +4625,9 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flexDirection: "row",
     borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
     marginBottom: 4,
   },
   insightsHeroAccent: {
@@ -4677,7 +4663,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginTop: 8,
     fontSize: 14,
     lineHeight: 20,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : Colors.sub,
   },
   insightsHeroCtaGradient: {
     marginTop: 16,
@@ -4701,8 +4687,9 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     borderRadius: 20,
     padding: 16,
     paddingBottom: 12,
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
     marginBottom: 4,
   },
   insightsGroupLabel: {
@@ -4710,16 +4697,17 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontWeight: "700",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : Colors.sub,
     marginBottom: 10,
     marginTop: 4,
   },
   insightsActionCard: {
     borderRadius: 14,
     marginBottom: 10,
-    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.04)",
+    /* Light: gray tile inside the tinted panel — avoid stark white (dark unchanged) */
+    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.05)" : Colors.surface2,
     borderWidth: 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.08)",
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.07)" : Colors.line,
     overflow: "hidden",
   },
   insightsActionMainPress: {
@@ -4729,7 +4717,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   insightsActionCardPressed: {
     opacity: 0.92,
-    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.05)",
+    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.06)" : Colors.iconBg,
   },
   insightsActionTop: {
     flexDirection: "row",
@@ -4752,13 +4740,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightsActionContext: {
     marginTop: 4,
     fontSize: 12,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : Colors.sub,
   },
   insightsActionMeta: {
     marginTop: 4,
     fontSize: 11,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.84)" : "rgba(15,23,42,0.65)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.84)" : Colors.sub,
   },
   insightsActionCtaCol: {
     alignItems: "flex-end",
@@ -4797,7 +4785,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightsActionFooterText: {
     fontSize: 12,
     fontWeight: "600",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.86)" : "rgba(15,23,42,0.65)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.86)" : Colors.sub,
   },
   insightsViewAllRow: {
     flexDirection: "row",
@@ -4815,8 +4803,9 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   insightsPatternsCard: {
     borderRadius: 18,
     padding: 16,
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.card,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
     marginBottom: 8,
   },
   insightsPatternRow: {

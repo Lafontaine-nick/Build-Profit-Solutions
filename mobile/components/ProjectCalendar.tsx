@@ -187,36 +187,40 @@ export default function ProjectCalendar({
   onEventComplete,
   projectData,
 }: ProjectCalendarProps) {
-  const { darkMode } = useTheme();
-  const Colors = getColors(darkMode);
+  const { theme, darkMode } = useTheme();
+  const TC = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
-  const COLORS = darkMode
-    ? {
-        bg: '#000000',
-        surface: '#0f172a',
-        surface2: '#1e293b',
-        text: '#f1f5f9',
-        subtext: '#94a3b8',
-        border: '#334155',
-        green: '#22c55e',
-        blue: '#22d3ee',
-        red: '#ef4444',
-        amber: '#f59e0b',
-        purple: '#8b5cf6',
-      }
-    : {
-        bg: '#ffffff',
-        surface: '#f8fafc',
-        surface2: '#f1f5f9',
-        text: '#0f172a',
-        subtext: '#64748b',
-        border: '#e2e8f0',
-        green: '#22c55e',
-        blue: '#22d3ee',
-        red: '#ef4444',
-        amber: '#f59e0b',
-        purple: '#8b5cf6',
-      };
+  const COLORS = useMemo(
+    () =>
+      darkMode
+        ? {
+            bg: '#000000',
+            surface: '#0f172a',
+            surface2: '#1e293b',
+            text: '#f1f5f9',
+            subtext: '#94a3b8',
+            border: '#334155',
+            green: '#22c55e',
+            blue: '#22d3ee',
+            red: '#ef4444',
+            amber: '#f59e0b',
+            purple: '#8b5cf6',
+          }
+        : {
+            bg: TC.bg,
+            surface: TC.surface,
+            surface2: TC.surface2,
+            text: TC.text,
+            subtext: TC.sub,
+            border: TC.line,
+            green: '#22c55e',
+            blue: '#22d3ee',
+            red: '#ef4444',
+            amber: '#f59e0b',
+            purple: '#8b5cf6',
+          },
+    [darkMode, TC],
+  );
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [deliveryReceivedIds, setDeliveryReceivedIds] = useState<Set<string>>(new Set());
@@ -999,7 +1003,7 @@ export default function ProjectCalendar({
                   style={{
                     fontSize: 11,
                     marginTop: 2,
-                    color: darkMode ? 'rgba(255,255,255,0.74)' : '#475569',
+                    color: darkMode ? 'rgba(255,255,255,0.74)' : COLORS.subtext,
                     fontWeight: '500',
                   }}
                 >
@@ -1030,8 +1034,8 @@ export default function ProjectCalendar({
                         ? 'rgba(45, 255, 196, 0.18)'
                         : darkMode
                           ? 'rgba(255,255,255,0.06)'
-                          : 'rgba(0,0,0,0.04)',
-                      borderColor: active ? '#2DFFC4' : darkMode ? 'rgba(255,255,255,0.12)' : COLORS.border,
+                          : TC.surface2,
+                      borderColor: active ? '#2DFFC4' : darkMode ? 'rgba(255,255,255,0.12)' : TC.line,
                     }}
                   >
                     <Text
@@ -1088,8 +1092,8 @@ export default function ProjectCalendar({
                       marginBottom: 10,
                       borderWidth: 1,
                       overflow: 'hidden',
-                      backgroundColor: darkMode ? '#3d3d3d' : '#e5e5e5',
-                      borderColor: darkMode ? '#4f4f4f' : '#d0d0d0',
+                      backgroundColor: darkMode ? '#3d3d3d' : TC.surface2,
+                      borderColor: darkMode ? '#4f4f4f' : TC.line,
                     }}
                   >
                     <Pressable
@@ -1223,7 +1227,7 @@ export default function ProjectCalendar({
                           style={{
                             fontSize: 10,
                             marginTop: 6,
-                            color: darkMode ? 'rgba(255,255,255,0.74)' : 'rgba(0,0,0,0.58)',
+                            color: darkMode ? 'rgba(255,255,255,0.74)' : COLORS.subtext,
                             fontWeight: '500',
                           }}
                         >

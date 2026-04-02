@@ -532,16 +532,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sectionCardContainer: {
-    marginTop: 12,
+    marginTop: 16,
   },
   sectionCardBorder: {
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 1,
   },
   sectionCard: {
     backgroundColor: "#000000",
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
+    padding: 22,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -586,7 +586,7 @@ const styles = StyleSheet.create({
   },
   milestonesList: {
     marginTop: 8,
-    gap: 12,
+    gap: 16,
   },
   emptyText: {
     fontSize: 14,
@@ -669,7 +669,5 @@ const styles = StyleSheet.create({
   baselineIndicatorText: {
     fontSize: 12,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 });

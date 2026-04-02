@@ -39,6 +39,8 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { formatIsoDateMMDDYYYY } from "@/utils/formatIsoDateMMDDYYYY";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
+import { useBetaFeedback } from "@/contexts/BetaFeedbackContext";
+import { isBetaFeedbackVisibleForUser } from "@/lib/betaFeedback/betaFeedbackConfig";
 import { 
   resolveProjectContext, 
   requiresProjectContext,
@@ -503,6 +505,11 @@ const AIAssistantModal: React.FC<Props> = ({
   );
   const { getToken } = useAuth();
   const { user } = useUser();
+  const betaFeedback = useBetaFeedback();
+  const clerkEmailForBeta =
+    user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || null;
+  const showBetaAiFeedback =
+    Boolean(betaFeedback) && isBetaFeedbackVisibleForUser(clerkEmailForBeta);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -967,21 +974,6 @@ const AIAssistantModal: React.FC<Props> = ({
   }, [isEstimateContext, chatSuggestions]);
   const isProjectsScreenContext = parsedContext?.screen === 'Projects';
   const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
-  /** Dark mode + Estimate screen: base styles use Colors.sub (grey); bump to white for readability */
-  const estimateDarkWhiteSubtext = useMemo(
-    () => (darkMode && isEstimateContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
-    [darkMode, isEstimateContext],
-  );
-  /** Command Center (Global AI tab): Today Brief + muted labels */
-  const commandCenterDarkWhiteSubtext = useMemo(
-    () => (darkMode && isGlobalAssistantContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
-    [darkMode, isGlobalAssistantContext],
-  );
-  /** Dark mode (non–Estimate Generator): headers, cards, greeting, project strip — single-project + portfolio + Command Center */
-  const portfolioHeaderDarkWhiteSubtext = useMemo(
-    () => (darkMode && !isEstimateContext ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
-    [darkMode, isEstimateContext],
-  );
   /** Dark mode: reply body, footer suggestions, timestamps — all contexts including Estimate */
   const darkModeChatMutedWhite = useMemo(
     () => (darkMode ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
@@ -3973,7 +3965,7 @@ const AIAssistantModal: React.FC<Props> = ({
       <View style={styles.typingIndicatorContainer}>
         <View style={styles.assistantBubbleWrapper}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.assistantBubbleBorder}
@@ -4025,7 +4017,7 @@ const AIAssistantModal: React.FC<Props> = ({
             >
               <View style={styles.backButtonWrapper}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.backButtonBorder}
@@ -4048,14 +4040,34 @@ const AIAssistantModal: React.FC<Props> = ({
                 <>
                   <View style={styles.headerContent}>
                     <View style={styles.headerTitleRow}>
-                      <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
-                      <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
-                        AI Assistant
-                      </Text>
+                      <View style={styles.headerTitleCenter}>
+                        <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
+                        <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
+                          AI Assistant
+                        </Text>
+                      </View>
+                      {showBetaAiFeedback && !keyboardOpen && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            betaFeedback?.openBetaFeedback({
+                              feedbackType: "ai_response",
+                              aiContextFlag: true,
+                            });
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Report AI issue"
+                        >
+                          <Text style={[styles.headerReportLink, light({ color: ThemeColors.sub })]}>
+                            Report
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                     {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
-                      <>
-                        <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
+                      <View style={styles.headerContextStack}>
+                        <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub })]}>
                           {isGlobalAssistantContext
                             ? 'Command Center • All Projects'
                             : isProjectsScreenContext
@@ -4070,12 +4082,12 @@ const AIAssistantModal: React.FC<Props> = ({
                                 : `${projectInfo!.title} • ${projectInfo!.phase}`}
                         </Text>
                         {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
-                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
+                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
                             Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
                             {projectInfo.markup}%
                           </Text>
                         )}
-                      </>
+                      </View>
                     )}
                   </View>
                   <View style={styles.headerSpacer} />
@@ -4176,18 +4188,18 @@ const AIAssistantModal: React.FC<Props> = ({
                         accessibilityRole="summary"
                       >
                         <LinearGradient
-                          colors={["rgba(0, 100, 90, 0.22)", "rgba(0, 70, 65, 0.12)"]}
+                          colors={["rgba(0, 100, 90, 0.16)", "rgba(0, 70, 65, 0.08)"]}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           style={styles.todayBriefGradient}
                         >
-                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
+                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub })]}>
                             Today Brief
                           </Text>
                           <Text style={[styles.todayBriefGreeting, light({ color: ThemeColors.text })]}>
                             {displayBrief.reply.split('\n\n')[0]}
                           </Text>
-                          <Text style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
+                          <Text style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub })]}>
                             Here's what needs attention today.
                           </Text>
                           {displayBrief.insights.length > 0 ? (
@@ -4202,7 +4214,7 @@ const AIAssistantModal: React.FC<Props> = ({
                               ))}
                             </View>
                           ) : (
-                            <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
+                            <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, light({ color: ThemeColors.sub })]}>
                               Your portfolio looks quiet — no urgent items.
                             </Text>
                           )}
@@ -4213,7 +4225,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       {displayBrief.biggestRisk ? (
                         <View style={[styles.biggestRiskCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}>
                           <View style={styles.biggestRiskHeader}>
-                            <Ionicons name="warning" size={20} color="#F97316" />
+                            <Ionicons name="warning-outline" size={19} color="rgba(251, 146, 60, 0.95)" />
                             <Text style={[styles.biggestRiskTitle, light({ color: ThemeColors.text })]}>
                               Biggest Risk
                             </Text>
@@ -4221,7 +4233,7 @@ const AIAssistantModal: React.FC<Props> = ({
                           <Text style={[styles.biggestRiskMessage, light({ color: ThemeColors.text })]}>
                             {displayBrief.biggestRisk.message}
                           </Text>
-                          <Text style={[styles.biggestRiskDetail, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
+                          <Text style={[styles.biggestRiskDetail, light({ color: ThemeColors.sub })]}>
                             {displayBrief.biggestRisk.detail}
                           </Text>
                           <TouchableOpacity
@@ -4250,7 +4262,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             <Text style={[styles.allClearTitle, light({ color: ThemeColors.text })]}>
                               All clear
                             </Text>
-                            <Text style={[styles.allClearSubtitle, light({ color: ThemeColors.sub }), commandCenterDarkWhiteSubtext]}>
+                            <Text style={[styles.allClearSubtitle, light({ color: ThemeColors.sub })]}>
                               No critical risks across your projects.
                             </Text>
                           </View>
@@ -4258,7 +4270,14 @@ const AIAssistantModal: React.FC<Props> = ({
                       )}
 
                       {/* Quick actions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 20, marginBottom: 10, marginHorizontal: 0, color: darkMode ? '#FFFFFF' : ThemeColors.sub }]}>
+                      <Text
+                        style={[
+                          styles.todayBriefSectionLabel,
+                          styles.commandCenterSectionRail,
+                          { marginTop: 22, marginBottom: 10, marginHorizontal: 0 },
+                          light({ color: ThemeColors.sub }),
+                        ]}
+                      >
                         Quick actions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -4287,7 +4306,14 @@ const AIAssistantModal: React.FC<Props> = ({
                       </ScrollView>
 
                       {/* Suggested questions */}
-                      <Text style={[styles.todayBriefSectionLabel, { marginTop: 16, marginBottom: 10, marginHorizontal: 0, color: darkMode ? '#FFFFFF' : ThemeColors.sub }]}>
+                      <Text
+                        style={[
+                          styles.todayBriefSectionLabel,
+                          styles.commandCenterSectionRail,
+                          { marginTop: 18, marginBottom: 10, marginHorizontal: 0 },
+                          light({ color: ThemeColors.sub }),
+                        ]}
+                      >
                         Suggested questions
                       </Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
@@ -4315,7 +4341,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   {!isProjectsScreenContext && !isGlobalAssistantContext && !isEstimateContext && (
                   <View style={styles.managerCardContainer}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.managerCardBorder}
@@ -4323,13 +4349,13 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={[styles.managerCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                     <View style={styles.managerHeaderRow}>
                       <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={[styles.managerEyebrow, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
+                        <Text style={[styles.managerEyebrow, light({ color: ThemeColors.sub })]}>
                           Project automation
                         </Text>
                         <Text style={[styles.managerTitle, light({ color: ThemeColors.text })]}>
                           AI Project Manager Mode
                         </Text>
-                        <Text style={[styles.managerSubtitle, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
+                        <Text style={[styles.managerSubtitle, light({ color: ThemeColors.sub })]}>
                           AI monitors cost, schedule, and margin so you can act faster.
                         </Text>
                       </View>
@@ -4389,7 +4415,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             </Text>
                           </View>
                         </View>
-                        <Text style={[styles.managerMicrocopy, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
+                        <Text style={[styles.managerMicrocopy, light({ color: ThemeColors.sub })]}>
                           Checks run when you open AI or update this project.
                         </Text>
                       </>
@@ -4403,14 +4429,14 @@ const AIAssistantModal: React.FC<Props> = ({
                   {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
                     <View style={styles.projectStripContainer}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                         start={{ x: 0.05, y: 0.15 }}
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.projectStripBorder}
                       >
                         <View style={[styles.projectStrip, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
                       <View>
-                        <Text style={[styles.projectEyebrow, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
+                        <Text style={[styles.projectEyebrow, light({ color: ThemeColors.sub })]}>
                           {isEstimateContext ? 'Current bid' : 'Current project'}
                         </Text>
                         <Text style={[styles.projectTitle, light({ color: ThemeColors.text })]}>
@@ -4421,21 +4447,20 @@ const AIAssistantModal: React.FC<Props> = ({
                             style={[
                               styles.projectSubtitle,
                               light({ color: ThemeColors.sub }),
-                              estimateDarkWhiteSubtext,
                               { fontSize: 12, marginTop: 4, lineHeight: 16 },
                             ]}
                           >
                             Fill in the bid title field to name this estimate.
                           </Text>
                         )}
-                        <Text style={[styles.projectSubtitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
+                        <Text style={[styles.projectSubtitle, light({ color: ThemeColors.sub })]}>
                           {projectInfo.phase} • ${(projectInfo.total || 0).toLocaleString()}
                         </Text>
                       </View>
 
                       <View style={styles.projectRight}>
                         <View style={[styles.marginBadge, light({ backgroundColor: "rgba(34,197,94,0.18)" })]}>
-                          <Text style={[styles.marginBadgeLabel, light({ color: Colors.green }), estimateDarkWhiteSubtext, portfolioHeaderDarkWhiteSubtext]}>
+                          <Text style={[styles.marginBadgeLabel, light({ color: Colors.green })]}>
                             {projectInfo.hasLiveProjectContext ? 'Spend-to-date' : 'Bid margin'}
                           </Text>
                           <Text style={[styles.marginBadgeValue, light({ color: Colors.green })]}>
@@ -4461,19 +4486,19 @@ const AIAssistantModal: React.FC<Props> = ({
 
                   {/* Estimate: AI Copilot — same shell + gradient typography as Today Brief */}
                   {isEstimateContext && estimateAssistantBrief && (
-                    <View style={{ alignSelf: 'stretch' }}>
+                    <View style={styles.estimateCopilotOuter}>
                       <View
-                        style={[styles.todayBriefCard, { marginTop: 8, marginBottom: 12 }, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
+                        style={[styles.todayBriefCard, styles.estimateCopilotCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
                         accessibilityLabel="AI Copilot"
                         accessibilityRole="summary"
                       >
                         <LinearGradient
-                          colors={['rgba(0, 100, 90, 0.22)', 'rgba(0, 70, 65, 0.12)']}
+                          colors={['rgba(0, 100, 90, 0.16)', 'rgba(0, 70, 65, 0.08)']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           style={styles.todayBriefGradient}
                         >
-                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext]}>
+                          <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub })]}>
                             AI Copilot
                           </Text>
                           <Text
@@ -4484,7 +4509,7 @@ const AIAssistantModal: React.FC<Props> = ({
                           </Text>
                           {!!estimateCopilotConfidenceLabel && (
                             <Text
-                              style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub }), estimateDarkWhiteSubtext]}
+                              style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub })]}
                               numberOfLines={2}
                             >
                               {estimateCopilotConfidenceLabel}
@@ -4545,15 +4570,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 isGlobalAssistantContext && displayBrief ? (
                   <View style={{ height: 24 }} />
                 ) : isEstimateContext ? (
-                  <View style={{ paddingVertical: 10, paddingHorizontal: 20 }}>
-                    <Text
-                      style={{
-                        textAlign: 'center',
-                        fontSize: 13,
-                        lineHeight: 18,
-                        color: darkMode ? (isEstimateContext ? '#FFFFFF' : Colors.sub) : ThemeColors.sub,
-                      }}
-                    >
+                  <View style={styles.estimateFooterHelperWrap}>
+                    <Text style={[styles.estimateFooterHelperText, light({ color: ThemeColors.sub })]}>
                       AI Copilot is above. Ask for budget, standard, or premium pricing in chat if you want scenario comparisons.
                     </Text>
                   </View>
@@ -4561,7 +4579,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 <View style={[styles.greetingWrapper, light({ backgroundColor: ThemeColors.bg }), isProjectsScreenContext && { marginBottom: 8 }]}>
                   <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.greetingIconCircleBorder}
@@ -4580,7 +4598,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         : "Your AI project manager"}
                   </Text>
 
-                  <Text style={[styles.greetingSubtitle, light({ color: ThemeColors.sub }), portfolioHeaderDarkWhiteSubtext]}>
+                  <Text style={[styles.greetingSubtitle, light({ color: ThemeColors.sub })]}>
                     {(isProjectsScreenContext || isGlobalAssistantContext) ? (
                       <>
                         Compare projects, spot risks, review budgets, and act on schedule or payment issues.
@@ -4599,7 +4617,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   {recentSummary && (
                     <View style={styles.recentSummaryContainer}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                         start={{ x: 0.05, y: 0.15 }}
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.recentSummaryBorder}
@@ -4658,7 +4676,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   <View style={styles.primaryActions}>
                     <View style={styles.primaryButtonWrapper}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                         start={{ x: 0.05, y: 0.15 }}
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.primaryButtonBorder}
@@ -4691,8 +4709,8 @@ const AIAssistantModal: React.FC<Props> = ({
               bottom: 0,
               left: 0,
               right: 0,
-              paddingBottom: Math.max(insets.bottom, 8) + 8,
-              paddingTop: 4,
+              paddingBottom: Math.max(insets.bottom, 10) + 6,
+              paddingTop: 10,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }, light({ borderTopColor: ThemeColors.line, shadowOpacity: 0.05 })]}>
               {/* Global AI & Projects: Smart Quick Actions */}
@@ -4934,7 +4952,7 @@ const AIAssistantModal: React.FC<Props> = ({
               <View style={styles.inputRow}>
               <View style={styles.inputInnerWrapper}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.inputInnerBorder}
@@ -4962,7 +4980,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       <TextInput
                         style={[styles.input, light({ color: ThemeColors.text })]}
                         placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : isEstimateContext ? "Ask about this estimate, line items, or margins…" : "Ask anything about this project…")}
-                        placeholderTextColor={darkMode ? '#FFFFFF' : '#6B7280'}
+                        placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
                         multiline
@@ -4997,7 +5015,7 @@ const AIAssistantModal: React.FC<Props> = ({
               </View>
               <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.sendButtonBorder}
@@ -5049,12 +5067,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   header: {
-    paddingTop: 20,
-    paddingBottom: 12,
+    paddingTop: 18,
+    paddingBottom: 14,
     paddingHorizontal: 20,
     flexDirection: "row",
     justifyContent: "flex-start",
-    alignItems: "center",
+    alignItems: "flex-start",
     zIndex: 10,
     backgroundColor: Colors.bg,
   },
@@ -5065,6 +5083,14 @@ const styles = StyleSheet.create({
   headerContent: {
     flex: 1,
     alignItems: "center",
+    paddingTop: 2,
+    minWidth: 0,
+  },
+  headerContextStack: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 2,
+    gap: 4,
   },
   headerSpacer: {
     width: 40,
@@ -5072,6 +5098,21 @@ const styles = StyleSheet.create({
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 8,
+  },
+  headerTitleCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  headerReportLink: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(148, 163, 184, 0.95)",
   },
   headerTitle: {
     color: Colors.text,
@@ -5082,20 +5123,26 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "System" : "Roboto",
   },
   headerSubtitle: {
-    color: Colors.sub,
+    color: "rgba(203, 213, 225, 0.96)",
     fontSize: 13,
-    marginTop: 5,
+    marginTop: 6,
     fontWeight: "600",
-    letterSpacing: 0.1,
+    letterSpacing: 0.12,
+    textAlign: "center",
+    lineHeight: 18,
   },
   headerMeta: {
-    color: Colors.sub,
-    fontSize: 12,
-    marginTop: 3,
-    opacity: 1,
+    color: "rgba(148, 163, 184, 0.9)",
+    fontSize: 11,
+    marginTop: 0,
+    letterSpacing: 0.2,
+    textAlign: "center",
+    lineHeight: 15,
+    fontWeight: "500",
   },
   backButtonWrapper: {
     marginRight: 12,
+    marginTop: 4,
     zIndex: 10,
     elevation: 10, // Android
   },
@@ -5118,8 +5165,8 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     paddingBottom: 180,
-    paddingTop: 12,
-    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingHorizontal: 18,
   },
   messageRow: {
     flexDirection: "row",
@@ -5422,31 +5469,31 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: "column",
     alignItems: "flex-end",
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     backgroundColor: "rgba(0,0,0,0.96)",
-    gap: 8,
+    gap: 10,
     width: "100%",
     zIndex: 100,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 12,
+    shadowOffset: { width: 0, height: -12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    elevation: 14,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.04)",
+    borderTopColor: "rgba(255,255,255,0.055)",
   },
   inputRow: {
     width: "100%",
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 10,
+    gap: 12,
   },
   inputInnerWrapper: {
     flex: 1,
   },
   inputInnerBorder: {
     flex: 1,
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 1,
     overflow: "hidden",
   },
@@ -5454,15 +5501,15 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 21,
+    borderRadius: 23,
     backgroundColor: "#05070A",
-    minHeight: 50,
-    paddingVertical: Platform.OS === "ios" ? 11 : 9,
+    minHeight: 52,
+    paddingVertical: Platform.OS === "ios" ? 12 : 10,
   },
   inputLeadIcon: {
-    marginLeft: 14,
-    marginRight: 8,
-    opacity: 0.9,
+    marginLeft: 16,
+    marginRight: 10,
+    opacity: 0.88,
   },
   input: {
     flex: 1,
@@ -5498,7 +5545,7 @@ const styles = StyleSheet.create({
   },
   micButton: {
     padding: 10,
-    marginRight: 6,
+    marginRight: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -5506,17 +5553,17 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
   sendButtonBorder: {
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 1,
     overflow: "hidden",
-    width: 50,
-    height: 50,
+    width: 52,
+    height: 52,
   },
   sendButtonInner: {
     width: "100%",
     height: "100%",
     backgroundColor: "#05070A",
-    borderRadius: 23,
+    borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -5525,12 +5572,13 @@ const styles = StyleSheet.create({
   },
   greetingWrapper: {
     alignItems: "center",
-    marginTop: 14,
-    marginBottom: 22,
+    marginTop: 8,
+    marginBottom: 26,
+    paddingHorizontal: 10,
     backgroundColor: Colors.bg,
   },
   greetingIconCircleWrapper: {
-    marginBottom: 12,
+    marginBottom: 14,
   },
   greetingIconCircleBorder: {
     borderRadius: 32,
@@ -5550,16 +5598,17 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     textAlign: "center",
-    marginTop: 6,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 10,
     letterSpacing: -0.2,
+    maxWidth: 340,
   },
   greetingSubtitle: {
-    color: Colors.sub,
+    color: "rgba(186, 198, 215, 0.96)",
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 23,
     textAlign: "center",
-    marginTop: 4,
+    marginTop: 2,
     maxWidth: 340,
   },
   greetingHighlight: {
@@ -5569,29 +5618,47 @@ const styles = StyleSheet.create({
   todayBriefCard: {
     marginHorizontal: 0,
     marginTop: 12,
-    marginBottom: 18,
+    marginBottom: 20,
     borderRadius: 22,
     overflow: "hidden",
     backgroundColor: Colors.card,
     borderWidth: 1,
-    borderColor: "rgba(16, 242, 151, 0.14)",
-    shadowColor: "rgba(0, 100, 90, 0.18)",
+    borderColor: "rgba(16, 242, 151, 0.11)",
+    shadowColor: "rgba(0, 100, 90, 0.16)",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
-    shadowRadius: 18,
+    shadowRadius: 20,
     elevation: 7,
   },
+  estimateCopilotOuter: {
+    alignSelf: "stretch",
+    marginTop: 2,
+  },
+  estimateCopilotCard: {
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  estimateFooterHelperWrap: {
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+  },
+  estimateFooterHelperText: {
+    textAlign: "center",
+    fontSize: 13,
+    lineHeight: 20,
+    color: "rgba(186, 198, 215, 0.94)",
+  },
   todayBriefGradient: {
-    padding: 20,
+    padding: 22,
     borderRadius: 21,
   },
   todayBriefCardTitle: {
-    color: Colors.sub,
+    color: "rgba(148, 163, 184, 0.92)",
     fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
+    letterSpacing: 1.05,
+    marginBottom: 10,
   },
   todayBriefGreeting: {
     color: Colors.text,
@@ -5601,9 +5668,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
   todayBriefSubGreeting: {
-    color: Colors.sub,
+    color: "rgba(186, 198, 215, 0.94)",
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 22,
     marginBottom: 16,
   },
   todayBriefInsights: {
@@ -5630,7 +5697,7 @@ const styles = StyleSheet.create({
   },
   todayBriefEmptyInsight: {
     fontStyle: "italic",
-    color: Colors.sub,
+    color: "rgba(148, 163, 184, 0.88)",
   },
   todayBriefSectionLabel: {
     color: Colors.sub,
@@ -5640,6 +5707,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 8,
     marginTop: 6,
+  },
+  commandCenterSectionRail: {
+    color: "rgba(226, 232, 240, 0.74)",
+    letterSpacing: 1.1,
   },
   todayBriefActionChip: {
     alignSelf: "flex-start",
@@ -5655,48 +5726,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  /** No maxHeight — a tight cap clips chip labels (descenders) on iOS/Android. */
   todayBriefChipsScroll: {
-    maxHeight: 42,
-    marginBottom: 4,
+    marginBottom: 6,
+    flexGrow: 0,
   },
   todayBriefChipsContent: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     alignItems: "center",
     paddingVertical: 4,
+    paddingRight: 4,
   },
   todayBriefQuickChip: {
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 15,
     paddingVertical: 10,
+    paddingBottom: 11,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.4)",
-    backgroundColor: "rgba(45, 255, 196, 0.05)",
+    borderColor: "rgba(45, 255, 196, 0.36)",
+    backgroundColor: "rgba(45, 255, 196, 0.06)",
   },
   todayBriefQuickChipText: {
     color: "#2DFFC4",
     fontSize: 12,
+    lineHeight: 18,
     fontWeight: "700",
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   },
   todayBriefFollowChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingBottom: 11,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.045)",
   },
   todayBriefFollowChipText: {
-    color: "#E6EEF9",
+    color: "rgba(241, 245, 249, 0.96)",
     fontSize: 12,
+    lineHeight: 18,
     fontWeight: "600",
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   },
   allClearCard: {
     marginHorizontal: 0,
-    marginTop: 12,
-    marginBottom: 4,
-    borderRadius: 18,
-    padding: 16,
+    marginTop: 8,
+    marginBottom: 10,
+    borderRadius: 20,
+    padding: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -5716,50 +5801,51 @@ const styles = StyleSheet.create({
   },
   biggestRiskCard: {
     marginHorizontal: 0,
-    marginTop: 12,
-    marginBottom: 4,
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: "rgba(249, 115, 22, 0.07)",
+    marginTop: 8,
+    marginBottom: 10,
+    borderRadius: 20,
+    padding: 18,
+    backgroundColor: "rgba(251, 146, 60, 0.055)",
     borderWidth: 1,
-    borderColor: "rgba(249, 115, 22, 0.16)",
+    borderColor: "rgba(251, 146, 60, 0.22)",
   },
   biggestRiskHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   biggestRiskTitle: {
     color: Colors.text,
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.25,
   },
   biggestRiskMessage: {
-    color: Colors.text,
-    fontSize: 18,
+    color: "rgba(248, 250, 252, 0.98)",
+    fontSize: 17,
     lineHeight: 24,
     fontWeight: "700",
-    marginBottom: 6,
+    marginBottom: 8,
   },
   biggestRiskDetail: {
-    color: Colors.sub,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 14,
+    color: "rgba(186, 198, 215, 0.92)",
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 16,
   },
   biggestRiskButton: {
     alignSelf: "flex-start",
     paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(249, 115, 22, 0.3)",
-    backgroundColor: "rgba(249, 115, 22, 0.06)",
+    borderColor: "rgba(251, 146, 60, 0.38)",
+    backgroundColor: "rgba(251, 146, 60, 0.07)",
   },
   biggestRiskButtonText: {
-    color: "#F97316",
-    fontSize: 14,
+    color: "#FB923C",
+    fontSize: 13,
     fontWeight: "600",
   },
   recentSummaryContainer: {
@@ -5820,15 +5906,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   primaryActions: {
-    marginTop: 18,
+    marginTop: 20,
     width: "100%",
-    gap: 10,
+    gap: 12,
   },
   primaryButtonWrapper: {
     width: "100%",
   },
   primaryButtonBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
@@ -5842,10 +5928,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
     backgroundColor: "#05070A",
-    borderRadius: 19,
+    borderRadius: 21,
   },
   primaryButtonText: {
     color: Colors.text,
@@ -5853,29 +5939,29 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   projectStripContainer: {
-    marginTop: 10,
-    marginBottom: 18,
+    marginTop: 8,
+    marginBottom: 20,
   },
   projectStripBorder: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
   projectStrip: {
     paddingHorizontal: 18,
-    paddingVertical: 15,
-    borderRadius: 19,
+    paddingVertical: 16,
+    borderRadius: 21,
     backgroundColor: "#05070A",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
   projectEyebrow: {
-    color: Colors.sub,
+    color: "rgba(148, 163, 184, 0.9)",
     fontSize: 10,
     textTransform: "uppercase",
     letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: 5,
     fontWeight: "700",
   },
   projectTitle: {
@@ -5885,9 +5971,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   projectSubtitle: {
-    marginTop: 3,
-    color: Colors.sub,
+    marginTop: 4,
+    color: "rgba(165, 180, 198, 0.95)",
     fontSize: 13,
+    lineHeight: 18,
   },
   projectRight: {
     alignItems: "flex-end",
@@ -5902,7 +5989,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(134, 239, 172, 0.16)",
   },
   marginBadgeLabel: {
-    color: "rgba(209,250,229,0.72)",
+    color: "rgba(209,250,229,0.8)",
     fontSize: 10,
     textTransform: "uppercase",
     letterSpacing: 0.6,
@@ -5923,102 +6010,106 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   footerSuggestionsWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 4,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   footerSuggestionsContent: {
-    gap: 8,
+    gap: 10,
+    paddingRight: 4,
   },
   footerSuggestionChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(255,255,255,0.048)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)",
+    borderColor: "rgba(255,255,255,0.11)",
   },
   footerSuggestionChipText: {
     fontSize: 12,
-    color: "#CDECDD",
+    color: "rgba(214, 237, 226, 0.96)",
     fontWeight: "600",
   },
   bottomRailSection: {
-    paddingHorizontal: 16,
-    marginBottom: 6,
+    paddingHorizontal: 18,
+    marginBottom: 8,
   },
   bottomRailScroll: {
-    marginTop: 4,
-    maxHeight: 40,
+    marginTop: 6,
+    maxHeight: 44,
   },
   bottomRailContent: {
-    gap: 8,
+    gap: 10,
     alignItems: 'center',
     flexDirection: 'row',
-    paddingBottom: 2,
+    paddingBottom: 4,
+    paddingRight: 2,
   },
   bottomRailChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 9,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.035)",
+    backgroundColor: "rgba(255,255,255,0.042)",
     borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.18)",
+    borderColor: "rgba(45, 255, 196, 0.22)",
   },
   bottomRailChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#BCEFD8',
-    letterSpacing: 0.05,
+    color: 'rgba(190, 239, 216, 0.98)',
+    letterSpacing: 0.06,
   },
   managerCardContainer: {
-    marginTop: 18,
-    marginBottom: 16,
+    marginTop: 16,
+    marginBottom: 14,
   },
   managerCardBorder: {
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 1,
     overflow: "hidden",
   },
   managerCard: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 14,
-    borderRadius: 21,
+    paddingHorizontal: 20,
+    paddingTop: 17,
+    paddingBottom: 16,
+    borderRadius: 23,
     backgroundColor: "#05070A",
   },
   managerHeaderRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
   },
   managerToggleWrapper: {
-    padding: 2,
+    padding: 4,
+    marginTop: 2,
+    marginLeft: 8,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "transparent",
   },
   managerEyebrow: {
-    color: Colors.sub,
+    color: "rgba(148, 163, 184, 0.9)",
     fontSize: 10,
     textTransform: "uppercase",
     letterSpacing: 1,
-    marginBottom: 5,
+    marginBottom: 6,
     fontWeight: "700",
   },
   managerTitle: {
     color: Colors.text,
     fontSize: 20,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 6,
     letterSpacing: -0.2,
   },
   managerSubtitle: {
-    color: Colors.sub,
+    color: "rgba(186, 198, 215, 0.94)",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
   },
   managerChipRow: {
     flexDirection: "row",
@@ -6041,26 +6132,30 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   managerMicrocopy: {
-    color: "rgba(148, 163, 184, 0.7)",
+    color: "rgba(160, 174, 192, 0.82)",
     fontSize: 11.5,
-    marginTop: 10,
+    marginTop: 12,
     paddingHorizontal: 2,
-    lineHeight: 16,
+    lineHeight: 17,
   },
   estimateCopilotActionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 18,
+    gap: 10,
+    rowGap: 10,
+    columnGap: 10,
+    marginTop: 16,
     alignItems: "center",
     width: "100%",
   },
   estimateCopilotPrimaryOnBrief: {
     alignSelf: "flex-start",
     backgroundColor: "#22c55e",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: "center",
   },
   estimateCopilotPrimaryOnBriefText: {
     color: "#04110b",
@@ -6069,12 +6164,14 @@ const styles = StyleSheet.create({
   },
   estimateCopilotSecondaryOnBrief: {
     alignSelf: "flex-start",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
     borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.32)",
-    backgroundColor: "rgba(0, 0, 0, 0.12)",
+    borderColor: "rgba(45, 255, 196, 0.28)",
+    backgroundColor: "rgba(0, 0, 0, 0.14)",
+    minHeight: 44,
+    justifyContent: "center",
   },
   estimateCopilotSecondaryOnBriefText: {
     color: Colors.text,

@@ -33,16 +33,16 @@ const darkSubtext = '#ffffff'; // Secondary/helper text (was grey; same as prima
 
 export const Colors = {
   light: {
-    // Text Colors
-    text: '#1f2937', // Primary text - Dark for readability
-    subtext: '#6b7280', // Secondary text
-    caption: '#9ca3af', // Caption text
-    link: '#3b82f6', // Link text
+    // Text Colors — slightly deeper secondary/caption for WCAG on light gray surfaces
+    text: '#0f172a',
+    subtext: '#475569',
+    caption: '#64748b',
+    link: '#2563eb',
 
-    // Background Colors
-    background: '#ffffff', // Main background
-    card: '#f9fafb', // Card background
-    surface: '#f3f4f6', // Surface elements
+    // Background Colors — page vs card contrast matches ThemeContext light tokens
+    background: '#e8edf5',
+    card: '#ffffff',
+    surface: '#e4ebf4',
 
     // Brand Colors
     primary: primaryBlue,
@@ -50,7 +50,7 @@ export const Colors = {
     accent: primaryGold,
 
     // UI Elements
-    border: '#e5e7eb',
+    border: '#cbd5e1',
     shadow: 'rgba(0, 0, 0, 0.1)',
     overlay: 'rgba(0, 0, 0, 0.5)',
 

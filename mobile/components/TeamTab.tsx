@@ -209,7 +209,7 @@ const Chip = ({
         tone === "outline" && {
           backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
           borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
-          borderWidth: darkMode ? 1 : 0,
+          borderWidth: 1,
         },
       tone === "solid" && {
         backgroundColor: "rgba(34,197,94,0.18)",
@@ -287,14 +287,14 @@ const MemberRowCompact = ({
         onPress={() => onEdit(m)}
         activeOpacity={0.85}
       >
-        <View style={[styles.memberRow, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: darkMode ? 1 : 0, borderRadius: 16 }]}>
+        <View style={[styles.memberRow, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1, borderRadius: 16 }]}>
           <View style={styles.memberRowInner}>
             <View style={styles.initial}>
               <Text style={styles.initialText}>{initials(m.name)}</Text>
             </View>
 
             <View style={styles.memberMainCol}>
-              <Text style={[styles.name, !darkMode && { color: "#000000" }]} numberOfLines={1}>
+              <Text style={[styles.name, !darkMode && { color: Colors.text }]} numberOfLines={1}>
                 {m.name}
               </Text>
               <Text

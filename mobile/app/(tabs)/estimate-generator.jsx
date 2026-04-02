@@ -53,6 +53,7 @@ import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useRequireAuth } from '../../hooks/useRequireAuth';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
 import api from '../../services/BackendAPI';
@@ -60,6 +61,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
 import { getTabScrollContentBottomInset } from '../../constants/ScreenLayout';
+import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid';
 
 // Colors will be defined inside the component using theme
 
@@ -3435,30 +3437,33 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 8,
     gap: 8,
   },
-  // FLOATING ASK PM BADGE - Dashboard AI PM Mode Style
+  // FLOATING AI PM — matches project-detail Overview FAB (opens assistant on Estimate)
   aiFloatingWrapper: {
     position: "absolute",
-    right: 20,
-    bottom: 100, // Raised above tab bar with more spacing
+    right: 18,
+    bottom: 96, // above pill tab bar (project-detail uses 68 — no tab bar)
     zIndex: 10,
   },
   aiFloating: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 999,
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
+    elevation: 5,
   },
   aiFloatingText: {
-    marginLeft: 8,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#020617",
+    marginLeft: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#d4d4d8",
+  },
+  aiFloatingTextOn: {
+    color: "#ecfdf5",
   },
 });
 
@@ -3469,6 +3474,7 @@ export default function EstimateGeneratorScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const darkMode = theme.bg === '#000000';
+  const { t } = useTranslation();
   const { getToken } = useAuth();
   const Colors = useMemo(() => {
     const baseColors = getColors(theme);
@@ -4759,6 +4765,15 @@ export default function EstimateGeneratorScreen() {
           
           const scopeFromBid = normalizeScope(parsed.projectType || parsed.category || parsed.template || 'kitchen');
           parsed.projectType = scopeFromBid;
+          if (parsed.leadId && parsed.leadSource === 'qualified_lead') {
+            if (!parsed.projectCategory) {
+              parsed.projectCategory = estimateCategorySlugForScope(String(scopeFromBid));
+            }
+            parsed.category = parsed.projectCategory;
+            if (!parsed.template) {
+              parsed.template = scopeFromBid;
+            }
+          }
           setActiveScope(scopeFromBid);
           
           // Log customer info before setting bid to verify it's present
@@ -5035,6 +5050,7 @@ export default function EstimateGeneratorScreen() {
           const saved = await AsyncStorage.getItem(BID_STORAGE_KEY);
           if (saved) {
             const parsed = JSON.parse(saved);
+            const isFromLeadReload = !!(parsed.leadId && parsed.leadSource === 'qualified_lead');
 
             const hasRealEstimateContent =
               (Array.isArray(parsed.laborLineItems) && parsed.laborLineItems.length > 0) ||
@@ -5057,7 +5073,7 @@ export default function EstimateGeneratorScreen() {
                             (parsed._createdAt && Date.now() - parsed._createdAt < 10000) ||
                             isCreatingNewBidRef.current;
 
-            if (isNewBid && !hasRealEstimateContent) {
+            if (!isFromLeadReload && isNewBid && !hasRealEstimateContent) {
               console.log('🆕 Blank new bid in reloadBid — clearing stray customer fields');
               if (parsed.customerName || parsed.customerEmail || parsed.customerPhone) {
                 parsed.customerName = '';
@@ -5077,9 +5093,8 @@ export default function EstimateGeneratorScreen() {
               return;
             }
             
-            // Check if this is a new bid from a lead (has leadId and leadSource)
-            const isFromLead = parsed.leadId && parsed.leadSource === 'qualified_lead';
-            
+            const isFromLead = isFromLeadReload;
+
             if (isFromLead) {
               // Always reload bid data from lead to ensure customer info is populated
               console.log(`✅ Reloading bid from lead ${parsed.leadId} with customer info:`, {
@@ -5103,7 +5118,7 @@ export default function EstimateGeneratorScreen() {
               setBid(parsed);
             }
             
-            if (isNewBid && !hasRealEstimateContent && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
+            if (!isFromLeadReload && isNewBid && !hasRealEstimateContent && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
               console.log('🧹 Clearing customer data from blank new bid in storage');
               parsed.customerName = '';
               parsed.customerEmail = '';
@@ -15898,11 +15913,17 @@ export default function EstimateGeneratorScreen() {
               end={{ x: 1, y: 1 }}
               style={{ borderRadius: 16, padding: 1 }}
             >
-              <View style={{ backgroundColor: '#0b0f14', borderRadius: 15, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-                <Text style={{ color: '#f9fafb', fontSize: 16, fontWeight: '700', marginBottom: 6 }}>
+              <View
+                style={
+                  darkMode
+                    ? { backgroundColor: '#0b0f14', borderRadius: 15, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }
+                    : { backgroundColor: Colors.card, borderRadius: 15, padding: 16, borderWidth: 1, borderColor: Colors.line }
+                }
+              >
+                <Text style={{ color: darkMode ? '#f9fafb' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 }}>
                   👋 Welcome to your first estimate
                 </Text>
-                <Text style={{ color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                <Text style={{ color: darkMode ? '#cbd5e1' : Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
                   We’ll walk you through this step by step. Start by adding client and job details — then materials and labor.
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -15930,7 +15951,7 @@ export default function EstimateGeneratorScreen() {
                     }}
                     style={{ paddingVertical: 10, paddingHorizontal: 12 }}
                   >
-                    <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
+                    <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -15950,7 +15971,8 @@ export default function EstimateGeneratorScreen() {
             style={[
               s.stepperPanelInner,
               { borderRadius: 18 },
-              !darkMode && { backgroundColor: Colors.bg },
+              /* Light: white inner panel so steps 1–8 read off the page (dark keeps black inner) */
+              !darkMode && { backgroundColor: Colors.surface2 },
             ]}
           >
           {/* Current Step Info */}
@@ -15962,7 +15984,7 @@ export default function EstimateGeneratorScreen() {
               <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', letterSpacing: -0.2 }}>
                 {step === 0 ? 'Bid Summary' : STEPS[step - 1]?.title}
               </Text>
-              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.84)' : '#4a5568', fontSize: 12, marginTop: 3, lineHeight: 17 }}>
+              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.84)' : Colors.sub, fontSize: 12, marginTop: 3, lineHeight: 17 }}>
                 {step === 0 ? 'Financial breakdown and totals' : STEPS[step - 1]?.subtitle}
               </Text>
             </View>
@@ -15999,7 +16021,7 @@ export default function EstimateGeneratorScreen() {
                       <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
                         REVIEW YOUR ESTIMATE
                       </Text>
-                      <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : '#4a5568', fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
+                      <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
                         You&apos;re doing great. {totalSteps} steps to complete.
                       </Text>
                     </>
@@ -16011,7 +16033,7 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
                       STEP {currentStepNumber} OF {totalSteps} — {stepTitle}
                     </Text>
-                    <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : '#4a5568', fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
+                    <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
                       You&apos;re doing great. {Math.max(0, stepsRemaining - 1)} steps left.
                     </Text>
                   </>
@@ -16048,11 +16070,11 @@ export default function EstimateGeneratorScreen() {
                 borderRadius: 22,
                 backgroundColor: darkMode
                   ? (step === 0 ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
-                  : (step === 0 ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
+                  : (step === 0 ? 'rgba(25, 225, 128, 0.2)' : Colors.surface),
                 borderWidth: step === 0 ? 2.5 : 1,
                 borderColor: darkMode
                   ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
-                  : (step === 0 ? '#19E180' : '#9CA3AF'),
+                  : (step === 0 ? '#19E180' : Colors.line),
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginBottom: 7,
@@ -16064,7 +16086,7 @@ export default function EstimateGeneratorScreen() {
                 <MaterialIcons
                   name={getStepIcon(0)}
                   size={20}
-                  color={darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : '#000000')}
+                  color={darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : Colors.text)}
                 />
               </View>
               <Text
@@ -16106,11 +16128,11 @@ export default function EstimateGeneratorScreen() {
                   borderRadius: 22,
                   backgroundColor: darkMode
                     ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
-                    : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : '#D1D5DB'),
+                    : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : Colors.surface),
                   borderWidth: step === stepItem.id ? 2.5 : 1,
                   borderColor: darkMode
                     ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
-                    : (step === stepItem.id ? '#19E180' : '#9CA3AF'),
+                    : (step === stepItem.id ? '#19E180' : Colors.line),
                   justifyContent: 'center',
                   alignItems: 'center',
                   marginBottom: 7,
@@ -16122,7 +16144,7 @@ export default function EstimateGeneratorScreen() {
                   <MaterialIcons
                     name={getStepIcon(stepItem.id)}
                     size={20}
-                    color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : '#000000')}
+                    color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : Colors.text)}
                   />
                 </View>
                 <Text
@@ -16711,26 +16733,31 @@ export default function EstimateGeneratorScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* FLOATING ASK PM BADGE - hidden on final export step */}
+      {/* FLOATING AI PM — same look as project Overview (opens estimate AI assistant) */}
       {step !== 8 && (
         <Pressable
           style={s.aiFloatingWrapper}
           onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             openEstimateCopilot('');
           }}
         >
           <LinearGradient
-            colors={["#22c55e", "#22d3ee"]}
+            colors={['#15803d', '#0e7490']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={s.aiFloating}
           >
             <Ionicons
               name="sparkles"
-              size={18}
-              color="#020617"
+              size={15}
+              color="#ecfdf5"
             />
-            <Text style={s.aiFloatingText}>Ask PM</Text>
+            <Text
+              style={[s.aiFloatingText, s.aiFloatingTextOn]}
+            >
+              {t('dashboard.aiPmModeOn')}
+            </Text>
           </LinearGradient>
         </Pressable>
       )}

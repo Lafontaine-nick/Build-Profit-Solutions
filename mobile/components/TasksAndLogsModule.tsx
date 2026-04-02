@@ -786,8 +786,10 @@ const styles = StyleSheet.create({
   },
   taskCard: {
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    padding: 22,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   taskHeader: {
     marginBottom: 12,
@@ -856,8 +858,10 @@ const styles = StyleSheet.create({
   },
   logCard: {
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    padding: 22,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   logHeader: {
     flexDirection: 'row',
@@ -900,8 +904,10 @@ const styles = StyleSheet.create({
   },
   insightCard: {
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    padding: 22,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   insightHeader: {
     flexDirection: 'row',

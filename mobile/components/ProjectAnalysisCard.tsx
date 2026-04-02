@@ -51,7 +51,7 @@ export default function ProjectAnalysisCard({
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: Colors.surface, borderColor: Colors.border }]}>
+    <View style={[styles.container, { backgroundColor: Colors.surface }]}>
       {/* Summary Section */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: Colors.text }]}>Summary</Text>
@@ -279,6 +279,7 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 16,
     borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.3)',
     padding: 16,
     marginVertical: 8,
   },
@@ -302,7 +303,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     marginBottom: 4,
-    textTransform: 'uppercase',
   },
   summaryValue: {
     fontSize: 13,
@@ -339,7 +339,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 6,
-    textTransform: 'uppercase',
   },
   breakdownValue: {
     fontSize: 16,

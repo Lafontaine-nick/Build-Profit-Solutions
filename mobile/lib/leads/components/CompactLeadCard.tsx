@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Lead } from '../types';
+import { buildBidPayloadFromLead } from '../leadToEstimateBid';
 import { trackLeadResponse, trackLeadView } from '../../../services/engagementTracking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -110,86 +111,7 @@ export default function CompactLeadCard({
       const { trackBidStarted } = await import('../../../services/engagementTracking');
       await trackBidStarted(lead.id);
       
-      // Convert lead data to bid format (same as LeadDetailModal)
-      const bidData = {
-        id: `bid-${lead.id}-${Date.now()}`,
-        title: `${lead.title || lead.contact.name || 'Lead'} - Proposal`,
-        region: lead.location.state || 'NV',
-        template: '',
-        
-        // Project Info
-        sqft: 0, // Will be filled by user
-        category: lead.trade.toLowerCase().replace(/\s+/g, '-') || 'general',
-        desiredStartDate: lead.project.timeline === 'Urgent' ? new Date().toISOString().split('T')[0] : '',
-        budgetRange: `$${lead.project.budgetMin.toLocaleString()} - $${lead.project.budgetMax.toLocaleString()}`,
-        
-        // Customer Information (pre-populated from lead)
-        customerName: lead.contact.name || '',
-        customerEmail: lead.contact.email || '',
-        customerPhone: lead.contact.phone || '',
-        customerAddress: `${lead.location.city || ''}, ${lead.location.state || ''}`.trim(),
-        customerCity: lead.location.city || '',
-        customerState: lead.location.state || '',
-        customerZip: lead.location.zip || '',
-        customerCompany: lead.contact.company || '',
-        customerNotes: lead.description || `Project for ${lead.contact.name || 'Customer'}`,
-        
-        // Client (for compatibility)
-        clientName: lead.contact.name || '',
-        clientEmail: lead.contact.email || '',
-        
-        // Project Description
-        scopeDescription: lead.description || `Project for ${lead.contact.name || 'Customer'}`,
-        
-        // Timeline
-        startDate: '',
-        endDate: '',
-        
-        // Budget reference
-        projectBudgetMin: lead.project.budgetMin,
-        projectBudgetMax: lead.project.budgetMax,
-        
-        // Legal (defaults)
-        license: true,
-        insurance: true,
-        bond: false,
-        osha: false,
-        
-        // Developer
-        permitCost: 0,
-        permitCostText: '',
-        zoning: 'residential',
-        
-        // Materials & Labor (empty, to be filled)
-        materialLineItems: [],
-        laborLineItems: [],
-        labor: 0,
-        unionToggle: false,
-        zipRate: 38,
-        
-        // Overhead (defaults)
-        insuranceOverhead: 0,
-        equipment: 0,
-        facilities: 0,
-        otherOverhead: 0,
-        
-        // Percentages (defaults)
-        contingencyPct: 7,
-        markupPct: 15,
-        
-        // Communication
-        clientUpdates: 'weekly',
-        internalChannel: 'inapp',
-        clientTransparency: 'totals',
-        esign: true,
-        
-        // Unit mode
-        unitMode: 'sqft',
-        
-        // Link to original lead
-        leadId: lead.id,
-        leadSource: 'qualified_lead',
-      };
+      const bidData = buildBidPayloadFromLead(lead);
       
       // Clear materials and rentals from AsyncStorage before saving new bid
       await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
@@ -236,8 +158,8 @@ export default function CompactLeadCard({
     backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
     borderColor: darkMode ? Colors.line : Colors.line,
     borderWidth: darkMode ? 1 : 1,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 16,
+    padding: 0,
   };
 
   return (
@@ -374,8 +296,13 @@ export default function CompactLeadCard({
             <Text style={[styles.timeline, lightSub && { color: lightSub }]}>
               {lead.project.timeline}
             </Text>
+            <Text style={[styles.timeAgo, lightSub && { color: lightSub }]}>
+              {timeAgo}
+            </Text>
           </View>
         </View>
+
+        <View style={styles.rowHairline} />
 
         {/* Quality Indicators */}
         <View style={styles.qualityRow}>
@@ -385,14 +312,11 @@ export default function CompactLeadCard({
                 <MaterialIcons 
                   name={indicator.icon as any} 
                   size={12} 
-                  color={indicator.verified ? '#34C759' : '#9CA3AF'} 
+                  color={indicator.verified ? '#5EEAD4' : '#9CA3AF'} 
                 />
               </View>
             ))}
           </View>
-          <Text style={[styles.timeAgo, lightSub && { color: lightSub }]}>
-            {timeAgo}
-          </Text>
         </View>
 
         {/* Stage Selector - Clickable to change stage (only if not at final stage) */}
@@ -537,8 +461,8 @@ export default function CompactLeadCard({
             <View style={styles.actionRow}>
               <TouchableOpacity 
                 style={[styles.actionButtonAdvance, { 
-                  backgroundColor: getStageColor(lead.stage) + '22',
-                  borderColor: getStageColor(lead.stage)
+                  backgroundColor: getStageColor(lead.stage) + '14',
+                  borderColor: getStageColor(lead.stage) + 'AA',
                 }]}
                 onPress={(e) => {
                   e.stopPropagation(); // Prevent event bubbling
@@ -640,7 +564,7 @@ const styles = StyleSheet.create({
   card: {
     // Base styles - backgroundColor, borderColor, borderWidth, borderRadius, padding are set dynamically
     marginHorizontal: 16,
-    marginVertical: 6,
+    marginVertical: 8,
     overflow: 'hidden',
   },
   campaignCard: {
@@ -719,13 +643,15 @@ const styles = StyleSheet.create({
     color: '#19E180',
   },
   mainContent: {
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   leadInfo: {
     flex: 1,
@@ -739,7 +665,8 @@ const styles = StyleSheet.create({
   },
   companyName: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#A8B4C8',
+    marginTop: 2,
   },
   badges: {
     flexDirection: 'row',
@@ -777,17 +704,23 @@ const styles = StyleSheet.create({
   projectRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    marginBottom: 0,
+  },
+  rowHairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginTop: 12,
+    marginBottom: 10,
   },
   projectInfo: {
     flex: 1,
   },
   trade: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#43cea2',
-    marginBottom: 2,
+    fontWeight: '600',
+    color: '#5EEAD4',
+    marginBottom: 4,
   },
   budget: {
     fontSize: 14,
@@ -796,20 +729,23 @@ const styles = StyleSheet.create({
   },
   metaInfo: {
     alignItems: 'flex-end',
+    maxWidth: '48%',
   },
   location: {
     fontSize: 12,
-    color: '#9CA3AF',
-    marginBottom: 2,
+    color: '#A8B4C8',
+    marginBottom: 3,
+    textAlign: 'right',
   },
   timeline: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    color: '#9CA3AF', // Neutral color - urgency shown via badge only
+    color: 'rgba(168, 180, 200, 0.88)',
+    textAlign: 'right',
   },
   qualityRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
   },
   qualityIndicators: {
@@ -821,15 +757,17 @@ const styles = StyleSheet.create({
   },
   timeAgo: {
     fontSize: 11,
-    color: '#6B7280',
+    color: 'rgba(148, 163, 184, 0.95)',
+    marginTop: 4,
+    textAlign: 'right',
   },
   actionsRow: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.09)',
     paddingTop: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 6,
   },
     actionRow: {
       flexDirection: 'row',
@@ -853,12 +791,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#34C759', // Green background
+    borderRadius: 10,
+    backgroundColor: '#0D9488',
     gap: 4,
-    minHeight: 36,
+    minHeight: 38,
   },
   // Secondary: Email - Less prominent
   actionButtonSecondary: {
@@ -866,14 +804,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.15)', // Light blue background
+    borderRadius: 10,
+    backgroundColor: 'rgba(59, 130, 246, 0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(96, 165, 250, 0.35)',
     gap: 4,
-    minHeight: 36,
+    minHeight: 38,
   },
   // Tertiary: Remind - Outline/ghost style
   actionButtonTertiary: {
@@ -881,14 +819,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     gap: 4,
-    minHeight: 36,
+    minHeight: 38,
   },
   disabledButton: {
     opacity: 0.5,
@@ -919,14 +857,14 @@ const styles = StyleSheet.create({
   stageRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 10,
+    marginBottom: 2,
     gap: 8,
   },
   stageLabel: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#A8B4C8',
   },
   stageBadge: {
     flexDirection: 'row',
@@ -945,15 +883,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 6,
-    marginTop: 8,
+    marginTop: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
   actionTextAdvance: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
 });

@@ -54,25 +54,25 @@ const DARK: ThemeTokens = {
 };
 
 const LIGHT: ThemeTokens = {
-  // Light mode keeps the brand feel, but adds stronger hierarchy and borders.
-  bg: "#F4F7FB",
+  // Slightly cooler page bg vs white cards improves separation; nested surfaces stay distinct.
+  bg: "#E8EDF5",
   card: "#FFFFFF",
-  cardDark: "#F8FBFF",
+  cardDark: "#EEF2F8",
 
-  surface: "#EEF3F8",
-  surface2: "#E3EBF4",
-  hairline: "rgba(15,23,42,0.10)",
+  surface: "#E4EBF4",
+  surface2: "#D8E2EE",
+  hairline: "rgba(15,23,42,0.14)",
   overlay: "rgba(0,0,0,0.45)",
 
   text: "#0F172A",
-  subtext: "#475569",
+  subtext: "#334155",
 
   accent: "#22C55E",
   onAccent: "#FFFFFF",
 
-  iconBg: "#E7EEF6",
+  iconBg: "#DDE6F2",
 
-  background: ["#F7FAFD", "#F4F7FB", "#F2F7FB", "#EEF6F7"],
+  background: ["#F0F4FA", "#E8EDF5", "#E4EDF5", "#DFEAF3"],
 };
 
 const ThemeContext = createContext<ThemeContextType>({

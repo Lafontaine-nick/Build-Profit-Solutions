@@ -308,9 +308,10 @@ const styles = StyleSheet.create({
   summaryCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    padding: 16,
-    borderRadius: 12,
+    padding: 22,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   summaryTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
   row: {
@@ -338,7 +339,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     marginBottom: 16,
-    gap: 8,
+    gap: 16,
   },
   tabPill: {
     flex: 1,
@@ -351,8 +352,9 @@ const styles = StyleSheet.create({
   tabPillText: { fontSize: 14, fontWeight: '600' },
   tabContent: {
     marginHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
     overflow: 'hidden',
   },
   headerRow: {

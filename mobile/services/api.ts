@@ -3,6 +3,25 @@ import { safeAsyncStorage } from '../utils/asyncStorage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+export type BetaFeedbackPayload = {
+  feedbackType: string;
+  description: string;
+  severity?: string;
+  intendedAction?: string;
+  expectedResult?: string;
+  screenshotData?: string | null;
+  routeName?: string;
+  featureArea?: string;
+  projectId?: string;
+  estimateId?: string;
+  aiContextFlag?: boolean;
+  appVersion?: string;
+  platform?: string;
+  deviceInfo?: string;
+  email?: string;
+  metadata?: Record<string, unknown>;
+};
+
 // Type definitions
 export interface User {
   id: string;
@@ -553,6 +572,38 @@ class ApiService {
         };
       }
       throw error;
+    }
+  }
+
+  /** Beta / launch feedback — requires auth; server must have BETA_FEEDBACK_INTAKE_ENABLED=true */
+  async submitBetaFeedback(payload: BetaFeedbackPayload): Promise<{ id: number; createdAt?: string }> {
+    const response = await this.makeRequest('/api/beta-feedback', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!response.data?.success) {
+      throw new Error(response.data?.error || 'Feedback submission failed');
+    }
+    return { id: response.data.id, createdAt: response.data.createdAt };
+  }
+
+  /** Lightweight telemetry — no-op on server when APP_TELEMETRY_ENABLED is not true */
+  async trackAppEvent(
+    event: string,
+    properties?: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      await this.makeRequest('/api/telemetry/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          event,
+          properties: properties || {},
+          appVersion: Constants.expoConfig?.version || 'unknown',
+          platform: Platform.OS,
+        }),
+      });
+    } catch {
+      // Never block UX on analytics
     }
   }
 

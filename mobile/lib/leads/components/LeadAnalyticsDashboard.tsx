@@ -7,6 +7,11 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Lead, LeadStage } from '../types';
+import {
+  hasReachedPipelineStage,
+  matchesProposalSentPipelineBucket,
+  matchesWonPipelineBucket,
+} from '../pipelineStageUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { useFocusEffect } from 'expo-router';
@@ -341,7 +346,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {todaysFocus.newLeadsCount > 0 && (
         <View style={styles.wideContainer}>
           <LinearGradient
-            colors={['#2DFFC4', '#00A6FF']}
+            colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.todaysFocusGradientBorder}
@@ -353,7 +358,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
               ]}
             >
               <View style={styles.todaysFocusHeader}>
-                <MaterialIcons name="lightbulb" size={24} color="#43cea2" />
+                <MaterialIcons name="lightbulb" size={22} color="#5EEAD4" />
                 <Text
                   style={[
                     styles.todaysFocusTitle,
@@ -365,8 +370,8 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
               </View>
               
               <View style={styles.todaysFocusMetrics}>
-                <View style={styles.todaysFocusMetric}>
-                  <MaterialIcons name="fiber-new" size={20} color="#F59E0B" />
+                <View style={[styles.todaysFocusMetricCell, !darkMode && styles.todaysFocusMetricCellLight]}>
+                  <MaterialIcons name="fiber-new" size={18} color="#F59E0B" />
                   <Text
                     style={[
                       styles.todaysFocusMetricValue,
@@ -384,9 +389,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                     new leads need contact
                   </Text>
                 </View>
-                
-                <View style={styles.todaysFocusMetric}>
-                  <MaterialIcons name="attach-money" size={20} color="#EF4444" />
+
+                <View style={[styles.todaysFocusMetricCell, !darkMode && styles.todaysFocusMetricCellLight]}>
+                  <MaterialIcons name="attach-money" size={18} color="#F87171" />
                   <Text
                     style={[
                       styles.todaysFocusMetricValue,
@@ -404,9 +409,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                     in pipeline at risk
                   </Text>
                 </View>
-                
-                <View style={styles.todaysFocusMetric}>
-                  <MaterialIcons name="access-time" size={20} color="#3B82F6" />
+
+                <View style={[styles.todaysFocusMetricCell, !darkMode && styles.todaysFocusMetricCellLight]}>
+                  <MaterialIcons name="access-time" size={18} color="#60A5FA" />
                   <Text
                     style={[
                       styles.todaysFocusMetricValue,
@@ -428,7 +433,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
               
               <View style={styles.todaysFocusActions}>
                 <TouchableOpacity
-                  style={styles.todaysFocusPrimaryCTA}
+                  style={[styles.todaysFocusPrimaryCTA, !darkMode && styles.todaysFocusPrimaryCTALight]}
                   onPress={() => {
                     if (onStagePress) {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -443,9 +448,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                   <MaterialIcons name="list" size={18} color="#FFFFFF" />
                   <Text style={styles.todaysFocusPrimaryCTAText}>View New Leads</Text>
                 </TouchableOpacity>
-                
+
                 <TouchableOpacity
-                  style={styles.todaysFocusSecondaryCTA}
+                  style={[styles.todaysFocusSecondaryCTA, !darkMode && styles.todaysFocusSecondaryCTALight]}
                   onPress={() => {
                     if (onStagePress) {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -454,7 +459,14 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.todaysFocusSecondaryCTAText}>View prioritized lead list →</Text>
+                  <Text
+                    style={[
+                      styles.todaysFocusSecondaryCTAText,
+                      !darkMode && { color: Colors.sub },
+                    ]}
+                  >
+                    View prioritized lead list →
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -465,7 +477,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {/* Revenue Pipeline */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['#2DFFC4', '#00A6FF']}
+          colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.campaignGradientBorder}
@@ -515,9 +527,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                 </Text>
               </View>
             </View>
-            
-            {/* Revenue Forecast */}
-            <View style={styles.revenueForecastContainer}>
+
+            {/* Revenue Forecast — visually nested under pipeline KPIs */}
+            <View style={[styles.revenueForecastContainer, !darkMode && styles.revenueForecastContainerLight]}>
               <View style={styles.revenueForecastRow}>
                 <Text
                   style={[
@@ -555,7 +567,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {/* Pipeline Health - Funnel with Benchmarks */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['#2DFFC4', '#00A6FF']}
+          colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.campaignGradientBorder}
@@ -678,7 +690,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                       <Text
                         style={[
                           styles.pipelineHealthLabel,
-                          !darkMode && { color: Colors.sub },
+                          !darkMode && { color: Colors.text },
                         ]}
                       >
                         {label}:
@@ -709,13 +721,25 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                           >
                             {expected.min}–{expected.max}
                           </Text>
-                          {hasGap && <Text style={styles.pipelineHealthWarning}> ⚠️</Text>}
-                          {isOnTrack && <Text style={styles.pipelineHealthSuccess}> ✓</Text>}
-                          {exceedsBenchmark && <Text style={styles.pipelineHealthSuccess}> ↑</Text>}
+                          {hasGap && (
+                            <View style={styles.pipelineStatusChipWarn}>
+                              <Text style={styles.pipelineStatusChipText}>⚠</Text>
+                            </View>
+                          )}
+                          {isOnTrack && (
+                            <View style={styles.pipelineStatusChipOk}>
+                              <Text style={styles.pipelineStatusChipText}>✓</Text>
+                            </View>
+                          )}
+                          {exceedsBenchmark && (
+                            <View style={styles.pipelineStatusChipUp}>
+                              <Text style={styles.pipelineStatusChipText}>↑</Text>
+                            </View>
+                          )}
                         </>
                       )}
                       {count > 0 && (
-                        <MaterialIcons name="chevron-right" size={18} color="#6B7280" style={{ marginLeft: 'auto' }} />
+                        <MaterialIcons name="chevron-right" size={18} color="rgba(148, 163, 184, 0.85)" style={{ marginLeft: 'auto' }} />
                       )}
                     </View>
                     {hasExpectedRange && (
@@ -752,6 +776,12 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
 
       {/* AI Insights */}
       <View style={styles.wideContainer}>
+        <LinearGradient
+          colors={['rgba(45, 255, 196, 0.45)', 'rgba(0, 166, 255, 0.4)']}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={styles.campaignGradientBorder}
+        >
         <View
           style={[
             styles.campaignGradientContent,
@@ -865,8 +895,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
             })()}
           </View>
         </View>
+        </LinearGradient>
       </View>
-      
+
       <View style={{ height: 100 }} />
     </View>
   );
@@ -921,85 +952,15 @@ function calculateAnalytics(leads: Lead[], engagementData: Record<string, { bidS
     ? leads.reduce((sum, lead) => sum + (lead.project.budgetMin + lead.project.budgetMax) / 2, 0) / totalLeads
     : 0;
   
-  // Helper function to check if lead has reached a milestone (cumulative)
-  // Returns true if lead has reached or progressed past the target stage
-  const hasReachedStage = (lead: Lead, targetStage: string): boolean => {
-    const stageOrder = ['new', 'contacted', 'qualified', 'proposal', 'won'];
-    
-    // Lost leads only count in lost stage
-    if (lead.stage === 'lost') return targetStage === 'lost';
-    
-    // For 'new' stage, only count leads currently in 'new'
-    if (targetStage === 'new') return lead.stage === 'new';
-    
-    // Handle proposal-sent as equivalent to proposal
-    const currentStage = lead.stage === 'proposal-sent' ? 'proposal' : lead.stage;
-    const currentStageIndex = stageOrder.indexOf(currentStage);
-    const targetStageIndex = stageOrder.indexOf(targetStage);
-    
-    // If current stage is not in order (unknown stage), don't count it
-    if (currentStageIndex === -1 || targetStageIndex === -1) {
-      return targetStage === currentStage;
-    }
-    
-    // Lead has reached milestone if it's at or past the target stage
-    return currentStageIndex >= targetStageIndex;
-  };
-  
-  // Helper function to check if a bid has been submitted for a lead
-  const hasSubmittedBid = (lead: Lead): boolean => {
-    const engagement = engagementData[lead.id];
-    return !!(engagement?.bidSubmittedAt);
-  };
-  
-  // Helper function to check if a bid has been won for a lead
-  const hasWonBid = (lead: Lead): boolean => {
-    const engagement = engagementData[lead.id];
-    const hasWon = !!(engagement?.bidWonAt);
-    if (hasWon) {
-      console.log(`🎉 Lead ${lead.id} has bidWonAt: ${engagement.bidWonAt}`);
-    }
-    return hasWon;
-  };
-  
-  // Count by stage (cumulative - includes leads that have progressed past this stage)
-  // For proposal stage: only count leads where bid was actually submitted to client
-  // For won stage: count leads where bid was marked as won in bid builder (via bidWonAt) or lead stage is 'won'
+  // Count by stage — shared rules with Leads tab pipeline filter (see pipelineStageUtils)
   const leadsByStage = {
     new: leads.filter(l => l.stage === 'new').length,
-    contacted: leads.filter(l => hasReachedStage(l, 'contacted')).length,
-    qualified: leads.filter(l => hasReachedStage(l, 'qualified')).length,
-    proposal: leads.filter(l => {
-      // Proposal stage: only count if bid was actually submitted to client
-      // Either the lead stage is proposal/proposal-sent (bid submitted and stage updated),
-      // OR engagement data shows bidSubmittedAt (bid submitted, even if stage not updated yet)
-      const isInProposalStage = l.stage === 'proposal' || l.stage === 'proposal-sent';
-      const hasSubmittedBidFlag = hasSubmittedBid(l);
-      const hasReachedQualified = hasReachedStage(l, 'qualified');
-      
-      const shouldCount = (isInProposalStage || hasSubmittedBidFlag) && hasReachedQualified;
-      
-      // Log all leads being checked, not just those that pass
-      if (isInProposalStage || hasSubmittedBidFlag) {
-        console.log(`🔍 Proposal check: Lead ${l.id} (${l.title}) - stage: ${l.stage}, isInProposalStage: ${isInProposalStage}, hasSubmittedBidFlag: ${hasSubmittedBidFlag}, hasReachedQualified: ${hasReachedQualified}, shouldCount: ${shouldCount}`);
-      }
-      
-      // Count if bid was submitted, and lead has reached at least qualified stage (must be qualified to submit bid)
-      return shouldCount;
-    }).length,
-    won: leads.filter(l => {
-      // Won stage: count if lead stage is won OR engagement data shows bidWonAt (bid marked as won in bid builder)
-      const isWon = l.stage === 'won';
-      const hasWonBidFlag = hasWonBid(l);
-      
-      const shouldCount = isWon || hasWonBidFlag;
-      
-      if (shouldCount) {
-        console.log(`✅ Won: Lead ${l.id} (${l.title}) - isWon: ${isWon}, hasWonBidFlag: ${hasWonBidFlag}`);
-      }
-      
-      return shouldCount;
-    }).length,
+    contacted: leads.filter(l => hasReachedPipelineStage(l, 'contacted')).length,
+    qualified: leads.filter(l => hasReachedPipelineStage(l, 'qualified')).length,
+    proposal: leads.filter(l =>
+      matchesProposalSentPipelineBucket(l, engagementData[l.id])
+    ).length,
+    won: leads.filter(l => matchesWonPipelineBucket(l, engagementData[l.id])).length,
     lost: leads.filter(l => l.stage === 'lost').length,
   };
   
@@ -1053,15 +1014,11 @@ function calculateAnalytics(leads: Lead[], engagementData: Record<string, { bidS
   // Win rate = Won leads / (Won + Lost + Active Proposals)
   // This gives a more meaningful metric by including proposals that are still pending
   const activeProposals = leads.filter(l => {
-    // Count leads in proposal stage that haven't been won or lost yet
-    const isInProposalStage = l.stage === 'proposal' || l.stage === 'proposal-sent';
-    const hasSubmittedBidFlag = hasSubmittedBid(l);
-    const hasReachedQualified = hasReachedStage(l, 'qualified');
-    const isWon = l.stage === 'won' || hasWonBid(l);
-    const isLost = l.stage === 'lost';
-    
-    // Active proposal = submitted bid, qualified, but not won or lost
-    return (isInProposalStage || hasSubmittedBidFlag) && hasReachedQualified && !isWon && !isLost;
+    if (l.stage === 'lost') return false;
+    const eng = engagementData[l.id];
+    return (
+      matchesProposalSentPipelineBucket(l, eng) && !matchesWonPipelineBucket(l, eng)
+    );
   }).length;
   
   const totalProposalsSubmitted = leadsByStage.won + leadsByStage.lost + activeProposals;
@@ -1642,13 +1599,13 @@ const styles = StyleSheet.create({
   campaignGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 16,
+    marginBottom: 20,
     width: '100%', // Ensure full width like other pages
   },
   campaignGradientContent: {
     backgroundColor: '#000000',
     borderRadius: 23,
-    padding: 12, // Match lead details page padding
+    padding: 16,
   },
   keyMetricsGradientBorder: {
     borderRadius: 20,
@@ -1689,17 +1646,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   analyticsSectionHeader: {
-    marginBottom: 12,
+    marginBottom: 14,
   },
   analyticsSectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#F9FAFB',
     marginBottom: 4,
+    letterSpacing: -0.2,
   },
   analyticsSectionSubtitle: {
     fontSize: 13,
-    color: '#FFFFFF',
+    color: 'rgba(203, 213, 225, 0.78)',
+    lineHeight: 18,
   },
   header: {
     flexDirection: 'row',
@@ -1824,62 +1783,88 @@ const styles = StyleSheet.create({
   },
   // Pipeline Health Styles
   pipelineHealthContainer: {
-    gap: 16,
+    gap: 10,
   },
   pipelineHealthRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
   },
   pipelineHealthLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   pipelineHealthLabel: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#CBD5E1',
-    minWidth: 100,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    minWidth: 96,
   },
   pipelineHealthCount: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
   pipelineHealthDivider: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginHorizontal: 4,
+    fontSize: 13,
+    color: 'rgba(148, 163, 184, 0.5)',
+    marginHorizontal: 2,
   },
   pipelineHealthExpected: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: 'rgba(186, 199, 216, 0.88)',
   },
-  pipelineHealthWarning: {
-    fontSize: 14,
-    color: '#F59E0B',
+  pipelineStatusChipWarn: {
+    marginLeft: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
   },
-  pipelineHealthSuccess: {
-    fontSize: 14,
-    color: '#10B981',
+  pipelineStatusChipOk: {
+    marginLeft: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.32)',
+  },
+  pipelineStatusChipUp: {
+    marginLeft: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(45, 212, 191, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.28)',
+  },
+  pipelineStatusChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(248, 250, 252, 0.95)',
   },
   pipelineHealthBenchmark: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 11,
+    color: 'rgba(148, 163, 184, 0.9)',
     marginLeft: 26,
-    marginTop: 4,
-    fontStyle: 'italic',
+    marginTop: 2,
+    lineHeight: 15,
   },
   pipelineHealthActionHint: {
     fontSize: 11,
-    color: '#6B7280',
+    color: 'rgba(148, 163, 184, 0.75)',
     marginLeft: 26,
     marginTop: 6,
-    fontStyle: 'italic',
-    opacity: 0.7,
+    lineHeight: 15,
   },
   // Legacy Stage Container Styles (kept for backward compatibility)
   stageContainer: {
@@ -1961,12 +1946,12 @@ const styles = StyleSheet.create({
   },
   // Structured Insight Styles
   structuredInsightCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 14,
-    padding: 12,
+    padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1994,17 +1979,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   structuredInsightLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#9CA3AF',
-    minWidth: 100,
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(148, 163, 184, 0.92)',
+    minWidth: 108,
     marginTop: 2,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.2,
   },
   structuredInsightValue: {
     fontSize: 13,
-    color: '#CBD5E1',
+    color: 'rgba(226, 232, 240, 0.95)',
     flex: 1,
-    lineHeight: 18,
+    lineHeight: 19,
     fontWeight: '500',
   },
   structuredInsightAction: {
@@ -2162,58 +2149,75 @@ const styles = StyleSheet.create({
   },
   revenueGrid: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
-    marginBottom: 16,
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 0,
   },
   revenueCard: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-    padding: 14, // Reduced from 16 (~15% reduction)
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    minHeight: 88,
+    justifyContent: 'center',
   },
   revenueLabel: {
-    color: '#9CA3AF',
-    fontSize: 12,
+    color: 'rgba(203, 213, 225, 0.78)',
+    fontSize: 11,
+    fontWeight: '600',
     marginBottom: 8,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase' as const,
   },
   revenueValue: {
-    color: '#43cea2',
-    fontSize: 24,
+    color: '#5EEAD4',
+    fontSize: 22,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 0,
+    letterSpacing: -0.3,
   },
   revenueSubtext: {
     color: '#6B7280',
     fontSize: 11,
   },
   revenueForecastContainer: {
-    backgroundColor: 'rgba(67, 206, 162, 0.08)',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    paddingTop: 14,
+    paddingBottom: 4,
+    borderWidth: 0,
     gap: 10,
-    marginTop: 8,
+    marginTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  revenueForecastContainerLight: {
+    borderTopColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: 'transparent',
   },
   revenueForecastRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
   },
   revenueForecastLabel: {
-    fontSize: 13,
-    color: '#CBD5E1',
+    fontSize: 12,
+    color: 'rgba(203, 213, 225, 0.82)',
     fontWeight: '500',
     flex: 1,
+    lineHeight: 17,
   },
   revenueForecastValue: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#F59E0B',
-    marginLeft: 8,
+    color: '#FBBF24',
+    marginLeft: 0,
+    textAlign: 'right',
   },
   sourceChartContainer: {
     gap: 12,
@@ -2259,79 +2263,107 @@ const styles = StyleSheet.create({
   todaysFocusGradientBorder: {
     borderRadius: 24,
     padding: 1,
-    marginBottom: 16,
+    marginBottom: 20,
+    marginTop: 4,
     width: '100%',
   },
   todaysFocusGradientContent: {
     backgroundColor: '#000000',
     borderRadius: 23,
-    padding: 12,
+    padding: 16,
   },
   todaysFocusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     gap: 10,
   },
   todaysFocusTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  todaysFocusMetrics: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  todaysFocusMetric: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  todaysFocusMetricValue: {
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 80,
+    letterSpacing: -0.2,
+  },
+  todaysFocusMetrics: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+  todaysFocusMetricCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  todaysFocusMetricCellLight: {
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  todaysFocusMetricValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: 8,
+    textAlign: 'center',
   },
   todaysFocusMetricLabel: {
-    fontSize: 14,
-    color: '#CBD5E1',
-    flex: 1,
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.82)',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 13,
+    paddingHorizontal: 2,
   },
   todaysFocusActions: {
-    gap: 12,
+    gap: 10,
   },
   todaysFocusPrimaryCTA: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#43cea2',
+    backgroundColor: '#0f766e',
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 15,
     paddingHorizontal: 20,
     gap: 8,
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  todaysFocusPrimaryCTALight: {
+    shadowOpacity: 0.12,
   },
   todaysFocusPrimaryCTAText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#000000',
-    letterSpacing: 0.3,
+    color: '#ecfdf5',
+    letterSpacing: 0.2,
   },
   todaysFocusSecondaryCTA: {
     alignItems: 'center',
-    paddingVertical: 10,
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(94, 234, 212, 0.35)',
+    backgroundColor: 'rgba(45, 212, 191, 0.06)',
+  },
+  todaysFocusSecondaryCTALight: {
+    borderColor: 'rgba(15, 118, 110, 0.35)',
+    backgroundColor: 'rgba(15, 118, 110, 0.06)',
   },
   todaysFocusSecondaryCTAText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#43cea2',
-    letterSpacing: 0.2,
+    color: 'rgba(167, 243, 208, 0.95)',
+    letterSpacing: 0.15,
   },
   // Legacy AI Coach Card Styles (kept for backward compatibility if needed)
   aiCoachCard: {

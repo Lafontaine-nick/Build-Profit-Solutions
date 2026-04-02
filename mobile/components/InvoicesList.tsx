@@ -657,8 +657,9 @@ const styles = StyleSheet.create({
   },
   invoiceCard: {
     borderRadius: 16,
-    padding: 20,
+    padding: 22,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 12,

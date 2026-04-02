@@ -1174,7 +1174,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     borderRadius: ScreenLayout.card.radius,
     padding: ScreenLayout.card.padding,
     backgroundColor: Colors.card,
-    borderWidth: darkMode ? 1 : 0,
+    borderWidth: 1,
     borderColor: Colors.line,
     marginBottom: ScreenLayout.card.marginBottom,
   },
@@ -1197,7 +1197,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   cardSubtitle: {
     marginTop: 2,
     fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.90)' : '#475569',
+    color: darkMode ? 'rgba(255,255,255,0.90)' : Colors.sub,
   },
   projectCard: {
     marginTop: 8,
@@ -1219,7 +1219,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     backgroundColor: Colors.surface2, // Same grey as dashboard project cards
     borderRadius: 16,
     padding: 14,
-    borderWidth: darkMode ? 1 : 0,
+    borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
     ...Platform.select({
       ios: {
@@ -1390,8 +1390,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     borderRadius: 999,
     backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.9)' : '#CBD5E1',
     overflow: 'hidden',
-    borderWidth: darkMode ? 1 : 0,
-    borderColor: 'rgba(148, 163, 184, 0.15)',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.15)' : Colors.line,
   },
   progressBarFill: {
     height: 8,

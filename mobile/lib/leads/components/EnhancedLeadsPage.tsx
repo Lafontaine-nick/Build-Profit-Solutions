@@ -29,6 +29,11 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Dimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Lead, LeadStage } from '../types';
+import {
+  hasReachedPipelineStage,
+  matchesProposalSentPipelineBucket,
+  matchesWonPipelineBucket,
+} from '../pipelineStageUtils';
 import LeadNotesModal from './LeadNotesModal';
 import CampaignCreationModal, { SubcontractorCampaign } from '@/components/CampaignCreationModal';
 import { MessagesInbox } from '@/components/MessagesInbox';
@@ -82,6 +87,12 @@ import {
 } from '../utils/competitorIntelligence';
 import { LeadAnalyticsDashboard } from './LeadAnalyticsDashboard';
 
+/** Softer gradient frame in light mode so it doesn’t fight the cool gray page. */
+const LEADS_SECTION_GRADIENT = {
+  dark: ['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)'] as const,
+  light: ['rgba(34, 197, 94, 0.26)', 'rgba(14, 165, 233, 0.22)'] as const,
+};
+
 interface EnhancedLeadsPageProps {
   leads: Lead[];
   onStageChange: (lead: Lead, newStage: LeadStage) => void;
@@ -96,8 +107,12 @@ interface EnhancedLeadsPageProps {
   /** Fired when filtered list size changes so the parent can show “X of Y” under the title. */
   onLeadsViewMeta?: (meta: {
     eligibleInLeadsTab: number;
+    /** Count matching current list filters (search, pipeline, etc.). */
     visibleInView: number;
     filtersNarrowed: boolean;
+    /** Cards actually rendered before “Show more”. */
+    renderedInList: number;
+    hasMoreInList: boolean;
   }) => void;
   contractorProfile?: {
     tradeTypes?: string[];
@@ -398,6 +413,10 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                   style={[
                     styles.sourceTab,
                     selectedSource === source.key && styles.sourceTabActive,
+                    !darkMode &&
+                      (selectedSource === source.key
+                        ? { borderBottomColor: Colors.primary }
+                        : { borderBottomColor: 'transparent' }),
                   ]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -414,7 +433,10 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                     style={[
                       styles.sourceTabLabel,
                       selectedSource === source.key && styles.sourceTabLabelActive,
-                      !darkMode && { color: Colors.text },
+                      !darkMode && {
+                        color: selectedSource === source.key ? Colors.text : Colors.sub,
+                        fontWeight: selectedSource === source.key ? '700' : '600',
+                      },
                     ]}
                   >
                     {source.label}
@@ -423,12 +445,16 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                     style={[
                       styles.sourceBadge,
                       selectedSource === source.key && styles.sourceBadgeActive,
+                      !darkMode && {
+                        backgroundColor: selectedSource === source.key ? Colors.iconBg : Colors.surface2,
+                      },
                     ]}
                   >
                     <Text
                       style={[
                         styles.sourceBadgeText,
                         selectedSource === source.key && styles.sourceBadgeTextActive,
+                        !darkMode && { color: Colors.text },
                       ]}
                     >
                       {source.count}
@@ -438,28 +464,76 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
               ))}
             </ScrollView>
 
-      {/* Source Analytics Summary - Chips */}
+      {/* Source Analytics Summary — dark keeps accent chips; light uses calmer surfaces */}
       <View style={styles.sourceStatsChipsContainer}>
         <View style={styles.sourceStatsChipRow}>
-          <View style={[styles.sourceStatsChip, { backgroundColor: '#581C8720', borderColor: '#A855F7' }]}>
-            <Text style={[styles.sourceStatsChipText, { color: '#A855F7' }]}>
+          <View
+            style={[
+              styles.sourceStatsChip,
+              darkMode
+                ? { backgroundColor: '#581C8720', borderColor: '#A855F7' }
+                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+            ]}
+          >
+            <Text
+              style={[
+                styles.sourceStatsChipText,
+                { color: darkMode ? '#A855F7' : Colors.text },
+              ]}
+            >
               Auto-Match {sourceCounts.AI_ESTIMATE}
             </Text>
           </View>
-          <View style={[styles.sourceStatsChip, { backgroundColor: '#19E18020', borderColor: '#19E180' }]}>
-            <Text style={[styles.sourceStatsChipText, { color: '#19E180' }]}>
+          <View
+            style={[
+              styles.sourceStatsChip,
+              darkMode
+                ? { backgroundColor: '#19E18020', borderColor: '#19E180' }
+                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+            ]}
+          >
+            <Text
+              style={[
+                styles.sourceStatsChipText,
+                { color: darkMode ? '#19E180' : Colors.text },
+              ]}
+            >
               Sub Needs {sourceCounts.PROJECT_BASED}
             </Text>
           </View>
         </View>
         <View style={styles.sourceStatsChipRow}>
-          <View style={[styles.sourceStatsChip, { backgroundColor: '#7C2D1220', borderColor: '#F59E0B' }]}>
-            <Text style={[styles.sourceStatsChipText, { color: '#F59E0B' }]}>
+          <View
+            style={[
+              styles.sourceStatsChip,
+              darkMode
+                ? { backgroundColor: '#7C2D1220', borderColor: '#F59E0B' }
+                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+            ]}
+          >
+            <Text
+              style={[
+                styles.sourceStatsChipText,
+                { color: darkMode ? '#F59E0B' : Colors.text },
+              ]}
+            >
               Invites {sourceCounts.BID_INVITATION}
             </Text>
           </View>
-          <View style={[styles.sourceStatsChip, { backgroundColor: '#1E3A8A20', borderColor: '#3B82F6' }]}>
-            <Text style={[styles.sourceStatsChipText, { color: '#3B82F6' }]}>
+          <View
+            style={[
+              styles.sourceStatsChip,
+              darkMode
+                ? { backgroundColor: '#1E3A8A20', borderColor: '#3B82F6' }
+                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+            ]}
+          >
+            <Text
+              style={[
+                styles.sourceStatsChipText,
+                { color: darkMode ? '#3B82F6' : Colors.text },
+              ]}
+            >
               Marketplace {sourceCounts.MARKETPLACE}
             </Text>
           </View>
@@ -688,7 +762,8 @@ const EnhancedLeadCard = ({
   
   // Base style for lead card background/border - match project cards exactly
   const leadCardBaseStyle = {
-    backgroundColor: Colors.surface2,
+    /* Light: white tiles on the tinted list panel for clearer hierarchy */
+    backgroundColor: darkMode ? Colors.surface2 : Colors.card,
     borderColor: Colors.line,
     borderWidth: darkMode ? 1 : 1,
     borderRadius: 14,
@@ -1636,6 +1711,10 @@ const EnhancedLeadCard = ({
   );
 };
 
+/** First batch of lead cards; “Show more” appends without leaving the page (mobile-friendly vs numbered pages). */
+const LEADS_LIST_INITIAL_BATCH = 12;
+const LEADS_LIST_LOAD_MORE_STEP = 12;
+
 // Main Component
 export default function EnhancedLeadsPage({
   leads,
@@ -1717,6 +1796,30 @@ export default function EnhancedLeadsPage({
 
   // Debounced search
   const debouncedQuery = useDebounced(query, 250);
+
+  // Engagement flags (bid submitted / won) — keeps Leads pipeline filter aligned with Pipeline Health analytics
+  const [pipelineEngagementByLeadId, setPipelineEngagementByLeadId] = useState<
+    Record<string, { bidSubmittedAt?: string; bidWonAt?: string }>
+  >({});
+
+  const leadsStageSignature = useMemo(
+    () => leads.map((l) => `${l.id}:${l.stage}`).join('|'),
+    [leads]
+  );
+
+  const refreshPipelineEngagement = useCallback(async () => {
+    try {
+      const { getAllEngagementData } = await import('../../../services/engagementTracking');
+      const data = await getAllEngagementData(true);
+      setPipelineEngagementByLeadId(data && typeof data === 'object' ? (data as Record<string, { bidSubmittedAt?: string; bidWonAt?: string }>) : {});
+    } catch (e) {
+      console.warn('⚠️ Could not load engagement for pipeline filter:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPipelineEngagement();
+  }, [refreshPipelineEngagement, leadsStageSignature]);
 
   // Debug function to check all storage keys
   const debugStorage = async () => {
@@ -2069,38 +2172,26 @@ export default function EnhancedLeadsPage({
     const byPipeline = pipeline === 'all'
       ? regularLeads
       : regularLeads.filter((l) => {
-          // For pipeline stages, we need to check if the lead has reached or is at the target stage
-          // This matches the logic used in analytics for cumulative stages
+          const eng = pipelineEngagementByLeadId[l.id];
+          // Matches LeadAnalyticsDashboard / Pipeline Health (see pipelineStageUtils)
           if (pipeline === 'new') {
             return l.stage === 'new';
           }
           if (pipeline === 'contacted') {
-            // Contacted includes contacted and all stages after it
-            const stageOrder = ['new', 'contacted', 'qualified', 'proposal', 'won'];
-            const currentStage = l.stage === 'proposal-sent' ? 'proposal' : l.stage;
-            const currentIndex = stageOrder.indexOf(currentStage);
-            const targetIndex = stageOrder.indexOf('contacted');
-            return currentIndex >= targetIndex || l.stage === 'contacted';
+            return hasReachedPipelineStage(l, 'contacted');
           }
           if (pipeline === 'qualified') {
-            // Qualified includes qualified and all stages after it
-            const stageOrder = ['new', 'contacted', 'qualified', 'proposal', 'won'];
-            const currentStage = l.stage === 'proposal-sent' ? 'proposal' : l.stage;
-            const currentIndex = stageOrder.indexOf(currentStage);
-            const targetIndex = stageOrder.indexOf('qualified');
-            return currentIndex >= targetIndex || l.stage === 'qualified';
+            return hasReachedPipelineStage(l, 'qualified');
           }
           if (pipeline === 'proposal' || pipeline === 'proposal-sent') {
-            // Proposal includes proposal and won stages (but not lost)
-            return l.stage === 'proposal' || l.stage === 'proposal-sent' || l.stage === 'won';
+            return matchesProposalSentPipelineBucket(l, eng);
           }
           if (pipeline === 'won') {
-            return l.stage === 'won';
+            return matchesWonPipelineBucket(l, eng);
           }
           if (pipeline === 'lost') {
             return l.stage === 'lost';
           }
-          // For other stages, exact match
           return l.stage === pipeline;
         });
     
@@ -2186,7 +2277,37 @@ export default function EnhancedLeadsPage({
     
     console.log('🔍 Final filtered leads:', arr.length);
     return arr;
-  }, [leads, pipeline, sourceFilter, projectTypeFilter, budgetFilter, timelineFilter, selectedTrades, sortBy, debouncedQuery, showArchived]);
+  }, [
+    leads,
+    pipeline,
+    pipelineEngagementByLeadId,
+    sourceFilter,
+    projectTypeFilter,
+    budgetFilter,
+    timelineFilter,
+    selectedTrades,
+    sortBy,
+    debouncedQuery,
+    showArchived,
+  ]);
+
+  const filteredLeadsSignature = useMemo(
+    () => filteredAndSortedLeads.map((l) => l.id).join('\0'),
+    [filteredAndSortedLeads]
+  );
+
+  const [leadsListLimit, setLeadsListLimit] = useState(LEADS_LIST_INITIAL_BATCH);
+
+  useEffect(() => {
+    setLeadsListLimit(LEADS_LIST_INITIAL_BATCH);
+  }, [filteredLeadsSignature]);
+
+  const displayedLeads = useMemo(
+    () => filteredAndSortedLeads.slice(0, leadsListLimit),
+    [filteredAndSortedLeads, leadsListLimit]
+  );
+
+  const hasMoreInList = displayedLeads.length < filteredAndSortedLeads.length;
 
   useEffect(() => {
     if (!onLeadsViewMeta) return;
@@ -2195,8 +2316,16 @@ export default function EnhancedLeadsPage({
       visibleInView: filteredAndSortedLeads.length,
       filtersNarrowed:
         eligibleInLeadsTab > 0 && filteredAndSortedLeads.length < eligibleInLeadsTab,
+      renderedInList: displayedLeads.length,
+      hasMoreInList,
     });
-  }, [eligibleInLeadsTab, filteredAndSortedLeads.length, onLeadsViewMeta]);
+  }, [
+    eligibleInLeadsTab,
+    filteredAndSortedLeads.length,
+    displayedLeads.length,
+    hasMoreInList,
+    onLeadsViewMeta,
+  ]);
 
   const handleStageChange = (lead: Lead) => {
     const stageOrder: LeadStage[] = ['new', 'contacted', 'qualified', 'proposal', 'won'];
@@ -2222,8 +2351,8 @@ export default function EnhancedLeadsPage({
     
     return (
     <View style={styles.emptyState}>
-      <MaterialIcons name="search-off" size={48} color="#FFFFFF" />
-        <Text style={styles.emptyStateText}>
+      <MaterialIcons name="search-off" size={48} color={darkMode ? '#FFFFFF' : Colors.sub} />
+        <Text style={[styles.emptyStateText, !darkMode && { color: Colors.text }]}>
           {hasLeads && hasFilters 
             ? "No leads match your filters." 
             : "No leads available."}
@@ -2242,7 +2371,7 @@ export default function EnhancedLeadsPage({
           setSortBy('smart');
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }}
-        style={styles.clearFiltersButton}
+        style={[styles.clearFiltersButton, !darkMode && { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}
       >
         <MaterialIcons name="clear" size={16} color="#3B82F6" />
         <Text style={styles.clearFiltersText}>Clear filters</Text>
@@ -2259,7 +2388,7 @@ export default function EnhancedLeadsPage({
                 console.log('No refresh function available');
               }
             }}
-            style={styles.backButton}
+            style={[styles.backButton, !darkMode && { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}
           >
             <MaterialIcons name="arrow-back" size={16} color="#3B82F6" />
             <Text style={styles.backButtonText}>Refresh Leads</Text>
@@ -2275,12 +2404,12 @@ export default function EnhancedLeadsPage({
       {/* Lead Sources Section */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['#2DFFC4', '#00A6FF']}
+          colors={darkMode ? [...LEADS_SECTION_GRADIENT.dark] : [...LEADS_SECTION_GRADIENT.light]}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.gradientBorder}
         >
-          <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>
+          <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.surface }]}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, !darkMode && { color: Colors.text }]}>
               Lead Sources
@@ -2314,7 +2443,7 @@ export default function EnhancedLeadsPage({
           <TextInput
             style={[styles.searchInput, !darkMode && { color: Colors.text }]}
             placeholder="Search leads..."
-            placeholderTextColor={darkMode ? "rgba(255, 255, 255, 0.6)" : "#64748B"}
+            placeholderTextColor={darkMode ? "rgba(255, 255, 255, 0.6)" : Colors.sub}
             value={query}
             onChangeText={setQuery}
           />
@@ -2587,7 +2716,7 @@ export default function EnhancedLeadsPage({
                 {selectedTrades.map((trade, idx) => (
                   <LinearGradient
                     key={idx}
-                    colors={['#2DFFC4', '#00A6FF']}
+                    colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.tradeTokenGradient}
@@ -2695,9 +2824,26 @@ export default function EnhancedLeadsPage({
         if (urgentLeads.length > 0) {
           return (
             <View style={styles.wideContainer}>
-              <View style={styles.dailyFocusBanner}>
-                <MaterialIcons name="lightbulb" size={18} color="#19E180" />
-                <Text style={styles.dailyFocusText}>
+              <View
+                style={[
+                  styles.dailyFocusBanner,
+                  !darkMode && {
+                    backgroundColor: Colors.surface2,
+                    borderColor: Colors.line,
+                  },
+                ]}
+              >
+                <MaterialIcons
+                  name="lightbulb"
+                  size={18}
+                  color={darkMode ? 'rgba(94, 234, 212, 0.95)' : '#0f766e'}
+                />
+                <Text
+                  style={[
+                    styles.dailyFocusText,
+                    !darkMode && { color: Colors.text },
+                  ]}
+                >
                   {urgentLeads.length} urgent lead{urgentLeads.length !== 1 ? 's' : ''} need contact today to protect ${pipelineValueK}K in pipeline.
                 </Text>
               </View>
@@ -2789,7 +2935,13 @@ export default function EnhancedLeadsPage({
                         <MaterialIcons
                           name={filteredAndSortedLeads.every(lead => selectedLeads.has(lead.id)) ? "check-box" : "check-box-outline-blank"}
                           size={24}
-                          color={filteredAndSortedLeads.every(lead => selectedLeads.has(lead.id)) ? "#43cea2" : "#FFFFFF"}
+                          color={
+                            filteredAndSortedLeads.every((lead) => selectedLeads.has(lead.id))
+                              ? '#43cea2'
+                              : darkMode
+                                ? '#FFFFFF'
+                                : Colors.sub
+                          }
                         />
                       </TouchableOpacity>
                     </View>
@@ -2797,7 +2949,7 @@ export default function EnhancedLeadsPage({
                   <View style={{ flex: 1 }}>
                     <View style={styles.wideContainer}>
                       <LinearGradient
-                        colors={['#2DFFC4', '#00A6FF']}
+                        colors={darkMode ? [...LEADS_SECTION_GRADIENT.dark] : [...LEADS_SECTION_GRADIENT.light]}
                         start={{ x: 0.05, y: 0.15 }}
                         end={{ x: 0.95, y: 0.85 }}
                         style={styles.allCardsGroupBorder}
@@ -2805,7 +2957,7 @@ export default function EnhancedLeadsPage({
                         <View
                           style={[
                             styles.allCardsGroupWrapper,
-                            !darkMode && { backgroundColor: Colors.bg },
+                            !darkMode && { backgroundColor: Colors.surface },
                           ]}
                         >
                         {/* My Leads Header */}
@@ -2818,16 +2970,74 @@ export default function EnhancedLeadsPage({
                           >
                             My Leads
                           </Text>
-                          <Text style={[styles.myLeadsHeaderSubtext, !darkMode && { color: Colors.sub }]}>Your active lead opportunities</Text>
+                          <Text style={[styles.myLeadsHeaderSubtext, !darkMode && { color: Colors.sub }]}>
+                            {hasMoreInList
+                              ? `Showing ${displayedLeads.length} of ${filteredAndSortedLeads.length} — scroll down for Show more`
+                              : 'Your active lead opportunities'}
+                          </Text>
                         </View>
-                        {filteredAndSortedLeads.map((lead, idx) => (
+                        {displayedLeads.map((lead, idx) => (
                           <View key={lead.id}>
-                            {idx > 0 && <View style={styles.leadCardDivider} />}
+                            {idx > 0 && (
+                              <View
+                                style={[
+                                  styles.leadCardDivider,
+                                  !darkMode && { backgroundColor: Colors.line },
+                                ]}
+                              />
+                            )}
                             <View style={styles.leadCardInGroup}>
                               {renderLeadCardContent(lead)}
                             </View>
                           </View>
                         ))}
+                        {hasMoreInList ? (() => {
+                          const remainingBelow =
+                            filteredAndSortedLeads.length - displayedLeads.length;
+                          const nextBatch = Math.min(LEADS_LIST_LOAD_MORE_STEP, remainingBelow);
+                          return (
+                          <TouchableOpacity
+                            style={[
+                              styles.leadsLoadMoreRow,
+                              !darkMode && {
+                                backgroundColor: Colors.surface2,
+                                borderTopColor: Colors.line,
+                              },
+                            ]}
+                            onPress={() => {
+                              setLeadsListLimit((n) => n + LEADS_LIST_LOAD_MORE_STEP);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <MaterialIcons
+                              name="expand-more"
+                              size={22}
+                              color={darkMode ? 'rgba(148, 163, 184, 0.95)' : Colors.sub}
+                            />
+                            <View style={styles.leadsLoadMoreTextBlock}>
+                              <Text
+                                style={[
+                                  styles.leadsLoadMoreText,
+                                  !darkMode && { color: Colors.text },
+                                ]}
+                              >
+                                Show {nextBatch} more below
+                              </Text>
+                              {remainingBelow > nextBatch ? (
+                                <Text
+                                  style={[
+                                    styles.leadsLoadMoreSubtext,
+                                    !darkMode && { color: Colors.sub },
+                                  ]}
+                                >
+                                  {remainingBelow} total below
+                                </Text>
+                              ) : null}
+                            </View>
+                          </TouchableOpacity>
+                          );
+                        })() : null}
                         </View>
                       </LinearGradient>
                     </View>
@@ -2979,7 +3189,7 @@ export default function EnhancedLeadsPage({
               {/* Campaigns Section */}
               <View style={styles.wideContainer}>
                 <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
+                  colors={darkMode ? [...LEADS_SECTION_GRADIENT.dark] : [...LEADS_SECTION_GRADIENT.light]}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.gradientBorder}
@@ -2987,7 +3197,7 @@ export default function EnhancedLeadsPage({
                   <View
                     style={[
                       styles.sectionCard,
-                      !darkMode && { backgroundColor: Colors.bg },
+                      !darkMode && { backgroundColor: Colors.surface },
                     ]}
                   >
                     <View style={styles.sectionHeader}>
@@ -3004,8 +3214,8 @@ export default function EnhancedLeadsPage({
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                         }}
                       >
-                        <MaterialIcons name="campaign" size={20} color="#FFFFFF" />
-                        <Text style={[styles.launchCampaignText, !darkMode && { color: Colors.text }]}>Activate Availability</Text>
+                        <MaterialIcons name="campaign" size={20} color="#ecfdf5" />
+                        <Text style={styles.launchCampaignText}>Activate Availability</Text>
                       </TouchableOpacity>
 
                       {/* Campaigns List */}
@@ -3058,10 +3268,10 @@ export default function EnhancedLeadsPage({
                                   !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
                                 ]}
                               >
-                                {/* Header with Status */}
+                                {/* Identity + status */}
                                 <View style={styles.campaignPerformanceHeader}>
                                   <View style={styles.campaignPerformanceHeaderLeft}>
-                                    <MaterialIcons name="campaign" size={20} color="#19E180" />
+                                    <MaterialIcons name="campaign" size={20} color="#5EEAD4" />
                                     <View style={styles.campaignPerformanceTitleContainer}>
                                       <Text
                                         style={[
@@ -3081,15 +3291,6 @@ export default function EnhancedLeadsPage({
                                           {primaryServiceArea.city}, {primaryServiceArea.state}
                                         </Text>
                                       )}
-                                      <Text style={styles.campaignServicesDescription}>
-                                        {servicesDescription}
-                                      </Text>
-                                      <View style={styles.aiOptimizationStatus}>
-                                        <MaterialIcons name="route" size={14} color={aiRouting.color} />
-                                        <Text style={[styles.aiOptimizationText, { color: aiRouting.color }]}>
-                                          AI Routing: {aiRouting.status}
-                                        </Text>
-                                      </View>
                                     </View>
                                   </View>
                                   <View style={[styles.campaignStatusChip, { backgroundColor: `${statusColor}20`, borderColor: statusColor }]}>
@@ -3097,11 +3298,26 @@ export default function EnhancedLeadsPage({
                                     <Text style={[styles.campaignStatusText, { color: statusColor }]}>{statusLabel}</Text>
                                   </View>
                                 </View>
-                                
+
+                                <View style={styles.campaignCardHairline} />
+
+                                {/* Trade, capacity & AI routing */}
+                                <View style={styles.campaignTradeSection}>
+                                  <Text style={styles.campaignServicesDescription}>
+                                    {servicesDescription}
+                                  </Text>
+                                  <View style={styles.aiOptimizationStatus}>
+                                    <MaterialIcons name="route" size={14} color={aiRouting.color} />
+                                    <Text style={[styles.aiOptimizationText, { color: aiRouting.color }]}>
+                                      AI Routing: {aiRouting.status}
+                                    </Text>
+                                  </View>
+                                </View>
+
                                 {/* Network Reach */}
                                 {marketplaceReach > 0 && (
                                   <View style={styles.marketplaceReach}>
-                                    <MaterialIcons name="network-check" size={14} color="#FFFFFF" />
+                                    <MaterialIcons name="network-check" size={14} color="rgba(94, 234, 212, 0.9)" />
                                     <Text
                                       style={[
                                         styles.marketplaceReachText,
@@ -3112,7 +3328,11 @@ export default function EnhancedLeadsPage({
                                     </Text>
                                   </View>
                                 )}
-                                
+
+                                <View style={styles.campaignCardHairline} />
+
+                                {/* Tier 1–2 metrics */}
+                                <View style={[styles.campaignMetricsPanel, !darkMode && styles.campaignMetricsPanelLight]}>
                                 {/* Tier 1 Metrics (Big) - Requests, Jobs Won, Awarded Value */}
                                 <View style={styles.campaignTier1Metrics}>
                                   <View style={styles.campaignTier1Metric}>
@@ -3164,7 +3384,8 @@ export default function EnhancedLeadsPage({
                                     </Text>
                                   </View>
                                 </View>
-                                
+                                </View>
+
                                 {/* Tier 3 Metrics (Small) - Response Time, Quotes Sent, Avg Job Size */}
                                 <View style={styles.campaignTier3Metrics}>
                                   <View style={styles.campaignTier3Metric}>
@@ -3186,7 +3407,9 @@ export default function EnhancedLeadsPage({
                                     </Text>
                                   </View>
                                 </View>
-                                
+
+                                <View style={styles.campaignCardHairline} />
+
                                 {/* Actions */}
                                 <View style={styles.campaignPerformanceActions}>
                                   <TouchableOpacity
@@ -3207,7 +3430,7 @@ export default function EnhancedLeadsPage({
                                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                     }}
                                   >
-                                    <MaterialIcons name="expand-more" size={16} color="#43cea2" />
+                                    <MaterialIcons name="expand-more" size={18} color="#5EEAD4" />
                                   </TouchableOpacity>
                                   <TouchableOpacity
                                     style={styles.campaignSecondaryButton}
@@ -3222,8 +3445,8 @@ export default function EnhancedLeadsPage({
                                   >
                                     <MaterialIcons 
                                       name={campaign.status === 'active' ? 'pause' : 'play-arrow'} 
-                                      size={16} 
-                                      color="#43cea2" 
+                                      size={18} 
+                                      color="#5EEAD4" 
                                     />
                                   </TouchableOpacity>
                                   <TouchableOpacity
@@ -3630,7 +3853,7 @@ const styles = StyleSheet.create({
   gradientBorder: {
     borderRadius: 24, // Matches estimate generator
     padding: 1, // This creates the border width (matches estimate generator)
-    marginBottom: 16,
+    marginBottom: 20,
     marginHorizontal: 0, // No margin - wideContainer handles width
   },
   leadCardGradientBorder: {
@@ -3646,7 +3869,7 @@ const styles = StyleSheet.create({
   allCardsGroupBorder: {
     borderRadius: 24, // Matches estimate generator
     padding: 1, // This creates the border width (matches estimate generator)
-    marginBottom: 12,
+    marginBottom: 16,
     marginHorizontal: 0, // No margin - wideContainer handles width
   },
   allCardsGroupWrapper: {
@@ -3656,19 +3879,45 @@ const styles = StyleSheet.create({
   },
   myLeadsHeader: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    marginBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 10,
+    marginBottom: 8,
   },
   myLeadsHeaderText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#F9FAFB',
     marginBottom: 4,
+    letterSpacing: -0.2,
   },
   myLeadsHeaderSubtext: {
     fontSize: 13,
-    color: '#FFFFFF',
+    color: 'rgba(203, 213, 225, 0.82)',
+  },
+  leadsLoadMoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  leadsLoadMoreTextBlock: {
+    alignItems: 'flex-start',
+  },
+  leadsLoadMoreText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#E5E7EB',
+  },
+  leadsLoadMoreSubtext: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(148, 163, 184, 0.95)',
+    marginTop: 2,
   },
   leadCardInGroup: {
     padding: 0,
@@ -3681,13 +3930,13 @@ const styles = StyleSheet.create({
   sectionCard: {
     backgroundColor: '#000000', // Fully opaque dark background to cover gradient (matches estimate generator)
     borderRadius: 22, // 24 - 2 = 22 to show 1px border on each side (matches estimate generator)
-    padding: 12,
+    padding: 16,
     borderWidth: 0, // Remove border since gradient provides it
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
     flex: 1, // Fill the gradient container
   },
   campaignsSectionBorder: {
@@ -3703,21 +3952,23 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   sectionHeader: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#F9FAFB',
     marginBottom: 4,
+    letterSpacing: -0.2,
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: '#FFFFFF',
+    color: 'rgba(203, 213, 225, 0.78)',
+    lineHeight: 18,
   },
   sectionContent: {
     padding: 0,
-    paddingTop: 6,
+    paddingTop: 4,
   },
   header: {
     flexDirection: 'row',
@@ -3829,17 +4080,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   searchSectionContainer: {
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 20,
     marginHorizontal: 16, // Matches estimate generator GradientCard
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     // backgroundColor, borderColor, borderWidth, borderRadius are set dynamically
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     marginBottom: 0,
-    gap: 8,
+    gap: 10,
   },
   searchInput: {
     flex: 1,
@@ -4397,7 +4649,7 @@ const styles = StyleSheet.create({
   },
   // Source Analytics Styles
   sourceAnalytics: {
-    marginBottom: 12,
+    marginBottom: 4,
   },
   insightBanner: {
     backgroundColor: '#7C2D12',
@@ -4417,7 +4669,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sourceFilters: {
-    marginBottom: 8,
+    marginBottom: 6,
+    marginTop: 2,
   },
   sourceTab: {
     paddingHorizontal: 16,
@@ -4480,8 +4733,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   sourceStatsChipsContainer: {
-    marginTop: 8,
-    gap: 6,
+    marginTop: 10,
+    gap: 8,
   },
   sourceStatsChipRow: {
     flexDirection: 'row',
@@ -4489,9 +4742,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   sourceStatsChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 10,
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
@@ -4503,18 +4756,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    marginBottom: 2,
   },
   sourceFilterTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#F3F4F6',
+    color: 'rgba(226, 232, 240, 0.72)',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase' as const,
   },
   helpButton: {
-    padding: 4,
+    padding: 6,
     borderRadius: 12,
-    backgroundColor: '#374151',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   // Phase 1 Enhancement Styles
   phase1UrgencyRow: {
@@ -5410,44 +5666,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#43cea2',
+    backgroundColor: '#0f766e',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     marginTop: 0,
+    marginBottom: 4,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.3)',
-    shadowColor: '#43cea2',
-    shadowOffset: { width: 0, height: 4 },
+    borderColor: 'rgba(45, 212, 191, 0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowRadius: 6,
+    elevation: 3,
   },
   launchCampaignText: {
-    color: '#FFFFFF',
+    color: '#ecfdf5',
     fontSize: 14,
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
   // Daily Focus Smart Banner
   dailyFocusBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     marginHorizontal: 0, // No margin - wideContainer handles width
-    marginBottom: 12,
-    backgroundColor: 'rgba(25, 225, 128, 0.1)',
-    borderRadius: 12,
+    marginTop: 6,
+    marginBottom: 18,
+    backgroundColor: 'rgba(45, 212, 191, 0.07)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(25, 225, 128, 0.3)',
-    gap: 10,
+    borderColor: 'rgba(45, 212, 191, 0.22)',
+    gap: 12,
   },
   dailyFocusText: {
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
-    color: '#19E180',
+    color: 'rgba(204, 251, 241, 0.95)',
     lineHeight: 20,
   },
   // Utility Buttons (Separate Standalone Buttons)
@@ -5455,17 +5714,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 20,
   },
   utilityButtonStandalone: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
+    minHeight: 48,
     // backgroundColor, borderColor, borderWidth, borderRadius are set dynamically
-    gap: 6,
+    gap: 8,
     flex: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   utilityButton: {
     flexDirection: 'row',
@@ -5903,59 +6168,89 @@ const styles = StyleSheet.create({
   // Campaign Performance Strip
   campaignPerformanceStrip: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'space-around',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 16,
     paddingVertical: 16,
-    paddingHorizontal: 12,
-    marginBottom: 16,
+    paddingHorizontal: 10,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   performanceMetric: {
     alignItems: 'center',
     flex: 1,
+    justifyContent: 'center',
+    paddingVertical: 4,
   },
   performanceMetricLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '500',
-    marginBottom: 4,
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.78)',
+    fontWeight: '600',
+    marginBottom: 6,
+    letterSpacing: 0.35,
+    textTransform: 'uppercase' as const,
+    textAlign: 'center',
   },
   performanceMetricValue: {
-    fontSize: 18,
-    color: '#FFFFFF',
+    fontSize: 17,
+    color: '#F8FAFC',
     fontWeight: '700',
+    letterSpacing: -0.2,
+    textAlign: 'center',
   },
   networkActivityLabel: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '500',
+    fontSize: 10,
+    color: 'rgba(186, 199, 216, 0.75)',
+    fontWeight: '600',
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 6,
+    marginBottom: 18,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase' as const,
   },
   performanceMetricDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginHorizontal: 8,
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    marginVertical: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    marginHorizontal: 4,
   },
   // Campaign Performance Card
   campaignPerformanceCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 16,
-    padding: 12,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  campaignCardHairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginVertical: 12,
+  },
+  campaignTradeSection: {
+    gap: 8,
+  },
+  campaignMetricsPanel: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  campaignMetricsPanelLight: {
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    borderColor: 'rgba(0, 0, 0, 0.06)',
   },
   campaignPerformanceHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 0,
   },
   campaignPerformanceHeaderLeft: {
     flexDirection: 'row',
@@ -5968,23 +6263,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   campaignPerformanceTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
     marginBottom: 4,
+    letterSpacing: -0.2,
   },
   campaignPerformanceLocation: {
-    fontSize: 14,
-    color: '#FFFFFF',
+    fontSize: 13,
+    color: 'rgba(203, 213, 225, 0.82)',
     fontWeight: '500',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   campaignServicesDescription: {
     fontSize: 13,
-    color: '#60A5FA',
+    color: '#7DD3FC',
     fontWeight: '600',
-    marginTop: 4,
-    marginBottom: 6,
+    marginTop: 0,
+    marginBottom: 0,
+    lineHeight: 18,
   },
   campaignStatusChip: {
     flexDirection: 'row',
@@ -6026,86 +6323,97 @@ const styles = StyleSheet.create({
   // Time Period Toggle
   timePeriodToggle: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 16,
-    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 14,
+    padding: 5,
+    marginBottom: 18,
+    marginTop: 4,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   timePeriodButton: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timePeriodButtonActive: {
-    backgroundColor: 'rgba(67, 206, 162, 0.2)',
+    backgroundColor: 'rgba(45, 212, 191, 0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.4)',
+    borderColor: 'rgba(45, 212, 191, 0.35)',
   },
   timePeriodButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(226, 232, 240, 0.75)',
   },
   timePeriodButtonTextActive: {
-    color: '#43cea2',
+    color: '#5EEAD4',
     fontWeight: '700',
   },
   // Campaign Tier Metrics
   campaignTier1Metrics: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 16,
-    gap: 12,
+    marginBottom: 12,
+    gap: 8,
   },
   campaignTier1Metric: {
     flex: 1,
     alignItems: 'center',
   },
   campaignTier1Label: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '500',
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.78)',
+    fontWeight: '600',
     marginBottom: 6,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.3,
   },
   campaignTier1Value: {
-    fontSize: 28,
-    color: '#FFFFFF',
+    fontSize: 26,
+    color: '#F8FAFC',
     fontWeight: '700',
+    letterSpacing: -0.5,
   },
   campaignTier1ValueAwarded: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: '700',
+    letterSpacing: -0.5,
   },
   campaignTier2Metrics: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 12,
-    gap: 12,
+    marginBottom: 0,
+    gap: 8,
   },
   campaignTier2Metric: {
     flex: 1,
     alignItems: 'center',
   },
   campaignTier2Label: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '500',
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.75)',
+    fontWeight: '600',
     marginBottom: 4,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.25,
   },
   campaignTier2Value: {
     fontSize: 20,
     fontWeight: '700',
   },
   campaignTier2LabelROI: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '500',
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.75)',
+    fontWeight: '600',
     marginBottom: 4,
     textAlign: 'center',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.25,
   },
   campaignTier2ValueROI: {
     fontSize: 18,
@@ -6114,45 +6422,50 @@ const styles = StyleSheet.create({
   campaignTier3Metrics: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 16,
+    marginBottom: 0,
+    marginTop: 12,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.09)',
   },
   campaignTier3Metric: {
     flex: 1,
     alignItems: 'center',
   },
   campaignTier3Label: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '500',
+    fontSize: 10,
+    color: 'rgba(203, 213, 225, 0.72)',
+    fontWeight: '600',
     marginBottom: 4,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.2,
   },
   campaignTier3Value: {
     fontSize: 14,
-    color: '#FFFFFF',
+    color: '#E2E8F0',
     fontWeight: '600',
   },
   // Marketplace Reach
   marketplaceReach: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    marginTop: -8,
-    gap: 6,
+    marginBottom: 0,
+    marginTop: 4,
+    gap: 8,
   },
   marketplaceReachText: {
-    fontSize: 13,
-    color: '#FFFFFF',
+    fontSize: 12,
+    color: 'rgba(203, 213, 225, 0.85)',
     fontWeight: '500',
+    flex: 1,
+    lineHeight: 17,
   },
   // AI Optimization Status
   aiOptimizationStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
-    gap: 4,
+    marginTop: 0,
+    gap: 6,
   },
   aiOptimizationText: {
     fontSize: 12,
@@ -6162,32 +6475,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginTop: 2,
   },
   campaignViewLeadsButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#43cea2',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    backgroundColor: '#0f766e',
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     gap: 8,
+    minHeight: 48,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   campaignViewLeadsButtonText: {
-    color: '#FFFFFF',
+    color: '#ecfdf5',
     fontSize: 14,
     fontWeight: '700',
+    letterSpacing: 0.15,
   },
   campaignSecondaryButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(67, 206, 162, 0.1)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.3)',
+    borderColor: 'rgba(148, 163, 184, 0.22)',
   },
   campaignMenuButton: {
     width: 40,

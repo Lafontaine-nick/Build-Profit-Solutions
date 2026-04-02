@@ -162,8 +162,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#22c55e',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   text: {
     fontSize: 13,

@@ -1,53 +1,39 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '@/contexts/ThemeContext';
-import { getColors } from '@/theme/getColors';
 
+/**
+ * Floating dock: moderate blur + lighter translucent tint so content shows through.
+ * Single soft hairline — no strong rim; shadow kept gentle for depth only.
+ */
 export default function PillTabBarBackground() {
-  const { theme, darkMode } = useTheme();
-  const Colors = useMemo(() => getColors(theme), [theme]);
+  const { darkMode } = useTheme();
 
-  if (Platform.OS === 'ios') {
-    return (
-      <BlurView
-        intensity={40}
-        tint={darkMode ? "dark" : "light"}
-        style={StyleSheet.absoluteFillObject}
-      >
-        <View
-          style={{
-            flex: 1,
-            borderRadius: 28,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
-            backgroundColor: darkMode ? 'rgba(15,23,42,0.40)' : 'rgba(255,255,255,0.82)',
-            shadowColor: '#000',
-            shadowOpacity: darkMode ? 0.35 : 0.08,
-            shadowRadius: 16,
-            shadowOffset: { width: 0, height: 6 },
-          }}
-        />
-      </BlurView>
-    );
-  }
+  const edge = StyleSheet.hairlineWidth;
 
-  // Android fallback - use solid background with similar styling
+  const inner = {
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: edge,
+    borderColor: darkMode ? 'rgba(255,255,255,0.055)' : 'rgba(0,0,0,0.045)',
+    // Dark: let more blur read through (less “slab”); light: airy frosted card
+    backgroundColor: darkMode ? 'rgba(28, 28, 30, 0.48)' : 'rgba(255,255,255,0.76)',
+    shadowColor: '#000',
+    shadowOpacity: darkMode ? 0.22 : 0.07,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    ...(Platform.OS === 'android' ? { elevation: 6 } : {}),
+  } as const;
+
   return (
-    <View
-      style={{
-        flex: 1,
-        borderRadius: 28,
-        borderWidth: 1,
-        borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
-        backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : Colors.cardDark,
-        shadowColor: '#000',
-        shadowOpacity: darkMode ? 0.25 : 0.08,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: 8,
-      }}
-    />
+    <BlurView
+      intensity={Platform.OS === 'ios' ? 56 : 48}
+      tint={darkMode ? 'dark' : 'light'}
+      style={StyleSheet.absoluteFillObject}
+    >
+      <View style={inner} />
+    </BlurView>
   );
 }
 

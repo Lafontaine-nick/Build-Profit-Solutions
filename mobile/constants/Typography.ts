@@ -92,8 +92,6 @@ export const Typography = {
       fontSize: 16,
       lineHeight: 20,
       color: '#FFFFFF',
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
     },
     link: {
       fontFamily: 'Saira_400Regular',

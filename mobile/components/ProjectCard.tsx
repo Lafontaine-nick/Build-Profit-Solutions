@@ -78,14 +78,16 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   border: {
-    borderRadius: 24,
+    borderRadius: 17,
     padding: 1,
   },
   card: {
-    borderRadius: 22,
+    borderRadius: 16,
     backgroundColor: "#000000",
     paddingHorizontal: 12,
     paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.3)',
   },
   row: {
     flexDirection: "row",

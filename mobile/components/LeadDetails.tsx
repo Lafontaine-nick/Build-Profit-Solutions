@@ -1035,10 +1035,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   section: {
-    padding: 16,
-    borderRadius: 12,
+    padding: 22,
+    borderRadius: 16,
     marginBottom: 16,
     borderWidth: 1,
+    borderColor: "rgba(45, 212, 191, 0.3)",
   },
   sectionTitle: {
     fontSize: 16,

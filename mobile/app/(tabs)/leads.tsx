@@ -567,6 +567,400 @@ const mockLeads: Lead[] = [
     createdBy: 'gc-michael-014',
     createdAt: '2025-10-18T15:00:00.000Z',
   },
+  // Additional mock leads — varied stages & sources for pipeline / analytics testing
+  {
+    id: 'L1016',
+    title: 'Kitchen remodel — Boulder City',
+    trade: 'General',
+    source: 'MARKETPLACE',
+    contact: {
+      name: 'Jennifer Lee',
+      email: 'jlee@email.com',
+      phone: '555-201-3344',
+      company: 'Lee Development',
+    },
+    project: {
+      type: 'kitchen',
+      budgetMin: 12000,
+      budgetMax: 18000,
+      timeline: 'Soon',
+    },
+    location: {
+      city: 'Boulder City',
+      state: 'NV',
+      zip: '89005',
+      lat: 35.9786,
+      lng: -114.8325,
+    },
+    stage: 'contacted',
+    aiScore: 87,
+    verified: true,
+    description: 'Full kitchen gut and remodel in 1980s ranch. New cabinets, quartz counters, lighting, and appliance rough-in. Permit required.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'owner-jlee-016',
+    createdAt: '2026-01-10T10:00:00.000Z',
+  },
+  {
+    id: 'L1017',
+    title: 'Commercial TI — Phoenix warehouse',
+    trade: 'Electrical',
+    projectId: 'PRJ-2026-088',
+    source: 'BID_INVITATION',
+    contact: {
+      name: 'Marcus Webb',
+      email: 'marcus@webbindustrial.com',
+      phone: '555-202-4455',
+      company: 'Webb Industrial',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 110000,
+      budgetMax: 155000,
+      timeline: 'Urgent',
+    },
+    location: {
+      city: 'Phoenix',
+      state: 'AZ',
+      zip: '85034',
+      lat: 33.4484,
+      lng: -112.0740,
+    },
+    stage: 'qualified',
+    aiScore: 93,
+    verified: true,
+    description: 'Tenant improvement for 18k sq ft warehouse conversion to light manufacturing. Power distribution, LED high-bays, equipment drops, and panel expansion.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'gc-marcus-017',
+    assignedTo: 'sub-current-user',
+    createdAt: '2026-01-08T14:30:00.000Z',
+  },
+  {
+    id: 'L1018',
+    title: 'Solar + battery backup — residential',
+    trade: 'Electrical',
+    source: 'AI_ESTIMATE',
+    projectId: 'EST-2026-201',
+    contact: {
+      name: 'Priya Nair',
+      email: 'priya.nair@email.com',
+      phone: '555-203-5566',
+      company: 'Nair Residence',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 42000,
+      budgetMax: 62000,
+      timeline: 'Normal',
+    },
+    location: {
+      city: 'Denver',
+      state: 'CO',
+      zip: '80205',
+      lat: 39.7392,
+      lng: -104.9903,
+    },
+    stage: 'proposal',
+    aiScore: 89,
+    verified: true,
+    description: '8.5 kW rooftop solar with 13.5 kWh battery backup. Main service upgrade likely required. HOA approval already obtained.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'ai-match-018',
+    createdAt: '2026-01-05T09:00:00.000Z',
+  },
+  {
+    id: 'L1019',
+    title: 'ADA bathroom retrofit — medical office',
+    trade: 'Plumbing',
+    source: 'SHARED',
+    contact: {
+      name: 'Dr. Alan Reeves',
+      email: 'office@reevesclinic.com',
+      phone: '555-204-6677',
+      company: 'Reeves Family Medicine',
+    },
+    project: {
+      type: 'bathroom',
+      budgetMin: 28000,
+      budgetMax: 36000,
+      timeline: 'Soon',
+    },
+    location: {
+      city: 'Las Vegas',
+      state: 'NV',
+      zip: '89104',
+      lat: 36.1699,
+      lng: -115.1398,
+    },
+    stage: 'proposal-sent',
+    aiScore: 84,
+    verified: true,
+    description: 'Two restrooms brought to current ADA standards: fixtures, grab bars, clearances, and automatic door operators on suite entry.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'sub-referral-019',
+    createdAt: '2025-12-20T11:15:00.000Z',
+  },
+  {
+    id: 'L1020',
+    title: 'Custom home framing — Park City',
+    trade: 'Carpenter',
+    projectId: 'PRJ-2026-112',
+    source: 'PROJECT_BASED',
+    contact: {
+      name: 'Elena Vasquez',
+      email: 'elena.v@peakcustom.com',
+      phone: '555-205-7788',
+      company: 'Peak Custom Homes',
+    },
+    project: {
+      type: 'new_build',
+      budgetMin: 185000,
+      budgetMax: 240000,
+      timeline: 'Normal',
+    },
+    location: {
+      city: 'Park City',
+      state: 'UT',
+      zip: '84060',
+      lat: 40.6461,
+      lng: -111.4980,
+    },
+    stage: 'won',
+    aiScore: 96,
+    verified: true,
+    description: '4,200 sq ft mountain modern — structural framing, shear, and deck packages. Engineer-stamped plans on file; crane dates TBD.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'gc-elena-020',
+    createdAt: '2025-11-01T08:00:00.000Z',
+  },
+  {
+    id: 'L1021',
+    title: 'Fence & gate — HOA community',
+    trade: 'General',
+    source: 'MARKETPLACE',
+    contact: {
+      name: 'Chris Okonkwo',
+      email: 'c.okonkwo@email.com',
+      phone: '555-206-8899',
+      company: 'Okonkwo Family Trust',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 8500,
+      budgetMax: 12000,
+      timeline: 'flex',
+    },
+    location: {
+      city: 'Henderson',
+      state: 'NV',
+      zip: '89044',
+      lat: 35.9671,
+      lng: -115.0623,
+    },
+    stage: 'lost',
+    aiScore: 62,
+    verified: true,
+    description: 'Perimeter vinyl privacy fence ~180 LF plus dual drive gates. Client went with another vendor on price.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'owner-chris-021',
+    createdAt: '2025-12-01T16:45:00.000Z',
+  },
+  {
+    id: 'L1022',
+    title: 'Epoxy garage floor — 3-car',
+    trade: 'Painting',
+    source: 'MARKETPLACE',
+    contact: {
+      name: 'Ryan Cooper',
+      email: 'ryan.cooper@email.com',
+      phone: '555-207-9900',
+      company: 'Cooper',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 4500,
+      budgetMax: 7000,
+      timeline: 'Soon',
+    },
+    location: {
+      city: 'Mesquite',
+      state: 'NV',
+      zip: '89027',
+      lat: 36.8055,
+      lng: -114.0672,
+    },
+    stage: 'new',
+    aiScore: 74,
+    verified: false,
+    description: 'Grind, repair cracks, moisture test, metallic epoxy with clear topcoat. Three-car garage ~780 sq ft.',
+    verification: { emailValid: true, phoneValid: false },
+    createdBy: 'owner-ryan-022',
+    createdAt: '2026-01-12T13:20:00.000Z',
+  },
+  {
+    id: 'L1023',
+    title: 'Restaurant hood & make-up air',
+    trade: 'HVAC',
+    projectId: 'PRJ-2026-145',
+    source: 'BID_INVITATION',
+    contact: {
+      name: 'Sofia Ramirez',
+      email: 'sofia@mesaazkitchen.com',
+      phone: '555-208-1011',
+      company: 'Mesa AZ Kitchen Group',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 68000,
+      budgetMax: 92000,
+      timeline: 'Urgent',
+    },
+    location: {
+      city: 'Mesa',
+      state: 'AZ',
+      zip: '85201',
+      lat: 33.4152,
+      lng: -111.8315,
+    },
+    stage: 'contacted',
+    aiScore: 90,
+    verified: true,
+    description: 'New fast-casual build-out: Type I hood, make-up air, fire suppression tie-in, and exhaust riser to roof. GC coordinates MEP.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'gc-sofia-023',
+    assignedTo: 'sub-current-user',
+    createdAt: '2026-01-11T07:30:00.000Z',
+  },
+  {
+    id: 'L1024',
+    title: 'Sub request — commercial concrete pour',
+    trade: 'Concrete',
+    projectId: 'PRJ-2026-201',
+    source: 'PROJECT_BASED',
+    isOwnRequest: true,
+    createdBy: 'contractor-demo',
+    contact: {
+      name: 'Build Profit Demo',
+      email: 'demo@buildprofit.test',
+      phone: '555-209-2022',
+      company: 'BPS Demo Co',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 35000,
+      budgetMax: 48000,
+      timeline: 'Soon',
+    },
+    location: {
+      city: 'North Las Vegas',
+      state: 'NV',
+      zip: '89030',
+      lat: 36.1989,
+      lng: -115.1175,
+    },
+    stage: 'qualified',
+    aiScore: 81,
+    verified: true,
+    description: 'Need flatwork crew for loading dock extension and 4,500 sq ft slab — vapor barrier, fiber, and F-number finish per spec sheet.',
+    verification: { emailValid: true, phoneValid: true },
+    createdAt: '2026-01-09T12:00:00.000Z',
+  },
+  {
+    id: 'L1025',
+    title: 'Historic brick repointing',
+    trade: 'General',
+    source: 'AI_ESTIMATE',
+    projectId: 'EST-2026-310',
+    contact: {
+      name: 'Grace Whitmore',
+      email: 'g.whitmore@email.com',
+      phone: '555-210-3033',
+      company: 'Whitmore Holdings',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 52000,
+      budgetMax: 78000,
+      timeline: 'Normal',
+    },
+    location: {
+      city: 'Salt Lake City',
+      state: 'UT',
+      zip: '84111',
+      lat: 40.7608,
+      lng: -111.8910,
+    },
+    stage: 'contacted',
+    aiScore: 86,
+    verified: true,
+    description: 'Downtown mixed-use facade: repoint ~3,200 sq ft brick, replace failed lintels in kind, and match historic mortar analysis.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'ai-match-025',
+    createdAt: '2026-01-07T15:45:00.000Z',
+  },
+  {
+    id: 'L1026',
+    title: 'EV charger pedestal — retail parking',
+    trade: 'Electrical',
+    source: 'MARKETPLACE',
+    contact: {
+      name: 'Kevin O\'Brien',
+      email: 'k.obrien@retailwest.com',
+      phone: '555-211-4044',
+      company: 'Retail West LLC',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 22000,
+      budgetMax: 32000,
+      timeline: 'Urgent',
+    },
+    location: {
+      city: 'Reno',
+      state: 'NV',
+      zip: '89502',
+      lat: 39.5261,
+      lng: -119.8127,
+    },
+    stage: 'new',
+    aiScore: 79,
+    verified: true,
+    description: 'Six Level 2 pedestals, load calc, service sizing memo, and coordination with utility. Grand opening target in 6 weeks.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'owner-kevin-026',
+    createdAt: '2026-01-13T08:10:00.000Z',
+  },
+  {
+    id: 'L1027',
+    title: 'Pool equipment pad relocation',
+    trade: 'Plumbing',
+    source: 'SHARED',
+    contact: {
+      name: 'Dana Fisher',
+      email: 'dana@fisherestates.com',
+      phone: '555-212-5055',
+      company: 'Fisher Estates',
+    },
+    project: {
+      type: 'other',
+      budgetMin: 14000,
+      budgetMax: 20000,
+      timeline: 'Soon',
+    },
+    location: {
+      city: 'Scottsdale',
+      state: 'AZ',
+      zip: '85251',
+      lat: 33.4942,
+      lng: -111.9261,
+    },
+    stage: 'qualified',
+    aiScore: 83,
+    verified: true,
+    description: 'Relocate heater, pump, and filter pad 25 feet; new PVC runs, bonding, and low-voltage for automation. Pebbletec resurface separate contract.',
+    verification: { emailValid: true, phoneValid: true },
+    createdBy: 'sub-dana-ref-027',
+    createdAt: '2026-01-04T19:00:00.000Z',
+  },
 ];
 
 /**
@@ -625,6 +1019,31 @@ const testLocationLead = createTestLead(TEST_CITY, TEST_STATE, TEST_TRADE);
 
 // Add the test lead to mockLeads array for easy testing
 const mockLeadsWithTest = [...mockLeads, testLocationLead];
+
+/** In-app seed catalog IDs (`mockLeads`, e.g. L1001–L1027). Bypass Match Prefs like campaign leads when shown. */
+function isEmbeddedSeedLeadId(id: string): boolean {
+  return /^L10\d+$/.test(id);
+}
+
+/**
+ * When the API returns leads, the app used to hide every `mockLeads` row — so new L10xx demos never appeared.
+ * In __DEV__, merge the seed catalog unless EXPO_PUBLIC_INCLUDE_MOCK_LEADS=false.
+ * In production, merge only if EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true.
+ */
+function shouldMergeEmbeddedMockCatalog(): boolean {
+  if (process.env.EXPO_PUBLIC_INCLUDE_MOCK_LEADS === 'true') return true;
+  if (process.env.EXPO_PUBLIC_INCLUDE_MOCK_LEADS === 'false') return false;
+  return typeof __DEV__ !== 'undefined' && __DEV__;
+}
+
+function leadBypassesMatchPrefs(lead: Lead): boolean {
+  return (
+    !!lead.projectId?.startsWith('CAMPAIGN-') ||
+    lead.isOwnRequest === true ||
+    (lead.createdBy != null && lead.createdBy === 'contractor-demo') ||
+    isEmbeddedSeedLeadId(lead.id)
+  );
+}
 
 // Helper function to convert existing Lead to LeadRaw format
 function convertToLeadRaw(lead: Lead): LeadRaw {
@@ -702,9 +1121,17 @@ export default function LeadsScreen() {
     eligibleInLeadsTab: number;
     visibleInView: number;
     filtersNarrowed: boolean;
+    renderedInList: number;
+    hasMoreInList: boolean;
   } | null>(null);
   const handleLeadsViewMeta = useCallback(
-    (meta: { eligibleInLeadsTab: number; visibleInView: number; filtersNarrowed: boolean }) => {
+    (meta: {
+      eligibleInLeadsTab: number;
+      visibleInView: number;
+      filtersNarrowed: boolean;
+      renderedInList: number;
+      hasMoreInList: boolean;
+    }) => {
       setLeadsViewMeta(meta);
     },
     []
@@ -778,19 +1205,17 @@ export default function LeadsScreen() {
     const regularLeads: Lead[] = [];
     
     personalizedLeads.forEach(lead => {
-      // Identify campaign leads (contractor's own leads) - they bypass ALL filters (trade, location, and budget)
-      const isCampaignLead = lead.projectId?.startsWith('CAMPAIGN-') || 
-                             lead.isOwnRequest === true || 
-                             (lead.createdBy && lead.createdBy === 'contractor-demo');
-      
-      if (isCampaignLead) {
+      // Campaign / own requests / embedded L10xx seed — bypass ALL filters (trade, location, budget)
+      if (leadBypassesMatchPrefs(lead)) {
         // Ensure campaign leads have aiScore (should already be set from earlier scoring, but ensure it)
         const campaignLeadWithScore = {
           ...lead,
           aiScore: lead.aiScore || 0,
         };
         campaignLeads.push(campaignLeadWithScore);
-        console.log(`✅ Campaign lead identified: "${lead.title}" (projectId: "${lead.projectId}", isOwnRequest: ${lead.isOwnRequest}, createdBy: "${lead.createdBy}") - will bypass all filters`);
+        console.log(
+          `✅ Lead bypasses Match Prefs: "${lead.title}" (projectId: "${lead.projectId}", isOwnRequest: ${lead.isOwnRequest}, createdBy: "${lead.createdBy}", seedId: ${isEmbeddedSeedLeadId(lead.id)})`
+        );
       } else {
         regularLeads.push(lead);
       }
@@ -2125,10 +2550,19 @@ export default function LeadsScreen() {
       let testLocationLeads: Lead[] = [];
       
       if (hasApiLeads) {
-        // We have API leads - ONLY use API leads, user requests, invites, and marketplace
-        // DO NOT include hardcoded mock leads or auto-match demo leads
-        console.log(`✅ Using API leads (${testLeads.length} leads) - excluding hardcoded mock leads and auto-match demo leads`);
         allLeads = [...testLeads, ...userRequests, ...inviteLeads, ...marketplaceLeads];
+        if (shouldMergeEmbeddedMockCatalog()) {
+          const existingIds = new Set(allLeads.map((l) => l.id));
+          const seedExtras = mockLeads.filter((l) => !existingIds.has(l.id));
+          allLeads = [...allLeads, ...seedExtras];
+          console.log(
+            `🧪 Embedded seed catalog: merged ${seedExtras.length} L10xx demo leads with API (${testLeads.length} from API). Production: set EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true; dev: set EXPO_PUBLIC_INCLUDE_MOCK_LEADS=false to disable.`
+          );
+        } else {
+          console.log(
+            `✅ Using API leads only (${testLeads.length}) — embedded L10xx seed not merged (enable with EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true or run a dev build).`
+          );
+        }
       } else {
         // No API leads - use mock leads as fallback for testing
         console.log(`⚠️ No API leads found - using mock leads as fallback`);
@@ -2271,12 +2705,8 @@ export default function LeadsScreen() {
           if (contractorProfile?.filterByTrade && contractorProfile.specificTrades && contractorProfile.specificTrades.length > 0) {
             console.log('🔍 Applying filtering on lead merge...');
             mergedLeads = mergedLeads.filter(lead => {
-              // Campaign leads bypass all filtering - identify them first
-              const isCampaignLead = lead.projectId?.startsWith('CAMPAIGN-') || 
-                                     lead.isOwnRequest === true || 
-                                     (lead.createdBy && lead.createdBy === 'contractor-demo');
-              if (isCampaignLead) {
-                console.log(`✅ Campaign lead bypassing merge filter: "${lead.title}"`);
+              if (leadBypassesMatchPrefs(lead)) {
+                console.log(`✅ Lead bypasses merge filter: "${lead.title}"`);
                 return true;
               }
               
@@ -2328,12 +2758,8 @@ export default function LeadsScreen() {
           if (contractorProfile?.filterByTrade && contractorProfile.specificTrades && contractorProfile.specificTrades.length > 0) {
             console.log('🔍 Applying filtering on lead refresh...');
             rescoredLeads = rescoredLeads.filter(lead => {
-              // Campaign leads bypass all filtering - identify them first
-              const isCampaignLead = lead.projectId?.startsWith('CAMPAIGN-') || 
-                                     lead.isOwnRequest === true || 
-                                     (lead.createdBy && lead.createdBy === 'contractor-demo');
-              if (isCampaignLead) {
-                console.log(`✅ Campaign lead bypassing refresh filter: "${lead.title}"`);
+              if (leadBypassesMatchPrefs(lead)) {
+                console.log(`✅ Lead bypasses refresh filter: "${lead.title}"`);
                 return true;
               }
               
@@ -3057,6 +3483,11 @@ export default function LeadsScreen() {
               <Text style={styles.screenSubtitle}>
                 {leads.length} total · Manage your pipeline
               </Text>
+              {leadsViewMeta?.hasMoreInList && leads.length > 0 ? (
+                <Text style={styles.screenHint}>
+                  Showing {leadsViewMeta.renderedInList} of {leadsViewMeta.visibleInView} matching leads — scroll to the bottom and tap Show more below.
+                </Text>
+              ) : null}
               {leadsViewMeta?.filtersNarrowed && leads.length > 0 ? (
                 <Text style={styles.screenHint}>
                   Showing {leadsViewMeta.visibleInView} of {leadsViewMeta.eligibleInLeadsTab} here — search or list filters are hiding the rest. Use Clear filters in the list.

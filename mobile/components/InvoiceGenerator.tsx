@@ -589,8 +589,10 @@ const styles = StyleSheet.create({
   },
   itemsList: {
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    padding: 22,
   },
   itemRow: {
     flexDirection: 'row',
@@ -632,8 +634,10 @@ const styles = StyleSheet.create({
   },
   totalsContainer: {
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    padding: 22,
   },
   totalRow: {
     flexDirection: 'row',
@@ -671,7 +675,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#4CAF50',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 30,
   },
   generateButtonDisabled: {

@@ -656,7 +656,6 @@ const styles = StyleSheet.create({
   detailLabel: {
     fontSize: 12,
     marginBottom: 4,
-    textTransform: 'uppercase',
     fontWeight: '500',
   },
   detailValue: {

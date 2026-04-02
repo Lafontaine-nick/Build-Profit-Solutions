@@ -24,6 +24,7 @@ import {
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Lead, LeadStage } from '../types';
+import { buildBidPayloadFromLead } from '../leadToEstimateBid';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -544,86 +545,7 @@ export default function LeadDetailModal({
         setEngagement(updatedEngagement);
       }
       
-      // Convert lead data to bid format
-      const bidData = {
-        id: `bid-${lead.id}-${Date.now()}`,
-        title: `${lead.title || lead.contact.name || 'Lead'} - Proposal`,
-        region: lead.location.state || 'NV',
-        template: '',
-        
-        // Project Info
-        sqft: 0, // Will be filled by user
-        category: lead.trade.toLowerCase().replace(/\s+/g, '-') || 'general',
-        desiredStartDate: lead.project.timeline === 'Urgent' ? new Date().toISOString().split('T')[0] : '',
-        budgetRange: `$${lead.project.budgetMin.toLocaleString()} - $${lead.project.budgetMax.toLocaleString()}`,
-        
-        // Customer Information (pre-populated from lead)
-        customerName: lead.contact.name || '',
-        customerEmail: lead.contact.email || '',
-        customerPhone: lead.contact.phone || '',
-        customerAddress: `${lead.location.city || ''}, ${lead.location.state || ''}`.trim(),
-        customerCity: lead.location.city || '',
-        customerState: lead.location.state || '',
-        customerZip: lead.location.zip || '',
-        customerCompany: lead.contact.company || '',
-        customerNotes: lead.description || `Project for ${lead.contact.name || 'Customer'}`,
-        
-        // Client (for compatibility)
-        clientName: lead.contact.name || '',
-        clientEmail: lead.contact.email || '',
-        
-        // Project Description
-        scopeDescription: lead.description || `Project for ${lead.contact.name || 'Customer'}`,
-        
-        // Timeline
-        startDate: '',
-        endDate: '',
-        
-        // Budget reference
-        projectBudgetMin: lead.project.budgetMin,
-        projectBudgetMax: lead.project.budgetMax,
-        
-        // Legal (defaults)
-        license: true,
-        insurance: true,
-        bond: false,
-        osha: false,
-        
-        // Developer
-        permitCost: 0,
-        permitCostText: '',
-        zoning: 'residential',
-        
-        // Materials & Labor (empty, to be filled)
-        materialLineItems: [],
-        laborLineItems: [],
-        labor: 0,
-        unionToggle: false,
-        zipRate: 38,
-        
-        // Overhead (defaults)
-        insuranceOverhead: 0,
-        equipment: 0,
-        facilities: 0,
-        otherOverhead: 0,
-        
-        // Percentages (defaults)
-        contingencyPct: 7,
-        markupPct: 15,
-        
-        // Communication
-        clientUpdates: 'weekly',
-        internalChannel: 'inapp',
-        clientTransparency: 'totals',
-        esign: true,
-        
-        // Unit mode
-        unitMode: 'sqft',
-        
-        // Link to original lead
-        leadId: lead.id,
-        leadSource: 'qualified_lead',
-      };
+      const bidData = buildBidPayloadFromLead(lead);
       
       // Clear materials and rentals from AsyncStorage before saving new bid
       await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));

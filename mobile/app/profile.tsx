@@ -56,6 +56,8 @@ import {
   unregisterFromPushNotifications,
   getNotificationPermissionStatus,
 } from '@/services/notificationService';
+import { useBetaFeedback } from '@/contexts/BetaFeedbackContext';
+import { isBetaFeedbackVisibleForUser } from '@/lib/betaFeedback/betaFeedbackConfig';
 
 // Mock user data
 const mockUser = {
@@ -195,7 +197,9 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
 export default function ProfileScreen() {
   // Require authentication to access this screen
   useRequireAuth();
-  
+
+  const betaFeedback = useBetaFeedback();
+
   const { darkMode, setDarkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
@@ -253,6 +257,14 @@ export default function ProfileScreen() {
       clerkUser = null;
     }
   }
+
+  const clerkEmailForBeta =
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    null;
+  const showBetaFeedbackRow =
+    Boolean(betaFeedback) && isBetaFeedbackVisibleForUser(clerkEmailForBeta);
+
   const [activeTab, setActiveTab] = useState<
     'overview' | 'settings'
   >('overview');
@@ -1435,45 +1447,81 @@ export default function ProfileScreen() {
             contentContainerStyle={styles.portfolioScrollContent}
           >
             {user.projectPortfolio.map((item, index) => (
-              <TouchableOpacity 
-                key={item.id || index} 
-                style={styles.portfolioItem}
-                activeOpacity={0.8}
-                onPress={() => {
-                  // TODO: Open full-screen gallery
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Image
-                  source={{ uri: item.uri }}
-                  style={styles.portfolioImage}
-                  resizeMode='cover'
-                />
-                {index === 0 && (
-                  <View style={styles.featuredBadge}>
-                    <MaterialIcons name='star' size={12} color='#FFD700' />
-                    <Text style={styles.featuredBadgeText}>Featured</Text>
-                  </View>
-                )}
-                {isEditingPortfolio && (
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      const updatedPortfolio = user.projectPortfolio.filter((_, i) => i !== index);
-                      setUser(prev => ({ ...prev, projectPortfolio: updatedPortfolio }));
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              <View key={item.id || index} style={styles.portfolioItem}>
+                <Pressable
+                  style={styles.portfolioImageShell}
+                  onPress={() => {
+                    // TODO: Open full-screen gallery
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={styles.portfolioImage}
+                    resizeMode='cover'
+                  />
+                  {index === 0 && (
+                    <View style={styles.featuredBadge} accessibilityLabel="Featured project photo">
+                      <MaterialIcons name='star' size={12} color='#FBBF24' />
+                      <Text style={styles.featuredBadgeText}>Featured</Text>
+                    </View>
+                  )}
+                  {isEditingPortfolio && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const updatedPortfolio = user.projectPortfolio.filter((_, i) => i !== index);
+                        setUser(prev => ({ ...prev, projectPortfolio: updatedPortfolio }));
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      style={styles.deletePortfolioButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons name='close' size={16} color='#fff' />
+                    </TouchableOpacity>
+                  )}
+                </Pressable>
+                {isEditingPortfolio ? (
+                  <TextInput
+                    style={[
+                      styles.portfolioCaptionInput,
+                      {
+                        color: theme.text,
+                        borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                      },
+                    ]}
+                    placeholder="Short caption (optional)"
+                    placeholderTextColor={
+                      darkMode ? 'rgba(203, 213, 225, 0.45)' : theme.subtext
+                    }
+                    value={item.caption || ''}
+                    onChangeText={(text) => {
+                      setUser((prev) => ({
+                        ...prev,
+                        projectPortfolio: (prev.projectPortfolio || []).map((p, i) =>
+                          i === index ? { ...p, caption: text } : p
+                        ),
+                      }));
                     }}
-                    style={styles.deletePortfolioButton}
-                  >
-                    <MaterialIcons name='close' size={16} color='#fff' />
-                  </TouchableOpacity>
+                    maxLength={120}
+                    multiline
+                    numberOfLines={2}
+                    textAlignVertical='top'
+                  />
+                ) : (
+                  item.caption ? (
+                    <Text
+                      style={[
+                        styles.portfolioCaption,
+                        { color: darkMode ? 'rgba(226, 232, 240, 0.88)' : theme.subtext },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {item.caption}
+                    </Text>
+                  ) : null
                 )}
-                {item.caption && (
-                  <Text style={[styles.portfolioCaption, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]} numberOfLines={2}>
-                    {item.caption}
-                  </Text>
-                )}
-              </TouchableOpacity>
+              </View>
             ))}
           </ScrollView>
         ) : (
@@ -2232,6 +2280,12 @@ export default function ProfileScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               handleHelpSupport();
             })}
+            {showBetaFeedbackRow &&
+              filterSettings('Beta feedback') &&
+              renderSettingItem('beta-feedback', 'feedback', 'Beta feedback', () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                betaFeedback?.openBetaFeedback();
+              })}
             {renderSettingItem('terms', 'description', 'Terms of Service', () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               handleTermsOfService();
@@ -4045,38 +4099,80 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginRight: 16,
     width: 160,
   },
-  portfolioImage: {
+  portfolioImageShell: {
     width: 160,
     height: 160,
-    borderRadius: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
     marginBottom: 8,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    position: 'relative',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  portfolioImage: {
+    width: '100%',
+    height: '100%',
+  },
+  featuredBadge: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(250, 204, 21, 0.45)',
+  },
+  featuredBadgeText: {
+    color: '#FEF9C3',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   deletePortfolioButton: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: '#F44336',
-    borderRadius: 14,
-    width: 28,
-    height: 28,
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(185, 28, 28, 0.92)',
+    borderRadius: 16,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.35,
     shadowRadius: 4,
-    elevation: 5,
+    elevation: 4,
   },
   portfolioCaption: {
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 0,
+    fontWeight: '500',
+  },
+  portfolioCaptionInput: {
+    width: 160,
+    minHeight: 44,
+    maxHeight: 64,
+    marginTop: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    fontSize: 12,
+    lineHeight: 16,
   },
   emptyPortfolio: {
     alignItems: 'center',
