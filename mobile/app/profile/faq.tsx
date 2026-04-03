@@ -105,7 +105,7 @@ const faqData: FAQItem[] = [
     id: '7',
     question: 'What are the subscription plans?',
     answer:
-      'You can upgrade, downgrade, or cancel anytime—no contracts. We offer three subscription plans: Basic ($25/month), Professional ($49/month), and Business ($79/month). Each plan includes different features and limits, and you can change your plan at any time from your Profile settings.',
+      'You can upgrade, downgrade, or cancel anytime—no contracts. We offer three subscription plans: Basic ($39/month), Professional ($89/month), and Business ($179/month). Each plan includes different features and limits, and you can change your plan at any time from your Profile settings.',
     category: 'billing',
   },
   {

@@ -333,6 +333,34 @@ class StripeService {
     };
   }
 
+  /**
+   * Loads plans from the backend (Render env STRIPE_PRICE_* + live Stripe amounts).
+   * Falls back to getMockSubscriptionPlans() if the API is unreachable or misconfigured.
+   */
+  async fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    const url = `${this.baseUrl}/stripe/mobile-plans`;
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+        SUBSCRIPTION_FETCH_TIMEOUT_MS,
+        'Subscription plans catalog',
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.warn('⚠️ mobile-plans HTTP', response.status, err);
+        return this.getMockSubscriptionPlans();
+      }
+      const data = (await response.json()) as { success?: boolean; plans?: SubscriptionPlan[] };
+      if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
+        return data.plans;
+      }
+    } catch (e) {
+      console.warn('⚠️ fetchSubscriptionPlans failed, using embedded catalog:', e);
+    }
+    return this.getMockSubscriptionPlans();
+  }
+
   /** Same as getCheckoutRedirectUrls but for payment-method setup flows (manage-cards screen). */
   getPaymentMethodCheckoutRedirectUrls(): { successUrl: string; cancelUrl: string } {
     return {
@@ -346,7 +374,7 @@ class StripeService {
       {
         id: 'basic',
         name: 'Basic Plan',
-        price: 29,
+        price: 39,
         description: 'Get started with essential tools for solo contractors.',
         tag: 'Starter',
         cta: 'Start with Basic',
@@ -365,7 +393,7 @@ class StripeService {
       {
         id: 'premium',
         name: 'Professional Plan',
-        price: 79,
+        price: 89,
         description: 'Built to protect margins and scale profitably.',
         tag: 'Most Popular',
         recommended: true,
@@ -388,7 +416,7 @@ class StripeService {
       {
         id: 'business',
         name: 'Business Plan',
-        price: 149,
+        price: 179,
         description: 'For teams that need forecasting, AI optimization, and integrations.',
         tag: 'Teams',
         cta: 'Scale with Business',

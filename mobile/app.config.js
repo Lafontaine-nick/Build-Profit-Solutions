@@ -6,10 +6,12 @@ import path from 'path';
 config({ path: path.resolve(__dirname, '.env.local') });
 config({ path: path.resolve(__dirname, '.env.production') });
 
-// Determine if we're in development mode
+// Production store builds set EXPO_PUBLIC_APP_ENV=production (see eas.json). That wins over NODE_ENV.
 const isDevelopment =
-  process.env.NODE_ENV === 'development' ||
-  process.env.EXPO_PUBLIC_APP_ENV === 'development';
+  process.env.EXPO_PUBLIC_APP_ENV === 'production'
+    ? false
+    : process.env.NODE_ENV === 'development' ||
+      process.env.EXPO_PUBLIC_APP_ENV === 'development';
 
 export default {
   expo: {
@@ -32,9 +34,11 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.buildprofitsolutions.mobile',
-      // Explicitly disable new architecture
+      // Must increase for every App Store Connect upload (TestFlight). EAS can auto-increment; see eas.json.
+      buildNumber: '2',
+      // Reanimated 4+ requires New Architecture; required for EAS iOS pod install.
       jsEngine: 'hermes',
-      newArchEnabled: false,
+      newArchEnabled: true,
       infoPlist: {
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
         NSPhotoLibraryUsageDescription:
@@ -47,9 +51,8 @@ export default {
         backgroundColor: '#ffffff',
       },
       package: 'com.buildprofitsolutions.mobile',
-      // Explicitly disable new architecture
       jsEngine: 'hermes',
-      newArchEnabled: false,
+      newArchEnabled: true,
       permissions: [
         'android.permission.RECORD_AUDIO',
       ],
@@ -68,8 +71,7 @@ export default {
         },
       ],
     ],
-    // Disable New Architecture for Expo Go compatibility
-    newArchEnabled: false,
+    newArchEnabled: true,
     extra: {
       router: {
         origin: false,
@@ -91,7 +93,7 @@ export default {
         pdfApiBaseUrl: process.env.EXPO_PUBLIC_PDF_API_BASE_URL || '',
       appEnv: process.env.EXPO_PUBLIC_APP_ENV,
       isDevelopment: isDevelopment,
-      // Beta-only in-app feedback (Profile + FAB + AI “Report”). Disable for public launch.
+      // Beta-only in-app feedback (Profile row only). Disable for public launch.
       betaFeedbackEnabled: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ENABLED === 'true',
       betaFeedbackAllowlistEmails: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ALLOWLIST_EMAILS || '',
     },

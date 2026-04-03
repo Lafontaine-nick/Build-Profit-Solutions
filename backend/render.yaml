@@ -26,3 +26,15 @@ services:
         sync: false
       - key: STRIPE_PRICE_BUSINESS
         sync: false
+      - key: STRIPE_PRODUCT_PROFESSIONAL
+        sync: false
+      - key: STRIPE_PRICE_BASIC
+        sync: false
+      - key: STRIPE_PRICE_PREMIUM
+        sync: false
+      - key: BETA_FEEDBACK_INTAKE_ENABLED
+        sync: false
+      - key: BETA_FEEDBACK_ADMIN_KEY
+        sync: false
+      - key: APP_TELEMETRY_ENABLED
+        sync: false

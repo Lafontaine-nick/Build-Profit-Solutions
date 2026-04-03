@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.17.4"
+    "version": ">= 16.17.4",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -23,8 +24,14 @@
       }
     },
     "production": {
+      "node": "20.19.4",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_API_BASE_URL": "https://build-profit-solutions-backend.onrender.com/api"
+      },
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "autoIncrement": true
       },
       "android": {
         "buildType": "app-bundle"
@@ -34,4 +41,4 @@
   "submit": {
     "production": {}
   }
-} 
+}

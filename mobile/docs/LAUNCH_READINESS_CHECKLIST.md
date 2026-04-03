@@ -23,6 +23,21 @@ Nothing here changes app behavior until you configure env vars and run SQL.
 - [ ] **Review API**: set `BETA_FEEDBACK_ADMIN_KEY` to a long random secret. Never commit it.
 - [ ] **Telemetry** (optional): set `APP_TELEMETRY_ENABLED=true` to persist `trackAppEvent` / `trackProductEvent` to `app_telemetry_events`; otherwise events are no-ops on the server (client still calls safely).
 
+### Step 2 — Beta feedback (ordered)
+
+1. **Migrate DB** (one time, from your machine):  
+   `cd backend && DATABASE_URL="<Render Postgres External URL>" npm run migrate:beta-feedback`  
+   You should see `OK` lines and `Tables beta_feedback and app_telemetry_events are ready.`
+2. **Render → Web service → Environment**  
+   - `BETA_FEEDBACK_INTAKE_ENABLED` = `true`  
+   - `BETA_FEEDBACK_ADMIN_KEY` = long random string (same key you use for `curl` / `check:beta-review`)  
+   - Redeploy or restart the service.
+3. **Mobile** (already done if testers see Profile → Beta feedback):  
+   - `EXPO_PUBLIC_BETA_FEEDBACK_ENABLED=true` in EAS / env  
+   - Optional allowlist: `EXPO_PUBLIC_BETA_FEEDBACK_ALLOWLIST_EMAILS=...`
+4. **Smoke test**: submit feedback from the app → should return **201** (not **503** intake disabled, not **42P01** missing table).
+5. **Triage**: `cd backend && BETA_FEEDBACK_ADMIN_KEY='…' node scripts/check-beta-review.js` or `GET /api/beta-feedback/review` with header `X-Beta-Feedback-Admin-Key`.
+
 ### Review submitted feedback (admin)
 
 ```bash
@@ -46,8 +61,6 @@ Controlled entirely by **client** and **server** flags:
 Entry points when enabled:
 
 - Profile → **Legal & Support** → **Beta feedback**
-- Small **Beta** pill (FAB) on main routes
-- AI Assistant header → **Report** (prefills AI issue)
 
 ## Critical QA (manual)
 

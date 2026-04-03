@@ -28,6 +28,13 @@ function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
 }
 
+function formatDisplayPrice(price: number): string {
+  if (!Number.isFinite(price)) return '—';
+  const rounded = Math.round(price * 100) / 100;
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2);
+}
+
 interface SubscriptionPlan {
   id: string;
   name: string;
@@ -56,7 +63,7 @@ export default function SubscriptionPlansModal({
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
   const insets = useSafeAreaInsets();
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(() => stripeService.getMockSubscriptionPlans());
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
@@ -92,11 +99,18 @@ export default function SubscriptionPlansModal({
   }, []);
 
   useEffect(() => {
-    // Load subscription plans
-    const subscriptionPlans = stripeService.getMockSubscriptionPlans();
-    setPlans(subscriptionPlans);
-    
-    // Fetch current plan to show which one the user has
+    let cancelled = false;
+    stripeService.fetchSubscriptionPlans().then((next) => {
+      if (!cancelled && next.length > 0) {
+        setPlans(next);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const fetchCurrentPlan = async () => {
       try {
         const emailToUse = userEmail || storedEmail;
@@ -104,50 +118,52 @@ export default function SubscriptionPlansModal({
           console.log('⚠️ No email available for plan fetch');
           return;
         }
-        
+
         console.log('📋 Fetching current plan for plans modal, email:', emailToUse);
         const subscriptions = await stripeService.getCustomerSubscriptions(emailToUse);
-        const activeSubscription = subscriptions.find(
-          (sub: any) => (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end
-        ) || subscriptions.find(
-          (sub: any) => sub.status === 'active' || sub.status === 'trialing'
-        );
-        
+        const activeSubscription =
+          subscriptions.find(
+            (sub: any) => (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end
+          ) || subscriptions.find((sub: any) => sub.status === 'active' || sub.status === 'trialing');
+
         if (activeSubscription && activeSubscription.plan) {
           const priceId = activeSubscription.plan.id;
-          // Find which plan matches this price ID
-          const currentPlan = subscriptionPlans.find(p => p.stripePriceId === priceId);
-          if (currentPlan) {
-            console.log('✅ Found current plan:', currentPlan.name);
-            setCurrentPlanId(currentPlan.id);
+          const match = plans.find((p) => p.stripePriceId === priceId);
+          if (match) {
+            console.log('✅ Found current plan:', match.name);
+            setCurrentPlanId(match.id);
           } else {
             console.log('⚠️ No matching plan found for price ID:', priceId);
           }
         }
       } catch (error: any) {
         console.error('❌ Could not fetch current plan:', error);
-        // Don't set current plan on error - that's okay, buttons will still work
       }
     };
-    
-    if (userEmail || storedEmail) {
+
+    if (plans.length > 0 && (userEmail || storedEmail)) {
       fetchCurrentPlan();
     }
-  }, [userEmail, storedEmail]);
+  }, [userEmail, storedEmail, plans]);
 
-  // Use same theme system as payment page
-  const theme = useMemo(() => ({
-    background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
-    text: Colors.text,
-    subtext: Colors.sub,
-    accent: Colors.primary,
-    border: Colors.line,
-    success: '#4ADE80',
-    warning: '#FACC15',
-    error: '#ef4444',
-    iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
-  }), [Colors]);
+  // Align tokens with payment/index.tsx (Payment & Billing)
+  const theme = useMemo(
+    () => ({
+      background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
+      card: Colors.surface2,
+      cardDark: Colors.cardDark,
+      text: Colors.text,
+      subtext: Colors.sub,
+      accent: Colors.primary,
+      border: Colors.line,
+      divider: Colors.line,
+      success: '#4ADE80',
+      warning: '#FACC15',
+      error: '#ef4444',
+      iconBg: Colors.iconBg || 'rgba(67, 206, 162, 0.15)',
+    }),
+    [Colors]
+  );
 
   const isScreenMode = mode === 'screen';
 
@@ -317,152 +333,214 @@ export default function SubscriptionPlansModal({
     }
   };
 
-  // Helper function to get button text based on current plan
+  type CtaVariant = 'current' | 'primary' | 'downgrade' | 'subscribe';
+
+  const getCtaVariant = (plan: SubscriptionPlan): CtaVariant => {
+    if (currentPlanId === plan.id) return 'current';
+    if (!currentPlanId) return 'subscribe';
+    const currentPlan = plans.find((p) => p.id === currentPlanId);
+    if (!currentPlan) return 'subscribe';
+    if (plan.price > currentPlan.price) return 'primary';
+    if (plan.price < currentPlan.price) return 'downgrade';
+    return 'subscribe';
+  };
+
+  // Same branching as before; labels only for clarity / conversion
   const getButtonText = (plan: SubscriptionPlan): string => {
     if (currentPlanId === plan.id) {
-      return 'Current Plan';
+      return 'Current plan';
     }
-    
     if (!currentPlanId) {
-      // No current plan, use the plan's default CTA
       return plan.cta || `Choose ${plan.name}`;
     }
-    
-    // Find current plan to compare prices
-    const currentPlan = plans.find(p => p.id === currentPlanId);
+    const currentPlan = plans.find((p) => p.id === currentPlanId);
     if (!currentPlan) {
       return plan.cta || `Choose ${plan.name}`;
     }
-    
-    // Compare prices to determine upgrade/downgrade
     if (plan.price > currentPlan.price) {
-      // Higher price = upgrade
-      return 'Upgrade';
-    } else if (plan.price < currentPlan.price) {
-      // Lower price = downgrade
-      return `Downgrade to ${plan.name}`;
-    } else {
-      // Same price (shouldn't happen, but fallback)
-      return plan.cta || `Choose ${plan.name}`;
+      return `Upgrade to ${planShortName(plan.name)}`;
     }
+    if (plan.price < currentPlan.price) {
+      return `Downgrade to ${planShortName(plan.name)}`;
+    }
+    return plan.cta || `Choose ${plan.name}`;
   };
 
-  const renderPlan = (plan: SubscriptionPlan) => (
-    <LinearGradient
-      key={plan.id}
-      colors={["#2DFFC4", "#00A6FF"]}
-      start={{ x: 0.05, y: 0.15 }}
-      end={{ x: 0.95, y: 0.85 }}
-      style={{ borderRadius: 24, padding: 1, marginBottom: 20 }}
-    >
+  type PlanBadge = { kind: 'current' | 'hero' | 'subtle'; label: string };
+
+  const getPlanCardBadge = (plan: SubscriptionPlan): PlanBadge | null => {
+    if (currentPlanId === plan.id) {
+      return { kind: 'current', label: 'Current plan' };
+    }
+    if (plan.recommended) {
+      return { kind: 'hero', label: 'Most Popular' };
+    }
+    if (plan.tag) {
+      return { kind: 'subtle', label: plan.tag };
+    }
+    return null;
+  };
+
+  const isHeroCard = (plan: SubscriptionPlan) =>
+    Boolean(plan.recommended && currentPlanId !== plan.id);
+
+  const renderPlan = (plan: SubscriptionPlan) => {
+    const ctaVariant = getCtaVariant(plan);
+    const badge = getPlanCardBadge(plan);
+    const hero = isHeroCard(plan);
+
+    const ctaStyles = (() => {
+      if (ctaVariant === 'current') {
+        return {
+          wrap: [
+            styles.ctaButton,
+            {
+              backgroundColor: darkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(22, 163, 74, 0.1)',
+              borderWidth: StyleSheet.hairlineWidth * 2,
+              borderColor: darkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(22, 163, 74, 0.35)',
+            },
+          ] as const,
+          text: [styles.ctaButtonText, { color: theme.success }] as const,
+        };
+      }
+      if (ctaVariant === 'downgrade') {
+        return {
+          wrap: [
+            styles.ctaButton,
+            {
+              backgroundColor: 'transparent',
+              borderWidth: StyleSheet.hairlineWidth * 2,
+              borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.45)',
+            },
+          ] as const,
+          text: [styles.ctaButtonText, { color: theme.text }] as const,
+        };
+      }
+      return {
+        wrap: [styles.ctaButton, { backgroundColor: theme.accent }] as const,
+        text: [styles.ctaButtonText, { color: '#FFFFFF' }] as const,
+      };
+    })();
+
+    const isCurrent = currentPlanId === plan.id;
+
+    return (
       <View
+        key={plan.id}
         style={[
-          styles.planCard,
-          {
-            backgroundColor: Colors.bg,
-            borderColor: plan.recommended ? theme.accent : theme.border,
-            shadowOpacity: plan.recommended ? 0.15 : 0.08,
-            shadowRadius: plan.recommended ? 14 : 12,
+          styles.planSurface,
+          { backgroundColor: theme.card, borderColor: theme.border },
+          hero && styles.planSurfaceHero,
+          isCurrent && styles.planSurfaceCurrent,
+          isCurrent && {
+            borderColor: darkMode ? 'rgba(255, 255, 255, 0.22)' : 'rgba(15, 23, 42, 0.14)',
           },
         ]}
       >
-      <View style={styles.planHeader}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.planTitleRow}>
-            <Text style={[styles.planName, { color: theme.text }]}>
-              {plan.name}
-            </Text>
-            {plan.recommended && (
-              <View
-                style={[
-                  styles.recommendedBadge,
-                  { backgroundColor: theme.accent + '20', borderColor: theme.accent },
-                ]}
-              >
-                <Text style={[styles.recommendedBadgeText, { color: theme.accent }]}>
-                  Recommended
-                </Text>
-              </View>
-            )}
-            {currentPlanId === plan.id && (
-              <View
-                style={[
-                  styles.recommendedBadge,
-                  { backgroundColor: theme.success + '20', borderColor: theme.success, marginLeft: 8 },
-                ]}
-              >
-                <Text style={[styles.recommendedBadgeText, { color: theme.success }]}>
-                  Current Plan
-                </Text>
-              </View>
-            )}
-          </View>
-          {plan.description && (
-            <Text style={[styles.planDescription, { color: theme.subtext }]}>
-              {plan.description}
-            </Text>
-          )}
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[styles.planPrice, { color: theme.accent }]}>
-            ${plan.price}/month
-          </Text>
-          {plan.tag && (
-            <View style={[styles.planTag, { backgroundColor: theme.iconBg }]}>
-              <Text style={[styles.planTagText, { color: theme.accent }]}>{plan.tag}</Text>
+        {hero ? (
+          <LinearGradient
+            colors={['rgba(45, 255, 196, 0.55)', 'rgba(0, 166, 255, 0.55)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.planHeroTopLine}
+          />
+        ) : null}
+        <View style={styles.planCardBody}>
+          <Text style={[styles.planName, { color: theme.text }]}>{plan.name}</Text>
+          {plan.description ? (
+            <Text style={[styles.planDescription, { color: theme.subtext }]}>{plan.description}</Text>
+          ) : null}
+
+          <View style={styles.priceBlock}>
+            <View style={styles.priceRow}>
+              <Text style={[styles.priceCurrency, { color: theme.subtext }]}>$</Text>
+              <Text style={[styles.priceAmount, { color: theme.text }]}>{formatDisplayPrice(plan.price)}</Text>
+              <Text style={[styles.pricePeriod, { color: theme.subtext }]}>/month</Text>
             </View>
-          )}
+            {badge ? (
+              <View
+                style={[
+                  styles.planBadge,
+                  badge.kind === 'hero' && [
+                    styles.planBadgeHero,
+                    { backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.12)' : 'rgba(45, 255, 196, 0.18)' },
+                  ],
+                  badge.kind === 'subtle' && [
+                    styles.planBadgeSubtle,
+                    { backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' },
+                  ],
+                  badge.kind === 'current' && [
+                    styles.planBadgeCurrent,
+                    {
+                      backgroundColor: darkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(22, 163, 74, 0.12)',
+                    },
+                  ],
+                ]}
+              >
+                {badge.kind === 'current' ? (
+                  <MaterialIcons name="check-circle" size={14} color={theme.success} style={{ marginRight: 4 }} />
+                ) : null}
+                <Text
+                  style={[
+                    styles.planBadgeText,
+                    badge.kind === 'hero' && { color: theme.accent },
+                    badge.kind === 'subtle' && { color: theme.subtext },
+                    badge.kind === 'current' && { color: theme.success },
+                  ]}
+                >
+                  {badge.label}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.featuresContainer}>
+            {plan.features.map((feature, index) => (
+              <View key={index} style={styles.featureRow}>
+                <MaterialIcons name="check" size={18} color={theme.success} style={styles.featureCheck} />
+                <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={[...ctaStyles.wrap, selectedPlan === plan.id && loading && styles.ctaButtonLoading]}
+            onPress={() => {
+              if (currentPlanId === plan.id) {
+                Alert.alert('Current Plan', `You are already subscribed to the ${plan.name}.`);
+                return;
+              }
+              handleSubscribe(plan);
+            }}
+            disabled={loading || currentPlanId === plan.id}
+            activeOpacity={0.88}
+          >
+            {loading && selectedPlan === plan.id ? (
+              <ActivityIndicator color={ctaVariant === 'downgrade' ? theme.text : '#fff'} />
+            ) : ctaVariant === 'current' ? (
+              <View style={styles.ctaCurrentInner}>
+                <MaterialIcons name="check-circle" size={20} color={theme.success} />
+                <Text style={[...ctaStyles.text, styles.ctaCurrentLabel]}>{getButtonText(plan)}</Text>
+              </View>
+            ) : (
+              <Text style={ctaStyles.text}>{getButtonText(plan)}</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
+    );
+  };
 
-      <View style={styles.featuresContainer}>
-        {plan.features.map((feature, index) => (
-          <View key={index} style={styles.featureRow}>
-            <MaterialIcons name='check' size={20} color={theme.success} />
-            <Text style={[styles.featureText, { color: theme.text }]}>
-              {feature}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <TouchableOpacity
-        style={[
-          styles.subscribeButton,
-          { backgroundColor: currentPlanId === plan.id ? theme.subtext : theme.accent },
-          selectedPlan === plan.id && styles.subscribeButtonDisabled,
-        ]}
-        onPress={() => {
-          if (currentPlanId === plan.id) {
-            Alert.alert('Current Plan', `You are already subscribed to the ${plan.name}.`);
-            return;
-          }
-          console.log('🔘 Subscribe Now button clicked for plan:', plan.id);
-          console.log('🔘 Plan details:', plan);
-          console.log('🔘 About to call handleSubscribe');
-          handleSubscribe(plan);
-        }}
-        disabled={loading || currentPlanId === plan.id}
-      >
-        {loading && selectedPlan === plan.id ? (
-          <ActivityIndicator color='#fff' />
-        ) : (
-          <Text style={styles.subscribeButtonText}>
-            {getButtonText(plan)}
-          </Text>
-        )}
-      </TouchableOpacity>
-      </View>
-    </LinearGradient>
-  );
+  const subtitleCopy =
+    'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
       {isScreenMode && (
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 8) + 4 }]}>
           <View style={styles.backButtonWrapper}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={['rgba(45, 255, 196, 0.8)', 'rgba(0, 166, 255, 0.8)']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.backButtonBorder}
@@ -472,57 +550,73 @@ export default function SubscriptionPlansModal({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   handleClose();
                 }}
-                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
               </TouchableOpacity>
             </LinearGradient>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Choose Your Plan</Text>
+          <View style={styles.headerTitleBlock}>
+            <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
           </View>
         </View>
       )}
       {!isScreenMode && (
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={handleClose}
-            style={styles.closeButton}
-          >
-            <MaterialIcons
-              name="close"
-              size={24}
-              color={theme.text}
-            />
+        <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+          <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+            <MaterialIcons name="close" size={24} color={theme.text} />
           </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: '#FFFFFF' }]}>Choose Your Plan</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Choose Your Plan</Text>
           </View>
-          <View style={{ width: 24 }} />
+          <View style={{ width: 40 }} />
         </View>
       )}
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.subtitle, { color: theme.subtext }]}>
-          Select the plan that best fits your business needs
-        </Text>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {!isScreenMode ? (
+          <Text style={[styles.subtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
+        ) : (
+          <View style={styles.screenSubtitleSpacer} />
+        )}
 
-        {plans.map(renderPlan)}
-
-        <View
-          style={[
-            styles.footer,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
+        <LinearGradient
+          colors={['#2DFFC4', '#00A6FF']}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={styles.billingChrome}
         >
-          <Text style={[styles.footerText, { color: theme.subtext }]}>
-            Start with a 7-day free trial
-          </Text>
-          <Text style={[styles.footerText, { color: theme.subtext }]}>
-            Cancel anytime • No setup fees
-          </Text>
-        </View>
+          <View
+            style={[
+              styles.billingInner,
+              {
+                backgroundColor: theme.cardDark,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            {plans.map(renderPlan)}
+
+            <View
+              style={[
+                styles.footer,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Text style={[styles.footerText, { color: theme.text }]}>Start with a 7-day free trial</Text>
+              <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
+            </View>
+          </View>
+        </LinearGradient>
       </ScrollView>
     </LinearGradient>
   );
@@ -550,22 +644,34 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    paddingBottom: 8,
     marginHorizontal: 20,
+    gap: 12,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    letterSpacing: 0.15,
+    opacity: 0.92,
   },
   backButtonWrapper: {
-    marginRight: 12,
-  },
-  screenTitle: {
-    fontSize: 32,
-    fontWeight: "800",
+    marginTop: 2,
   },
   backButtonBorder: {
     borderRadius: 20,
     padding: 1,
-    overflow: "hidden",
+    overflow: 'hidden',
+  },
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   backButton: {
     width: 40,
@@ -578,12 +684,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 100,
-    paddingBottom: 20,
+    paddingBottom: 12,
     position: 'relative',
   },
   closeButton: {
     padding: 8,
+    zIndex: 1,
   },
   titleContainer: {
     position: 'absolute',
@@ -591,112 +697,191 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    pointerEvents: 'none',
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 8,
+  },
+  scrollContent: {
+    paddingBottom: 24,
+    paddingTop: 4,
+  },
+  screenSubtitleSpacer: {
+    height: 4,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 16,
     lineHeight: 22,
+    paddingHorizontal: 16,
+    letterSpacing: 0.12,
+    opacity: 0.95,
   },
-  planCard: {
+  /** Same chrome as payment/index.tsx main stack */
+  billingChrome: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 8,
+  },
+  billingInner: {
     borderRadius: 23,
-    padding: 24,
-    borderWidth: 0,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
+    borderWidth: 1,
+    padding: 16,
+    paddingBottom: 20,
+    overflow: 'visible',
+  },
+  /** Elevated plan row: theme.card on top of cardDark (matches billing sections) */
+  planSurface: {
+    borderRadius: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  planSurfaceHero: {
+    borderColor: 'rgba(45, 255, 196, 0.35)',
+    shadowColor: '#2DFFC4',
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+  planSurfaceCurrent: {
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
-  planHeader: {
-    marginBottom: 20,
+  planHeroTopLine: {
+    height: 2,
+    width: '100%',
   },
-  planTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  planCardBody: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   planName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    marginBottom: 4,
   },
   planDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+    opacity: 0.95,
   },
-  planPrice: {
-    fontSize: 28,
-    fontWeight: 'bold',
+  priceBlock: {
+    marginBottom: 12,
   },
-  planTag: {
-    marginTop: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
   },
-  planTagText: {
-    fontSize: 12,
+  priceCurrency: {
+    fontSize: 20,
     fontWeight: '600',
+    marginRight: 2,
   },
-  recommendedBadge: {
+  priceAmount: {
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  pricePeriod: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  planBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
-  recommendedBadgeText: {
+  planBadgeHero: {},
+  planBadgeSubtle: {},
+  planBadgeCurrent: {},
+  planBadgeText: {
     fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.35,
   },
   featuresContainer: {
-    marginBottom: 24,
+    marginBottom: 14,
+    paddingTop: 2,
   },
   featureRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  featureCheck: {
+    marginTop: 2,
+    marginRight: 0,
   },
   featureText: {
-    fontSize: 16,
-    marginLeft: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    marginLeft: 10,
     flex: 1,
   },
-  subscribeButton: {
-    borderRadius: 12,
-    paddingVertical: 16,
+  ctaButton: {
+    minHeight: 50,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subscribeButtonDisabled: {
-    opacity: 0.6,
+  ctaButtonLoading: {
+    opacity: 0.85,
   },
-  subscribeButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  ctaButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  ctaCurrentInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ctaCurrentLabel: {
+    marginLeft: 8,
   },
   footer: {
-    borderRadius: 12,
-    padding: 20,
-    marginTop: 20,
-    marginBottom: 40,
+    borderRadius: 20,
     borderWidth: 1,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    marginTop: 4,
   },
   footerText: {
     fontSize: 14,
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 4,
+    letterSpacing: 0.15,
+  },
+  footerMuted: {
+    fontSize: 13,
+    textAlign: 'center',
+    opacity: 0.85,
+    letterSpacing: 0.1,
   },
 });

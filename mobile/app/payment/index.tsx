@@ -33,6 +33,11 @@ export default function PaymentScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planCatalog, setPlanCatalog] = useState(() => stripeService.getMockSubscriptionPlans());
+
+  useEffect(() => {
+    stripeService.fetchSubscriptionPlans().then(setPlanCatalog).catch(() => {});
+  }, []);
 
   let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
@@ -114,16 +119,15 @@ export default function PaymentScreen() {
     router.push('/payment/manage-cards');
   };
 
-  // Map Stripe price IDs to plan info
+  // Map Stripe price IDs to plan info (catalog from backend / Stripe, matches Render STRIPE_PRICE_*).
   const getPlanInfo = (priceId: string) => {
-    const plans = stripeService.getMockSubscriptionPlans();
-    const plan = plans.find((p) => p.stripePriceId === priceId);
+    const plan = planCatalog.find((p) => p.stripePriceId === priceId);
     if (plan) {
       console.log('✅ Plan mapped successfully:', plan.name, 'for price ID:', priceId);
       return { name: plan.name, features: plan.features };
     }
     console.log('⚠️ No plan found for price ID:', priceId);
-    console.log('Available price IDs:', plans.map(p => `${p.name}: ${p.stripePriceId}`));
+    console.log('Available price IDs:', planCatalog.map((p) => `${p.name}: ${p.stripePriceId}`));
     return null;
   };
 
@@ -288,14 +292,14 @@ export default function PaymentScreen() {
         setCurrentPlan(null);
         setError('No email found. Please sign in again.');
       }
-    }, [userEmail, storedEmail, emailLoaded])
+    }, [userEmail, storedEmail, emailLoaded, planCatalog])
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     await fetchCurrentPlan();
     setRefreshing(false);
-  }, [userEmail, storedEmail]);
+  }, [userEmail, storedEmail, planCatalog]);
 
   return (
     <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>

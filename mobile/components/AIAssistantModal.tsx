@@ -39,8 +39,6 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { formatIsoDateMMDDYYYY } from "@/utils/formatIsoDateMMDDYYYY";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
-import { useBetaFeedback } from "@/contexts/BetaFeedbackContext";
-import { isBetaFeedbackVisibleForUser } from "@/lib/betaFeedback/betaFeedbackConfig";
 import { 
   resolveProjectContext, 
   requiresProjectContext,
@@ -505,11 +503,6 @@ const AIAssistantModal: React.FC<Props> = ({
   );
   const { getToken } = useAuth();
   const { user } = useUser();
-  const betaFeedback = useBetaFeedback();
-  const clerkEmailForBeta =
-    user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || null;
-  const showBetaAiFeedback =
-    Boolean(betaFeedback) && isBetaFeedbackVisibleForUser(clerkEmailForBeta);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -4046,24 +4039,6 @@ const AIAssistantModal: React.FC<Props> = ({
                           AI Assistant
                         </Text>
                       </View>
-                      {showBetaAiFeedback && !keyboardOpen && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            betaFeedback?.openBetaFeedback({
-                              feedbackType: "ai_response",
-                              aiContextFlag: true,
-                            });
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          accessibilityRole="button"
-                          accessibilityLabel="Report AI issue"
-                        >
-                          <Text style={[styles.headerReportLink, light({ color: ThemeColors.sub })]}>
-                            Report
-                          </Text>
-                        </TouchableOpacity>
-                      )}
                     </View>
                     {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
                       <View style={styles.headerContextStack}>
@@ -5108,11 +5083,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     minWidth: 0,
-  },
-  headerReportLink: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "rgba(148, 163, 184, 0.95)",
   },
   headerTitle: {
     color: Colors.text,

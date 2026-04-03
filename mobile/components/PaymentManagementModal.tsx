@@ -21,6 +21,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useUser } from '@clerk/clerk-expo';
 
+type PlanCatalogEntry = {
+  id: string;
+  name: string;
+  price: number;
+  stripePriceId: string;
+};
+
 interface Subscription {
   id: string;
   status: string;
@@ -54,6 +61,9 @@ export default function PaymentManagementModal({
   const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'cancelled'>('active');
+  const [planCatalog, setPlanCatalog] = useState<PlanCatalogEntry[]>(() =>
+    stripeService.getMockSubscriptionPlans()
+  );
 
   const handleClose = () => {
     if (onClose) {
@@ -63,18 +73,15 @@ export default function PaymentManagementModal({
     }
   };
 
-  const userEmail: string | null =
+  let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
     clerkUser?.emailAddresses?.[0]?.emailAddress ||
     null;
-
-  // Fallback to clerkAuthService
   if (!userEmail) {
     try {
-      const authState = clerkAuthService.getAuthState();
-      userEmail = authState?.user?.email || null;
-    } catch (e) {
-      // Could not get email
+      userEmail = clerkAuthService.getAuthState()?.user?.email || null;
+    } catch {
+      userEmail = null;
     }
   }
 
@@ -110,14 +117,17 @@ export default function PaymentManagementModal({
   }), [Colors]);
 
   useEffect(() => {
+    stripeService.fetchSubscriptionPlans().then(setPlanCatalog).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (visible || isScreenMode) {
       loadSubscriptions();
     }
-  }, [visible, isScreenMode, userEmail, storedEmail, activeTab]);
+  }, [visible, isScreenMode, userEmail, storedEmail, activeTab, planCatalog]);
 
   const getPlanInfo = (priceId: string) => {
-    const plans = stripeService.getMockSubscriptionPlans();
-    const plan = plans.find((p) => p.stripePriceId === priceId);
+    const plan = planCatalog.find((p) => p.stripePriceId === priceId);
     if (plan) {
       return { name: plan.name, price: plan.price };
     }

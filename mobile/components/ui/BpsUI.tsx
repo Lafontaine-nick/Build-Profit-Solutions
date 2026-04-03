@@ -629,7 +629,7 @@ export const ExampleSettingsScreen = () => {
               Business Plan
             </BpsText.H3>
             <BpsText.Body muted>
-              $79/month • 5 team members • Forecasting & AI bids
+              $179/month • 5 team members • Forecasting & AI bids
             </BpsText.Body>
 
             <BpsButton
