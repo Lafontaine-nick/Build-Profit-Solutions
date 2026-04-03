@@ -36,6 +36,10 @@ import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { clerkAuthService } from '@/services/clerkAuth';
+import {
+  clearAllOnboardingCompletionKeys,
+  clearOnboardingCompleteForUser,
+} from '@/lib/onboardingStorage';
 // Conditionally import Clerk - only if configured
 let useClerkAuth: any = null;
 let useUser: any = null;
@@ -2025,7 +2029,11 @@ export default function ProfileScreen() {
                     onPress: async () => {
                       try {
                         // Clear onboarding flags
-                        await AsyncStorage.removeItem('bps.onboardingComplete');
+                        if (clerkUser?.id) {
+                          await clearOnboardingCompleteForUser(clerkUser.id);
+                        } else {
+                          await clearAllOnboardingCompletionKeys();
+                        }
                         await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
                         await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
                         await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');

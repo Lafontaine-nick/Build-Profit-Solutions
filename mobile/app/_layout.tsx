@@ -22,6 +22,7 @@ import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
+import { isOnboardingCompleteForUser } from '../lib/onboardingStorage';
 import '../i18n/config'; // Initialize i18n
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 
@@ -82,7 +83,7 @@ function AuthGateWithClerk() {
 
       try {
         // Check Clerk user data
-        const hasClerkName = !!(user.firstName && user.lastName);
+        const hasClerkName = !!(user?.firstName && user?.lastName);
         
         // Check contractor profile in AsyncStorage with timeout
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -169,14 +170,14 @@ function AuthGateWithClerk() {
       }, 2000);
 
       try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const onboardingComplete = await Promise.race([
-          AsyncStorage.getItem('bps.onboardingComplete'),
-          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500))
+        const uid = user?.id;
+        const complete = await Promise.race([
+          isOnboardingCompleteForUser(uid),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
         ]);
 
         clearTimeout(timeoutId);
-        setNeedsOnboarding(onboardingComplete !== 'true');
+        setNeedsOnboarding(!complete);
       } catch (error) {
         clearTimeout(timeoutId);
         console.error('Error checking onboarding status:', error);
@@ -309,9 +310,10 @@ function AuthGateWithoutClerk() {
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const onboardingComplete = await AsyncStorage.getItem('bps.onboardingComplete');
-        setNeedsOnboarding(onboardingComplete !== 'true');
+        const authState = clerkAuthService.getAuthState();
+        const uid = authState.user?.id ?? null;
+        const complete = await isOnboardingCompleteForUser(uid);
+        setNeedsOnboarding(!complete);
       } catch (error) {
         console.error('Error checking onboarding status:', error);
         // Default to showing onboarding if check fails

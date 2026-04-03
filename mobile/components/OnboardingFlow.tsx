@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { useUser } from '@clerk/clerk-expo';
+import { isClerkEnabled } from '../lib/isClerkEnabled';
+import { clerkAuthService } from '../services/clerkAuth';
+import {
+  onboardingDataKeyForUser,
+  setOnboardingCompleteForUser,
+} from '../lib/onboardingStorage';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -20,7 +27,13 @@ type RoleOption = 'solo' | 'small-team' | 'gc' | 'subcontractor';
 type WorkSource = 'referrals' | 'repeat' | 'online' | 'subcontractor' | 'mix';
 type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
 
-export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+function OnboardingFlowCore({
+  userId,
+  onComplete,
+}: {
+  userId: string;
+  onComplete: () => void;
+}) {
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedRole, setSelectedRole] = useState<RoleOption | null>(null);
@@ -69,8 +82,11 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         help: selectedHelp,
         completedAt: new Date().toISOString(),
       };
-      await AsyncStorage.setItem('bps.onboardingData', JSON.stringify(onboardingData));
-      await AsyncStorage.setItem('bps.onboardingComplete', 'true');
+      await AsyncStorage.setItem(
+        onboardingDataKeyForUser(userId),
+        JSON.stringify(onboardingData)
+      );
+      await setOnboardingCompleteForUser(userId);
       
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       onComplete();
@@ -82,7 +98,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const handleSkip = async () => {
     try {
-      await AsyncStorage.setItem('bps.onboardingComplete', 'true');
+      await setOnboardingCompleteForUser(userId);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onComplete();
     } catch (error) {
@@ -478,7 +494,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               onPress={async () => {
                 try {
                   // Mark onboarding as complete
-                  await AsyncStorage.setItem('bps.onboardingComplete', 'true');
+                  await setOnboardingCompleteForUser(userId);
                   // Set flag to indicate first-time user for smart defaults
                   await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
                   // Navigate to estimate generator
@@ -610,6 +626,35 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         </TouchableOpacity>
       )}
     </LinearGradient>
+  );
+}
+
+function OnboardingFlowWithClerk({ onComplete }: OnboardingFlowProps) {
+  const { user } = useUser();
+  const userId = user?.id;
+  if (!userId) return null;
+  return <OnboardingFlowCore userId={userId} onComplete={onComplete} />;
+}
+
+function OnboardingFlowWithoutClerk({ onComplete }: OnboardingFlowProps) {
+  const [userId, setUserId] = useState<string | null>(
+    () => clerkAuthService.getAuthState().user?.id ?? null
+  );
+  useEffect(() => {
+    const unsub = clerkAuthService.addListener((s) => {
+      setUserId(s.user?.id ?? null);
+    });
+    return unsub;
+  }, []);
+  if (!userId) return null;
+  return <OnboardingFlowCore userId={userId} onComplete={onComplete} />;
+}
+
+export default function OnboardingFlow(props: OnboardingFlowProps) {
+  return isClerkEnabled() ? (
+    <OnboardingFlowWithClerk {...props} />
+  ) : (
+    <OnboardingFlowWithoutClerk {...props} />
   );
 }
 

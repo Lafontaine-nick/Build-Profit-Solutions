@@ -16,6 +16,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useUserRole } from '@/contexts/UserRoleContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { clerkAuthService } from '@/services/clerkAuth';
+import {
+  clearAllOnboardingCompletionKeys,
+  clearOnboardingCompleteForUser,
+} from '@/lib/onboardingStorage';
 
 interface SettingItem {
   id: string;
@@ -103,7 +108,12 @@ export default function AccountSettingsScreen() {
           onPress: async () => {
             try {
               // Clear onboarding flags
-              await AsyncStorage.removeItem('bps.onboardingComplete');
+              const uid = clerkAuthService.getAuthState().user?.id;
+              if (uid) {
+                await clearOnboardingCompleteForUser(uid);
+              } else {
+                await clearAllOnboardingCompletionKeys();
+              }
               await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
               await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
               await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
