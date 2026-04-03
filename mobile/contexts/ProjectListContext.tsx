@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiService } from '../services/api';
+import { UNIFIED_PROJECTS_STORAGE_KEY } from '../lib/projectListCache';
+
+const STORAGE_KEY = UNIFIED_PROJECTS_STORAGE_KEY;
 
 // Unified Project interface that combines Estimates, Projects, and Dashboard data
 export interface UnifiedProject {
@@ -79,8 +82,6 @@ interface ProjectListContextType {
   deleteProject: (id: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
 }
-
-const STORAGE_KEY = 'bps.unifiedProjects.v1';
 
 const ProjectListContext = createContext<ProjectListContextType | undefined>(
   undefined
@@ -284,6 +285,95 @@ function dedupeProjectsById(list: UnifiedProject[]): UnifiedProject[] {
   return [...byId.values(), ...noId];
 }
 
+async function hydrateProjectDataFromStorageKeys(
+  projects: UnifiedProject[]
+): Promise<UnifiedProject[]> {
+  return Promise.all(
+    projects.map(async (project) => {
+      try {
+        const projectDataKey = `bps.project.${project.id}`;
+        const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
+        if (projectDataRaw) {
+          const projectData = JSON.parse(projectDataRaw);
+          return {
+            ...project,
+            projectData: {
+              ...project.projectData,
+              ...projectData,
+            },
+          };
+        }
+      } catch (e) {
+        if (__DEV__) {
+          console.warn(`Failed to load projectData for ${project.id}:`, e);
+        }
+      }
+      return project;
+    })
+  );
+}
+
+async function applyProgressAndDatesFromStorage(
+  projects: UnifiedProject[]
+): Promise<UnifiedProject[]> {
+  const progressPromises = projects.map(async (project) => {
+    const projectId = normalizeProjectId(project?.id || `${Date.now()}`);
+
+    let savedProgress: { progress?: number; overallProgressPct?: number } | null = null;
+    try {
+      const saved = await AsyncStorage.getItem(`bps.project.${projectId}.progress`);
+      if (saved) {
+        savedProgress = JSON.parse(saved);
+      }
+    } catch {
+      // ignore
+    }
+
+    const progressValue =
+      savedProgress?.progress ??
+      savedProgress?.overallProgressPct ??
+      project.overallProgressPct ??
+      project.progress ??
+      0;
+    const statusSlug = normalizeStatus(project.status);
+    let nextStatus = project.status;
+    if (progressValue >= 100 && statusSlug !== 'lost') {
+      nextStatus = 'completed';
+    }
+    const projectTypeCandidate =
+      project.projectType ||
+      project?.estimateData?.projectType ||
+      project?.estimateData?.category ||
+      project?.projectData?.projectType ||
+      project?.projectData?.type ||
+      project?.title;
+
+    let fixedProject: UnifiedProject = {
+      ...project,
+      id: projectId,
+      status: nextStatus,
+      progress: savedProgress?.progress ?? project.progress ?? progressValue,
+      overallProgressPct:
+        savedProgress?.overallProgressPct ?? project.overallProgressPct ?? progressValue,
+      projectType: projectTypeCandidate,
+    };
+
+    const estimateStart = fixedProject.estimateData?.projectStartDate;
+    const estimateEnd =
+      fixedProject.estimateData?.projectEndDate || fixedProject.estimateData?.endDate;
+    if (estimateStart || estimateEnd) {
+      fixedProject = {
+        ...fixedProject,
+        startDate: estimateStart || fixedProject.startDate,
+        endDate: estimateEnd || fixedProject.endDate,
+      };
+    }
+
+    return fixedProject;
+  });
+  return Promise.all(progressPromises);
+}
+
 const mapBackendProjectToUnified = (project: any): UnifiedProject => {
   const nowIso = new Date().toISOString();
   const title = project?.title || project?.name || 'Untitled Project';
@@ -405,95 +495,11 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: UnifiedProject[] = JSON.parse(saved);
-        
-        // Hydrate each project with latest projectData from individual storage keys
-        // This ensures change orders and other projectData are up-to-date
-        const hydratedProjects = await Promise.all(
-          parsed.map(async (project) => {
-            try {
-              const projectDataKey = `bps.project.${project.id}`;
-              const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
-              if (projectDataRaw) {
-                const projectData = JSON.parse(projectDataRaw);
-                // Use projectData from storage as source of truth (includes change orders)
-                // Merge with existing projectData to preserve any fields not in storage
-                return {
-                  ...project,
-                  projectData: {
-                    ...project.projectData,
-                    ...projectData, // Storage projectData takes precedence (has latest change orders)
-                  },
-                };
-              }
-            } catch (e) {
-              // If individual project data load fails, continue with original project
-              if (__DEV__) {
-                console.warn(`Failed to load projectData for ${project.id}:`, e);
-              }
-            }
-            return project;
-          })
+
+        const hydratedProjects = await hydrateProjectDataFromStorageKeys(parsed);
+        const normalized = dedupeProjectsById(
+          await applyProgressAndDatesFromStorage(hydratedProjects)
         );
-        
-        // Load saved progress values from AsyncStorage for all projects
-        const progressPromises = hydratedProjects.map(async (project) => {
-          const projectId = normalizeProjectId(project?.id || `${Date.now()}`);
-          
-          // Try to load saved progress from AsyncStorage (persists across reloads)
-          let savedProgress: { progress?: number; overallProgressPct?: number } | null = null;
-          try {
-            const saved = await AsyncStorage.getItem(`bps.project.${projectId}.progress`);
-            if (saved) {
-              savedProgress = JSON.parse(saved);
-            }
-          } catch (e) {
-            // Ignore errors loading saved progress
-          }
-          
-          // Use saved progress if available, otherwise use project's progress
-          const progressValue = savedProgress?.progress ?? savedProgress?.overallProgressPct ??
-            project.overallProgressPct ??
-            project.progress ??
-            0;
-          const statusSlug = normalizeStatus(project.status);
-          let nextStatus = project.status;
-          if (progressValue >= 100 && statusSlug !== 'lost') {
-            nextStatus = 'completed';
-          }
-          const projectTypeCandidate =
-            project.projectType ||
-            project?.estimateData?.projectType ||
-            project?.estimateData?.category ||
-            project?.projectData?.projectType ||
-            project?.projectData?.type ||
-            project?.title;
-
-          // DISABLED: Auto-fix logic that was incorrectly modifying project amounts
-          // This was causing project amounts to change on every app load
-          // If we need to fix corrupted data, do it manually or with a one-time migration script
-          let fixedProject = {
-            ...project,
-            id: projectId,
-            status: nextStatus,
-            progress: savedProgress?.progress ?? project.progress ?? progressValue,
-            overallProgressPct: savedProgress?.overallProgressPct ?? project.overallProgressPct ?? progressValue,
-            projectType: projectTypeCandidate,
-          };
-
-          // Prefer estimateData dates when available (estimate is source of truth for timeline)
-          const estimateStart = fixedProject.estimateData?.projectStartDate;
-          const estimateEnd = fixedProject.estimateData?.projectEndDate || fixedProject.estimateData?.endDate;
-          if (estimateStart || estimateEnd) {
-            fixedProject = {
-              ...fixedProject,
-              startDate: estimateStart || fixedProject.startDate,
-              endDate: estimateEnd || fixedProject.endDate,
-            };
-          }
-
-          return fixedProject;
-        });
-        const normalized = dedupeProjectsById(await Promise.all(progressPromises));
 
         // If we already have local projects, trust local first for offline reliability.
         if (normalized.length > 0) {
@@ -541,37 +547,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       try {
         const backendProjects = await listBackendProjects();
         const mapped = backendProjects.map(mapBackendProjectToUnified);
-        
-        // Hydrate each project with latest projectData from individual storage keys
-        // This ensures change orders and other projectData are up-to-date
-        const hydrated = await Promise.all(
-          mapped.map(async (project) => {
-            try {
-              const projectDataKey = `bps.project.${project.id}`;
-              const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
-              if (projectDataRaw) {
-                const projectData = JSON.parse(projectDataRaw);
-                // Use projectData from storage as source of truth (includes change orders)
-                // Merge with existing projectData to preserve any fields not in storage
-                return {
-                  ...project,
-                  projectData: {
-                    ...project.projectData,
-                    ...projectData, // Storage projectData takes precedence (has latest change orders)
-                  },
-                };
-              }
-            } catch (e) {
-              // If individual project data load fails, continue with original project
-              if (__DEV__) {
-                console.warn(`Failed to load projectData for ${project.id}:`, e);
-              }
-            }
-            return project;
-          })
-        );
-
-        const deduped = dedupeProjectsById(hydrated);
+        const withKeys = await hydrateProjectDataFromStorageKeys(mapped);
+        const deduped = dedupeProjectsById(await applyProgressAndDatesFromStorage(withKeys));
         setProjects(deduped);
         if (__DEV__) {
           console.log(`✅ Hydrated ${deduped.length} projects from backend`);
@@ -912,7 +889,40 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const refreshProjects = async () => {
-    await loadProjects();
+    try {
+      const backendProjects = await listBackendProjects();
+      const mapped = backendProjects.map(mapBackendProjectToUnified);
+      const withKeys = await hydrateProjectDataFromStorageKeys(mapped);
+      const fromServer = dedupeProjectsById(
+        await applyProgressAndDatesFromStorage(withKeys)
+      );
+
+      setProjects((prev) => {
+        const backendIds = new Set(
+          fromServer.map((p) => normalizeProjectId(p.id)).filter(Boolean)
+        );
+        const localDrafts = prev.filter((p) => {
+          const id = normalizeProjectId(p.id);
+          if (!id || backendIds.has(id)) return false;
+          const st = normalizeStatus(p.status);
+          return st === 'estimate' || st === 'draft';
+        });
+        return dedupeProjectsById([...fromServer, ...localDrafts]);
+      });
+
+      setIsHydrated(true);
+      setHasLoadedOnce(true);
+      if (__DEV__) {
+        console.log(
+          '🔄 Projects refreshed from backend (local draft/estimate rows kept if not on server)'
+        );
+      }
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('refreshProjects: backend failed, falling back to loadProjects', e);
+      }
+      await loadProjects();
+    }
   };
 
   return (

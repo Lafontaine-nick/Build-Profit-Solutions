@@ -18,6 +18,8 @@ import {
   onboardingDataKeyForUser,
   setOnboardingCompleteForUser,
 } from '../lib/onboardingStorage';
+import { clearUnifiedProjectsListCache } from '../lib/projectListCache';
+import { useProjectList } from '../contexts/ProjectListContext';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -35,6 +37,18 @@ function OnboardingFlowCore({
   onComplete: () => void;
 }) {
   const router = useRouter();
+  const { refreshProjects } = useProjectList();
+
+  const resyncProjectsFromServer = async () => {
+    try {
+      await clearUnifiedProjectsListCache();
+      await refreshProjects();
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('OnboardingFlow: project list resync after onboarding failed', e);
+      }
+    }
+  };
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedRole, setSelectedRole] = useState<RoleOption | null>(null);
   const [selectedWorkSource, setSelectedWorkSource] = useState<WorkSource | null>(null);
@@ -87,7 +101,8 @@ function OnboardingFlowCore({
         JSON.stringify(onboardingData)
       );
       await setOnboardingCompleteForUser(userId);
-      
+      await resyncProjectsFromServer();
+
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       onComplete();
     } catch (error) {
@@ -99,6 +114,7 @@ function OnboardingFlowCore({
   const handleSkip = async () => {
     try {
       await setOnboardingCompleteForUser(userId);
+      await resyncProjectsFromServer();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onComplete();
     } catch (error) {
@@ -495,6 +511,8 @@ function OnboardingFlowCore({
                 try {
                   // Mark onboarding as complete
                   await setOnboardingCompleteForUser(userId);
+                  await clearUnifiedProjectsListCache();
+                  await refreshProjects();
                   // Set flag to indicate first-time user for smart defaults
                   await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
                   // Navigate to estimate generator
