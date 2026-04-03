@@ -7,12 +7,19 @@
  *
  * Or one line:
  *   BETA_FEEDBACK_ADMIN_KEY='yourkey' node scripts/check-beta-review.js
+ *
+ * One row with full screenshot (data URL in item.screenshot_data — use in <img src="...">):
+ *   BETA_FEEDBACK_ADMIN_KEY='yourkey' node scripts/check-beta-review.js 2
  */
 const https = require('https');
 
 const key = process.env.BETA_FEEDBACK_ADMIN_KEY;
 const host = process.env.BETA_REVIEW_HOST || 'build-profit-solutions-backend.onrender.com';
-const path = '/api/beta-feedback/review?limit=5';
+const detailId = process.env.BETA_FEEDBACK_DETAIL_ID || process.argv[2];
+const path =
+  detailId && /^\d+$/.test(String(detailId).trim())
+    ? `/api/beta-feedback/review/detail/${String(detailId).trim()}`
+    : '/api/beta-feedback/review?limit=50';
 
 if (!key || !key.trim()) {
   console.error('Set BETA_FEEDBACK_ADMIN_KEY first (same value as on Render).');

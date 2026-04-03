@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { body, validationResult, query } = require('express-validator');
+const { body, validationResult, query, param } = require('express-validator');
 const { authenticateToken } = require('../middleware/authenticateToken');
 const { getPool } = require('../services/database');
 
@@ -125,6 +125,42 @@ router.post(
         });
       }
       return res.status(500).json({ success: false, error: 'Failed to save feedback' });
+    }
+  }
+);
+
+/**
+ * Single row including screenshot_data (data URL). Use after listing with /review.
+ * GET /api/beta-feedback/review/detail/:id
+ */
+router.get(
+  '/review/detail/:id',
+  requireAdminKey,
+  [param('id').isInt({ min: 1 })],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const id = parseInt(req.params.id, 10);
+    try {
+      const pool = getPool();
+      const r = await pool.query(
+        `SELECT id, user_id, email, feedback_type, severity, description,
+                intended_action, expected_result, screenshot_data,
+                CASE WHEN screenshot_data IS NOT NULL THEN true ELSE false END AS has_screenshot,
+                route_name, feature_area, project_id, estimate_id, ai_context_flag,
+                app_version, platform, device_info, metadata, status, created_at
+         FROM beta_feedback WHERE id = $1`,
+        [id]
+      );
+      if (!r.rows.length) {
+        return res.status(404).json({ success: false, error: 'Not found' });
+      }
+      return res.json({ success: true, item: r.rows[0] });
+    } catch (e) {
+      console.error('beta_feedback review detail error:', e.message);
+      return res.status(500).json({ success: false, error: e.message });
     }
   }
 );

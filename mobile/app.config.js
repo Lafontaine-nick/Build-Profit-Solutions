@@ -37,6 +37,8 @@ export default {
       newArchEnabled: false,
       infoPlist: {
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
+        NSPhotoLibraryUsageDescription:
+          'Allow access to your photo library to attach screenshots to beta feedback and upload project images.',
       },
     },
     android: {
@@ -56,7 +58,16 @@ export default {
       favicon: './assets/images/favicon.png',
       bundler: 'metro',
     },
-    plugins: ['expo-router'],
+    plugins: [
+      'expo-router',
+      [
+        'expo-image-picker',
+        {
+          photosPermission:
+            'Allow access to your photos to attach screenshots to beta feedback and upload project images.',
+        },
+      ],
+    ],
     // Disable New Architecture for Expo Go compatibility
     newArchEnabled: false,
     extra: {
