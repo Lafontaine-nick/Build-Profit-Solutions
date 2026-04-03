@@ -22,6 +22,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import { useUser } from '@clerk/clerk-expo';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function planShortName(name: string): string {
+  return name.replace(/\s+Plan\s*$/i, '').trim() || name;
+}
 
 interface SubscriptionPlan {
   id: string;
@@ -50,22 +55,21 @@ export default function SubscriptionPlansModal({
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
+  const insets = useSafeAreaInsets();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
 
-  const userEmail: string | null =
+  let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
     clerkUser?.emailAddresses?.[0]?.emailAddress ||
     null;
-
-  // Fallback to clerkAuthService
   if (!userEmail) {
     try {
       const authState = clerkAuthService.getAuthState();
       userEmail = authState?.user?.email || null;
-    } catch (e) {
+    } catch {
       // Could not get email
     }
   }
