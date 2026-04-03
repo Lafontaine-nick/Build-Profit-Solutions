@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const stripeService = require('../services/stripeService');
+const { getMobilePlansCatalog } = require('../services/mobilePlanCatalog');
 
 /**
  * Stripe Checkout only allows http(s) success/cancel URLs — not custom schemes.
@@ -68,6 +69,23 @@ router.get('/plans', async (req, res) => {
   } catch (error) {
     console.error('Error fetching plans:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch plans' });
+  }
+});
+
+/** Mobile Choose Your Plan: env price IDs + live amounts from Stripe (matches Render STRIPE_PRICE_*). */
+router.get('/mobile-plans', async (req, res) => {
+  try {
+    if (!process.env.STRIPE_SECRET_KEY || String(process.env.STRIPE_SECRET_KEY).includes('your_stripe')) {
+      return res.status(503).json({
+        success: false,
+        error: 'Stripe is not configured on the server',
+      });
+    }
+    const plans = await getMobilePlansCatalog(stripe);
+    res.json({ success: true, plans });
+  } catch (error) {
+    console.error('Error fetching mobile plans:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch subscription plans' });
   }
 });
 
