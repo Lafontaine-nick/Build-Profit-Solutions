@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { useOAuth, useAuth, useClerk } from '@clerk/clerk-expo';
+import { useOAuth, useAuth, useClerk, useSignIn, useSignUp } from '@clerk/clerk-expo';
 
 /**
  * Check if Clerk is configured (without using hooks)
@@ -31,6 +31,9 @@ export function useClerkOAuth() {
   // If not in ClerkProvider, these will throw - but that's expected if Clerk isn't set up
   const googleOAuth = useOAuth({ strategy: 'oauth_google' });
   const appleOAuth = useOAuth({ strategy: 'oauth_apple' });
+  const { isLoaded: isSignInLoaded } = useSignIn();
+  const { isLoaded: isSignUpLoaded } = useSignUp();
+  const oauthReady = Boolean(isSignInLoaded && isSignUpLoaded);
   const auth = useAuth();
   const clerk = useClerk();
   // setActive is available on the Clerk instance, not on auth
@@ -39,6 +42,7 @@ export function useClerkOAuth() {
   // Log for debugging
   console.log('useClerkOAuth - Hook called:', {
     isClerkEnabled,
+    oauthReady,
     hasGoogleOAuth: !!googleOAuth,
     hasAppleOAuth: !!appleOAuth,
     hasAuth: !!auth,
@@ -53,6 +57,8 @@ export function useClerkOAuth() {
     appleOAuth: isClerkEnabled ? appleOAuth : null,
     clerkSetActive: isClerkEnabled ? clerkSetActive : null,
     useClerk: isClerkEnabled,
+    /** Clerk useOAuth returns an empty session until sign-in/sign-up resources are loaded — wait for this. */
+    oauthReady: isClerkEnabled ? oauthReady : false,
   };
 }
 

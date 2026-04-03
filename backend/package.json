@@ -12,7 +12,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "build": "echo 'No build step required for Node.js'",
-    "postinstall": "echo 'Backend dependencies installed successfully' && (npx puppeteer browsers install chrome || true)",
+    "postinstall": "echo 'Backend dependencies installed successfully' && (npx puppeteer browsers install chrome || (echo 'WARN: puppeteer browsers install failed — run manually for PDF export' && true))",
     "verify-sku": "node verify-sku-search.js",
     "verify-ai-core": "node verify-ai-assistant-core.js",
     "migrate:beta-feedback": "node scripts/run-beta-feedback-migration.js",

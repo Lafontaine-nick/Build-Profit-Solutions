@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { getPostAuthHref } from '@/lib/postAuthNavigation';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 
@@ -176,13 +177,17 @@ export default function ForgotPasswordScreen() {
       if (result.status === 'complete') {
         if (result.createdSessionId && setActive) {
           await setActive({ session: result.createdSessionId });
+          await new Promise((r) => setTimeout(r, 120));
+          const uid =
+            signIn?.userId ?? (result as { userId?: string })?.userId ?? null;
+          const href = await getPostAuthHref(uid);
           Alert.alert(
             'Success',
             'Your password has been reset successfully!',
             [
               {
                 text: 'OK',
-                onPress: () => router.replace('/(tabs)/dashboard'),
+                onPress: () => router.replace(href),
               },
             ]
           );

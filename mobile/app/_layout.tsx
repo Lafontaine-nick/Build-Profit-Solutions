@@ -42,8 +42,6 @@ function AuthGateWithClerk() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
   const { user } = useUser();
   const { userRole, isLoading } = useUserRole();
-  /** Re-run onboarding storage check after navigation (e.g. completing onboarding → tabs) */
-  const segments = useSegments();
 
   // IMPORTANT: All hooks must be declared BEFORE any conditional returns
   // Check if profile setup is needed
@@ -167,15 +165,11 @@ function AuthGateWithClerk() {
       const timeoutId = setTimeout(() => {
         console.warn('Onboarding check timeout - defaulting to show onboarding');
         setNeedsOnboarding(true);
-      }, 2000);
+      }, 5000);
 
       try {
         const uid = user?.id;
-        const complete = await Promise.race([
-          isOnboardingCompleteForUser(uid),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
-        ]);
-
+        const complete = await isOnboardingCompleteForUser(uid);
         clearTimeout(timeoutId);
         setNeedsOnboarding(!complete);
       } catch (error) {
@@ -190,7 +184,7 @@ function AuthGateWithClerk() {
     } else {
       setNeedsOnboarding(null);
     }
-  }, [isSignedIn, user, segments]);
+  }, [isSignedIn, user]);
 
   // Debug logging
   console.log('AuthGate - isLoaded:', isLoaded, 'isSignedIn:', isSignedIn, 'user:', !!user, 'userId:', user?.id);
@@ -254,9 +248,14 @@ function AuthGateWithClerk() {
   // Flow: sign in → onboarding (first-time) → profile setup (if needed) → role → main app
   if (needsOnboarding === true) {
     console.log('AuthGate - Showing onboarding');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="onboarding" />
-    </Stack>;
+    return (
+      <Stack
+        screenOptions={{ headerShown: false, gestureEnabled: false }}
+        initialRouteName="onboarding"
+      >
+        <Stack.Screen name="onboarding" />
+      </Stack>
+    );
   }
 
   if (needsProfileSetup === true) {
@@ -374,7 +373,10 @@ function AuthGateWithoutClerk() {
   if (needsOnboarding === true) {
     console.log('AuthGate - Showing onboarding');
     return (
-      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+      <Stack
+        screenOptions={{ headerShown: false, gestureEnabled: false }}
+        initialRouteName="onboarding"
+      >
         <Stack.Screen name="onboarding" />
       </Stack>
     );

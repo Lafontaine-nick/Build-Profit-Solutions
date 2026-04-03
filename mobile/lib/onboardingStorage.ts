@@ -13,23 +13,15 @@ export function onboardingDataKeyForUser(userId: string): string {
 
 /**
  * Whether this signed-in user has completed or skipped onboarding on this device.
- * Migrates legacy global `bps.onboardingComplete` to this userId the first time we see it.
+ * Only `bps.onboardingComplete.{userId}` counts — never a global flag (that skipped onboarding
+ * for every new Clerk user on the same phone).
  */
 export async function isOnboardingCompleteForUser(userId: string | null | undefined): Promise<boolean> {
   if (!userId) return false;
 
   const perUserKey = onboardingCompleteKeyForUser(userId);
   const perUser = await AsyncStorage.getItem(perUserKey);
-  if (perUser === 'true') return true;
-
-  const legacy = await AsyncStorage.getItem(LEGACY_ONBOARDING_COMPLETE_KEY);
-  if (legacy === 'true') {
-    await AsyncStorage.setItem(perUserKey, 'true');
-    await AsyncStorage.removeItem(LEGACY_ONBOARDING_COMPLETE_KEY);
-    return true;
-  }
-
-  return false;
+  return perUser === 'true';
 }
 
 export async function setOnboardingCompleteForUser(userId: string): Promise<void> {

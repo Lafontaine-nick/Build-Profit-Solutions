@@ -67,8 +67,6 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
   }
 
   // Only show buttons if OAuth is actually available
-  // Note: We show buttons even if clerkSetActive is not available yet
-  // The handler will deal with that case
   if (!oauthResult?.useClerk || !oauthResult?.googleOAuth) {
     console.log('OAuthButtons - Not showing buttons:', {
       useClerk: oauthResult?.useClerk,
@@ -79,11 +77,14 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
     return null;
   }
 
+  const oauthReady = oauthResult.oauthReady !== false;
+
   // Log that we're showing buttons
   console.log('OAuthButtons - Showing OAuth buttons:', {
     hasGoogleOAuth: !!oauthResult.googleOAuth,
     hasClerkSetActive: !!oauthResult.clerkSetActive,
     googleOAuthType: typeof oauthResult.googleOAuth,
+    oauthReady,
   });
 
   return (
@@ -95,16 +96,21 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
       </View>
 
       <TouchableOpacity
-        style={[styles.socialButton, loading && styles.socialButtonDisabled]}
+        style={[styles.socialButton, (loading || !oauthReady) && styles.socialButtonDisabled]}
         onPress={() => {
           console.log('🔵 OAuthButtons - Google button pressed:', {
             hasGoogleOAuth: !!oauthResult.googleOAuth,
             hasClerkSetActive: !!oauthResult.clerkSetActive,
             loading: loading,
+            oauthReady,
             googleOAuthType: typeof oauthResult.googleOAuth,
             googleOAuthKeys: oauthResult.googleOAuth ? Object.keys(oauthResult.googleOAuth) : [],
           });
           try {
+            if (!oauthReady) {
+              console.warn('OAuthButtons - Clerk sign-in/sign-up not ready yet');
+              return;
+            }
             if (!oauthResult.googleOAuth) {
               console.error('❌ Google OAuth handler is null/undefined when button pressed');
               return;
@@ -115,9 +121,9 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
             console.error('❌ Error in Google button onPress:', error);
           }
         }}
-        disabled={loading}
+        disabled={loading || !oauthReady}
       >
-        {loading ? (
+        {loading || !oauthReady ? (
           <ActivityIndicator color="#111827" size="small" />
         ) : (
           <>
@@ -131,11 +137,14 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
 
       {Platform.OS === 'ios' && (
         <TouchableOpacity
-          style={[styles.socialButton, loading && styles.socialButtonDisabled]}
-          onPress={() => onApplePress(oauthResult.appleOAuth, oauthResult.clerkSetActive)}
-          disabled={loading}
+          style={[styles.socialButton, (loading || !oauthReady) && styles.socialButtonDisabled]}
+          onPress={() => {
+            if (!oauthReady) return;
+            onApplePress(oauthResult.appleOAuth, oauthResult.clerkSetActive);
+          }}
+          disabled={loading || !oauthReady}
         >
-          {loading ? (
+          {loading || !oauthReady ? (
             <ActivityIndicator color="#111827" size="small" />
           ) : (
             <>

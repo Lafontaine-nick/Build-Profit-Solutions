@@ -24,9 +24,22 @@ import { useClerk, useAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { getPostAuthHref } from '@/lib/postAuthNavigation';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
+
+/** Must match Clerk Dashboard → Native applications → iOS allowed redirect URLs. */
+function getClerkOAuthRedirectUrl(): string {
+  const uri = AuthSession.makeRedirectUri({ path: 'oauth-native-callback' });
+  if (__DEV__) {
+    console.log(
+      '[Clerk OAuth] Redirect URL (register in Clerk if Apple/Google native OAuth fails):',
+      uri
+    );
+  }
+  return uri;
+}
 
 // Password strength checker
 const getPasswordStrength = (password: string): { strength: 'weak' | 'medium' | 'strong'; score: number; feedback: string[] } => {
@@ -141,6 +154,37 @@ const AuthScreen: React.FC = () => {
     console.log('useClerk/useAuth hooks not available');
   }
 
+  /** Prefer onboarding until this Clerk user has completed it; avoids router jumping past AuthGate. */
+  const navigateAfterClerkSession = async (opts?: {
+    oauthResult?: any;
+    signInResource?: any;
+    signUpResource?: any;
+  }) => {
+    const oauth = opts?.oauthResult;
+    const rIn = opts?.signInResource ?? oauth?.signIn;
+    const rUp = opts?.signUpResource ?? oauth?.signUp;
+    const resolveUid = () =>
+      rIn?.userId ??
+      rUp?.createdUserId ??
+      rUp?.userId ??
+      oauth?.userId ??
+      clerkInstance?.user?.id ??
+      clerkAuth?.userId ??
+      null;
+
+    let uid = resolveUid();
+    if (!uid) {
+      await new Promise((r) => setTimeout(r, 120));
+      uid = resolveUid();
+    }
+
+    try {
+      router.replace(await getPostAuthHref(uid));
+    } catch {
+      router.replace('/onboarding');
+    }
+  };
+
   // OAuth handlers - receive OAuth objects from OAuthButtons component
   const handleGoogleSignIn = async (googleOAuthHandler: any, clerkSetActiveHandler: any) => {
     try {
@@ -208,9 +252,9 @@ const AuthScreen: React.FC = () => {
       
       // Warm up browser for better performance
       await WebBrowser.warmUpAsync();
-      
-      // Let Clerk handle the redirect URL automatically
-      const result = await googleOAuthHandler.startOAuthFlow();
+
+      const oauthRedirectUrl = getClerkOAuthRedirectUrl();
+      const result = await googleOAuthHandler.startOAuthFlow({ redirectUrl: oauthRedirectUrl });
       console.log('Google OAuth flow result:', {
         hasCreatedSessionId: !!result?.createdSessionId,
         createdSessionId: result?.createdSessionId,
@@ -279,7 +323,7 @@ const AuthScreen: React.FC = () => {
         try {
           await result.setActive();
           console.log('Session set via result.setActive, navigating to app...');
-          router.replace('/(tabs)/dashboard');
+          await navigateAfterClerkSession({ oauthResult: result });
           setLoading(false);
           return;
         } catch (setActiveError: any) {
@@ -293,7 +337,7 @@ const AuthScreen: React.FC = () => {
         try {
           await resultSetActive({ session: sessionId });
           console.log('Session set, navigating to app...');
-          router.replace('/(tabs)/dashboard');
+          await navigateAfterClerkSession({ oauthResult: result });
           setLoading(false);
           return;
         } catch (setActiveError: any) {
@@ -302,7 +346,7 @@ const AuthScreen: React.FC = () => {
           const isActuallySignedIn = clerkAuth?.isSignedIn === true && clerkAuth?.isLoaded === true;
           if (isActuallySignedIn) {
             console.log('User is signed in despite setActive error, navigating...');
-            router.replace('/(tabs)/dashboard');
+            await navigateAfterClerkSession({ oauthResult: result });
             setLoading(false);
             return;
           }
@@ -391,7 +435,7 @@ const AuthScreen: React.FC = () => {
         if (isActuallySignedIn) {
           // User is already signed in - silently navigate, no error needed
           console.log('User already signed in, navigating to app...');
-          router.replace('/(tabs)/dashboard');
+          void navigateAfterClerkSession({});
           return;
         } else {
           // User is NOT signed in, but getting session_exists error
@@ -535,7 +579,8 @@ const AuthScreen: React.FC = () => {
 
       await WebBrowser.warmUpAsync();
 
-      const result = await appleOAuthHandler.startOAuthFlow();
+      const oauthRedirectUrl = getClerkOAuthRedirectUrl();
+      const result = await appleOAuthHandler.startOAuthFlow({ redirectUrl: oauthRedirectUrl });
       console.log('Apple OAuth flow result:', {
         hasCreatedSessionId: !!result?.createdSessionId,
         createdSessionId: result?.createdSessionId,
@@ -547,23 +592,29 @@ const AuthScreen: React.FC = () => {
         fullResult: result,
       });
 
+      const authSession = (result as any)?.authSessionResult;
+      if (authSession && authSession.type && authSession.type !== 'success') {
+        console.log('Apple OAuth dismissed or cancelled:', authSession.type);
+        return;
+      }
+
+      const resultSetActive = result?.setActive || setActive;
+
       // Extract session ID from various possible locations
-      let sessionId = result?.createdSessionId || 
-                      result?.signIn?.createdSessionId || 
-                      result?.signUp?.createdSessionId;
-      
-      // If we have signIn or signUp objects, try to get session from them
+      let sessionId =
+        result?.createdSessionId ||
+        result?.signIn?.createdSessionId ||
+        result?.signUp?.createdSessionId;
+
       if (!sessionId && result?.signIn) {
-        // Try to complete the sign-in if needed
         if (result.signIn.status === 'complete') {
           sessionId = result.signIn.createdSessionId;
         } else if (result.signIn.status === 'needs_second_factor') {
           throw new Error('Two-factor authentication required. Please use email/password sign-in.');
         }
       }
-      
+
       if (!sessionId && result?.signUp) {
-        // Try to complete the sign-up if needed
         if (result.signUp.status === 'complete') {
           sessionId = result.signUp.createdSessionId;
         } else if (result.signUp.status === 'needs_verification') {
@@ -571,11 +622,20 @@ const AuthScreen: React.FC = () => {
         }
       }
 
-      if (sessionId && setActive) {
+      if (result?.setActive && typeof result.setActive === 'function') {
+        try {
+          await result.setActive();
+          await navigateAfterClerkSession({ oauthResult: result });
+          return;
+        } catch (setActiveError: any) {
+          console.warn('Apple result.setActive() failed, trying session id:', setActiveError);
+        }
+      }
+
+      if (sessionId && resultSetActive) {
         console.log('Apple OAuth successful, setting active session...');
-        await setActive({ session: sessionId });
-        console.log('Session set, navigating to app...');
-        router.replace('/(tabs)/dashboard');
+        await resultSetActive({ session: sessionId });
+        await navigateAfterClerkSession({ oauthResult: result });
       } else {
         console.error('Apple OAuth flow incomplete:', {
           hasCreatedSessionId: !!result?.createdSessionId,
@@ -586,6 +646,13 @@ const AuthScreen: React.FC = () => {
           hasSetActive: !!setActive,
           result: result,
         });
+        const isEmptyResult =
+          result?.createdSessionId === '' && !result?.signIn && !result?.signUp;
+        if (isEmptyResult) {
+          throw new Error(
+            'Apple Sign-In did not return a session. Add the redirect URL from the Metro log ([Clerk OAuth] Redirect URL) to Clerk → Native applications → your iOS app, and ensure Apple is enabled under Social connections.'
+          );
+        }
         throw new Error('No session created from OAuth flow');
       }
     } catch (error: any) {
@@ -625,7 +692,7 @@ const AuthScreen: React.FC = () => {
         if (isActuallySignedIn) {
           // User is already signed in - silently navigate, no error needed
           console.log('User already signed in, navigating to app...');
-          router.replace('/(tabs)/dashboard');
+          void navigateAfterClerkSession({});
           return;
         } else {
           // User is NOT signed in, but getting session_exists error
@@ -788,7 +855,7 @@ const AuthScreen: React.FC = () => {
 
     // Clerk rejects signIn.create / signUp.create while a session already exists
     if (isClerkEnabled && clerkAuth?.isSignedIn) {
-      router.replace('/(tabs)/dashboard');
+      void navigateAfterClerkSession({});
       return;
     }
       
@@ -813,7 +880,9 @@ const AuthScreen: React.FC = () => {
             // Account created, set active session
             if (signUpResult.createdSessionId && setActive) {
               await setActive({ session: signUpResult.createdSessionId });
-              router.replace('/(tabs)/dashboard');
+              await navigateAfterClerkSession({
+                signUpResource: signUpHook?.signUp,
+              });
             } else {
               Alert.alert('Success', 'Account created successfully! Please check your email to verify your account.', [
                 {
@@ -862,7 +931,9 @@ const AuthScreen: React.FC = () => {
             // Sign in successful, set active session
             if (signInResult.createdSessionId && setActive) {
               await setActive({ session: signInResult.createdSessionId });
-              router.replace('/(tabs)/dashboard');
+              await navigateAfterClerkSession({
+                signInResource: signInHook?.signIn,
+              });
             } else {
               Alert.alert('Error', 'Sign in successful but session could not be created. Please try again.');
             }
@@ -943,11 +1014,14 @@ const AuthScreen: React.FC = () => {
 
       const clerkErrCode = error?.errors?.[0]?.code;
       if (clerkErrCode === 'session_exists') {
-        Alert.alert(
-          'Already signed in',
-          'Your session is still active. Continuing to the app.',
-          [{ text: 'OK', onPress: () => router.replace('/(tabs)/dashboard') }]
-        );
+        Alert.alert('Already signed in', 'Your session is still active. Continuing to the app.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              void navigateAfterClerkSession({});
+            },
+          },
+        ]);
         return;
       }
 
@@ -1020,7 +1094,9 @@ const AuthScreen: React.FC = () => {
         const setActive = signInHook.setActive || clerkInstance?.setActive;
         if (result.createdSessionId && setActive) {
           await setActive({ session: result.createdSessionId });
-          router.replace('/(tabs)/dashboard');
+          await navigateAfterClerkSession({
+            signInResource: signInHook?.signIn,
+          });
         } else {
           Alert.alert('Error', 'Sign in successful but session could not be created. Please try again.');
         }
@@ -1059,7 +1135,9 @@ const AuthScreen: React.FC = () => {
         await setActive({ session: result.createdSessionId });
         setNeedsSignupEmailCode(false);
         setVerificationCode('');
-        router.replace('/(tabs)/dashboard');
+        await navigateAfterClerkSession({
+          signUpResource: signUpHook?.signUp,
+        });
       } else if (result.status === 'complete' && !result.createdSessionId) {
         Alert.alert(
           'Success',

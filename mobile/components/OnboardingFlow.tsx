@@ -528,15 +528,6 @@ function OnboardingFlowCore({
               <Text style={styles.primaryButtonText}>Create an estimate</Text>
             </TouchableOpacity>
           </LinearGradient>
-          <TouchableOpacity
-            style={styles.tertiaryButton}
-            onPress={handleComplete}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tertiaryButtonText, { color: colors.muted }]}>
-              View a sample project
-            </Text>
-          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -812,13 +803,6 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 17,
     fontWeight: '600',
-  },
-  tertiaryButton: {
-    padding: 12,
-    alignItems: 'center',
-  },
-  tertiaryButtonText: {
-    fontSize: 15,
   },
   navigation: {
     borderTopWidth: 1,

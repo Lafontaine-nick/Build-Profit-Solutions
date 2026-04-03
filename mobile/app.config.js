@@ -43,6 +43,10 @@ export default {
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
         NSPhotoLibraryUsageDescription:
           'Allow access to your photo library to attach screenshots to beta feedback and upload project images.',
+        // Allow contract PDF fetch to http://<Mac-LAN>:3001 from TestFlight/device (ATS blocks cleartext to LAN by default).
+        NSAppTransportSecurity: {
+          NSAllowsLocalNetworking: true,
+        },
       },
     },
     android: {
@@ -51,6 +55,8 @@ export default {
         backgroundColor: '#ffffff',
       },
       package: 'com.buildprofitsolutions.mobile',
+      // Match iOS: PDF export POST to http://<dev-machine>:3001 on a physical device.
+      usesCleartextTraffic: true,
       jsEngine: 'hermes',
       newArchEnabled: true,
       permissions: [

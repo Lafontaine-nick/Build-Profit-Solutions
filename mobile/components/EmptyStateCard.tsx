@@ -49,17 +49,18 @@ export default function EmptyStateCard({ onPress, subtitle }: EmptyStateCardProp
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    width: '100%',
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+    alignItems: 'stretch',
+    alignSelf: 'stretch',
+    paddingHorizontal: 0,
     paddingVertical: 40,
   },
   card: {
     borderRadius: 20,
     padding: 2,
+    alignSelf: 'stretch',
     width: '100%',
-    maxWidth: 400,
     shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,

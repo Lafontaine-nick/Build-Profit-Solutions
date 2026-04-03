@@ -247,13 +247,29 @@ const normalizeBackendStatus = (status?: string | null): UnifiedProject['status'
   if (normalized === 'planning' || normalized === 'draft' || normalized === 'estimate') {
     return 'estimate';
   }
+  if (normalized === 'not-started' || normalized === 'not_started') {
+    return 'estimate';
+  }
   if (normalized === 'submitted' || normalized === 'bid_submitted') {
     return 'bid_submitted';
   }
-  if (normalized === 'won' || normalized === 'active' || normalized === 'in_progress' || normalized === 'in-progress') {
+  if (
+    normalized === 'won' ||
+    normalized === 'active' ||
+    normalized === 'in_progress' ||
+    normalized === 'in-progress' ||
+    normalized === 'on-hold' ||
+    normalized === 'on_hold'
+  ) {
     return 'in_progress';
   }
-  if (normalized === 'completed') {
+  if (
+    normalized === 'completed' ||
+    normalized === 'complete' ||
+    normalized === 'done' ||
+    normalized === 'closed' ||
+    normalized === 'finished'
+  ) {
     return 'completed';
   }
   if (normalized === 'lost' || normalized === 'cancelled' || normalized === 'canceled') {
@@ -337,7 +353,10 @@ async function applyProgressAndDatesFromStorage(
       0;
     const statusSlug = normalizeStatus(project.status);
     let nextStatus = project.status;
-    if (progressValue >= 100 && statusSlug !== 'lost') {
+    // Never let stale local progress downgrade server-side "completed" (TestFlight fresh cache vs Expo).
+    if (statusSlug === 'completed') {
+      nextStatus = 'completed';
+    } else if (progressValue >= 100 && statusSlug !== 'lost') {
       nextStatus = 'completed';
     }
     const projectTypeCandidate =
@@ -348,13 +367,25 @@ async function applyProgressAndDatesFromStorage(
       project?.projectData?.type ||
       project?.title;
 
+    const mergedProgress =
+      savedProgress?.progress ?? project.progress ?? progressValue;
+    const mergedOverall =
+      savedProgress?.overallProgressPct ?? project.overallProgressPct ?? progressValue;
+    const finalProgress =
+      normalizeStatus(nextStatus) === 'completed'
+        ? Math.max(mergedProgress, 100)
+        : mergedProgress;
+    const finalOverall =
+      normalizeStatus(nextStatus) === 'completed'
+        ? Math.max(mergedOverall, 100)
+        : mergedOverall;
+
     let fixedProject: UnifiedProject = {
       ...project,
       id: projectId,
       status: nextStatus,
-      progress: savedProgress?.progress ?? project.progress ?? progressValue,
-      overallProgressPct:
-        savedProgress?.overallProgressPct ?? project.overallProgressPct ?? progressValue,
+      progress: finalProgress,
+      overallProgressPct: finalOverall,
       projectType: projectTypeCandidate,
     };
 
@@ -878,9 +909,9 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           const statusSlug = normalizeStatus(next.status);
           if (progressValue >= 100 && statusSlug !== 'lost') {
             next.status = 'completed';
-          } else if (progressValue < 100 && statusSlug === 'completed') {
-            next.status = 'in_progress';
           }
+          // Intentionally do NOT demote completed → in_progress when progress < 100.
+          // Timeline/storage can briefly report <100 and wrongly moved completed jobs to Active (Expo vs TestFlight).
         }
 
         return { ...next, updatedAt: new Date().toISOString() };
@@ -901,13 +932,56 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
         const backendIds = new Set(
           fromServer.map((p) => normalizeProjectId(p.id)).filter(Boolean)
         );
+
+        // Server rows often stay won/in_progress after the user finishes payments in-app (timeline-only).
+        // Without this, refresh overwrites local status: 'completed' and the project vanishes from Completed.
+        const mergedFromServer = fromServer.map((serverP) => {
+          const id = normalizeProjectId(serverP.id);
+          if (!id) return serverP;
+          const localP = prev.find((p) => normalizeProjectId(p.id) === id);
+          if (!localP) return serverP;
+          const localSt = normalizeStatus(localP.status);
+          const serverSt = normalizeStatus(serverP.status);
+          if (
+            localSt === 'completed' &&
+            serverSt !== 'completed' &&
+            serverSt !== 'lost'
+          ) {
+            return {
+              ...serverP,
+              status: 'completed' as const,
+              progress: 100,
+              overallProgressPct: Math.max(
+                Number(localP.overallProgressPct) || 0,
+                Number(serverP.overallProgressPct) || 0,
+                Number(localP.progress) || 0,
+                Number(serverP.progress) || 0,
+                100
+              ),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return serverP;
+        });
+
         const localDrafts = prev.filter((p) => {
           const id = normalizeProjectId(p.id);
           if (!id || backendIds.has(id)) return false;
           const st = normalizeStatus(p.status);
-          return st === 'estimate' || st === 'draft';
+          // Keep drafts/estimates, submitted bids, active/won work, and completed jobs not on the server yet.
+          return (
+            st === 'estimate' ||
+            st === 'draft' ||
+            st === 'bid_submitted' ||
+            st === 'submitted' ||
+            st === 'won' ||
+            st === 'in_progress' ||
+            st === 'in-progress' ||
+            st === 'active' ||
+            st === 'completed'
+          );
         });
-        return dedupeProjectsById([...fromServer, ...localDrafts]);
+        return dedupeProjectsById([...mergedFromServer, ...localDrafts]);
       });
 
       setIsHydrated(true);

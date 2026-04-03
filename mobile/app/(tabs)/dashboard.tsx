@@ -46,6 +46,9 @@ import {
   formatTimeShort,
 } from "@/utils/formatters";
 import { splitEventNotesForDisplay } from "@/utils/calendarEventDisplay";
+import { dashboardGreetingFromProfile, type DashboardGreeting } from "@/utils/dashboardGreeting";
+import Constants from "expo-constants";
+import { useUser } from "@clerk/clerk-expo";
 import {
   bucketForNextStep,
   firstSupportingSentence,
@@ -2213,6 +2216,47 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
   );
 };
 
+function isClerkAuthEnabledForDashboard(): boolean {
+  const publishableKey =
+    Constants.expoConfig?.extra?.clerkPublishableKey ||
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  return Boolean(
+    publishableKey &&
+      (publishableKey.startsWith("pk_live_") ||
+        (publishableKey.startsWith("pk_test_") &&
+          publishableKey !== "pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk"))
+  );
+}
+
+/** Syncs greeting from Clerk user (inside ClerkProvider only). */
+function ClerkDashboardGreetingSync({
+  setGreeting,
+}: {
+  setGreeting: React.Dispatch<React.SetStateAction<DashboardGreeting>>;
+}) {
+  const { user } = useUser();
+  useEffect(() => {
+    setGreeting(dashboardGreetingFromProfile(user));
+  }, [user, setGreeting]);
+  return null;
+}
+
+/** Fallback when the app runs without ClerkProvider. */
+function LegacyDashboardGreetingSync({
+  setGreeting,
+}: {
+  setGreeting: React.Dispatch<React.SetStateAction<DashboardGreeting>>;
+}) {
+  useEffect(() => {
+    const sync = () => {
+      setGreeting(dashboardGreetingFromProfile(clerkAuthService.getAuthState().user));
+    };
+    sync();
+    return clerkAuthService.addListener(sync);
+  }, [setGreeting]);
+  return null;
+}
+
 const DashboardScreen: React.FC = () => {
   useRequireAuth();
   const router = useRouter();
@@ -2236,11 +2280,11 @@ const DashboardScreen: React.FC = () => {
   // Debounce refs for project changes
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastProjectsHashRef = useRef<string>('');
-
-  const user = {
-    name: "Nick Lafontaine",
-    initials: "NL",
-  };
+  const clerkAuthEnabled = useMemo(() => isClerkAuthEnabledForDashboard(), []);
+  const [dashboardGreeting, setDashboardGreeting] = useState<DashboardGreeting>({
+    name: "there",
+    initials: "?",
+  });
 
   // Load timeline progress from AsyncStorage (same as projects page — pre-scan, title fallback)
   const loadTimelineProgress = useCallback(async () => {
@@ -2759,6 +2803,11 @@ const DashboardScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.root}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
+      {clerkAuthEnabled ? (
+        <ClerkDashboardGreetingSync setGreeting={setDashboardGreeting} />
+      ) : (
+        <LegacyDashboardGreetingSync setGreeting={setDashboardGreeting} />
+      )}
 
       {/* Background */}
       <View style={StyleSheet.absoluteFill} />
@@ -2771,7 +2820,7 @@ const DashboardScreen: React.FC = () => {
           <TabScreenHeader
             style={styles.headerRow}
             title={t('dashboard.title')}
-            subtitle={`${t('dashboard.welcome')}, ${user.name}`}
+            subtitle={`${t('dashboard.welcome')}, ${dashboardGreeting.name}`}
             titleColor={Colors.text}
             subtitleColor={darkMode ? "rgba(255,255,255,0.92)" : "#334155"}
             belowTitle={(() => {
@@ -2837,7 +2886,7 @@ const DashboardScreen: React.FC = () => {
                   style={styles.profileInner}
                   onPress={() => router.push("/profile")}
                 >
-                  <Text style={styles.profileInitials}>{user.initials}</Text>
+                  <Text style={styles.profileInitials}>{dashboardGreeting.initials}</Text>
                 </Pressable>
               </LinearGradient>
             }

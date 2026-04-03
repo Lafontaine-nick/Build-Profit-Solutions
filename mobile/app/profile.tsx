@@ -881,6 +881,12 @@ export default function ProfileScreen() {
                         }
                       }
 
+                      try {
+                        await clearAllOnboardingCompletionKeys();
+                      } catch (e) {
+                        console.warn('clearAllOnboardingCompletionKeys:', e);
+                      }
+
                       // Clear all local data
                       const authKeysToRemove = [
                         'auth_token',

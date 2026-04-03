@@ -258,6 +258,15 @@ const getStatusTheme = (darkMode: boolean) => ({
   },
 });
 
+/** Expo search params may be string | string[]; keep URL and tab state aligned to avoid remount snapping back to Submitted. */
+function tabFromRouteParam(tab: string | string[] | undefined): 'active' | 'submitted' | 'completed' | null {
+  const v = Array.isArray(tab) ? tab[0] : tab;
+  if (v === 'submitted') return 'submitted';
+  if (v === 'completed') return 'completed';
+  if (v === 'active') return 'active';
+  return null;
+}
+
 export default function ProjectsScreen() {
   const router = useRouter();
   useRequireAuth();
@@ -272,9 +281,9 @@ export default function ProjectsScreen() {
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
   const params = useLocalSearchParams();
-  const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(
-    params.tab === 'submitted' ? 'submitted' : params.tab === 'completed' ? 'completed' : 'active'
-  );
+  const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(() => {
+    return tabFromRouteParam(params.tab) ?? 'active';
+  });
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
@@ -404,6 +413,11 @@ export default function ProjectsScreen() {
           const fromSubmit = await AsyncStorage.getItem('bps.fromSubmitBid');
           if (pendingTab === 'submitted') {
             setActiveTab('submitted');
+            try {
+              router.setParams({ tab: 'submitted' });
+            } catch {
+              /* ignore */
+            }
             setShowSubmitBanner(fromSubmit === 'true');
             if (fromSubmit === 'true') setTimeout(() => setShowSubmitBanner(false), 3000);
           }
@@ -420,9 +434,10 @@ export default function ProjectsScreen() {
     }, [refreshProjects])
   );
 
-  // Update tab if route param changes
+  // Update tab if route param changes (deep links / external navigation)
   useEffect(() => {
-    if (params.tab === 'submitted') {
+    const t = tabFromRouteParam(params.tab);
+    if (t === 'submitted') {
       setActiveTab('submitted');
       // Show confirmation banner when arriving from submit bid
       if (params.fromSubmit === 'true') {
@@ -431,8 +446,10 @@ export default function ProjectsScreen() {
           setShowSubmitBanner(false);
         }, 3000);
       }
-    } else if (params.tab === 'completed') {
+    } else if (t === 'completed') {
       setActiveTab('completed');
+    } else if (t === 'active') {
+      setActiveTab('active');
     }
   }, [params.tab, params.fromSubmit]);
 
@@ -477,19 +494,33 @@ export default function ProjectsScreen() {
             }
           : p;
 
-        const status = p.status || 'draft';
-        let displayStatus = 'Draft';
-        if (status === 'estimate') displayStatus = 'Draft';
-        else if (status === 'bid_submitted') displayStatus = 'Submitted';
-        else if (status === 'won') displayStatus = 'Active';
-        else if (status === 'in_progress') displayStatus = 'Active';
-        else if (status === 'completed') displayStatus = 'Completed';
-        else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
+        const statusSlug = (p.status || 'draft').toString().toLowerCase().replace(/\s+/g, '_');
 
       const revenue = getProjectRevenue(mergedProject);
       const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
       const rawProgress = progressPct / 100; // Convert to 0-1
-      const finalProgress = status === 'completed' ? 1.0 : rawProgress;
+      // Timeline/milestones can show 100% while list status is still won/in_progress (e.g. payments done but updateProject('completed') never ran).
+      const activeLike =
+        statusSlug === 'won' ||
+        statusSlug === 'in_progress' ||
+        statusSlug === 'in-progress' ||
+        statusSlug === 'active';
+      const slugForUi =
+        statusSlug === 'completed' || statusSlug === 'lost'
+          ? statusSlug
+          : activeLike && progressPct >= 99.5
+            ? 'completed'
+            : statusSlug;
+
+      let displayStatus = 'Draft';
+      if (slugForUi === 'estimate' || slugForUi === 'draft') displayStatus = 'Draft';
+      else if (slugForUi === 'bid_submitted' || slugForUi === 'submitted') displayStatus = 'Submitted';
+      else if (slugForUi === 'won') displayStatus = 'Active';
+      else if (slugForUi === 'in_progress' || slugForUi === 'in-progress') displayStatus = 'Active';
+      else if (slugForUi === 'completed') displayStatus = 'Completed';
+      else displayStatus = (p.status || 'draft').toString().charAt(0).toUpperCase() + (p.status || 'draft').toString().slice(1);
+
+      const finalProgress = slugForUi === 'completed' ? 1.0 : rawProgress;
 
       // Compute actual cost same as Budget tab: expenses + received POs (not stale list fields)
       const pd = mergedProject?.projectData ?? mergedProject;
@@ -603,7 +634,7 @@ export default function ProjectsScreen() {
             actualExpenses: actualCost,
             committedPOs,
             progressPct: finalProgress * 100,
-            isCompleted: status === 'completed',
+            isCompleted: slugForUi === 'completed',
           })
         : null;
 
@@ -624,7 +655,7 @@ export default function ProjectsScreen() {
         : (spendToDateMargin ?? profitForecast?.projectedMarginPct ?? (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0));
 
       // Only show revenue for submitted/active/completed projects, show $0 for drafts
-      const displayAmount = (displayStatus === 'Draft' || status === 'estimate') ? 0 : revenue;
+      const displayAmount = (displayStatus === 'Draft' || statusSlug === 'estimate') ? 0 : revenue;
 
       return {
         id: p.id,
@@ -640,12 +671,12 @@ export default function ProjectsScreen() {
             : `${displayMargin.toFixed(1)}% margin`,
         projectedProfit: displayProfit,
         dateLabel: p.endDate
-          ? status === 'completed'
+          ? slugForUi === 'completed'
             ? `Completed ${formatDateShort(p.endDate)}`
             : `Due ${formatDateShort(p.endDate)}`
           : 'No due date',
         rawProject: mergedProject,
-        rawStatus: status,
+        rawStatus: slugForUi,
       };
     });
   }, [activeProjects, estimates, projectDataOverrides, timelineProgress]);
@@ -657,7 +688,14 @@ export default function ProjectsScreen() {
     } else if (activeTab === 'completed') {
       return allProjects.filter(p => p.status === 'Completed' || p.rawStatus === 'completed');
     } else {
-      return allProjects.filter(p => p.status === 'Active' || p.rawStatus === 'won' || p.rawStatus === 'in_progress' || p.rawStatus === 'active');
+      return allProjects.filter(
+        (p) =>
+          p.status === 'Active' ||
+          p.rawStatus === 'won' ||
+          p.rawStatus === 'in_progress' ||
+          p.rawStatus === 'in-progress' ||
+          p.rawStatus === 'active'
+      );
     }
   }, [allProjects, activeTab]);
 
@@ -736,6 +774,11 @@ export default function ProjectsScreen() {
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setActiveTab('active');
+      try {
+        router.setParams({ tab: 'active' });
+      } catch {
+        /* ignore */
+      }
       convertBidToProject(projectId);
 
       setSuccessProjectName(projectName);
@@ -799,6 +842,11 @@ export default function ProjectsScreen() {
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveTab('active');
+              try {
+                router.setParams({ tab: 'active' });
+              } catch {
+                /* ignore */
+              }
             }}
           >
             <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
@@ -810,6 +858,11 @@ export default function ProjectsScreen() {
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveTab('submitted');
+              try {
+                router.setParams({ tab: 'submitted' });
+              } catch {
+                /* ignore */
+              }
             }}
           >
             <Text style={[styles.tabText, activeTab === 'submitted' && styles.tabTextActive]}>
@@ -821,6 +874,11 @@ export default function ProjectsScreen() {
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setActiveTab('completed');
+              try {
+                router.setParams({ tab: 'completed' });
+              } catch {
+                /* ignore */
+              }
             }}
           >
             <Text style={[styles.tabText, activeTab === 'completed' && styles.tabTextActive]}>

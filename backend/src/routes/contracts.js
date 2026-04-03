@@ -1,3 +1,4 @@
+const fs = require('fs');
 const express = require('express');
 
 const router = express.Router();
@@ -34,19 +35,50 @@ async function launchBrowser(puppeteer) {
     });
   }
 
-  // Prefer installed Google Chrome (stable path on dev Mac/Windows/Linux) so PDF works without
-  // `npx puppeteer browsers install chrome` matching the same cache dir as the running process.
+  // On Render/Linux there is no Google Chrome app; use Puppeteer's downloaded binary first.
+  let bundledPath = null;
   try {
-    return await puppeteer.launch({
-      headless: true,
-      channel: process.env.PUPPETEER_CHANNEL || 'chrome',
-      args: launchArgs,
-    });
+    if (typeof puppeteer.executablePath === 'function') {
+      bundledPath = puppeteer.executablePath();
+    }
   } catch (e) {
-    console.warn(
-      '[contracts] Launch with channel=chrome failed, using Puppeteer-managed browser:',
-      e instanceof Error ? e.message : e,
+    console.warn('[contracts] puppeteer.executablePath() failed:', e instanceof Error ? e.message : e);
+  }
+  if (bundledPath && fs.existsSync(bundledPath)) {
+    try {
+      return await puppeteer.launch({
+        headless: true,
+        executablePath: bundledPath,
+        args: launchArgs,
+      });
+    } catch (e) {
+      console.warn('[contracts] Launch with bundled Chrome failed:', e instanceof Error ? e.message : e);
+    }
+  } else {
+    console.error(
+      '[contracts] No Puppeteer Chrome at executablePath(). PUPPETEER_CACHE_DIR=%s — run: npx puppeteer browsers install chrome',
+      process.env.PUPPETEER_CACHE_DIR || '(default)',
     );
+  }
+
+  // Local dev: optional system Chrome (skip on Render/production — avoids "Could not find Chrome" noise).
+  const skipSystemChannel =
+    process.env.RENDER === 'true' ||
+    process.env.PUPPETEER_SKIP_CHANNEL === '1' ||
+    process.env.NODE_ENV === 'production';
+  if (!skipSystemChannel) {
+    try {
+      return await puppeteer.launch({
+        headless: true,
+        channel: process.env.PUPPETEER_CHANNEL || 'chrome',
+        args: launchArgs,
+      });
+    } catch (e) {
+      console.warn(
+        '[contracts] Launch with channel=chrome failed, falling back:',
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
 
   return puppeteer.launch({
@@ -69,7 +101,12 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = launchBrowser(puppeteer);
   }
-  return browserPromise;
+  try {
+    return await browserPromise;
+  } catch (e) {
+    browserPromise = null;
+    throw e;
+  }
 }
 
 router.post('/render-pdf', async (req, res) => {
@@ -173,9 +210,30 @@ router.post('/render-pdf', async (req, res) => {
   }
 });
 
-/** Lets you verify deploy: GET /api/contracts/pdf-ready */
+/** Verify deploy: GET /api/contracts/pdf-ready — `ok` is true only if bundled Chrome exists on disk. */
 router.get('/pdf-ready', (req, res) => {
-  res.json({ ok: true, route: 'contracts', pdf: 'POST /api/contracts/render-pdf' });
+  const cacheDir = process.env.PUPPETEER_CACHE_DIR || '';
+  let puppeteerPath = null;
+  let exists = false;
+  let loadError = null;
+  try {
+    const puppeteer = require('puppeteer');
+    if (typeof puppeteer.executablePath === 'function') {
+      puppeteerPath = puppeteer.executablePath();
+      exists = Boolean(puppeteerPath && fs.existsSync(puppeteerPath));
+    }
+  } catch (e) {
+    loadError = e instanceof Error ? e.message : String(e);
+  }
+  res.json({
+    ok: exists && !loadError,
+    route: 'contracts',
+    pdf: 'POST /api/contracts/render-pdf',
+    puppeteerCacheDir: cacheDir,
+    puppeteerExecutablePath: puppeteerPath,
+    chromeOnDisk: exists,
+    ...(loadError ? { puppeteerLoadError: loadError } : {}),
+  });
 });
 
 module.exports = router;

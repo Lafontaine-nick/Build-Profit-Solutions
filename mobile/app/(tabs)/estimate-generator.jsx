@@ -42,7 +42,6 @@ import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import EmptyStateCard from '../../components/EmptyStateCard';
-import CoachFlag from '../../components/CoachFlag';
 import ContractSettingsCompact from '../../components/ContractSettingsCompact';
 import BottomToast from '../../components/BottomToast';
 // Contract PDF export
@@ -3507,11 +3506,15 @@ export default function EstimateGeneratorScreen() {
   const [savedEstimates, setSavedEstimates] = useState([]);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
-  const [showCoachFlags, setShowCoachFlags] = useState(false);
-  const [showGuideRail, setShowGuideRail] = useState(false);
   const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
   const [hasReviewedTotal, setHasReviewedTotal] = useState(false);
   const [guidedMode, setGuidedMode] = useState(false);
+  /** Eligibility from AsyncStorage — walkthrough until second bid (see hasMultipleBids). */
+  const [coachGate, setCoachGate] = useState({
+    secondBid: false,
+    firstTimeEst: false,
+    reset: false,
+  });
   const [materialsAddedFlag, setMaterialsAddedFlag] = useState(false);
   const lastCompletionRef = useRef(0);
   const [showToast, setShowToast] = useState(false);
@@ -3584,12 +3587,11 @@ export default function EstimateGeneratorScreen() {
     });
   }, [isFirstTime, hasCreatedFirstEstimate, hasSubmittedFirstEstimate, isLoaded, step, calc?.total]);
 
-  // Update isFirstTime when estimates or activeProjects load (they might load after initial mount)
+  // Persist "submitted at least once" without turning off first-run copy until second bid (handled by coachGate / hasMultipleBids).
   useEffect(() => {
-    if (!isLoaded) return; // Wait for initial load to complete
-    if (isOnboardingReset) return; // Keep first-time experience after reset
-    
-    // Check if there are any submitted estimates in all possible locations
+    if (!isLoaded) return;
+    if (isOnboardingReset) return;
+
     const hasSubmittedInEstimates = Array.isArray(estimates) && estimates.some(e => {
       const status = (e.status || '').toLowerCase();
       return status === 'bid_submitted' || status === 'submitted' || status === 'won' || status === 'in_progress' || status === 'active';
@@ -3602,20 +3604,14 @@ export default function EstimateGeneratorScreen() {
       const status = (p.status || '').toLowerCase();
       return p.estimateData || status === 'in_progress' || status === 'active' || status === 'won';
     });
-    
+
     const hasAnySubmitted = hasSubmittedInEstimates || hasSubmittedInSavedEstimates || hasSubmittedInProjects;
-    
-    // If there are submitted estimates and isFirstTime is still true, set it to false
-    if (hasAnySubmitted && isFirstTime) {
-      setIsFirstTime(false);
-      // Also update the flag if it's not set
-      if (!hasSubmittedFirstEstimate) {
-        setHasSubmittedFirstEstimate(true);
-        AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true').catch(() => {});
-      }
-      console.log('✅ Found submitted estimates after load - setting isFirstTime to false');
+
+    if (hasAnySubmitted && !hasSubmittedFirstEstimate) {
+      setHasSubmittedFirstEstimate(true);
+      AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true').catch(() => {});
     }
-  }, [isLoaded, isOnboardingReset, estimates, savedEstimates, activeProjects, isFirstTime, hasSubmittedFirstEstimate]);
+  }, [isLoaded, isOnboardingReset, estimates, savedEstimates, activeProjects, hasSubmittedFirstEstimate]);
 
   useEffect(() => {
     if (step === 5) {
@@ -3696,21 +3692,69 @@ export default function EstimateGeneratorScreen() {
   // ============================================
   // WALKTHROUGH VISIBILITY LOGIC
   // ============================================
-  
-  // TESTING MODE: Only show when reset onboarding was explicitly triggered
-  const shouldShowGuidance = showCoachFlags && isOnboardingReset;
-  
-  // LIVE IMPLEMENTATION (uncomment when ready for production):
-  // Show walkthrough for:
-  // 1. New users (first app install) who haven't submitted their first estimate
-  // 2. Users creating their very first estimate (hasn't been created/submitted yet)
-  // After first estimate is submitted, walkthrough should never show again
-  // 
-  // const shouldShowGuidance = showCoachFlags && 
-  //   isFirstTime && 
-  //   !hasCreatedFirstEstimate && 
-  //   !hasSubmittedFirstEstimate && 
-  //   !hasAnySubmittedEstimates;
+  // Show estimate helper only until the user has two distinct bids (second "+ New" or two IDs in lists).
+  // Persist bps.secondBidCreated so project-detail kickoff / AI strip can hide too.
+
+  const hasMultipleBids = useMemo(() => {
+    const ids = new Set();
+    for (const e of estimates || []) {
+      const id = String(e?.id ?? '').trim();
+      if (id) ids.add(id);
+    }
+    for (const e of savedEstimates || []) {
+      const id = String(e?.id ?? e?.data?.id ?? '').trim();
+      if (id) ids.add(id);
+    }
+    if (bid?.id) ids.add(String(bid.id));
+    return ids.size >= 2;
+  }, [estimates, savedEstimates, bid?.id]);
+
+  const refreshCoachGate = useCallback(async () => {
+    try {
+      const [second, first, reset] = await Promise.all([
+        AsyncStorage.getItem('bps.secondBidCreated'),
+        AsyncStorage.getItem('bps.isFirstTimeEstimate'),
+        AsyncStorage.getItem('bps.forceEstimateOnboarding'),
+      ]);
+      setCoachGate({
+        secondBid: second === 'true',
+        firstTimeEst: first === 'true',
+        reset: reset === 'true',
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    refreshCoachGate();
+  }, [isLoaded, refreshCoachGate]);
+
+  useEffect(() => {
+    if (!isLoaded || !hasMultipleBids) return;
+    (async () => {
+      try {
+        await AsyncStorage.setItem('bps.secondBidCreated', 'true');
+        await AsyncStorage.multiRemove([
+          'bps.isFirstTimeEstimate',
+          'bps.forceEstimateOnboarding',
+        ]);
+        setCoachGate((g) => ({ ...g, secondBid: true, firstTimeEst: false, reset: false }));
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [isLoaded, hasMultipleBids]);
+
+  const shouldShowGuidance =
+    !hasMultipleBids &&
+    !coachGate.secondBid &&
+    (isOnboardingReset || coachGate.firstTimeEst || coachGate.reset);
+
+  useEffect(() => {
+    setGuidedMode(shouldShowGuidance);
+  }, [shouldShowGuidance]);
   /** Step 1 complete when we have name + phone + address (one line or city+state). Email optional. */
   const hasClientInfo = Boolean(
     (bid.customerName || bid.clientName) &&
@@ -3822,11 +3866,6 @@ export default function EstimateGeneratorScreen() {
     if (!hasClientInfo || !hasJobInfo) {
       setStep(1);
       setActiveNavButton('next');
-      // Dismiss welcome card when navigating to step 1
-      if (showGuideRail) {
-        await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-        setShowGuideRail(false);
-      }
       return;
     }
     if (!hasMaterials) {
@@ -4321,8 +4360,6 @@ export default function EstimateGeneratorScreen() {
         setHasCreatedFirstEstimate(true);
         setIsFirstTime(false);
         setIsOnboardingReset(false);
-          setShowCoachFlags(false);
-        setShowGuideRail(false);
         // Show toast after a short delay
         setTimeout(() => {
           setShowToast(true);
@@ -4970,19 +5007,14 @@ export default function EstimateGeneratorScreen() {
               status === 'active'
             );
           });
-        const coachFlagsEnabled = await AsyncStorage.getItem('bps.showEstimateCoachFlags');
-        const guideRailEnabled = await AsyncStorage.getItem('bps.showEstimateGuideRail');
-        const guideRailDismissed = await AsyncStorage.getItem('bps.dismissEstimateGuideRail');
-        
         // Determine if user has already created/submitted estimates
         const hasExistingWork = firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates;
         
         if (resetFlag === 'true') {
-          // Explicit reset request: show onboarding walkthrough
           setIsOnboardingReset(true);
           setIsFirstTime(true);
-          setShowCoachFlags(true);
-          setShowGuideRail(guideRailEnabled === 'true' && guideRailDismissed !== 'true');
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
         } else if (hasExistingWork) {
           // User has already created/submitted estimates - don't show guidance
           await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
@@ -4991,19 +5023,11 @@ export default function EstimateGeneratorScreen() {
           await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
           await AsyncStorage.removeItem('bps.forceEstimateOnboarding');
           setIsOnboardingReset(false);
-          setShowCoachFlags(false);
-          setShowGuideRail(false);
         } else {
-          // NEW USER: No estimates yet - show guidance for first-time experience
-          // This helps new users understand the estimate flow
           setIsOnboardingReset(false);
           setIsFirstTime(true);
-          setShowCoachFlags(true); // Enable coach flags for new users
-          setShowGuideRail(guideRailDismissed !== 'true'); // Show guide rail unless dismissed
-          
-          // Save flags so they persist
-          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
-          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
+          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
         }
       } catch (error) {
         console.error('Error checking onboarding flag:', error);
@@ -8280,8 +8304,6 @@ export default function EstimateGeneratorScreen() {
               await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
               await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
               setIsOnboardingReset(false);
-              setShowCoachFlags(false);
-              setShowGuideRail(false);
               if (!hasSubmittedFirstEstimate) {
                 setHasSubmittedFirstEstimate(true);
                 console.log('✅ First estimate submitted - hiding walkthrough cards');
@@ -8955,8 +8977,6 @@ export default function EstimateGeneratorScreen() {
           // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
           // After creating a new bid, walkthrough should be hidden
           setIsOnboardingReset(false);
-          setShowGuideRail(false);
-          setShowCoachFlags(false);
           await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
           await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
           await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
@@ -15860,11 +15880,6 @@ export default function EstimateGeneratorScreen() {
                       onPress={async () => {
                         setStep(step + 1);
                         setActiveNavButton('next');
-                        // Dismiss welcome card when clicking Next
-                        if (showGuideRail) {
-                          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-                          setShowGuideRail(false);
-                        }
                       }}
                     >
                       <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '600' }}>Next</Text>
@@ -15876,11 +15891,6 @@ export default function EstimateGeneratorScreen() {
                     activeOpacity={0.85}
                     style={s.navNextWrap}
                     onPress={async () => {
-                      // Dismiss welcome card when clicking Next (regardless of destination)
-                      if (showGuideRail) {
-                        await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-                        setShowGuideRail(false);
-                      }
                       if (step === 0) {
                         // From Bid Summary (step 0), go to Customer Information (step 1)
                         setStep(1);
@@ -15904,61 +15914,6 @@ export default function EstimateGeneratorScreen() {
         </View>
       </View>
 
-        {/* First-run Guide Rail (inline, skippable) */}
-        {shouldShowGuidance && showGuideRail && (
-          <View style={{ marginBottom: 16 }}>
-            <LinearGradient
-              colors={['rgba(34, 197, 94, 0.12)', 'rgba(34, 211, 238, 0.12)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ borderRadius: 16, padding: 1 }}
-            >
-              <View
-                style={
-                  darkMode
-                    ? { backgroundColor: '#0b0f14', borderRadius: 15, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }
-                    : { backgroundColor: Colors.card, borderRadius: 15, padding: 16, borderWidth: 1, borderColor: Colors.line }
-                }
-              >
-                <Text style={{ color: darkMode ? '#f9fafb' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 }}>
-                  👋 Welcome to your first estimate
-                </Text>
-                <Text style={{ color: darkMode ? '#cbd5e1' : Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-                  We’ll walk you through this step by step. Start by adding client and job details — then materials and labor.
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={async () => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-                      setShowGuideRail(false);
-                      setGuidedMode(true);
-                      setStep(1);
-                      setActiveNavButton('next');
-                    }}
-                    style={{ backgroundColor: '#22c55e', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10 }}
-                  >
-                    <Text style={{ color: '#000000', fontSize: 13, fontWeight: '700' }}>Start guided setup</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={async () => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-                      setShowGuideRail(false);
-                      setGuidedMode(false);
-                    }}
-                    style={{ paddingVertical: 10, paddingHorizontal: 12 }}
-                  >
-                    <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, fontWeight: '600' }}>Skip for now</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </LinearGradient>
-          </View>
-        )}
-      
       {/* Step Section Card with Icons */}
       <View style={[s.wideContainer, { marginTop: 12 }]}>
         <LinearGradient
@@ -16109,12 +16064,6 @@ export default function EstimateGeneratorScreen() {
                 key={stepItem.id}
                 onPress={async () => {
                   setStep(stepItem.id);
-                  // Dismiss welcome card if user manually clicks any step
-                  if (showGuideRail) {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-                    setShowGuideRail(false);
-                  }
                 }}
                 style={{
                   alignItems: 'center',
@@ -16194,10 +16143,11 @@ export default function EstimateGeneratorScreen() {
           
           return shouldShowEmpty;
         })() ? (
+          <View style={s.wideContainer}>
           <EmptyStateCard
             onPress={async () => {
               // If we're coming from onboarding, keep everything empty ($0 total)
-              const nextBid = blankState(!showCoachFlags);
+              const nextBid = blankState(true);
               // Convert materialLineItems to materialsCart format
               if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
                 const defaultMaterials = nextBid.materialLineItems.map(item => ({
@@ -16229,6 +16179,7 @@ export default function EstimateGeneratorScreen() {
             }}
             subtitle="Create your first estimate to get started."
           />
+          </View>
         ) : (
           <>
             {/* Estimate Readiness Panel (first-run only, above breakdown) */}
@@ -16359,61 +16310,6 @@ export default function EstimateGeneratorScreen() {
             )}
 
             {renderStepContent()}
-            {/* Coach Flags - Only show one at a time, positioned after content */}
-            {(() => {
-              const shouldShowFlags = showCoachFlags && isFirstTime && !hasCreatedFirstEstimate;
-              console.log('🏁 Coach flags check:', {
-                showCoachFlags,
-                isFirstTime,
-                hasCreatedFirstEstimate,
-                shouldShowFlags,
-                step,
-                total: calc?.total,
-                step0Empty: step === 0 && (!calc?.total || calc.total === 0),
-                step3: step === 3,
-                step0WithTotal: step === 0 && calc?.total > 0,
-              });
-              return shouldShowFlags;
-            })() && (
-              <>
-                {/* Flag 1: Show on step 0 (Summary) when total is 0 or empty */}
-                {step === 0 && (!calc?.total || calc.total === 0) && (
-                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
-                    <CoachFlag
-                      id="start-here"
-                      label="Start here"
-                      text="Every project begins with an estimate."
-                      position="bottom"
-                      delay={600}
-                    />
-                  </View>
-                )}
-                {/* Flag 2: Show on step 3 (Materials) to guide adding materials */}
-                {step === 3 && (
-                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
-                    <CoachFlag
-                      id="tip-materials"
-                      label="Tip"
-                      text="Add labor and materials first — profit updates automatically."
-                      position="bottom"
-                      delay={600}
-                    />
-                  </View>
-                )}
-                {/* Flag 3: Show on step 0 (Summary) when total > 0 to show profit tracking */}
-                {step === 0 && calc?.total > 0 && (
-                  <View style={{ marginTop: 20, marginHorizontal: 16, marginBottom: 20 }}>
-                    <CoachFlag
-                      id="profit-check"
-                      label="Profit Check"
-                      text="Your margin updates live as you build the estimate."
-                      position="bottom"
-                      delay={600}
-                    />
-                  </View>
-                )}
-              </>
-            )}
           </>
         )}
         </ScrollView>

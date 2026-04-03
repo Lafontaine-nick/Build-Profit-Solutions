@@ -3,8 +3,10 @@ services:
     name: build-profit-solutions-backend
     env: node
     plan: starter
-    buildCommand: npm install
-    startCommand: npm start
+    # Same cache dir as server.js (NODE_ENV=production → backend/.puppeteer-cache)
+    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install && npx puppeteer browsers install chrome
+    # Match build cache dir at runtime (Render home default cache is empty here).
+    startCommand: export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache" && npm start
     envVars:
       - key: NODE_ENV
         value: production
