@@ -77,7 +77,7 @@ const AuthScreen: React.FC = () => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
-  const inputPlaceholderColor = darkMode ? '#FFFFFF' : '#64748B';
+  const inputPlaceholderColor = darkMode ? '#6B7280' : '#64748B';
   const params = useLocalSearchParams<{ mode?: string }>();
 
   const initialMode = params.mode === 'signin' ? 'signin' : 'signup';
@@ -93,6 +93,8 @@ const AuthScreen: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [needsVerificationCode, setNeedsVerificationCode] = useState(false);
+  /** Clerk sign-up: email_code after signUp.create when status is not complete */
+  const [needsSignupEmailCode, setNeedsSignupEmailCode] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
 
   const isSignup = mode === 'signup';
@@ -783,6 +785,12 @@ const AuthScreen: React.FC = () => {
     if (!isValid) {
       return;
     }
+
+    // Clerk rejects signIn.create / signUp.create while a session already exists
+    if (isClerkEnabled && clerkAuth?.isSignedIn) {
+      router.replace('/(tabs)/dashboard');
+      return;
+    }
       
     setLoading(true);
     try {
@@ -815,8 +823,23 @@ const AuthScreen: React.FC = () => {
               ]);
             }
           } else {
-            // Need to verify email
-            Alert.alert('Verify Email', 'Please check your email to verify your account before signing in.');
+            // Email verification (or other requirements) — must prepare so Clerk sends the code
+            const su = signUpHook.signUp;
+            try {
+              if (su && typeof su.prepareEmailAddressVerification === 'function') {
+                await su.prepareEmailAddressVerification({ strategy: 'email_code' });
+              }
+              setVerificationCode('');
+              setNeedsSignupEmailCode(true);
+            } catch (prepErr: any) {
+              console.error('Sign-up email verification prepare:', prepErr);
+              const prepMsg =
+                prepErr?.errors?.[0]?.longMessage ||
+                prepErr?.errors?.[0]?.message ||
+                prepErr?.message ||
+                'Could not start email verification. Check Clerk sign-up settings or try again.';
+              Alert.alert('Verify Email', prepMsg);
+            }
           }
         } else {
           // Sign in with Clerk
@@ -913,9 +936,21 @@ const AuthScreen: React.FC = () => {
         }
       }
     } catch (error: any) {
-      console.error('Auth error:', error);
-      console.error('Auth error details:', JSON.stringify(error, null, 2));
-      
+      console.warn('Auth error:', error?.message ?? error);
+      if (__DEV__) {
+        console.log('Auth error details:', JSON.stringify(error, null, 2));
+      }
+
+      const clerkErrCode = error?.errors?.[0]?.code;
+      if (clerkErrCode === 'session_exists') {
+        Alert.alert(
+          'Already signed in',
+          'Your session is still active. Continuing to the app.',
+          [{ text: 'OK', onPress: () => router.replace('/(tabs)/dashboard') }]
+        );
+        return;
+      }
+
       // Extract error message from Clerk error format
       let errorMessage = 'An error occurred. Please try again.';
       
@@ -927,13 +962,31 @@ const AuthScreen: React.FC = () => {
         errorMessage = error;
       }
       
-      // Provide more helpful error messages
-      if (errorMessage.includes('password') || errorMessage.includes('Password')) {
-        errorMessage = 'Invalid email or password. Please try again.';
-      } else if (errorMessage.includes('email') || errorMessage.includes('Email')) {
-        errorMessage = 'Invalid email address. Please check and try again.';
-      } else if (!errorMessage || errorMessage === 'An error occurred. Please try again.') {
-        errorMessage = isSignup ? 'Failed to create account. Please try again.' : 'Invalid email or password. Please try again.';
+      // Sign-in: map vague credential errors. Sign-up: keep Clerk's message — it often
+      // contains "password" (policy, pwned list) and must not become "invalid login".
+      if (isSignup) {
+        const code = error?.errors?.[0]?.code;
+        const lower = errorMessage.toLowerCase();
+        if (
+          code === 'form_identifier_exists' ||
+          code === 'form_param_exists' ||
+          lower.includes('already exists') ||
+          lower.includes('identifier_exists') ||
+          lower.includes('is taken')
+        ) {
+          errorMessage =
+            'An account with this email already exists. Try Sign in, or use a different email.';
+        } else if (!errorMessage || errorMessage === 'An error occurred. Please try again.') {
+          errorMessage = 'Could not create account. Please check your details and try again.';
+        }
+      } else {
+        if (errorMessage.includes('password') || errorMessage.includes('Password')) {
+          errorMessage = 'Invalid email or password. Please try again.';
+        } else if (errorMessage.includes('email') || errorMessage.includes('Email')) {
+          errorMessage = 'Invalid email address. Please check and try again.';
+        } else if (!errorMessage || errorMessage === 'An error occurred. Please try again.') {
+          errorMessage = 'Invalid email or password. Please try again.';
+        }
       }
       
       Alert.alert('Error', errorMessage);
@@ -982,6 +1035,58 @@ const AuthScreen: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const handleVerifySignupCode = async () => {
+    if (!verificationCode.trim()) {
+      Alert.alert('Error', 'Please enter the verification code');
+      return;
+    }
+
+    if (!isClerkEnabled || !signUpHook?.signUp) {
+      Alert.alert('Error', 'Authentication service is not ready.');
+      return;
+    }
+
+    const setActive = signInHook?.setActive || signUpHook.setActive || clerkInstance?.setActive;
+
+    setLoading(true);
+    try {
+      const result = await signUpHook.signUp.attemptEmailAddressVerification({
+        code: verificationCode.trim(),
+      });
+
+      if (result.status === 'complete' && result.createdSessionId && setActive) {
+        await setActive({ session: result.createdSessionId });
+        setNeedsSignupEmailCode(false);
+        setVerificationCode('');
+        router.replace('/(tabs)/dashboard');
+      } else if (result.status === 'complete' && !result.createdSessionId) {
+        Alert.alert(
+          'Success',
+          'Email verified. You can sign in now.',
+          [{ text: 'OK', onPress: () => router.replace('/auth?mode=signin') }]
+        );
+        setNeedsSignupEmailCode(false);
+        setVerificationCode('');
+      } else {
+        Alert.alert('Error', 'Could not complete sign up. Check the code and try again.');
+      }
+    } catch (error: any) {
+      console.error('Sign-up code verification error:', error);
+      const errorMessage =
+        error?.errors?.[0]?.longMessage ||
+        error?.errors?.[0]?.message ||
+        error?.message ||
+        'Invalid verification code. Please try again.';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const awaitingCode =
+    (needsVerificationCode && !isSignup) || (needsSignupEmailCode && isSignup);
+  const codeTooShort = verificationCode.trim().length < 6;
 
   return (
     <View style={styles.gradient}>
@@ -1039,6 +1144,9 @@ const AuthScreen: React.FC = () => {
                       setMode('signup');
                       setErrors({});
                       setTouched({});
+                      setNeedsSignupEmailCode(false);
+                      setNeedsVerificationCode(false);
+                      setVerificationCode('');
                     }
                   }}
                 >
@@ -1065,6 +1173,9 @@ const AuthScreen: React.FC = () => {
                       setMode('signin');
                       setErrors({});
                       setTouched({});
+                      setNeedsSignupEmailCode(false);
+                      setNeedsVerificationCode(false);
+                      setVerificationCode('');
                     }
                   }}
                 >
@@ -1096,7 +1207,7 @@ const AuthScreen: React.FC = () => {
                     ]}>
                       <TextInput
                         style={styles.input}
-                        placeholder="Nick"
+                        placeholder={t('auth.firstNamePlaceholder')}
                         placeholderTextColor={inputPlaceholderColor}
                         autoCapitalize="words"
                         value={firstName}
@@ -1126,7 +1237,7 @@ const AuthScreen: React.FC = () => {
                     ]}>
                       <TextInput
                         style={styles.input}
-                        placeholder="Lafontaine"
+                        placeholder={t('auth.lastNamePlaceholder')}
                         placeholderTextColor={inputPlaceholderColor}
                         autoCapitalize="words"
                         value={lastName}
@@ -1306,8 +1417,8 @@ const AuthScreen: React.FC = () => {
                 </View>
               )}
 
-              {/* Verification Code Input (shown when needs_second_factor) */}
-              {needsVerificationCode && !isSignup && (
+              {/* Email code: sign-in 2FA or sign-up verification */}
+              {awaitingCode && (
                 <View style={styles.field}>
                   <Text style={styles.label}>Verification Code</Text>
                   <View style={styles.inputWrapper}>
@@ -1324,13 +1435,15 @@ const AuthScreen: React.FC = () => {
                     />
                   </View>
                   <Text style={styles.helperText}>
-                    Check your email for the verification code
+                    {needsSignupEmailCode
+                      ? 'Enter the code we emailed you to finish creating your account.'
+                      : 'Check your email for the verification code to sign in.'}
                   </Text>
                 </View>
               )}
 
-              {/* Forgot password (signin only) */}
-              {!isSignup && (
+              {/* Forgot password (signin only, not while entering 2FA code) */}
+              {!isSignup && !needsVerificationCode && (
                 <TouchableOpacity
                   style={styles.forgotRow}
                   onPress={() => router.push('/auth/forgot-password')}
@@ -1345,10 +1458,16 @@ const AuthScreen: React.FC = () => {
                 activeOpacity={0.9}
                 style={[
                   styles.primaryBtnWrapper,
-                  (loading || (needsVerificationCode && verificationCode.length < 6)) && styles.primaryBtnWrapperDisabled
+                  (loading || (awaitingCode && codeTooShort)) && styles.primaryBtnWrapperDisabled
                 ]}
-                onPress={needsVerificationCode && !isSignup ? handleVerifyCode : handleSubmit}
-                disabled={loading || (needsVerificationCode && verificationCode.length < 6)}
+                onPress={
+                  awaitingCode
+                    ? isSignup
+                      ? handleVerifySignupCode
+                      : handleVerifyCode
+                    : handleSubmit
+                }
+                disabled={loading || (awaitingCode && codeTooShort)}
               >
                 <LinearGradient
                   colors={["#19E180", "#22c55e"]}
@@ -1360,7 +1479,11 @@ const AuthScreen: React.FC = () => {
                     <ActivityIndicator color="#022C22" />
                   ) : (
                     <Text style={styles.primaryBtnText}>
-                      {isSignup ? t('auth.createAccount') : t('auth.signIn')}
+                      {awaitingCode
+                        ? 'Verify code'
+                        : isSignup
+                          ? t('auth.createAccount')
+                          : t('auth.signIn')}
                     </Text>
                   )}
                 </LinearGradient>
@@ -1554,11 +1677,11 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 9,
     backgroundColor: isDark ? "#000000" : "#FFFFFF",
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148,163,184,0.9)" : "#E2E8F0",
+    borderColor: isDark ? "#FFFFFF" : "#E2E8F0",
   },
   input: {
     flex: 1,
-    color: isDark ? "#F9FAFB" : Colors.text,
+    color: isDark ? "#FFFFFF" : Colors.text,
     fontSize: 15,
   },
   inputError: {

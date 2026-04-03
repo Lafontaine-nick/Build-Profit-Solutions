@@ -379,9 +379,27 @@ class ApiService {
     this.cache.clear();
   }
 
-  async deleteAccount(): Promise<void> {
-    const response = await this.delete<{ success: boolean; message: string }>('/api/auth/account');
-    return response.data;
+  async deleteAccount(): Promise<{
+    success?: boolean;
+    message?: string;
+    clerkDeleteFailed?: boolean;
+  } | void> {
+    try {
+      const response = await this.delete<{
+        success: boolean;
+        message: string;
+        clerkDeleteFailed?: boolean;
+      }>('/api/auth/account');
+      return response.data;
+    } catch (error: any) {
+      // Clerk users often have no legacy `users` row yet — DELETE returns 404; treat as already gone.
+      const status = error?.status as number | undefined;
+      const msg = String(error?.message ?? '').toLowerCase();
+      if (status === 404 || msg.includes('user not found')) {
+        return { clerkDeleteFailed: true };
+      }
+      throw error;
+    }
   }
 
   async exportData(): Promise<any> {

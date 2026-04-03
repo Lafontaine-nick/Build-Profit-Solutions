@@ -116,7 +116,7 @@
   "landing": {
     "tagline": "Smart Construction Management",
     "aiPowered": "AI-powered tools · Built for contractors",
-    "getStarted": "Build accurate, profitable estimates in minutes.",
+    "getStarted": "Build & manage profitable estimates",
     "getStartedButton": "GET STARTED",
     "launchDescription": "AI-powered estimating, job costing, and project insights — built for contractors.",
     "aiEstimates": "AI Estimates",
@@ -136,6 +136,8 @@
     "signIn": "Sign in",
     "firstName": "First name",
     "lastName": "Last name",
+    "firstNamePlaceholder": "John",
+    "lastNamePlaceholder": "Smith",
     "email": "Email",
     "password": "Password",
     "confirmPassword": "Confirm password",

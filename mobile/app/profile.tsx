@@ -864,14 +864,19 @@ export default function ProfileScreen() {
                         { cancelable: false }
                       );
 
+                      let deleteApiClerkFailed = false;
                       // Call the delete account API
                       if (apiLogout) {
                         // First try to delete account via API
                         try {
                           const apiService = require('@/services/api').apiService;
-                          await apiService.deleteAccount();
+                          const delResult = await apiService.deleteAccount();
+                          if (delResult && delResult.clerkDeleteFailed) {
+                            deleteApiClerkFailed = true;
+                          }
                         } catch (apiError) {
                           console.error('Error calling delete account API:', apiError);
+                          deleteApiClerkFailed = true;
                           // Continue with local cleanup even if API call fails
                         }
                       }
@@ -925,8 +930,12 @@ export default function ProfileScreen() {
                       
                       // Show success message and navigate to landing page
                       Alert.alert(
-                        'Account Deleted',
-                        'Your account has been successfully deleted. All your data has been permanently removed.',
+                        deleteApiClerkFailed
+                          ? 'Data removed'
+                          : 'Account Deleted',
+                        deleteApiClerkFailed
+                          ? 'Your app data was cleared and you were signed out. If sign-in still recognizes this email, remove the user in the Clerk Dashboard (Users) or contact support so the email can be reused.'
+                          : 'Your account has been successfully deleted. All your data has been permanently removed.',
                         [
                           {
                             text: 'OK',

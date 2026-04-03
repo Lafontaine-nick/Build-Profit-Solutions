@@ -20,6 +20,35 @@ if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('yo
 let inMemoryUsers = loadUsers();
 console.log(`📦 Loaded ${inMemoryUsers.size} users from disk`);
 
+/** Clerk JWT `sub` is `user_*`; Postgres `users.id` is integer — never match. */
+function isClerkUserId(userId) {
+  return typeof userId === 'string' && userId.startsWith('user_');
+}
+
+/** @returns {Promise<{ ok: boolean }>} */
+async function deleteClerkUserAccount(clerkUserId) {
+  if (!isClerkUserId(clerkUserId)) {
+    return { ok: true };
+  }
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret || secret.includes('your_')) {
+    console.warn(
+      '⚠️ CLERK_SECRET_KEY not set — cannot delete user in Clerk. Email stays reserved until removed in Clerk Dashboard.'
+    );
+    return { ok: false };
+  }
+  try {
+    const { createClerkClient } = require('@clerk/backend');
+    const clerk = createClerkClient({ secretKey: secret });
+    await clerk.users.deleteUser(clerkUserId);
+    console.log(`✅ Deleted Clerk user ${clerkUserId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('⚠️ Clerk users.deleteUser failed:', err.message);
+    return { ok: false };
+  }
+}
+
 // Middleware to verify JWT token or Clerk token
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -769,6 +798,7 @@ router.delete('/account', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
+    const isClerk = isClerkUserId(userId);
     const pool = getPool();
     let useInMemory = false;
 
@@ -783,11 +813,18 @@ router.delete('/account', authenticateToken, async (req, res) => {
     if (stripe) {
       try {
         if (pool && !useInMemory) {
-          // Get user's Stripe customer ID from database
-          const userResult = await pool.query(
-            'SELECT stripe_customer_id FROM users WHERE id = $1',
-            [userId]
-          );
+          let userResult = { rows: [] };
+          if (isClerk && userEmail) {
+            userResult = await pool.query(
+              'SELECT stripe_customer_id FROM users WHERE LOWER(email) = LOWER($1)',
+              [userEmail]
+            );
+          } else if (!isClerk) {
+            userResult = await pool.query(
+              'SELECT stripe_customer_id FROM users WHERE id = $1',
+              [userId]
+            );
+          }
 
           if (userResult.rows.length > 0 && userResult.rows[0].stripe_customer_id) {
             const stripeCustomerId = userResult.rows[0].stripe_customer_id;
@@ -813,7 +850,15 @@ router.delete('/account', authenticateToken, async (req, res) => {
         } else if (useInMemory) {
           // Check in-memory users for Stripe customer ID
           inMemoryUsers = loadUsers();
-          const userData = Array.from(inMemoryUsers.values()).find(u => u.id === userId);
+          let userData =
+            userEmail && inMemoryUsers.has(userEmail)
+              ? inMemoryUsers.get(userEmail)
+              : null;
+          if (!userData) {
+            userData = Array.from(inMemoryUsers.values()).find(
+              (u) => u.id === userId
+            );
+          }
           if (userData && userData.stripe_customer_id) {
             const subscriptions = await stripe.subscriptions.list({
               customer: userData.stripe_customer_id,
@@ -840,26 +885,50 @@ router.delete('/account', authenticateToken, async (req, res) => {
     }
 
     // 2. Delete from database (if using database)
+    // Clerk JWT sub is user_*; users.id is integer — resolve row by email for Clerk accounts.
     if (pool && !useInMemory) {
       try {
-        // Delete user (CASCADE will handle related records in user_settings)
-        // But we need to manually delete from other tables first due to foreign key constraints
-        await pool.query('DELETE FROM leads WHERE user_id = $1', [userId]);
-        await pool.query('DELETE FROM subscriptions WHERE user_id = $1', [userId]);
-        await pool.query('DELETE FROM payments WHERE user_id = $1', [userId]);
-        await pool.query('DELETE FROM user_settings WHERE user_id = $1', [userId]);
-        
-        // Finally delete the user
-        const deleteResult = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id', [userId]);
-        
-        if (deleteResult.rows.length === 0) {
-          return res.status(404).json({ error: 'User not found' });
+        let dbNumericId = null;
+        if (isClerk && userEmail) {
+          const lookup = await pool.query(
+            'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+            [userEmail]
+          );
+          if (lookup.rows.length > 0) {
+            dbNumericId = lookup.rows[0].id;
+          }
+        } else if (!isClerk) {
+          const n = parseInt(String(userId), 10);
+          if (!Number.isNaN(n)) {
+            dbNumericId = n;
+          }
         }
 
-        console.log(`✅ Deleted user from database: ${userId}`);
+        if (dbNumericId != null) {
+          await pool.query('DELETE FROM leads WHERE user_id = $1', [dbNumericId]);
+          await pool.query('DELETE FROM subscriptions WHERE user_id = $1', [
+            dbNumericId,
+          ]);
+          await pool.query('DELETE FROM payments WHERE user_id = $1', [
+            dbNumericId,
+          ]);
+          await pool.query('DELETE FROM user_settings WHERE user_id = $1', [
+            dbNumericId,
+          ]);
+          const deleteResult = await pool.query(
+            'DELETE FROM users WHERE id = $1 RETURNING id',
+            [dbNumericId]
+          );
+          if (deleteResult.rows.length > 0) {
+            console.log(`✅ Deleted user from database: ${dbNumericId}`);
+          }
+        } else {
+          console.log(
+            'ℹ️ No users table row for this account (e.g. Clerk-only — continuing)'
+          );
+        }
       } catch (dbError) {
         console.error('Database deletion error:', dbError);
-        // Fallback to in-memory deletion if database fails
         useInMemory = true;
       }
     }
@@ -868,8 +937,7 @@ router.delete('/account', authenticateToken, async (req, res) => {
     if (useInMemory) {
       inMemoryUsers = loadUsers();
       let userFound = false;
-      
-      // Find and remove user by email
+
       for (const [email, userData] of inMemoryUsers.entries()) {
         if (userData.id === userId || email === userEmail) {
           inMemoryUsers.delete(email);
@@ -879,12 +947,13 @@ router.delete('/account', authenticateToken, async (req, res) => {
         }
       }
 
-      if (!userFound) {
+      if (!userFound && !isClerk) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Save updated users to disk
-      saveUsers(inMemoryUsers);
+      if (userFound) {
+        saveUsers(inMemoryUsers);
+      }
     }
 
     // 4. Delete user's projects from file storage
@@ -947,9 +1016,18 @@ router.delete('/account', authenticateToken, async (req, res) => {
 
     console.log(`✅ Account deletion completed for user: ${userEmail} (${userId})`);
 
+    let clerkDeleteFailed = false;
+    if (isClerk) {
+      const clerkDel = await deleteClerkUserAccount(userId);
+      clerkDeleteFailed = !clerkDel.ok;
+    }
+
     res.json({
       success: true,
-      message: 'Account deleted successfully'
+      message: clerkDeleteFailed
+        ? 'Your app data was removed, but the sign-in account could not be removed automatically. Add CLERK_SECRET_KEY on the server or delete the user in the Clerk Dashboard to reuse this email.'
+        : 'Account deleted successfully',
+      clerkDeleteFailed,
     });
   } catch (error) {
     console.error('Account deletion error:', error);

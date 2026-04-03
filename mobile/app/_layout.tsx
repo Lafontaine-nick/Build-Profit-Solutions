@@ -219,10 +219,9 @@ function AuthGateWithClerk() {
     );
   }
 
-  // Show login/signup if not authenticated (only after Clerk has fully loaded)
-  // This ensures we've checked SecureStore for existing sessions
-  if (!isSignedIn || !user) {
-    console.log('AuthGate - No active session found after Clerk loaded, showing landing + auth screens');
+  // Truly signed out → landing + auth
+  if (!isSignedIn) {
+    console.log('AuthGate - Not signed in, showing landing + auth screens');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
@@ -230,6 +229,16 @@ function AuthGateWithClerk() {
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/signup" />
         <Stack.Screen name="auth/forgot-password" />
+      </Stack>
+    );
+  }
+
+  // Session exists but Clerk user object not ready yet — do NOT show sign-in (Clerk returns session_exists)
+  if (!user) {
+    console.log('AuthGate - Session active, waiting for Clerk user...');
+    return (
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+        <Stack.Screen name="loading" />
       </Stack>
     );
   }
