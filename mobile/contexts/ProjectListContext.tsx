@@ -269,6 +269,21 @@ const toIsoDate = (value: any, fallback: string): string => {
 
 const normalizeProjectId = (id: any): string => String(id ?? '');
 
+/** One row per non-empty project id (last wins). Empty ids kept in order — avoids corrupt duplicate ids in AsyncStorage. */
+function dedupeProjectsById(list: UnifiedProject[]): UnifiedProject[] {
+  const byId = new Map<string, UnifiedProject>();
+  const noId: UnifiedProject[] = [];
+  for (const p of list) {
+    const id = normalizeProjectId(p.id);
+    if (!id) {
+      noId.push(p);
+      continue;
+    }
+    byId.set(id, p);
+  }
+  return [...byId.values(), ...noId];
+}
+
 const mapBackendProjectToUnified = (project: any): UnifiedProject => {
   const nowIso = new Date().toISOString();
   const title = project?.title || project?.name || 'Untitled Project';
@@ -478,7 +493,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
           return fixedProject;
         });
-        const normalized = await Promise.all(progressPromises);
+        const normalized = dedupeProjectsById(await Promise.all(progressPromises));
 
         // If we already have local projects, trust local first for offline reliability.
         if (normalized.length > 0) {
@@ -556,9 +571,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           })
         );
 
-        setProjects(hydrated);
+        const deduped = dedupeProjectsById(hydrated);
+        setProjects(deduped);
         if (__DEV__) {
-          console.log(`✅ Hydrated ${hydrated.length} projects from backend`);
+          console.log(`✅ Hydrated ${deduped.length} projects from backend`);
         }
       } catch (backendError) {
         if (__DEV__) {
