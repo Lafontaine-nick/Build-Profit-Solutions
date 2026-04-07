@@ -1,17 +1,24 @@
-import 'dotenv/config';
 import { config } from 'dotenv';
 import path from 'path';
 
-// Load environment variables - prioritize .env.local for development
-config({ path: path.resolve(__dirname, '.env.local') });
-config({ path: path.resolve(__dirname, '.env.production') });
+// Load order: base → production file → .env.local last with override so local dev always wins.
+// (Previously .env.production ran after .env.local and could set EXPO_PUBLIC_APP_ENV=production,
+// which turned EAS Update back on and left Expo Go stuck on "downloading…".)
+const dotenvOpts = { quiet: true };
+config({ path: path.resolve(__dirname, '.env'), ...dotenvOpts });
+config({ path: path.resolve(__dirname, '.env.production'), ...dotenvOpts });
+config({ path: path.resolve(__dirname, '.env.local'), override: true, ...dotenvOpts });
 
-// Production store builds set EXPO_PUBLIC_APP_ENV=production (see eas.json). That wins over NODE_ENV.
-const isDevelopment =
-  process.env.EXPO_PUBLIC_APP_ENV === 'production'
-    ? false
-    : process.env.NODE_ENV === 'development' ||
-      process.env.EXPO_PUBLIC_APP_ENV === 'development';
+// Store / EAS production sets EXPO_PUBLIC_APP_ENV=production (see eas.json).
+// Do NOT infer dev from NODE_ENV here: when Expo evaluates this file, NODE_ENV is often unset,
+// which made isDevelopment false, re-enabled EAS Update, and left Expo Go stuck on "downloading…".
+const isDevelopment = process.env.EXPO_PUBLIC_APP_ENV !== 'production';
+
+// OTA only during EAS cloud/local builds where we ship production env (see eas.json).
+// Local `expo start` does not set EAS_BUILD, so Expo Go won't hang on "downloading…"
+// if APP_ENV is wrong in the shell. (EAS_BUILD_PROFILE is not always set on workers.)
+const enableProductionEASUpdate =
+  process.env.EAS_BUILD === 'true' && process.env.EXPO_PUBLIC_APP_ENV === 'production';
 
 export default {
   expo: {
@@ -20,6 +27,8 @@ export default {
       : 'Build Profit Solutions',
     slug: 'build-profit-solutions-mobile',
     version: '1.0.0',
+    // Required whenever expo-updates / Expo.plist sets EXUpdatesRuntimeVersion (EAS builds, prebuild).
+    runtimeVersion: '1.0.0',
     sdkVersion: '54.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
@@ -40,6 +49,7 @@ export default {
       jsEngine: 'hermes',
       newArchEnabled: true,
       infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
         NSPhotoLibraryUsageDescription:
           'Allow access to your photo library to attach screenshots to beta feedback and upload project images.',
@@ -68,6 +78,7 @@ export default {
       bundler: 'metro',
     },
     plugins: [
+      'expo-dev-client',
       'expo-router',
       [
         'expo-image-picker',
@@ -103,9 +114,18 @@ export default {
       betaFeedbackEnabled: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ENABLED === 'true',
       betaFeedbackAllowlistEmails: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ALLOWLIST_EMAILS || '',
     },
-    runtimeVersion: '1.0.0',
-    updates: {
-      url: 'https://u.expo.dev/7b85d23d-d01f-48c3-95b0-e1909106a0d0',
-    },
+    // EAS Update: only EAS production store builds. All other cases (Expo Go, dev client, local) stay off.
+    ...(enableProductionEASUpdate
+      ? {
+          updates: {
+            url: 'https://u.expo.dev/7b85d23d-d01f-48c3-95b0-e1909106a0d0',
+          },
+        }
+      : {
+          updates: {
+            enabled: false,
+            checkAutomatically: 'NEVER',
+          },
+        }),
   },
 };

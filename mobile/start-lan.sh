@@ -16,8 +16,12 @@ sleep 1
 
 # Start Expo with LAN mode (without --clear to enable Fast Refresh)
 echo "🚀 Starting Expo with LAN mode..."
-echo "💡 If connection fails, try: npm run dev:tunnel"
+echo "💡 Default npm script is tunnel (npm start). Use LAN only if tunnel is slow."
+echo "💡 If the phone shows wrong IP or cannot connect, use: npm run start:go"
 echo "💡 Fast Refresh is enabled - edits will appear automatically"
 cd "$(dirname "$0")"
+# Force Metro/Expo to advertise the same IP your phone can reach (avoids Docker/VPN interfaces).
+# shellcheck source=scripts/lan-packager-host-env.sh
+source "./scripts/lan-packager-host-env.sh"
 # Skip dependency validation to avoid fetch errors
 EXPO_NO_DOCTOR=1 npx expo start --lan

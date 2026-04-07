@@ -57,7 +57,6 @@ config.transformer = {
   enableBabelRCLookup: false,
 };
 
-// Enable Fast Refresh and proper file watching
 config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
@@ -84,7 +83,7 @@ config.watcher = {
     deferStates: ['hg.update'],
   },
   healthCheck: {
-    enabled: true,
+    enabled: false,
   },
 };
 

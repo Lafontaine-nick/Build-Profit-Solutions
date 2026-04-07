@@ -3,6 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "cd mobile && npm start"
+    "start": "cd mobile && npm start",
+    "start:go": "cd mobile && npm run start:go",
+    "start:sim": "cd mobile && npm run start:sim",
+    "start:lan": "cd mobile && npm run start:lan",
+    "start:dev": "cd mobile && npm run start:dev",
+    "start:dev:lan": "cd mobile && npm run start:dev:lan",
+    "start:dev:tunnel": "cd mobile && npm run start:dev:tunnel",
+    "build:dev:ios": "cd mobile && npm run build:dev:ios",
+    "build:dev:android": "cd mobile && npm run build:dev:android",
+    "dev": "cd mobile && npm run dev",
+    "dev:clear": "cd mobile && npm run dev:clear",
+    "dev:reset": "cd mobile && npm run dev:reset"
   }
 }

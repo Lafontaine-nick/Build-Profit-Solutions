@@ -29,6 +29,9 @@ type RoleOption = 'solo' | 'small-team' | 'gc' | 'subcontractor';
 type WorkSource = 'referrals' | 'repeat' | 'online' | 'subcontractor' | 'mix';
 type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
 
+const ONBOARDING_PAGE_COUNT = 6;
+const LAST_PAGE_INDEX = ONBOARDING_PAGE_COUNT - 1;
+
 function OnboardingFlowCore({
   userId,
   onComplete,
@@ -71,11 +74,9 @@ function OnboardingFlowCore({
 
   const handleNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    if (currentPage < 8) {
+
+    if (currentPage < LAST_PAGE_INDEX) {
       setCurrentPage(currentPage + 1);
-    } else {
-      handleComplete();
     }
   };
 
@@ -84,30 +85,6 @@ function OnboardingFlowCore({
     
     if (currentPage > 0) {
       setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const handleComplete = async () => {
-    try {
-      // Save onboarding data
-      const onboardingData = {
-        role: selectedRole,
-        workSource: selectedWorkSource,
-        help: selectedHelp,
-        completedAt: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem(
-        onboardingDataKeyForUser(userId),
-        JSON.stringify(onboardingData)
-      );
-      await setOnboardingCompleteForUser(userId);
-      await resyncProjectsFromServer();
-
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      onComplete();
-    } catch (error) {
-      console.error('Error saving onboarding data:', error);
-      onComplete();
     }
   };
 
@@ -134,47 +111,50 @@ function OnboardingFlowCore({
       case 3:
         return renderPage4();
       case 4:
-        return renderPage5();
+        return renderCombinedProductPage();
       case 5:
-        return renderPage6();
-      case 6:
-        return renderPage7();
-      case 7:
-        return renderPage8();
-      case 8:
-        return renderPage9();
+        return renderFinalPage();
       default:
         return null;
     }
   };
 
+  const optionCardStyle = (selected: boolean) => ({
+    backgroundColor: selected ? colors.accent : colors.card,
+    borderColor: selected ? colors.accent : 'rgba(255,255,255,0.22)',
+    borderWidth: selected ? 1.5 : 1,
+    shadowOpacity: selected ? 0.12 : 0.18,
+    shadowRadius: selected ? 4 : 6,
+    elevation: selected ? 2 : 3,
+  });
+
   // PAGE 1 — Product Positioning
   const renderPage1 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
+    <View style={[styles.pageContainer, styles.pageContainerHero]}>
+      <View style={[styles.content, styles.contentHero]}>
+        <Text style={[styles.title, styles.titleHero, { color: colors.text }]}>
           Your AI Project Manager{'\n'}for Construction
         </Text>
-        <Text style={[styles.body, { color: colors.subtext }]}>
+        <Text style={[styles.body, styles.bodyHero, { color: colors.subtext }]}>
           Build Profit Solutions helps contractors turn estimates into profitable, well-run projects.
         </Text>
-        <View style={styles.bulletList}>
+        <View style={[styles.bulletList, styles.bulletListHero]}>
           <View style={styles.bulletItem}>
             <MaterialIcons name="check-circle" size={20} color={colors.accent} />
             <Text style={[styles.bulletText, { color: colors.text }]}>
-              Estimate with confidence.
+              Estimate with confidence
             </Text>
           </View>
           <View style={styles.bulletItem}>
             <MaterialIcons name="check-circle" size={20} color={colors.accent} />
             <Text style={[styles.bulletText, { color: colors.text }]}>
-              Manage jobs in real time.
+              Manage jobs in real time
             </Text>
           </View>
           <View style={styles.bulletItem}>
             <MaterialIcons name="check-circle" size={20} color={colors.accent} />
             <Text style={[styles.bulletText, { color: colors.text }]}>
-              Protect your margin from day one.
+              Protect your margin from day one
             </Text>
           </View>
         </View>
@@ -203,11 +183,7 @@ function OnboardingFlowCore({
                 key={role.id}
                 style={[
                   styles.optionButton,
-                  {
-                    backgroundColor: selectedRole === role.id ? colors.accent : '#1a1a1a',
-                    borderColor: selectedRole === role.id ? colors.accent : 'rgba(255,255,255,0.15)',
-                    borderWidth: selectedRole === role.id ? 1.5 : 1,
-                  },
+                  optionCardStyle(selectedRole === role.id),
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -259,11 +235,7 @@ function OnboardingFlowCore({
                 key={source.id}
                 style={[
                   styles.optionButton,
-                  {
-                    backgroundColor: selectedWorkSource === source.id ? colors.accent : '#1a1a1a',
-                    borderColor: selectedWorkSource === source.id ? colors.accent : 'rgba(255,255,255,0.15)',
-                    borderWidth: selectedWorkSource === source.id ? 1.5 : 1,
-                  },
+                  optionCardStyle(selectedWorkSource === source.id),
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -288,7 +260,7 @@ function OnboardingFlowCore({
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={[styles.helperText, { color: colors.muted }]}>
+          <Text style={[styles.helperText, styles.helperTextSubtle]}>
             You can also connect with builders and contractors inside Build Profit Solutions.
           </Text>
         </View>
@@ -296,7 +268,7 @@ function OnboardingFlowCore({
     );
   };
 
-  // PAGE 4 — What Happens After the Bid
+  // PAGE 4 — Primary goal / personalization
   const renderPage4 = () => {
     const helpOptions = [
       { id: 'estimates' as HelpOption, label: 'Building accurate estimates' },
@@ -311,7 +283,7 @@ function OnboardingFlowCore({
       <View style={styles.pageContainer}>
         <View style={styles.content}>
           <Text style={[styles.title, { color: colors.text }]}>
-            What do you want help with after you win a job?
+            What do you want help with most?
           </Text>
           <View style={styles.optionsContainer}>
             {helpOptions.map((option) => (
@@ -319,11 +291,7 @@ function OnboardingFlowCore({
                 key={option.id}
                 style={[
                   styles.optionButton,
-                  {
-                    backgroundColor: selectedHelp === option.id ? colors.accent : '#1a1a1a',
-                    borderColor: selectedHelp === option.id ? colors.accent : 'rgba(255,255,255,0.15)',
-                    borderWidth: selectedHelp === option.id ? 1.5 : 1,
-                  },
+                  optionCardStyle(selectedHelp === option.id),
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -353,149 +321,81 @@ function OnboardingFlowCore({
     );
   };
 
-  // PAGE 5 — Key Differentiator
-  const renderPage5 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          Most apps stop after the estimate
-        </Text>
-        <Text style={[styles.body, { color: colors.subtext }]}>
-          In Build Profit Solutions, estimates don't disappear once a job is won.{'\n\n'}
-          They become the blueprint for running the project.
-        </Text>
-        <View style={styles.bulletList}>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="arrow-forward" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              The estimate becomes the job budget
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="arrow-forward" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Labor hours become performance targets
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="arrow-forward" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Materials become tracked costs
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="arrow-forward" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Profit becomes a live metric
-            </Text>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
+  const saveOnboardingAndOpenEstimate = async () => {
+    try {
+      const onboardingData = {
+        role: selectedRole,
+        workSource: selectedWorkSource,
+        help: selectedHelp,
+        completedAt: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(
+        onboardingDataKeyForUser(userId),
+        JSON.stringify(onboardingData)
+      );
+      await setOnboardingCompleteForUser(userId);
+      await resyncProjectsFromServer();
+      await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      router.replace('/(tabs)/estimate-generator');
+    } catch (error) {
+      console.error('Error completing onboarding:', error);
+      router.replace('/(tabs)/estimate-generator');
+    }
+  };
 
-  // PAGE 6 — Active Project Management Preview
-  const renderPage6 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          Run your jobs with clarity — not guesswork
-        </Text>
-        <Text style={[styles.body, { color: colors.subtext }]}>
-          Track budgets, labor, materials, and payments while the job is in progress — not after it's too late.
-        </Text>
-        <View style={[styles.calloutBox, { backgroundColor: 'rgba(34,197,94,0.12)', borderColor: colors.accent }]}>
-          <MaterialIcons name="insights" size={24} color={colors.accent} />
-          <Text style={[styles.calloutText, { color: colors.text }]}>
-            Project Health Score shows how your job is performing at a glance.
+  // PAGE 5 — Combined product flow (estimate → execution → margin → AI)
+  const renderCombinedProductPage = () => {
+    const flowBullets: { icon: 'account-balance-wallet' | 'engineering' | 'trending-up' | 'flag'; text: string }[] = [
+      { icon: 'account-balance-wallet', text: 'Estimate becomes the live job budget' },
+      { icon: 'engineering', text: 'Labor and materials become tracked costs' },
+      { icon: 'trending-up', text: 'Profit becomes a live metric during the job' },
+      { icon: 'flag', text: 'AI flags budget and scope risks early' },
+    ];
+
+    return (
+      <View style={[styles.pageContainer, styles.pageContainerCompact]}>
+        <View style={[styles.content, styles.contentCompactTop]}>
+          <Text style={[styles.title, styles.titleCompact, { color: colors.text }]}>
+            From estimate to live job control
           </Text>
-        </View>
-      </View>
-    </View>
-  );
-
-  // PAGE 7 — AI Project Manager Mode
-  const renderPage7 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          Your AI Project Manager watches every job
-        </Text>
-        <View style={styles.bulletList}>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="flag" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Flags cost overruns early
-            </Text>
+          <Text style={[styles.body, styles.bodyCompact, { color: colors.subtext }]}>
+            Build Profit Solutions does not stop after the bid is sent.{'\n'}
+            Your estimate becomes the foundation for running the job in real time.
+          </Text>
+          <View style={[styles.bulletList, styles.bulletListTight]}>
+            {flowBullets.map((row) => (
+              <View key={row.text} style={styles.bulletItem}>
+                <MaterialIcons name={row.icon} size={20} color={colors.accent} />
+                <Text style={[styles.bulletText, { color: colors.text }]}>{row.text}</Text>
+              </View>
+            ))}
           </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="warning" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Warns when labor is burning too fast
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="search" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Detects missing or risky scope
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="trending-up" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Predicts final profit before the job ends
-            </Text>
-          </View>
-        </View>
-        <Text style={[styles.helperText, { color: colors.muted, marginTop: 20 }]}>
-          You stay in control. AI keeps watch.
-        </Text>
-      </View>
-    </View>
-  );
-
-  // PAGE 8 — Estimates
-  const renderPage8 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          Every great project starts with a strong estimate
-        </Text>
-        <Text style={[styles.body, { color: colors.subtext }]}>
-          Create clear, professional estimates you can actually execute.
-        </Text>
-        <View style={styles.bulletList}>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="lightbulb" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Smart labor and material logic
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="visibility" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Transparent assumptions
-            </Text>
-          </View>
-          <View style={styles.bulletItem}>
-            <MaterialIcons name="health-and-safety" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
-              Health score before you send the bid
+          <View
+            style={[
+              styles.calloutBox,
+              {
+                backgroundColor: 'rgba(34,197,94,0.12)',
+                borderColor: colors.accent,
+              },
+            ]}
+          >
+            <MaterialIcons name="insights" size={24} color={colors.accent} />
+            <Text style={[styles.calloutText, { color: colors.text }]}>
+              Project Health Score shows how your job is performing at a glance.
             </Text>
           </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
-  // PAGE 9 — Final Action
-  const renderPage9 = () => (
-    <View style={styles.pageContainer}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          Let's get to work
-        </Text>
-        <Text style={[styles.body, { color: colors.subtext }]}>
+  // PAGE 6 — Final action (single primary CTA)
+  const renderFinalPage = () => (
+    <View style={[styles.pageContainer, styles.pageContainerFinal]}>
+      <View style={[styles.content, styles.contentFinal]}>
+        <Text style={[styles.title, { color: colors.text }]}>{"Let's get to work"}</Text>
+        <Text style={[styles.body, styles.bodyFinal, { color: colors.subtext }]}>
           Start by creating your first estimate.
         </Text>
         <View style={styles.finalActionsContainer}>
@@ -507,25 +407,11 @@ function OnboardingFlowCore({
           >
             <TouchableOpacity
               style={styles.primaryButtonInner}
-              onPress={async () => {
-                try {
-                  // Mark onboarding as complete
-                  await setOnboardingCompleteForUser(userId);
-                  await clearUnifiedProjectsListCache();
-                  await refreshProjects();
-                  // Set flag to indicate first-time user for smart defaults
-                  await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
-                  // Navigate to estimate generator
-                  router.replace('/(tabs)/estimate-generator');
-                } catch (error) {
-                  console.error('Error navigating to estimate:', error);
-                  router.replace('/(tabs)/estimate-generator');
-                }
-              }}
+              onPress={saveOnboardingAndOpenEstimate}
               activeOpacity={0.8}
             >
               <MaterialIcons name="description" size={20} color="#fff" />
-              <Text style={styles.primaryButtonText}>Create an estimate</Text>
+              <Text style={styles.primaryButtonText}>Create First Estimate</Text>
             </TouchableOpacity>
           </LinearGradient>
         </View>
@@ -557,18 +443,18 @@ function OnboardingFlowCore({
         <View style={styles.navigationContent}>
           {/* Progress dots */}
           <View style={styles.progressDots}>
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((pageIndex) => (
+            {Array.from({ length: ONBOARDING_PAGE_COUNT }, (_, pageIndex) => (
               <View
                 key={pageIndex}
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor:
-                        pageIndex === currentPage ? colors.accent : 'rgba(255,255,255,0.15)',
-                      width: pageIndex === currentPage ? 24 : 8,
-                      opacity: pageIndex === currentPage ? 1 : 0.6,
-                    },
-                  ]}
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor:
+                      pageIndex === currentPage ? colors.accent : 'rgba(255,255,255,0.15)',
+                    width: pageIndex === currentPage ? 24 : 8,
+                    opacity: pageIndex === currentPage ? 1 : 0.6,
+                  },
+                ]}
               />
             ))}
           </View>
@@ -586,7 +472,7 @@ function OnboardingFlowCore({
               </TouchableOpacity>
             )}
             <View style={{ flex: 1 }} />
-            {currentPage < 8 && (
+            {currentPage < LAST_PAGE_INDEX && (
               <LinearGradient
                 colors={canProceed() ? colors.accentGradient : [colors.border, colors.border]}
                 start={{ x: 0, y: 0 }}
@@ -601,22 +487,6 @@ function OnboardingFlowCore({
                 >
                   <Text style={styles.nextButtonText}>Continue</Text>
                   <MaterialIcons name="arrow-forward" size={20} color="#fff" />
-                </TouchableOpacity>
-              </LinearGradient>
-            )}
-            {currentPage === 8 && (
-              <LinearGradient
-                colors={colors.accentGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.nextButton}
-              >
-                <TouchableOpacity
-                  style={styles.nextButtonInner}
-                  onPress={handleComplete}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.nextButtonText}>Get Started</Text>
                 </TouchableOpacity>
               </LinearGradient>
             )}
@@ -685,11 +555,37 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingTop: 40,
-    paddingBottom: 200,
+    paddingTop: 32,
+    paddingBottom: 168,
+  },
+  pageContainerHero: {
+    paddingTop: 28,
+    justifyContent: 'center',
+  },
+  pageContainerCompact: {
+    paddingTop: 24,
+    justifyContent: 'flex-start',
+  },
+  pageContainerFinal: {
+    paddingTop: 28,
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  contentHero: {
+    justifyContent: 'center',
+    paddingVertical: 8,
+    maxWidth: 400,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  contentCompactTop: {
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+  },
+  contentFinal: {
     justifyContent: 'center',
   },
   title: {
@@ -700,6 +596,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.2,
   },
+  titleHero: {
+    marginBottom: 12,
+  },
+  titleCompact: {
+    marginBottom: 12,
+    fontSize: 26,
+    lineHeight: 34,
+  },
   body: {
     fontSize: 16,
     lineHeight: 24,
@@ -707,9 +611,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  bodyHero: {
+    marginBottom: 20,
+  },
+  bodyCompact: {
+    marginBottom: 18,
+  },
+  bodyFinal: {
+    marginBottom: 24,
+  },
   bulletList: {
     marginTop: 24,
     gap: 16,
+  },
+  bulletListHero: {
+    marginTop: 16,
+    gap: 12,
+  },
+  bulletListTight: {
+    marginTop: 14,
+    gap: 12,
   },
   bulletItem: {
     flexDirection: 'row',
@@ -751,13 +672,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
   },
+  helperTextSubtle: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 14,
+    color: 'rgba(229,231,235,0.55)',
+    fontStyle: 'italic',
+    fontWeight: '400',
+  },
   calloutBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
+    padding: 18,
     borderRadius: 14,
     borderWidth: 1.5,
-    marginTop: 24,
+    marginTop: 18,
     gap: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

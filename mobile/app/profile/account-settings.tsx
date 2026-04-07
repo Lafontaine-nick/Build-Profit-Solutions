@@ -21,6 +21,10 @@ import {
   clearAllOnboardingCompletionKeys,
   clearOnboardingCompleteForUser,
 } from '@/lib/onboardingStorage';
+import {
+  FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
+  FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
+} from '@/lib/firstEstimateWalkthroughStorage';
 
 interface SettingItem {
   id: string;
@@ -128,6 +132,8 @@ export default function AccountSettingsScreen() {
               // Clear first estimate flags
               await AsyncStorage.removeItem('bps.firstEstimateCreated');
               await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
+              await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
+              await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
               
               // Navigate directly to onboarding
               router.push('/onboarding');

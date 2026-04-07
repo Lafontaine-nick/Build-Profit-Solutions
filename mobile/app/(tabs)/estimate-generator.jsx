@@ -21,6 +21,7 @@ import {
   TouchableWithoutFeedback,
   Animated,
   AppState,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -44,6 +45,18 @@ import AIAssistantModal from '../../components/AIAssistantModal';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import ContractSettingsCompact from '../../components/ContractSettingsCompact';
 import BottomToast from '../../components/BottomToast';
+import {
+  FirstEstimateWalkthroughSheetShell,
+  FirstEstimateWalkthroughIntroSheetContent,
+  FirstEstimateWalkthroughStepSheetContent,
+  FirstEstimateWalkthroughHighlight,
+} from '../../components/FirstEstimateWalkthrough';
+import {
+  markFirstEstimateWalkthroughComplete,
+  isFirstEstimateWalkthroughComplete,
+  loadFirstEstimateWalkthroughProgress,
+  saveFirstEstimateWalkthroughProgress,
+} from '../../lib/firstEstimateWalkthroughStorage';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
 import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
@@ -703,6 +716,18 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
     paddingBottom: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.line,
+    backgroundColor: Colors.bg,
+  },
+  /** In-flow footer for LineItemModal — works with KeyboardAvoidingView (no overlap / sticky jumps). */
+  materialFooterFlow: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1457,19 +1482,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const isLabor = title.includes('Labor');
   const isMaterial = title.includes('Material');
-
-  // Hide footer on touch start (onPressIn) so it never appears above the keyboard.
-  // onPressIn fires before onFocus, avoiding the glitch where buttons flash then disappear.
-  const hideFooterForKeyboard = useCallback(() => setKeyboardVisible(true), []);
-  useEffect(() => {
-    if (!(isMaterial || isLabor)) return;
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { hideSub?.remove(); };
-  }, [isMaterial, isLabor]);
 
   useEffect(() => {
     if (item) {
@@ -1483,7 +1498,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setRate(item.rate || '');
       setVendor(item.vendor || 'Home Depot');
       setCategory(item.category || 'General');
-      setMode(item.mode || laborMode || 'hourly');
+      if (isMaterial) {
+        setMode(item.mode === 'sqft' ? 'sqft' : 'flat');
+      } else {
+        setMode(item.mode || laborMode || 'hourly');
+      }
       setLaborType(item.laborType || 'inhouse');
     } else if (visible && !prevVisibleRef.current) {
       // Reset form only when opening for "Add" (item is null) — prevents clearing while user types
@@ -1498,14 +1517,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setRate('');
       setVendor('Home Depot');
       setCategory('General');
-      setMode(laborMode || 'hourly');
+      setMode(isMaterial ? 'flat' : laborMode || 'hourly');
       setLaborType('inhouse');
     }
     if (!visible) {
       prevVisibleRef.current = false;
-      setKeyboardVisible(false);
     }
-  }, [item, laborMode, visible]);
+  }, [item, isMaterial, laborMode, visible]);
   
   const handleSave = () => {
     const data = {
@@ -1517,11 +1535,20 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         rate: Number(rate) || 0,
         total: (Number(hours) || 0) * (Number(rate) || 0)
       } : {
-        quantity: isMaterial ? 1 : (Number(quantity) || 0),
-        unit: isMaterial ? 'lot' : unit,
+        ...(isMaterial && { mode: mode === 'sqft' ? 'sqft' : 'flat' }),
+        quantity: isMaterial
+          ? mode === 'sqft'
+            ? Number(quantity) || 0
+            : 1
+          : Number(quantity) || 0,
+        unit: isMaterial ? (mode === 'sqft' ? 'sq ft' : 'lot') : unit,
         unitPrice: Number(unitPrice) || 0,
-        total: isMaterial ? (Number(unitPrice) || 0) : ((Number(quantity) || 0) * (Number(unitPrice) || 0)),
-        ...(isMaterial && { vendor, category })
+        total: isMaterial
+          ? mode === 'sqft'
+            ? (Number(quantity) || 0) * (Number(unitPrice) || 0)
+            : Number(unitPrice) || 0
+          : (Number(quantity) || 0) * (Number(unitPrice) || 0),
+        ...(isMaterial && { vendor, category }),
       })
     };
     
@@ -1540,13 +1567,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        enabled={Platform.OS === 'ios'}
         style={{ flex: 1, backgroundColor: Colors.bg }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={0}
       >
         {(isMaterial || isLabor) ? (
-          <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-            <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
+          <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
               {/* Header */}
               <View style={modalStyles.materialHeader}>
                 <View style={modalStyles.backButtonWrapper}>
@@ -1598,12 +1625,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
               
               {/* Content */}
               <ScrollView
-                keyboardShouldPersistTaps="handled"
+                style={{ flex: 1 }}
+                keyboardShouldPersistTaps="always"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingHorizontal: 20,
-                  paddingBottom: 108,
+                  paddingTop: 4,
+                  paddingBottom: 24,
                 }}
               >
                 {isLabor ? (
@@ -1627,8 +1656,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
-                          onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                           returnKeyType="next"
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
@@ -1766,8 +1793,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={String(hours)}
                             onChangeText={setHours}
-                            onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
@@ -1792,8 +1817,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={String(rate)}
                             onChangeText={setRate}
-                            onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
@@ -1843,8 +1866,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
-                            onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                             returnKeyType="next"
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
@@ -1868,8 +1889,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                             value={vendor}
                             onChangeText={setVendor}
-                            onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                             returnKeyType="next"
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
@@ -1877,7 +1896,62 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </View>
                       </View>
 
-                      {/* Amount */}
+                      {/* Pricing: flat total vs per sq ft (same idea as labor) */}
+                      <View style={modalStyles.materialFieldGroup}>
+                        <Text style={modalStyles.materialLabel}>Pricing *</Text>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity
+                            onPress={() => setMode('flat')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 12,
+                              paddingHorizontal: 16,
+                              borderRadius: 12,
+                              borderWidth: 1,
+                              borderColor: mode === 'flat'
+                                ? '#38d39f'
+                                : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
+                              backgroundColor: mode === 'flat'
+                                ? '#38d39f'
+                                : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{
+                              color: mode === 'flat' ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'),
+                              fontWeight: '600',
+                              fontSize: 14,
+                            }}>💵 Flat amount</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => setMode('sqft')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 12,
+                              paddingHorizontal: 16,
+                              borderRadius: 12,
+                              borderWidth: 1,
+                              borderColor: mode === 'sqft'
+                                ? '#38d39f'
+                                : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
+                              backgroundColor: mode === 'sqft'
+                                ? '#38d39f'
+                                : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text style={{
+                              color: mode === 'sqft' ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'),
+                              fontWeight: '600',
+                              fontSize: 14,
+                            }}>📐 Per sq ft</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {mode === 'flat' ? (
                       <View style={modalStyles.materialFieldGroup}>
                         <Text style={modalStyles.materialLabel}>Amount *</Text>
                         <View style={modalStyles.materialInputWrapper}>
@@ -1900,8 +1974,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setUnitPriceText(cleanText);
                               setUnitPrice(parseFloat(cleanText) || 0);
                             }}
-                            onPressIn={hideFooterForKeyboard}
-                          onFocus={hideFooterForKeyboard}
                             keyboardType="numeric"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
@@ -1911,6 +1983,92 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           />
                         </View>
                       </View>
+                      ) : (
+                      <>
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                          <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
+                            <Text style={modalStyles.materialLabel}>Square feet *</Text>
+                            <View style={modalStyles.materialInputWrapper}>
+                              <Feather
+                                name="maximize-2"
+                                size={16}
+                                color="#8DA0B8"
+                                style={modalStyles.materialInputIcon}
+                              />
+                              <TextInput
+                                style={[
+                                  modalStyles.materialInput,
+                                  { color: darkMode ? '#e9f1ff' : '#000000' },
+                                ]}
+                                placeholder="0"
+                                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                                value={quantityText || (quantity > 0 ? quantity.toString() : '')}
+                                onChangeText={(text) => {
+                                  const cleanText = text.replace(/[^0-9.]/g, '');
+                                  setQuantityText(cleanText);
+                                  setQuantity(parseFloat(cleanText) || 0);
+                                }}
+                                keyboardType="numeric"
+                                returnKeyType="next"
+                                onSubmitEditing={() => Keyboard.dismiss()}
+                                blurOnSubmit={true}
+                                selectionColor="#22c55e"
+                                underlineColorAndroid="transparent"
+                              />
+                            </View>
+                          </View>
+                          <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
+                            <Text style={modalStyles.materialLabel}>Rate ($/sq ft) *</Text>
+                            <View style={modalStyles.materialInputWrapper}>
+                              <Feather
+                                name="dollar-sign"
+                                size={16}
+                                color="#22c55e"
+                                style={modalStyles.materialInputIcon}
+                              />
+                              <TextInput
+                                style={[
+                                  modalStyles.materialInput,
+                                  { color: darkMode ? '#e9f1ff' : '#000000' },
+                                ]}
+                                placeholder="0.00"
+                                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                                value={unitPriceText || (unitPrice > 0 ? unitPrice.toString() : '')}
+                                onChangeText={(text) => {
+                                  const cleanText = text.replace(/[^0-9.]/g, '');
+                                  setUnitPriceText(cleanText);
+                                  setUnitPrice(parseFloat(cleanText) || 0);
+                                }}
+                                keyboardType="numeric"
+                                returnKeyType="done"
+                                onSubmitEditing={() => Keyboard.dismiss()}
+                                blurOnSubmit={true}
+                                selectionColor="#22c55e"
+                                underlineColorAndroid="transparent"
+                              />
+                            </View>
+                          </View>
+                        </View>
+                        <View style={[modalStyles.materialFieldGroup, { marginTop: 8 }]}>
+                          <View style={{
+                            backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                            borderRadius: 12,
+                            padding: 16,
+                            borderWidth: 1,
+                            borderColor: 'rgba(45, 255, 196, 0.3)',
+                          }}>
+                            <Text style={{
+                              color: '#2DFFC4',
+                              fontSize: 18,
+                              fontWeight: '700',
+                              textAlign: 'center',
+                            }}>
+                              Total: ${((Number(quantity) || 0) * (Number(unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </Text>
+                          </View>
+                        </View>
+                      </>
+                      )}
 
                       {/* Category (Optional) */}
                       <View style={[modalStyles.materialFieldGroup, { marginTop: 18 }]}>
@@ -1932,27 +2090,44 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 </>
                 )}
               </ScrollView>
-              
-              {/* Footer - hidden when keyboard is open so it doesn't sit above the keyboard */}
-              {!keyboardVisible && (
-                <View style={[modalStyles.materialFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                  <TouchableOpacity onPress={onClose} style={modalStyles.materialCancelBtn}>
-                    <Text style={modalStyles.materialCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleSave} style={modalStyles.materialSaveBtn}>
-                    <LinearGradient
-                      colors={["#22c55e", "#22d3ee"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={modalStyles.materialSaveButtonGradient}
-                    >
-                      <Text style={modalStyles.materialSaveText}>✓ Save</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              )}
+
+              <View
+                style={[
+                  modalStyles.materialFooterFlow,
+                  { paddingBottom: Math.max(insets.bottom, 16) },
+                ]}
+              >
+                <Pressable
+                  onPress={onClose}
+                  style={({ pressed }) => [
+                    modalStyles.materialCancelBtn,
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  android_disableSound
+                  delayPressIn={0}
+                >
+                  <Text style={modalStyles.materialCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleSave}
+                  style={({ pressed }) => [
+                    modalStyles.materialSaveBtn,
+                    pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
+                  ]}
+                  android_disableSound
+                  delayPressIn={0}
+                >
+                  <LinearGradient
+                    colors={["#22c55e", "#22d3ee"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={modalStyles.materialSaveButtonGradient}
+                  >
+                    <Text style={modalStyles.materialSaveText}>✓ Save</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
             </View>
-          </View>
         ) : (
           <>
             {/* Backdrop */}
@@ -2279,7 +2454,7 @@ const blankState = (isFirstTime = false) => ({
   markupPct: 20,
   
   // Contractor Type (1-4)
-  contractorType: null, // null = not set, 1-4 = type
+  contractorType: null, // null = not set; 1–4 = pricing profile presets, 5 = custom
   
   // Communication
   clientUpdates: 'weekly',
@@ -3522,6 +3697,18 @@ export default function EstimateGeneratorScreen() {
   const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
   const [isOnboardingReset, setIsOnboardingReset] = useState(false);
   const [estimateAiInitialQuestion, setEstimateAiInitialQuestion] = useState('');
+  /** Persistent: first-estimate walkthrough off after project conversion or second bid. */
+  const [firstEstimateWalkthroughStorageComplete, setFirstEstimateWalkthroughStorageComplete] =
+    useState(false);
+  /** Intro resolved (Start / Skip); persisted while first-estimate walkthrough is active. */
+  const [firstEstimateWtIntroResolved, setFirstEstimateWtIntroResolved] = useState(false);
+  const [firstEstimateWtStarted, setFirstEstimateWtStarted] = useState(false);
+  /** Skip intro or skip entire walkthrough; persisted. */
+  const [firstEstimateWtSkipTipsSession, setFirstEstimateWtSkipTipsSession] = useState(false);
+  /** Per-step "Got it" dismissals; persisted. */
+  const [firstEstimateWtDismissed, setFirstEstimateWtDismissed] = useState({});
+  /** After AsyncStorage progress is loaded (avoids overwriting saved state on mount). */
+  const [firstEstimateWtProgressHydrated, setFirstEstimateWtProgressHydrated] = useState(false);
 
   useEffect(() => {
     bidRef.current = bid;
@@ -3711,16 +3898,18 @@ export default function EstimateGeneratorScreen() {
 
   const refreshCoachGate = useCallback(async () => {
     try {
-      const [second, first, reset] = await Promise.all([
+      const [second, first, reset, feDone] = await Promise.all([
         AsyncStorage.getItem('bps.secondBidCreated'),
         AsyncStorage.getItem('bps.isFirstTimeEstimate'),
         AsyncStorage.getItem('bps.forceEstimateOnboarding'),
+        isFirstEstimateWalkthroughComplete(),
       ]);
       setCoachGate({
         secondBid: second === 'true',
         firstTimeEst: first === 'true',
         reset: reset === 'true',
       });
+      setFirstEstimateWalkthroughStorageComplete(feDone);
     } catch {
       /* ignore */
     }
@@ -3736,11 +3925,13 @@ export default function EstimateGeneratorScreen() {
     (async () => {
       try {
         await AsyncStorage.setItem('bps.secondBidCreated', 'true');
+        await markFirstEstimateWalkthroughComplete();
         await AsyncStorage.multiRemove([
           'bps.isFirstTimeEstimate',
           'bps.forceEstimateOnboarding',
         ]);
         setCoachGate((g) => ({ ...g, secondBid: true, firstTimeEst: false, reset: false }));
+        setFirstEstimateWalkthroughStorageComplete(true);
       } catch {
         /* ignore */
       }
@@ -3755,6 +3946,123 @@ export default function EstimateGeneratorScreen() {
   useEffect(() => {
     setGuidedMode(shouldShowGuidance);
   }, [shouldShowGuidance]);
+
+  const shouldShowFirstEstimateWalkthrough =
+    !firstEstimateWalkthroughStorageComplete && !hasMultipleBids && !coachGate.secondBid;
+
+  // Persist intro / skip / per-step dismissals so leaving the app does not replay completed cards.
+  useEffect(() => {
+    if (!isLoaded || firstEstimateWalkthroughStorageComplete) {
+      setFirstEstimateWtProgressHydrated(false);
+      return;
+    }
+    setFirstEstimateWtProgressHydrated(false);
+    let cancelled = false;
+    (async () => {
+      const p = await loadFirstEstimateWalkthroughProgress();
+      if (cancelled) return;
+      if (p) {
+        setFirstEstimateWtIntroResolved(Boolean(p.introResolved));
+        setFirstEstimateWtStarted(Boolean(p.started));
+        setFirstEstimateWtSkipTipsSession(Boolean(p.skipTips));
+        setFirstEstimateWtDismissed(
+          p.dismissed && typeof p.dismissed === 'object' ? p.dismissed : {}
+        );
+      }
+      if (!cancelled) setFirstEstimateWtProgressHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, firstEstimateWalkthroughStorageComplete]);
+
+  useEffect(() => {
+    if (
+      !isLoaded ||
+      !shouldShowFirstEstimateWalkthrough ||
+      !firstEstimateWtProgressHydrated
+    ) {
+      return;
+    }
+    const dismissed = firstEstimateWtDismissed || {};
+    const noProgressYet =
+      !firstEstimateWtIntroResolved &&
+      !firstEstimateWtStarted &&
+      !firstEstimateWtSkipTipsSession &&
+      Object.keys(dismissed).length === 0;
+    if (noProgressYet) return;
+    saveFirstEstimateWalkthroughProgress({
+      introResolved: firstEstimateWtIntroResolved,
+      started: firstEstimateWtStarted,
+      skipTips: firstEstimateWtSkipTipsSession,
+      dismissed,
+    });
+  }, [
+    isLoaded,
+    shouldShowFirstEstimateWalkthrough,
+    firstEstimateWtProgressHydrated,
+    firstEstimateWtIntroResolved,
+    firstEstimateWtStarted,
+    firstEstimateWtSkipTipsSession,
+    firstEstimateWtDismissed,
+  ]);
+
+  // Existing installs: if they already have a live / won project from an estimate, never show first-estimate tips.
+  useEffect(() => {
+    if (!isLoaded || firstEstimateWalkthroughStorageComplete) return;
+    const hasLiveConverted =
+      Array.isArray(activeProjects) &&
+      activeProjects.some((p) => {
+        const s = (p.status || '').toLowerCase();
+        return (
+          Boolean(p.estimateData) || s === 'won' || s === 'in_progress' || s === 'active'
+        );
+      });
+    if (!hasLiveConverted) return;
+    let cancelled = false;
+    (async () => {
+      await markFirstEstimateWalkthroughComplete();
+      if (!cancelled) setFirstEstimateWalkthroughStorageComplete(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, activeProjects, firstEstimateWalkthroughStorageComplete]);
+
+  const dismissFirstEstimateWalkthroughStep = useCallback((stepKey) => {
+    setFirstEstimateWtDismissed((prev) => ({ ...prev, [String(stepKey)]: true }));
+  }, []);
+
+  const skipEntireFirstEstimateWalkthrough = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFirstEstimateWtSkipTipsSession(true);
+  }, []);
+
+  const handleFirstEstimateWalkthroughGotIt = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    dismissFirstEstimateWalkthroughStep(step);
+  }, [step, dismissFirstEstimateWalkthroughStep]);
+
+  useEffect(() => {
+    if (
+      !shouldShowFirstEstimateWalkthrough ||
+      !firstEstimateWtProgressHydrated ||
+      firstEstimateWtIntroResolved
+    ) {
+      return;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setFirstEstimateWtIntroResolved(true);
+      setFirstEstimateWtSkipTipsSession(true);
+      return true;
+    });
+    return () => sub.remove();
+  }, [
+    shouldShowFirstEstimateWalkthrough,
+    firstEstimateWtProgressHydrated,
+    firstEstimateWtIntroResolved,
+  ]);
+
   /** Step 1 complete when we have name + phone + address (one line or city+state). Email optional. */
   const hasClientInfo = Boolean(
     (bid.customerName || bid.clientName) &&
@@ -4839,7 +5147,7 @@ export default function EstimateGeneratorScreen() {
           // Reset markup to 20% if it matches any contractor type default (18, 22, or 27)
           // These were likely auto-applied before we removed that feature
           // The user wants 20% to be the default for all contractor types
-          const contractorTypeDefaults = [18, 22, 27];
+          const contractorTypeDefaults = [14, 17, 18, 20, 22, 27];
           const currentMarkup = parsed.markupPct;
           
           // If markup is one of the contractor type defaults, reset to 20%
@@ -8407,6 +8715,8 @@ export default function EstimateGeneratorScreen() {
       };
 
       await addEstimate(estimateData);
+      await markFirstEstimateWalkthroughComplete();
+      setFirstEstimateWalkthroughStorageComplete(true);
       console.log(`✅ Upserted active project with latest schedule dates (${estimateData.status})`);
       
       // Update lead stage to "won" if this bid came from a qualified lead
@@ -9076,7 +9386,6 @@ export default function EstimateGeneratorScreen() {
     String(value ?? '').trim() ? Colors.text : estimateStepMutedInputColor
   );
 
-
   // Render step content
   const renderStepContent = () => {
     switch (step) {
@@ -9501,9 +9810,10 @@ export default function EstimateGeneratorScreen() {
       case 1: {
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 24 }]}>
+            <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name="person" size={20} color="#2DFFC4" />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -9511,7 +9821,7 @@ export default function EstimateGeneratorScreen() {
                   <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Client contact details and preferences</Text>
                 </View>
               </View>
-              
+
               <View style={s.inputGroup}>
                 <Text style={s.label}>Customer Name *</Text>
                 <TextInput
@@ -9723,6 +10033,7 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
             </GlassBorderCard>
+            </FirstEstimateWalkthroughHighlight>
           </View>
         );
       }
@@ -9730,9 +10041,10 @@ export default function EstimateGeneratorScreen() {
       case 2: {
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+            <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name="information-circle" size={20} color="#2DFFC4" />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -9867,6 +10179,7 @@ export default function EstimateGeneratorScreen() {
                 )}
               </View>
             </GlassBorderCard>
+            </FirstEstimateWalkthroughHighlight>
           </View>
         );
       }
@@ -9878,6 +10191,7 @@ export default function EstimateGeneratorScreen() {
           <>
             <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
                 {/* Header */}
+                <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
                 <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
                     <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 14, borderWidth: 1, borderColor: 'rgba(45, 255, 196, 0.22)' }}>
@@ -9946,6 +10260,7 @@ export default function EstimateGeneratorScreen() {
                     </TouchableOpacity>
                   </View>
                 </GlassBorderCard>
+                </FirstEstimateWalkthroughHighlight>
                 
                 {/* Materials Cart Summary */}
                 <View style={{ marginTop: 14 }}>
@@ -10012,7 +10327,9 @@ export default function EstimateGeneratorScreen() {
                                       {!isEditing ? (
                                         <>
                                           <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                            {item.quantity || item.qty || 0} {item.unit || 'ea'} × {money(item.unitPrice || item.cost || 0)}
+                                            {item.mode === 'sqft' || item.unit === 'sq ft'
+                                              ? `${item.quantity || item.qty || 0} sq ft × ${money(item.unitPrice || item.cost || 0)}/sq ft`
+                                              : `${item.quantity || item.qty || 0} ${item.unit || 'ea'} × ${money(item.unitPrice || item.cost || 0)}`}
                                           </Text>
                                           {item.vendorId && (
                                             <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
@@ -10532,6 +10849,7 @@ export default function EstimateGeneratorScreen() {
           <>
             <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
               {/* Header */}
+              <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
                   <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(45, 255, 196, 0.12)', justifyContent: 'center', alignItems: 'center', marginRight: 14, borderWidth: 1, borderColor: 'rgba(45, 255, 196, 0.22)' }}>
@@ -10593,6 +10911,7 @@ export default function EstimateGeneratorScreen() {
                   </TouchableOpacity>
                 </View>
               </GlassBorderCard>
+              </FirstEstimateWalkthroughHighlight>
               
               {/* Labor Cart Summary */}
               <View style={{ marginTop: 14 }}>
@@ -10821,41 +11140,57 @@ export default function EstimateGeneratorScreen() {
         // Load contractor type from profile or bid
         const contractorType = bid.contractorType || null;
         
-        // Contractor type definitions
+        // Pricing profile presets (step 5) — suggested starting targets only, not requirements
         const contractorTypes = {
           1: {
-            name: 'Solo + Helper (No Subs)',
-            description: 'I do everything myself',
+            name: 'Self-Perform Lean',
+            subtitle: 'Lean self-perform work',
             overheadRange: { min: 5, max: 8 },
-            safeMarkupRange: { min: 15, max: 20 },
-            defaultMarkup: 18,
+            profitRange: { min: 8, max: 12 },
+            markupEquivalentRange: { min: 13, max: 20 },
+            safeMarkupRange: { min: 13, max: 20 },
+            defaultMarkup: 17,
           },
           2: {
-            name: 'Small Crew + Subs',
-            description: '1-3 guys + subcontractors',
-            overheadRange: { min: 8, max: 12 },
-            safeMarkupRange: { min: 20, max: 25 },
-            defaultMarkup: 22,
+            name: 'Self-Perform + Subs',
+            subtitle: 'Crew + subcontractors',
+            overheadRange: { min: 6, max: 10 },
+            profitRange: { min: 10, max: 15 },
+            markupEquivalentRange: { min: 16, max: 25 },
+            safeMarkupRange: { min: 16, max: 25 },
+            defaultMarkup: 20,
           },
           3: {
-            name: 'Subcontractor-Only GC',
-            description: 'I manage, no direct labor',
-            overheadRange: { min: 6, max: 10 },
-            safeMarkupRange: { min: 15, max: 20 },
-            defaultMarkup: 18,
+            name: 'General Contractor',
+            subtitle: 'Managed subcontractor delivery',
+            overheadRange: { min: 5, max: 9 },
+            profitRange: { min: 8, max: 12 },
+            markupEquivalentRange: { min: 13, max: 21 },
+            safeMarkupRange: { min: 13, max: 21 },
+            defaultMarkup: 17,
           },
           4: {
-            name: 'Large Crew + Subs',
-            description: '5+ guys + subcontractors',
-            overheadRange: { min: 12, max: 18 },
-            safeMarkupRange: { min: 25, max: 30 },
-            defaultMarkup: 27,
+            name: 'Developer-Led Project',
+            subtitle: 'Larger developer-led work',
+            overheadRange: { min: 3, max: 6 },
+            profitRange: { min: 8, max: 12 },
+            markupEquivalentRange: { min: 11, max: 18 },
+            safeMarkupRange: { min: 11, max: 18 },
+            defaultMarkup: 14,
+          },
+          5: {
+            name: 'Custom Profile',
+            subtitle: 'Set your own targets',
+            isCustom: true,
           },
         };
-        
-        // Ensure contractorType is a number for proper lookup
-        const normalizedContractorType = contractorType ? parseInt(contractorType) : null;
-        const contractorInfo = normalizedContractorType ? contractorTypes[normalizedContractorType] : null;
+
+        const normalizedContractorType = contractorType ? parseInt(contractorType, 10) : null;
+        const isCustomProfile = normalizedContractorType === 5;
+        const recommendationInfo =
+          normalizedContractorType && normalizedContractorType >= 1 && normalizedContractorType <= 4
+            ? contractorTypes[normalizedContractorType]
+            : null;
         
         // Deduct only business overhead from gross markup; plans/permits are already inside Total Cost (subtotal).
         const businessOverheadDeduct = calc?.companyOverhead ?? 0;
@@ -10872,9 +11207,8 @@ export default function EstimateGeneratorScreen() {
         // ALWAYS use contractor type default if set, otherwise calculate from job characteristics
         let recommendedMarkup;
         
-        if (contractorInfo && normalizedContractorType) {
-          // Use contractor type's default markup (this is the primary recommendation)
-          recommendedMarkup = contractorInfo.defaultMarkup;
+        if (recommendationInfo) {
+          recommendedMarkup = recommendationInfo.defaultMarkup;
         } else {
           // Fallback: calculate based on job size and material/labor mix
           recommendedMarkup = 20;
@@ -10907,8 +11241,8 @@ export default function EstimateGeneratorScreen() {
         const recommendedMarkupNum = Number(recommendedMarkup);
         const defaultMarkup = 20; // Global default markup
         
-        if (contractorInfo && normalizedContractorType) {
-          const { safeMarkupRange } = contractorInfo;
+        if (recommendationInfo) {
+          const { safeMarkupRange } = recommendationInfo;
           const minMarkup = Number(safeMarkupRange.min);
           const maxMarkup = Number(safeMarkupRange.max);
           const rangeSize = maxMarkup - minMarkup;
@@ -11056,9 +11390,9 @@ export default function EstimateGeneratorScreen() {
             markupStatusText = 'Right percentage – healthy and profitable';
             markupStatusColor = '#38d39f';
           }
-        } else if (contractorInfo && normalizedContractorType) {
-          // If no subtotal yet, validate based on markup vs contractor type range
-          const { safeMarkupRange } = contractorInfo;
+        } else if (recommendationInfo) {
+          // If no subtotal yet, validate based on markup vs pricing profile range
+          const { safeMarkupRange } = recommendationInfo;
           const minMarkup = Number(safeMarkupRange.min);
           const maxMarkup = Number(safeMarkupRange.max);
           const currentMarkupNum = Number(currentMarkup);
@@ -11069,7 +11403,7 @@ export default function EstimateGeneratorScreen() {
             markupStatusColor = '#fbbf24';
           } else if (currentMarkupNum < minMarkup) {
             markupStatus = 'risk';
-            markupStatusText = 'Too low – below typical range for your business type';
+            markupStatusText = 'Too low – below typical range for your pricing profile';
             markupStatusColor = '#ef4444';
           } else if (currentMarkupNum > maxMarkup) {
             markupStatus = 'warn';
@@ -11114,6 +11448,7 @@ export default function EstimateGeneratorScreen() {
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={[s.wideContainer, { marginTop: 16, marginBottom: 100 }]}>
+              <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
                   <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(45, 255, 196, 0.16)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -11125,84 +11460,242 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
 
-              {/* Business type — single decision module */}
+              {/* Pricing profile — 2×2 grid + full-width custom + supporting panel below */}
               <View style={{
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
-                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.028)' : Colors.surface2,
                 padding: 14,
                 marginBottom: 18,
               }}>
-                <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: -0.15 }}>Business Type</Text>
-                <Text style={{ color: step5MutedSoft, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
-                  Select your business model for personalized recommendations
+                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                  Pricing Profile
                 </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  {Object.entries(contractorTypes).map(([type, info]) => (
-                    <TouchableOpacity
-                      key={type}
-                      activeOpacity={0.88}
-                      onPress={() => {
-                        updateBid('contractorType', parseInt(type));
-                        // Don't auto-apply markup - let user keep their current value and see recommendations
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      style={{
-                        flex: 1,
-                        minWidth: '47%',
-                        paddingVertical: 13,
-                        paddingHorizontal: 12,
-                        borderRadius: 14,
-                        borderWidth: normalizedContractorType === parseInt(type) ? 2 : 1,
-                        borderColor: normalizedContractorType === parseInt(type)
-                          ? '#2DFFC4'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.12)' : Colors.line),
-                        backgroundColor: normalizedContractorType === parseInt(type)
-                          ? (darkMode ? 'rgba(45, 255, 196, 0.1)' : 'rgba(45, 255, 196, 0.12)')
-                          : (darkMode ? 'rgba(0, 0, 0, 0.35)' : Colors.surface),
-                      }}
-                    >
-                      <Text style={{
-                        color: normalizedContractorType === parseInt(type) ? '#2DFFC4' : Colors.text,
-                        fontSize: 14,
-                        fontWeight: normalizedContractorType === parseInt(type) ? '800' : '700',
-                        marginBottom: 5,
-                        letterSpacing: -0.2,
-                      }}>
-                        {info.name}
-                      </Text>
-                      <Text style={{
-                        color: step5Muted,
-                        fontSize: 12,
-                        lineHeight: 16,
-                      }}>
-                        {info.description}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <Text style={{ color: step5MutedSoft, fontSize: 12, marginBottom: 14, lineHeight: 17 }}>
+                  Choose a pricing profile to pre-fill markup and overhead targets. You can adjust everything.
+                </Text>
 
-                {contractorInfo && (
-                  <View style={{
-                    marginTop: 14,
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
+                {[[1, 2], [3, 4]].map((row) => (
+                  <View
+                    key={String(row)}
+                    style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}
+                  >
+                    {row.map((typeNum) => {
+                      const info = contractorTypes[typeNum];
+                      const selected = normalizedContractorType === typeNum;
+                      return (
+                        <TouchableOpacity
+                          key={typeNum}
+                          activeOpacity={0.88}
+                          onPress={() => {
+                            updateBid('contractorType', typeNum);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          style={{
+                            flex: 1,
+                            paddingVertical: 10,
+                            paddingHorizontal: 11,
+                            borderRadius: 12,
+                            borderWidth: selected ? 1.5 : 1,
+                            borderColor: selected
+                              ? (darkMode ? 'rgba(74, 222, 128, 0.26)' : 'rgba(22, 163, 74, 0.32)')
+                              : (darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line),
+                            backgroundColor: selected
+                              ? (darkMode ? 'rgba(15, 22, 20, 0.92)' : 'rgba(236, 253, 245, 0.55)')
+                              : (darkMode ? 'rgba(0, 0, 0, 0.28)' : Colors.surface),
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected
+                                ? (darkMode ? 'rgba(209, 250, 229, 0.9)' : '#14532d')
+                                : Colors.text,
+                              fontSize: 13,
+                              fontWeight: selected ? '800' : '700',
+                              letterSpacing: -0.2,
+                              lineHeight: 17,
+                            }}
+                            numberOfLines={2}
+                          >
+                            {info.name}
+                          </Text>
+                          <Text
+                            style={{
+                              color: selected
+                                ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
+                                : step5MutedSoft,
+                              fontSize: 11,
+                              lineHeight: 14,
+                              marginTop: 3,
+                            }}
+                            numberOfLines={2}
+                          >
+                            {info.subtitle}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    updateBid('contractorType', 5);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    width: '100%',
+                    paddingVertical: 10,
+                    paddingHorizontal: 11,
                     borderRadius: 12,
-                    backgroundColor: darkMode ? 'rgba(56, 211, 159, 0.09)' : 'rgba(56, 211, 159, 0.1)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(56, 211, 159, 0.28)',
-                  }}>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700', marginBottom: 5 }}>
-                      Suggested for {contractorInfo.name}:
-                    </Text>
-                    <Text style={{ color: step5Muted, fontSize: 12, lineHeight: 17 }}>
-                      Markup: {contractorInfo.safeMarkupRange.min}–{contractorInfo.safeMarkupRange.max}% •
-                      Overhead: {contractorInfo.overheadRange.min}–{contractorInfo.overheadRange.max}%
-                    </Text>
-                    <Text style={{ color: step5MutedSoft, fontSize: 11, marginTop: 6, fontStyle: 'italic', lineHeight: 15 }}>
-                      Typical range — not a limit
-                    </Text>
+                    borderWidth: normalizedContractorType === 5 ? 1.5 : 1,
+                    borderColor:
+                      normalizedContractorType === 5
+                        ? (darkMode ? 'rgba(74, 222, 128, 0.26)' : 'rgba(22, 163, 74, 0.32)')
+                        : (darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line),
+                    backgroundColor:
+                      normalizedContractorType === 5
+                        ? (darkMode ? 'rgba(15, 22, 20, 0.92)' : 'rgba(236, 253, 245, 0.55)')
+                        : (darkMode ? 'rgba(0, 0, 0, 0.28)' : Colors.surface),
+                    marginBottom: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color:
+                        normalizedContractorType === 5
+                          ? (darkMode ? 'rgba(209, 250, 229, 0.9)' : '#14532d')
+                          : Colors.text,
+                      fontSize: 13,
+                      fontWeight: normalizedContractorType === 5 ? '800' : '700',
+                      letterSpacing: -0.2,
+                      lineHeight: 17,
+                    }}
+                  >
+                    {contractorTypes[5].name}
+                  </Text>
+                  <Text
+                    style={{
+                      color:
+                        normalizedContractorType === 5
+                          ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
+                          : step5MutedSoft,
+                      fontSize: 11,
+                      lineHeight: 14,
+                      marginTop: 3,
+                    }}
+                  >
+                    {contractorTypes[5].subtitle}
+                  </Text>
+                </TouchableOpacity>
+
+                {(recommendationInfo || isCustomProfile) && (
+                  <View
+                    style={{
+                      marginTop: 12,
+                      paddingVertical: 7,
+                      paddingHorizontal: 11,
+                      borderRadius: 11,
+                      backgroundColor: darkMode ? 'rgba(10, 14, 20, 0.75)' : 'rgba(226, 232, 240, 0.65)',
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(100, 116, 139, 0.2)' : 'rgba(148, 163, 184, 0.28)',
+                    }}
+                  >
+                    {recommendationInfo ? (
+                      <>
+                        <Text
+                          style={{
+                            color: darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(71, 85, 105, 0.9)',
+                            fontSize: 10.5,
+                            fontWeight: '700',
+                            marginBottom: 5,
+                            letterSpacing: 0.35,
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          Suggested starting targets
+                        </Text>
+                        {[
+                          ['Overhead', recommendationInfo.overheadRange],
+                          ['Profit', recommendationInfo.profitRange],
+                          ['Markup equivalent', recommendationInfo.markupEquivalentRange],
+                        ].map(([label, range]) => (
+                          <Text
+                            key={String(label)}
+                            style={{
+                              fontSize: 11,
+                              lineHeight: 15,
+                              marginBottom: 1,
+                              fontWeight: '500',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: darkMode ? 'rgba(148, 163, 184, 0.72)' : 'rgba(100, 116, 139, 0.92)',
+                              }}
+                            >
+                              {`${label}: `}
+                            </Text>
+                            <Text
+                              style={{
+                                color: darkMode ? 'rgba(167, 243, 208, 0.96)' : 'rgba(21, 128, 61, 0.95)',
+                                fontWeight: '700',
+                              }}
+                            >
+                              {`${range.min}\u2013${range.max}%`}
+                            </Text>
+                          </Text>
+                        ))}
+                        <Text
+                          style={{
+                            color: darkMode ? 'rgba(100, 116, 139, 0.68)' : 'rgba(100, 116, 139, 0.82)',
+                            fontSize: 9.5,
+                            marginTop: 5,
+                            lineHeight: 13.5,
+                            fontWeight: '500',
+                          }}
+                        >
+                          Starting point only — actual targets vary by scope, delivery model, competition, and market.
+                        </Text>
+                        <Text
+                          style={{
+                            color: darkMode ? 'rgba(100, 116, 139, 0.62)' : 'rgba(100, 116, 139, 0.78)',
+                            fontSize: 9.5,
+                            marginTop: 4,
+                            lineHeight: 13,
+                            fontWeight: '500',
+                          }}
+                        >
+                          Markup is applied on cost. Profit margin is measured on revenue.
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text
+                          style={{
+                            color: darkMode ? 'rgba(203, 213, 225, 0.82)' : 'rgba(51, 65, 85, 0.85)',
+                            fontSize: 11,
+                            lineHeight: 15,
+                            fontWeight: '500',
+                          }}
+                        >
+                          Set your own overhead, profit, and markup targets.
+                        </Text>
+                        <Text
+                          style={{
+                            color: darkMode ? 'rgba(100, 116, 139, 0.62)' : 'rgba(100, 116, 139, 0.78)',
+                            fontSize: 9.5,
+                            marginTop: 5,
+                            lineHeight: 13,
+                            fontWeight: '500',
+                          }}
+                        >
+                          Markup is applied on cost. Profit margin is measured on revenue.
+                        </Text>
+                      </>
+                    )}
                   </View>
                 )}
               </View>
@@ -11715,6 +12208,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
               )}
               </GlassBorderCard>
+              </FirstEstimateWalkthroughHighlight>
 
               <Text style={{
                 color: step5MutedSoft,
@@ -11737,6 +12231,7 @@ export default function EstimateGeneratorScreen() {
       case 6: {
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+            <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45, 255, 196, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
@@ -11792,6 +12287,7 @@ export default function EstimateGeneratorScreen() {
                 />
               )}
             </GlassBorderCard>
+            </FirstEstimateWalkthroughHighlight>
             
             {/* Legal Disclaimer - Outside the card */}
             <Text style={{
@@ -12049,6 +12545,7 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+            <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
@@ -15121,6 +15618,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
               )}
             </GlassBorderCard>
+            </FirstEstimateWalkthroughHighlight>
           </View>
         );
       }
@@ -15703,6 +16201,76 @@ export default function EstimateGeneratorScreen() {
     }
   };
 
+  const shouldShowEstimateEmptyState =
+    isFirstTime &&
+    isLoaded &&
+    estimates.length === 0 &&
+    savedEstimates.length === 0 &&
+    (!bid.title || bid.title === 'Untitled Bid') &&
+    (!bid.customerName || bid.customerName === '') &&
+    (!bid.materialLineItems || bid.materialLineItems.length === 0) &&
+    (!bid.laborLineItems || bid.laborLineItems.length === 0) &&
+    materialsCart.length === 0 &&
+    (!calc?.total || calc.total === 0);
+
+  const firstEstimateFloatingTipVisible =
+    shouldShowFirstEstimateWalkthrough &&
+    firstEstimateWtProgressHydrated &&
+    firstEstimateWtStarted &&
+    !firstEstimateWtSkipTipsSession &&
+    step >= 1 &&
+    step <= 7 &&
+    !firstEstimateWtDismissed[String(step)] &&
+    !shouldShowEstimateEmptyState;
+
+  const firstWtTipTitle =
+    step === 1
+      ? 'Customer information'
+      : step === 2
+        ? 'Project information'
+        : step === 3
+          ? 'Materials & Supplies'
+          : step === 4
+            ? 'Labor & Subcontractors'
+            : step === 5
+              ? 'Price the job correctly'
+              : step === 6
+                ? 'Review estimate health'
+                : step === 7
+                  ? 'Set up how you get paid'
+                  : '';
+
+  const firstWtTipBody =
+    step === 1
+      ? 'Add the client details for this bid—name, phone, and where the work happens.'
+      : step === 2
+        ? 'Project type and location help shape pricing and recommendations.'
+        : step === 3
+          ? 'Add the materials needed for the job. Use Add Material for manual entry or SKU Search for faster lookup.'
+          : step === 4
+            ? 'Add crew labor or subcontractor costs so the estimate reflects the real cost of the job.'
+            : step === 5
+              ? 'Direct costs cover job-specific expenses, overhead covers business costs, and markup protects your profit.'
+              : step === 6
+                ? 'Check margin, risk, and likely job outcomes before sending the bid.'
+                : step === 7
+                  ? 'A strong payment schedule protects cash flow, covers upfront costs, and reduces collection risk.'
+                  : '';
+
+  const firstEstimateWalkthroughUiActive =
+    (shouldShowFirstEstimateWalkthrough &&
+      firstEstimateWtProgressHydrated &&
+      !firstEstimateWtIntroResolved) ||
+    firstEstimateFloatingTipVisible;
+
+  const walkthroughScrollPadBottom =
+    firstEstimateFloatingTipVisible ||
+    (shouldShowFirstEstimateWalkthrough &&
+      firstEstimateWtProgressHydrated &&
+      !firstEstimateWtIntroResolved)
+      ? Math.round(Dimensions.get('window').height * 0.24) + 28
+      : null;
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
@@ -15713,7 +16281,16 @@ export default function EstimateGeneratorScreen() {
       >
         <ScrollView
           ref={mainScrollRef}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 32, paddingBottom: step === 1 ? 80 : 60 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 32,
+            paddingBottom:
+              walkthroughScrollPadBottom != null
+                ? walkthroughScrollPadBottom
+                : step === 1
+                  ? 80
+                  : 60,
+          }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -15769,7 +16346,7 @@ export default function EstimateGeneratorScreen() {
         </View>
 
         {/* Navigation Pill (matches dashboard segmented control) - same width as Bid Summary */}
-        <View style={s.wideContainer}>
+        <View style={[s.wideContainer, { opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <View
           style={[
             s.navPillBorder,
@@ -15915,7 +16492,7 @@ export default function EstimateGeneratorScreen() {
       </View>
 
       {/* Step Section Card with Icons */}
-      <View style={[s.wideContainer, { marginTop: 12 }]}>
+      <View style={[s.wideContainer, { marginTop: 12, opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <LinearGradient
           colors={['#2DFFC4', '#00A6FF']}
           start={{ x: 0.05, y: 0.15 }}
@@ -16314,6 +16891,46 @@ export default function EstimateGeneratorScreen() {
         )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {shouldShowFirstEstimateWalkthrough &&
+      firstEstimateWtProgressHydrated &&
+      !firstEstimateWtIntroResolved ? (
+        <FirstEstimateWalkthroughSheetShell
+          darkMode={darkMode}
+          bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+        >
+          <FirstEstimateWalkthroughIntroSheetContent
+            darkMode={darkMode}
+            Colors={Colors}
+            onStart={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setFirstEstimateWtIntroResolved(true);
+              setFirstEstimateWtStarted(true);
+            }}
+            onSkip={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setFirstEstimateWtIntroResolved(true);
+              setFirstEstimateWtSkipTipsSession(true);
+            }}
+          />
+        </FirstEstimateWalkthroughSheetShell>
+      ) : null}
+
+      {firstEstimateFloatingTipVisible ? (
+        <FirstEstimateWalkthroughSheetShell
+          darkMode={darkMode}
+          bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+        >
+          <FirstEstimateWalkthroughStepSheetContent
+            darkMode={darkMode}
+            Colors={Colors}
+            title={firstWtTipTitle}
+            body={firstWtTipBody}
+            onGotIt={handleFirstEstimateWalkthroughGotIt}
+            onSkipWalkthrough={skipEntireFirstEstimateWalkthrough}
+          />
+        </FirstEstimateWalkthroughSheetShell>
+      ) : null}
       
       {/* Bottom Toast for first estimate */}
       <BottomToast
@@ -16373,6 +16990,7 @@ export default function EstimateGeneratorScreen() {
               sku: normalizedItem.sku || '',
               source: 'manual',
               isManual: true,
+              ...(normalizedItem.mode ? { mode: normalizedItem.mode } : {}),
             };
 
             const existing = prev.materialLineItems || [];
@@ -16630,7 +17248,7 @@ export default function EstimateGeneratorScreen() {
       </Modal>
 
       {/* FLOATING AI PM — same look as project Overview (opens estimate AI assistant) */}
-      {step !== 8 && (
+      {step !== 8 && !firstEstimateWalkthroughUiActive && (
         <Pressable
           style={s.aiFloatingWrapper}
           onPress={() => {

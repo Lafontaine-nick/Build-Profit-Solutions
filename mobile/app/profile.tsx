@@ -40,6 +40,10 @@ import {
   clearAllOnboardingCompletionKeys,
   clearOnboardingCompleteForUser,
 } from '@/lib/onboardingStorage';
+import {
+  FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
+  FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
+} from '@/lib/firstEstimateWalkthroughStorage';
 // Conditionally import Clerk - only if configured
 let useClerkAuth: any = null;
 let useUser: any = null;
@@ -2063,6 +2067,8 @@ export default function ProfileScreen() {
                         // Clear first estimate flags
                         await AsyncStorage.removeItem('bps.firstEstimateCreated');
                         await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
+                        await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
+                        await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
                         
                         router.push('/onboarding');
                       } catch (error) {
