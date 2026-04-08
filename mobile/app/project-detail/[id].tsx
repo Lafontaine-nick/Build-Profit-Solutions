@@ -1499,7 +1499,13 @@ function ProjectDetailContent() {
             `$${(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           return (
             <View style={styles.wideContainer}>
-              <View>
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.overviewBorder}
+              >
+                <View style={[styles.overviewInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project Overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
@@ -1738,7 +1744,8 @@ function ProjectDetailContent() {
                       </View>
                     </View>
                   </View>
-              </View>
+                </View>
+              </LinearGradient>
             </View>
           );
         }
