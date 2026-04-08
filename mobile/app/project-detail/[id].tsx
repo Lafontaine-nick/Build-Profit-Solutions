@@ -4,7 +4,7 @@ import {
   useProjectData,
 } from '../../contexts/ProjectDataContext';
 import { useProjectList, UnifiedProject } from '../../contexts/ProjectListContext';
-import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Modal, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Alert, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -17,8 +17,12 @@ import TimelineTabV2 from '../../components/TimelineTabV2';
 import TeamTab from '../../components/TeamTab';
 import ProjectCalendar from '../../components/ProjectCalendar';
 import MessagesTab from '../../components/MessagesTab';
-import SpendingTrendChart from '../../components/SpendingTrendChart';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
+import {
+  computeProjectFinancials,
+  sumPlannedCostFromBuckets,
+  computeSpendingTrendCostStatus,
+} from '../../src/lib/projectFinancials';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
@@ -27,8 +31,23 @@ import ProjectActivationFlow from '../../components/ProjectActivationFlow';
 import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
 import api from '../../services/BackendAPI';
 import { useAuth } from '@clerk/clerk-expo';
+import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  FirstEstimateWalkthroughSheetShell,
+  FirstEstimateWalkthroughStepSheetContent,
+} from '@/components/FirstEstimateWalkthrough';
+import {
+  loadActiveProjectWalkthroughProgress,
+  saveActiveProjectWalkthroughProgress,
+  type ActiveProjectWalkthroughProgress,
+} from '@/lib/activeProjectWalkthroughStorage';
+import {
+  applyMarkPaymentCollectedFromAction,
+  computeOverallProgressExcludingDeposit,
+} from '@/lib/markPaymentCollected';
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -50,6 +69,34 @@ const firstPositiveNumber = (...values: any[]): number | null => {
 };
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
+
+const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
+  {
+    tab: 'Overview',
+    title: 'Overview',
+    body: 'See job health, progress, and quick actions. This is your home base while the project is running.',
+  },
+  {
+    tab: 'Budget',
+    title: 'Budget',
+    body: 'Track what you planned versus what you are spending—materials, labor, and change orders stay visible here.',
+  },
+  {
+    tab: 'Timeline',
+    title: 'Timeline',
+    body: 'Manage milestones and payments. Mark work complete and keep cash flow aligned with the job.',
+  },
+  {
+    tab: 'Calendar',
+    title: 'Calendar',
+    body: 'Schedule site visits, deliveries, and deadlines so the crew and client stay on the same page.',
+  },
+  {
+    tab: 'Team',
+    title: 'Team',
+    body: 'Assign subs and crew roles so everyone knows who is responsible for each part of the job.',
+  },
+];
 
 // Circular Progress Component
 const CircularProgress = ({
@@ -96,15 +143,24 @@ const CircularProgress = ({
 function ProjectDetailContent() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const id = params.id as string;
   const initialTab = (params.activeTab as TabKey) || 'Overview';
   const backToProjects = params.backToProjects === '1';
+  const apWtRaw = params.apWt;
+  const apWtRequest =
+    apWtRaw === '1' || (Array.isArray(apWtRaw) && apWtRaw[0] === '1');
   const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder, updateTeam } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
   const { t } = useTranslation();
   const { getToken } = useAuth();
+  const {
+    hydrated: wtHydrated,
+    shouldShowFirstProject,
+    markCompleted: markFirstProjectWalkthroughCompleted,
+  } = useWalkthroughState();
   
   const user = {
     name: "Nick Lafontaine",
@@ -152,27 +208,18 @@ function ProjectDetailContent() {
     }
   }, []);
   const { getProjectById, updateProject, activeProjects, projects: allProjects } = useProjectList();
+  const realProjectData = getProjectById(id as string);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
 
-  // Update activeTab when params change
-  useEffect(() => {
-    if (params.activeTab && params.activeTab !== activeTab) {
-      setActiveTab(params.activeTab as TabKey);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.activeTab]);
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
-  const [showKickoffCard, setShowKickoffCard] = useState(false);
+  const [showActivationFlow, setShowActivationFlow] = useState(false);
   const [activationChecklist, setActivationChecklist] = useState({
     timelineConfirmed: false,
     paymentScheduleReviewed: false,
     teamAssigned: false,
   });
-  const allChecklistComplete = activationChecklist.timelineConfirmed && 
-    activationChecklist.paymentScheduleReviewed && 
-    activationChecklist.teamAssigned;
   const [expandedChecklistItem, setExpandedChecklistItem] = useState<string | null>(null);
   const [showActivationCelebration, setShowActivationCelebration] = useState(false);
   const celebrationAnim = useRef(new Animated.Value(0)).current;
@@ -181,6 +228,134 @@ function ProjectDetailContent() {
   const justActivatedOpacity = useRef(new Animated.Value(1)).current;
   const [liveTimelineMilestones, setLiveTimelineMilestones] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+
+  const [apWtProgressLoaded, setApWtProgressLoaded] = useState(false);
+  const [apWtProgress, setApWtProgress] = useState<ActiveProjectWalkthroughProgress | null>(null);
+  const [apWtStepIndex, setApWtStepIndex] = useState(0);
+
+  const apWtComplete = wtHydrated && !shouldShowFirstProject;
+
+  const apWtWalkthroughEligible = useMemo(() => {
+    if (!wtHydrated || !apWtProgressLoaded || apWtComplete || !id) return false;
+    const p = apWtProgress;
+    if (p?.skipTips) return false;
+    const tourMatch = p?.tourProjectId === id;
+    const startedOnTour = Boolean(p?.started && tourMatch);
+    const fromDeepLink =
+      Boolean(apWtRequest) && (tourMatch || !p?.tourProjectId);
+    return startedOnTour || fromDeepLink;
+  }, [wtHydrated, apWtProgressLoaded, apWtComplete, apWtProgress, id, apWtRequest]);
+
+  useEffect(() => {
+    if (apWtWalkthroughEligible) return;
+    if (params.activeTab && params.activeTab !== activeTab) {
+      setActiveTab(params.activeTab as TabKey);
+    }
+  }, [params.activeTab, apWtWalkthroughEligible, activeTab]);
+
+  const apWtSheetVisible =
+    apWtWalkthroughEligible &&
+    apWtStepIndex >= 0 &&
+    apWtStepIndex < AP_WT_STEPS.length &&
+    activeTab === AP_WT_STEPS[apWtStepIndex].tab;
+
+  const apWtScrollPadBottom = apWtSheetVisible
+    ? Math.round(Dimensions.get('window').height * 0.24) + 28
+    : 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const accountDone = wtHydrated && !shouldShowFirstProject;
+      let p = await loadActiveProjectWalkthroughProgress();
+      if (cancelled) return;
+      if (!accountDone && apWtRequest && !p && id) {
+        p = {
+          introResolved: true,
+          started: true,
+          detailStepIndex: 0,
+          tourProjectId: String(id),
+        };
+        await saveActiveProjectWalkthroughProgress(p);
+      }
+      if (
+        !accountDone &&
+        (apWtRequest || p?.started) &&
+        p &&
+        !p.tourProjectId &&
+        id
+      ) {
+        const next = { ...p, tourProjectId: String(id) };
+        await saveActiveProjectWalkthroughProgress(next);
+        p = next;
+      }
+      if (cancelled) return;
+      setApWtProgress(p);
+      setApWtProgressLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, apWtRequest, wtHydrated, shouldShowFirstProject]);
+
+  useEffect(() => {
+    if (!apWtProgressLoaded || apWtComplete || !apWtWalkthroughEligible) return;
+    const p = apWtProgress;
+    const rawIdx = Number(p?.detailStepIndex);
+    const idx = Number.isFinite(rawIdx)
+      ? Math.min(AP_WT_STEPS.length - 1, Math.max(0, rawIdx))
+      : 0;
+    setApWtStepIndex(idx);
+    setActiveTab(AP_WT_STEPS[idx].tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync tab once when walkthrough becomes eligible
+  }, [apWtProgressLoaded, apWtComplete, apWtWalkthroughEligible]);
+
+  const stripApWtFromRoute = useCallback(() => {
+    try {
+      const suffix = backToProjects ? '?backToProjects=1' : '';
+      router.replace(`/project-detail/${id}${suffix}` as any);
+    } catch {
+      /* ignore */
+    }
+  }, [router, id, backToProjects]);
+
+  const persistApWtProgress = useCallback(
+    async (patch: Partial<ActiveProjectWalkthroughProgress>) => {
+      const cur = (await loadActiveProjectWalkthroughProgress()) || {};
+      const next = { ...cur, ...patch };
+      await saveActiveProjectWalkthroughProgress(next);
+      setApWtProgress(next);
+    },
+    []
+  );
+
+  const skipActiveProjectWalkthrough = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await markFirstProjectWalkthroughCompleted('firstProject');
+    stripApWtFromRoute();
+  }, [markFirstProjectWalkthroughCompleted, stripApWtFromRoute]);
+
+  const handleApWtGotIt = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const nextIdx = apWtStepIndex + 1;
+    if (nextIdx >= AP_WT_STEPS.length) {
+      await markFirstProjectWalkthroughCompleted('firstProject');
+      stripApWtFromRoute();
+      return;
+    }
+    setApWtStepIndex(nextIdx);
+    setActiveTab(AP_WT_STEPS[nextIdx].tab);
+    await persistApWtProgress({ detailStepIndex: nextIdx });
+  }, [apWtStepIndex, persistApWtProgress, stripApWtFromRoute, markFirstProjectWalkthroughCompleted]);
+
+  useEffect(() => {
+    if (!apWtSheetVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      skipActiveProjectWalkthrough();
+      return true;
+    });
+    return () => sub.remove();
+  }, [apWtSheetVisible, skipActiveProjectWalkthrough]);
 
   // Load live timeline milestones from AsyncStorage (this is where TimelineTabV2 saves completed statuses)
   useEffect(() => {
@@ -265,129 +440,8 @@ function ProjectDetailContent() {
     }
   }, [activationChecklist, showActivationFlow]);
 
-  // Auto-dismiss activation card when project becomes active
-  useEffect(() => {
-    if (!showKickoffCard || !id) return;
-
-    const checkIfProjectActive = async () => {
-      // Check if first cost was added
-      const hasExpenses = (contextProjectData?.expenses || []).length > 0;
-      const hasSpending = (contextProjectData?.spent || 0) > 0;
-      
-      // Check if first payment was logged
-      const hasPayments = (contextProjectData?.milestones || []).some(
-        (m: any) => m.status && m.status !== 'pending' && m.status !== 'scheduled'
-      );
-      
-      // Check if project status changed to in_progress
-      const status = realProjectData?.status?.toLowerCase();
-      const isInProgress = status === 'in_progress' || status === 'active';
-      
-      // Check if any milestone has progress > 0
-      const hasProgress = (contextProjectData?.milestones || []).some(
-        (m: any) => (m.progressPct || 0) > 0
-      );
-
-      // Auto-dismiss if any of these conditions are met
-      if (hasExpenses || hasSpending || hasPayments || isInProgress || hasProgress) {
-        console.log('✅ Project is active - auto-dismissing activation card', {
-          hasExpenses,
-          hasSpending,
-          hasPayments,
-          isInProgress,
-          hasProgress,
-        });
-        
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setShowKickoffCard(false);
-        
-        try {
-          await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
-          await AsyncStorage.setItem(`bps.activationAutoDismissed.${id}`, 'true');
-        } catch (error) {
-          console.error('Error saving activation card dismissal:', error);
-        }
-      }
-    };
-
-    checkIfProjectActive();
-  }, [
-    showKickoffCard,
-    contextProjectData?.expenses,
-    contextProjectData?.spent,
-    contextProjectData?.milestones,
-    realProjectData?.status,
-    id,
-  ]);
-  const [showActivationFlow, setShowActivationFlow] = useState(false);
-  
-  // Debug: Log state changes
-  useEffect(() => {
-    console.log('🔍 [STATE] showKickoffCard changed:', showKickoffCard, 'activeTab:', activeTab);
-  }, [showKickoffCard, activeTab]);
-
-  // Auto-dismiss activation card when project becomes active
-  useEffect(() => {
-    if (!showKickoffCard || !id) return;
-
-    const checkIfProjectActive = async () => {
-      // Check if first cost was added
-      const hasExpenses = (contextProjectData?.expenses || []).length > 0;
-      const hasSpending = (contextProjectData?.spent || 0) > 0;
-      
-      // Check if first payment was logged (milestone with non-pending status)
-      const milestones = contextProjectData?.milestones || [];
-      const hasPayments = milestones.some(
-        (m: any) => m.status && m.status !== 'pending' && m.status !== 'scheduled'
-      );
-      
-      // Check if project status changed to in_progress
-      const status = realProjectData?.status?.toLowerCase();
-      const isInProgress = status === 'in_progress' || status === 'active';
-      
-      // Check if any milestone has progress > 0
-      const hasProgress = milestones.some(
-        (m: any) => (m.progressPct || 0) > 0
-      );
-
-      // Auto-dismiss if any of these conditions are met
-      if (hasExpenses || hasSpending || hasPayments || isInProgress || hasProgress) {
-        console.log('✅ Project is active - auto-dismissing activation card', {
-          hasExpenses,
-          hasSpending,
-          hasPayments,
-          isInProgress,
-          hasProgress,
-        });
-        
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setShowKickoffCard(false);
-        
-        try {
-          await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
-          await AsyncStorage.setItem(`bps.activationAutoDismissed.${id}`, 'true');
-        } catch (error) {
-          console.error('Error saving activation card dismissal:', error);
-        }
-      }
-    };
-
-    checkIfProjectActive();
-  }, [
-    showKickoffCard,
-    contextProjectData?.expenses,
-    contextProjectData?.spent,
-    contextProjectData?.milestones,
-    realProjectData?.status,
-    id,
-  ]);
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
-  const [showAiSuggestions, setShowAiSuggestions] = useState(false);
   const [initialAIQuestion, setInitialAIQuestion] = useState<string | undefined>(undefined);
-  const aiSuggestionAnim = useRef(new Animated.Value(0)).current;
 
-  // Get real project data from ProjectListContext
-  const realProjectData = getProjectById(id as string);
   const totalSpentFromBuckets = React.useMemo(() => {
     if (contextProjectData?.buckets && contextProjectData.buckets.length > 0) {
       return contextProjectData.buckets.reduce(
@@ -432,327 +486,21 @@ function ProjectDetailContent() {
     }
   }, []);
 
-  // Check if we should show the intro card for newly activated projects
-  useEffect(() => {
-    const checkIntroCard = async () => {
-      if (!id || !realProjectData) {
-        console.log('⚠️ checkIntroCard: Missing id or realProjectData', { id, hasData: !!realProjectData });
-        return;
-      }
-      
-      const status = realProjectData.status?.toLowerCase();
-      const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
-      
-      console.log('🔍 checkIntroCard:', {
-        id,
-        status,
-        isActiveProject,
-        hasEstimateData: !!(realProjectData.estimateData || (realProjectData as any)?.estimateData),
-        updatedAt: realProjectData.updatedAt,
-        createdAt: realProjectData.createdAt,
-      });
-      
-      if (!isActiveProject) {
-        console.log('❌ Project is not active, hiding kickoff card');
-        setShowKickoffCard(false);
-        setShowAiSuggestions(false);
-        return;
-      }
-      
-      // Check if kickoff card has been shown for this project
-      const kickoffKey = `bps.kickoffShown.${id}`;
-      const suggestionsKey = `bps.aiSuggestionsShown.${id}`;
-      try {
-        const kickoffShown = await AsyncStorage.getItem(kickoffKey);
-        const suggestionsShown = await AsyncStorage.getItem(suggestionsKey);
-        
-        // Check if this project was recently activated (created or updated in last 10 minutes)
-        const updatedAt = realProjectData.updatedAt ? new Date(realProjectData.updatedAt).getTime() : 0;
-        const createdAt = realProjectData.createdAt ? new Date(realProjectData.createdAt).getTime() : 0;
-        const now = Date.now();
-        const tenMinutesAgo = now - (10 * 60 * 1000);
-        // Consider it recently activated if it was created or updated recently
-        const isRecentlyActivated = (updatedAt > tenMinutesAgo) || (createdAt > tenMinutesAgo);
-        
-        // Check if this is the first project ever activated
-        const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
-        
-        // Count how many other projects exist (active OR completed, excluding current one)
-        // This ensures the walkthrough only shows for the very first project ever
-        const otherProjects = (allProjects || []).filter(p => {
-          const pStatus = (p.status || '').toLowerCase();
-          // Count any project that is active, completed, or was previously active/completed
-          const pIsRealProject = pStatus === 'won' || 
-                                 pStatus === 'in_progress' || 
-                                 pStatus === 'active' || 
-                                 pStatus === 'completed';
-          return pIsRealProject && p.id !== id;
-        });
-        
-        // Check if this project was just created (has estimateData but no expenses/spending yet)
-        // This helps catch projects created from onboarding even if timestamps are slightly off
-        const hasEstimateData = !!(realProjectData.estimateData || (realProjectData as any)?.estimateData);
-        const hasNoSpending = (!realProjectData.actualCost || realProjectData.actualCost === 0) &&
-                               (!contextProjectData?.spent || contextProjectData.spent === 0);
-        const looksLikeNewProject = hasEstimateData && hasNoSpending;
-        
-        // Check if this is the first project (no other projects exist, including completed ones)
-        // OR if the firstProjectActivated flag hasn't been set yet (first time ever)
-        // This ensures we show the card even if projects haven't loaded yet
-        const isFirstProject = firstProjectActivated !== 'true' || otherProjects.length === 0;
-        
-        // Show kickoff card ONLY for the first project:
-        // 1. It hasn't been shown for this project yet
-        // 2. AND it's the first project (no other active projects exist OR flag hasn't been set)
-        // After the first project, this card should never show again
-        const shouldShowKickoff = kickoffShown !== 'true' && isFirstProject;
-        
-        console.log('🔍 [checkIntroCard] Kickoff card check:', {
-          id,
-          kickoffShown,
-          isFirstProject,
-          firstProjectActivated,
-          otherProjectsCount: otherProjects.length,
-          looksLikeNewProject,
-          hasEstimateData,
-          hasNoSpending,
-          actualCost: realProjectData.actualCost,
-          contextSpent: contextProjectData?.spent,
-          shouldShowKickoff,
-        });
-        
-        if (shouldShowKickoff) {
-          // Mark that a project has been activated (set flag before showing card)
-          await AsyncStorage.setItem('bps.firstProjectActivated', 'true');
-          setShowKickoffCard(true);
-          setShowAiSuggestions(false); // Hide AI suggestions when kickoff is showing
-          console.log('✅ Showing kickoff card for project:', {
-            id,
-            isFirstProject,
-            otherProjectsCount: otherProjects.length,
-            firstProjectActivated,
-            kickoffShown,
-            isRecentlyActivated,
-            looksLikeNewProject,
-            hasEstimateData,
-            hasNoSpending,
-            shouldShowKickoff,
-          });
-          return;
-        } else {
-          console.log('❌ NOT showing kickoff card. Reasons:', {
-            kickoffAlreadyShown: kickoffShown === 'true',
-            notFirstProject: !isFirstProject,
-            notNewProject: !looksLikeNewProject,
-            hasOtherProjects: otherProjects.length > 0,
-            hasSpending: !hasNoSpending,
-            noEstimateData: !hasEstimateData,
-          });
-        }
-
-        // Only hide kickoff card if it was already shown
-        if (kickoffShown === 'true') {
-          setShowKickoffCard(false);
-        }
-
-        // Show AI suggestions only after kickoff has been dismissed (kickoffShown === 'true')
-        // AND only if it hasn't been shown yet
-        if (kickoffShown === 'true' && suggestionsShown !== 'true' && (isRecentlyActivated || looksLikeNewProject)) {
-          const suggestions = generateAISuggestions(realProjectData);
-          setAiSuggestions(suggestions);
-          setShowAiSuggestions(true);
-        } else {
-          setShowAiSuggestions(false);
-        }
-      } catch (error) {
-        console.error('Error checking kickoff card:', error);
-        setShowKickoffCard(false);
-        setShowAiSuggestions(false);
-      }
-    };
-    
-    checkIntroCard();
-  }, [id, realProjectData?.status, realProjectData?.updatedAt, realProjectData?.createdAt, realProjectData?.estimateData, allProjects, contextProjectData?.spent]);
-
-  // Generate context-aware AI suggestions for newly activated projects
-  const generateAISuggestions = (project: any): string[] => {
-    const suggestions: string[] = [];
-    const projectName = project?.title || 'this project';
-    const budget = project?.bidPrice || project?.budgeted || 0;
-    
-    // Always include these core suggestions for newly activated projects
-    suggestions.push(`What should I track first on ${projectName}?`);
-    suggestions.push(`Is my labor budget realistic for ${projectName}?`);
-    
-    // Add budget-specific suggestion if budget is significant
-    if (budget > 50000) {
-      suggestions.push(`What's the biggest risk on ${projectName}?`);
-    }
-    
-    // Add timeline suggestion
-    if (project?.startDate || project?.endDate) {
-      suggestions.push(`How long should ${projectName} take based on the estimate?`);
-    } else {
-      suggestions.push(`What timeline should I set for ${projectName}?`);
-    }
-    
-    return suggestions;
-  };
-
-  useEffect(() => {
-    if (showAiSuggestions) {
-      aiSuggestionAnim.setValue(0);
-      Animated.timing(aiSuggestionAnim, {
-        toValue: 1,
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      aiSuggestionAnim.setValue(0);
-    }
-  }, [showAiSuggestions, aiSuggestionAnim]);
-
-  const handleAISuggestion = (suggestion: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setInitialAIQuestion(suggestion);
-    setShowAIAssistant(true);
-    // The AIAssistantModal will use initialQuestion prop to auto-send
-  };
-
-  const dismissAiSuggestions = async () => {
-    if (!id) return;
-    // Animate out with iOS-style spring animation
-    Animated.spring(aiSuggestionAnim, {
-      toValue: 0,
-      tension: 50,
-      friction: 7,
-      useNativeDriver: true,
-    }).start(() => {
-      setShowAiSuggestions(false);
-    });
-    try {
-      await AsyncStorage.setItem(`bps.aiSuggestionsShown.${id}`, 'true');
-    } catch (error) {
-      console.error('Error saving AI suggestions dismissal:', error);
-    }
-  };
-
-  const revealAiSuggestions = async () => {
-    if (!id || !realProjectData) return;
-
-    const status = realProjectData.status?.toLowerCase();
-    const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
-    if (!isActiveProject) return;
-
-    const updatedAt = realProjectData.updatedAt ? new Date(realProjectData.updatedAt).getTime() : 0;
-    const now = Date.now();
-    const fiveMinutesAgo = now - (5 * 60 * 1000);
-    const isRecentlyActivated = updatedAt > fiveMinutesAgo;
-    if (!isRecentlyActivated) return;
-
-    try {
-      const suggestionsShown = await AsyncStorage.getItem(`bps.aiSuggestionsShown.${id}`);
-      if (suggestionsShown === 'true') return;
-
-      const suggestions = generateAISuggestions(realProjectData);
-      setAiSuggestions(suggestions);
-      setShowAiSuggestions(true);
-    } catch (error) {
-      console.error('Error showing AI suggestions:', error);
-    }
-  };
-
-  const dismissKickoffCard = async () => {
-    if (!id) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setShowKickoffCard(false);
-    try {
-      await AsyncStorage.setItem(`bps.kickoffShown.${id}`, 'true');
-    } catch (error) {
-      console.error('Error saving kickoff card dismissal:', error);
-    }
-
-    // After kickoff is dismissed, reveal AI suggestions as a secondary moment
-    await revealAiSuggestions();
-  };
-
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
       const loadOnFocus = async () => {
         if (!isActive) return;
         await loadMaterialsFromStorage();
-        // Reload project data from AsyncStorage to get latest expenses
         if (reloadFromStorage) {
           await reloadFromStorage();
-          console.log('🔄 Reloaded project data on focus, expenses:', contextProjectData?.expenses?.length || 0);
-          console.log('📊 Materials/Equipment bucket spent:', 
-            contextProjectData?.buckets?.find(b => 
-              b.name?.toLowerCase().includes('materials') || 
-              b.name?.toLowerCase().includes('equipment')
-            )?.spent || 0
-          );
-        }
-        
-        // Re-check kickoff card when screen comes into focus (in case project data wasn't ready on mount)
-        if (id && realProjectData) {
-          const status = realProjectData.status?.toLowerCase();
-          const isActiveProject = status === 'won' || status === 'in_progress' || status === 'active';
-          
-          if (isActiveProject && !showKickoffCard) {
-            const kickoffKey = `bps.kickoffShown.${id}`;
-            const firstProjectActivated = await AsyncStorage.getItem('bps.firstProjectActivated');
-            // Count how many other projects exist (active OR completed, excluding current one)
-            const otherProjects = (allProjects || []).filter(p => {
-              const pStatus = (p.status || '').toLowerCase();
-              // Count any project that is active, completed, or was previously active/completed
-              const pIsRealProject = pStatus === 'won' || 
-                                     pStatus === 'in_progress' || 
-                                     pStatus === 'active' || 
-                                     pStatus === 'completed';
-              return pIsRealProject && p.id !== id;
-            });
-            const isFirstProject = firstProjectActivated !== 'true' || otherProjects.length === 0;
-            const kickoffShown = await AsyncStorage.getItem(kickoffKey);
-            
-            // Check if it looks like a new project from onboarding
-            const hasEstimateData = !!(realProjectData.estimateData || (realProjectData as any)?.estimateData);
-            const hasNoSpending = (!realProjectData.actualCost || realProjectData.actualCost === 0) &&
-                                   (!contextProjectData?.spent || contextProjectData.spent === 0);
-            const looksLikeNewProject = hasEstimateData && hasNoSpending;
-            
-            // Show if it's the first project OR if it has estimateData (came from estimate)
-            // Show ONLY if it's the first project (after first project, never show again)
-            const shouldShow = kickoffShown !== 'true' && isFirstProject;
-            
-            console.log('🔍 [useFocusEffect] Kickoff card check:', {
-              id,
-              kickoffShown,
-              isFirstProject,
-              firstProjectActivated,
-              otherProjectsCount: otherProjects.length,
-              shouldShow,
-            });
-            
-            if (shouldShow) {
-              await AsyncStorage.setItem('bps.firstProjectActivated', 'true');
-              setShowKickoffCard(true);
-              setShowAiSuggestions(false);
-              console.log('✅ [useFocusEffect] Showing kickoff card for project:', {
-                id,
-                isFirstProject,
-                looksLikeNewProject,
-                otherProjectsCount: otherProjects.length,
-              });
-            }
-          }
         }
       };
       loadOnFocus();
       return () => {
         isActive = false;
       };
-    }, [loadMaterialsFromStorage, reloadFromStorage, contextProjectData, id, realProjectData, allProjects, showKickoffCard])
+    }, [loadMaterialsFromStorage, reloadFromStorage])
   );
 
   // Recalculate budget total and cost (subtotal) from estimate data
@@ -1472,18 +1220,6 @@ function ProjectDetailContent() {
       (sum: number, bucket: any) => sum + Number(bucket.spent || 0),
       0
     );
-    const approvedChangeOrdersTotal = (safeProjectData?.changeOrders || []).reduce(
-      (sum: number, co: any) => {
-        const amount = Number(co.amount || 0);
-        const isApproved =
-          (typeof co.approved === 'boolean' && co.approved) ||
-          (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-        return isApproved ? sum + amount : sum;
-      },
-      0
-    );
-    const adjustedBudget = Number(safeProjectData?.budgeted || 0) + approvedChangeOrdersTotal;
-    
     // Calculate Received Purchase Orders total (to include in Actual Expenses)
     const receivedPOsTotal = (() => {
       const rawPOs = safeProjectData?.purchaseOrders || [];
@@ -1516,7 +1252,27 @@ function ProjectDetailContent() {
     // When we have expenses: sum(expenses) + receivedPOsTotal. Else: bucketSpentTotal (includes POs).
     const totalSpent = expensesTotal > 0 ? expensesTotal + receivedPOsTotal : bucketSpentTotal;
 
-    const budgetProgress = adjustedBudget > 0 ? (totalSpent / adjustedBudget) * 100 : 0;
+    const plannedFromBucketsForFinancials = (safeProjectData?.buckets || []).reduce(
+      (sum: number, bucket: any) => {
+        const n = String(bucket?.name || '');
+        if (n === 'Materials/Equipment' || n === 'Labor') {
+          return sum + Number(bucket?.budget || 0);
+        }
+        return sum;
+      },
+      0
+    );
+    const plannedCostBucketSum = sumPlannedCostFromBuckets(safeProjectData?.buckets);
+    const financials = computeProjectFinancials(safeProjectData, {
+      plannedFromBuckets: plannedFromBucketsForFinancials,
+      plannedCostBucketSum,
+    });
+    const costBudgetCap = financials.adjustedCostBudget;
+
+    const budgetProgress =
+      costBudgetCap > 0
+        ? ((totalSpent + committedPOsTotal) / costBudgetCap) * 100
+        : 0;
 
     // Compute schedule progress from live timeline (exclude deposit) when available — matches Timeline tab
     const isDeposit = (m: any) => {
@@ -1533,6 +1289,18 @@ function ProjectDetailContent() {
     const projectStatus = String((safeProjectData as any)?.status ?? '').toLowerCase();
     const isProjectCompleted = projectStatus === 'completed';
     const progressForForecast = isProjectCompleted ? 100 : scheduleProgress;
+
+    const profitForecast = computeProfitForecast({
+      contractValue: financials.adjustedContractValue,
+      adjustedBudget:
+        costBudgetCap > 0 ? costBudgetCap : financials.adjustedContractValue,
+      estimatedCostBaseline:
+        financials.plannedCostBudget > 0 ? financials.plannedCostBudget : undefined,
+      actualExpenses: totalSpent,
+      committedPOs: committedPOsTotal,
+      progressPct: progressForForecast,
+      isCompleted: isProjectCompleted,
+    });
 
     const getDaysLeft = () => {
       if (!safeProjectData?.endISO) return 0;
@@ -1622,9 +1390,11 @@ function ProjectDetailContent() {
       })}`;
     };
 
-    const baseBudget = Number(safeProjectData?.budgeted || 0);
-    const remaining = adjustedBudget - totalSpent;
-    const spentPercentUsed = adjustedBudget > 0 ? (totalSpent / adjustedBudget) * 100 : 0;
+    const costRemaining = costBudgetCap - totalSpent - committedPOsTotal;
+    const spentPercentUsed =
+      costBudgetCap > 0
+        ? ((totalSpent + committedPOsTotal) / costBudgetCap) * 100
+        : 0;
 
     const getScheduleStatusLabel = () => {
       const progress = scheduleProgress;
@@ -1655,123 +1425,21 @@ function ProjectDetailContent() {
       }
     };
 
-    // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
-    const ed = (safeProjectData as any)?.estimateData;
-    let baseBid = firstPositiveNumber(
-      ed?.grandTotal,
-      ed?.bidPrice,
-      ed?.total,
-      ed?.calculatedTotal,
-      (safeProjectData as any)?.bidPrice,
-      ed?.estimateData?.grandTotal,
-      ed?.estimateData?.total
-    );
-    // Fallback: derive bid from cost + margin when bid is missing (e.g. budgeted = cost)
-    if (baseBid == null && adjustedBudget > 0) {
-      const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-      const costBase = Number(safeProjectData?.budgeted || 0);
-      const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10; // Default 10% when missing
-      if (costBase > 0) baseBid = costBase / (1 - effectiveMargin / 100);
-    }
-    const contractValue = baseBid != null && baseBid > 0 ? baseBid + approvedChangeOrdersTotal : adjustedBudget;
-    // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
-    // CRITICAL: Prefer cost from line items first — source of truth from estimate breakdown.
-    // Stored estimatedCost may be wrong (e.g. derived from 20% margin instead of actual 18.2%).
-    const costFromLineItems = (() => {
-      const bid = ed ?? safeProjectData;
-      const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-      const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-      const overhead =
-        Number(bid?.equipment || 0) +
-        Number(bid?.facilities || 0) +
-        Number(bid?.insuranceOverhead || 0) +
-        Number(bid?.otherOverhead || 0) +
-        Number(bid?.planCost || 0) +
-        Number(bid?.permitCost || 0) +
-        Number(bid?.otherDirectCost || 0);
-      if (materials + labor + overhead > 0) return materials + labor + overhead;
-      // Fallback: sum Labor + Materials/Equipment + Overhead buckets (exclude Markup)
-      const buckets = safeProjectData?.buckets || [];
-      const costBuckets = buckets.filter((b: any) =>
-        (b?.name || '').toLowerCase().includes('labor') ||
-        (b?.name || '').toLowerCase().includes('material') ||
-        (b?.name || '').toLowerCase().includes('overhead')
-      );
-      const fromCostBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
-      if (fromCostBuckets > 0) return fromCostBuckets;
-      // Fallback: cost = bid - markup (Markup bucket = profit, so subtotal = bid - markup)
-      const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
-      const markupAmt = Number(markupBucket?.budget || 0);
-      if (baseBid != null && baseBid > 0 && markupAmt > 0 && markupAmt < baseBid) {
-        return baseBid - markupAmt;
-      }
-      return 0;
-    })();
-    const estimateCostFromParts =
-      Number((ed?.materials ?? (safeProjectData as any)?.materials) || 0) +
-      Number((ed?.labor ?? (safeProjectData as any)?.labor) || 0) +
-      Number(ed?.equipment || 0) +
-      Number(ed?.facilities || 0) +
-      Number(ed?.insuranceOverhead || 0) +
-      Number(ed?.otherOverhead || 0) +
-      Number(ed?.planCost || 0) +
-      Number(ed?.permitCost || 0) +
-      Number(ed?.otherDirectCost || 0);
-    // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
-    // Fallback: derive net profit when not stored (gross profit - overhead) so we don't show 20% from gross margin
-    const estimateNetProfit = Number((safeProjectData as any)?.profit ?? ed?.profit ?? 0);
-    const overheadFromEstimate =
-      Number(ed?.equipment ?? 0) +
-      Number(ed?.facilities ?? 0) +
-      Number(ed?.insuranceOverhead ?? 0) +
-      Number(ed?.otherOverhead ?? 0) +
-      Number(ed?.planCost ?? 0) +
-      Number(ed?.permitCost ?? 0) +
-      Number(ed?.otherDirectCost ?? 0);
-    const derivedNetProfit =
-      costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
-        ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
-        : 0;
-    const effectiveEstimateProfit = estimateNetProfit > 0 ? estimateNetProfit : (derivedNetProfit > 0 && derivedNetProfit < contractValue ? derivedNetProfit : 0);
-    // Use estimate's net-profit cost whenever we have it so margin stays at estimate (e.g. 15%) even after adding expenses.
-    const costFromEstimateProfit =
-      contractValue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < contractValue
-        ? contractValue - effectiveEstimateProfit
-        : 0;
-    let costBase = Number(
-      (costFromEstimateProfit > 0 ? costFromEstimateProfit : null) ??
-      (costFromLineItems > 0 ? costFromLineItems : null) ??
-      (safeProjectData as any)?.estimatedCost ??
-      (safeProjectData as any)?.subtotal ??
-      ed?.estimatedCost ??
-      ed?.subtotal ??
-      ed?.totalCost ??
-      ed?.baseCost ??
-      (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
-      0
-    );
-    if (costBase <= 0 && baseBid != null && baseBid > 0) {
-      const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-      if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
-      else costBase = baseBid / 1.18; // Default 18% markup if no margin
-    }
-    if (costBase <= 0) costBase = Number(safeProjectData?.budgeted || 0);
-    const costBaseline = costBase + approvedChangeOrdersTotal;
-    const profitForecast = computeProfitForecast({
-      contractValue,
-      adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
-      estimatedCostBaseline: costBase > 0 ? costBase : undefined,
-      actualExpenses: totalSpent,
+    const spendingTrendCostStatus = computeSpendingTrendCostStatus({
+      spendCap: costBudgetCap,
+      actualCosts: totalSpent,
       committedPOs: committedPOsTotal,
-      progressPct: progressForForecast,
-      isCompleted: isProjectCompleted,
+      forecastFinalCost: profitForecast.forecastFinalCost,
     });
 
     return {
-      adjustedBudget,
+      adjustedBudget: costBudgetCap,
+      costBudgetCap,
+      financials,
       totalSpent,
-      baseBudget,
-      remaining,
+      committedPOsTotal,
+      spendingTrendCostStatus,
+      remaining: costRemaining,
       budgetProgress: Math.min(100, Math.max(0, budgetProgress)),
       scheduleProgress: Math.min(100, Math.max(0, scheduleProgress)),
       daysLeft: getDaysLeft(),
@@ -1780,13 +1448,13 @@ function ProjectDetailContent() {
       daysLeftColor: getDaysLeftColor(getDaysLeft()),
       spendingData: generateSpendingData(),
       profitForecast,
-      // Display values
-      budgetDisplay: formatCurrency(adjustedBudget),
+      budgetDisplay: formatCurrency(costBudgetCap),
       spentDisplay: formatCurrency(totalSpent),
-      remainingDisplay: formatCurrency(remaining),
-      baseBudgetDisplay: formatCurrency(baseBudget),
-      changeOrdersDisplay: formatCurrency(approvedChangeOrdersTotal),
-      totalBudgetDisplay: formatCurrency(adjustedBudget),
+      remainingDisplay: formatCurrency(costRemaining),
+      baseBudgetDisplay: formatCurrency(financials.contractValueBase),
+      changeOrdersDisplay: formatCurrency(financials.approvedChangeOrderRevenue),
+      totalBudgetDisplay: formatCurrency(costBudgetCap),
+      adjustedContractValueDisplay: formatCurrency(financials.adjustedContractValue),
       spentPercentUsed: Math.min(100, Math.max(0, spentPercentUsed)),
       startDateDisplay: formatDate(safeProjectData?.startISO),
       endDateDisplay: formatDate(safeProjectData?.endISO),
@@ -1809,346 +1477,271 @@ function ProjectDetailContent() {
       console.log('🔍 Safe project data:', safeProjectData);
       
       switch (activeTab) {
-        case 'Overview':
+        case 'Overview': {
           const metrics = overviewMetrics;
-          const project = safeProjectData;
+          const overviewCostStatusHeadline = metrics.spendingTrendCostStatus.text
+            .split(' ')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+          const pf = metrics.profitForecast;
+          const pfStatus = pf?.status;
+          const marginAccent =
+            pfStatus === 'Strong'
+              ? '#22C55E'
+              : pfStatus === 'Healthy'
+                ? '#10B981'
+                : pfStatus === 'Tight'
+                  ? '#F59E0B'
+                  : pfStatus === 'At Risk'
+                    ? '#F97316'
+                    : '#EF4444';
+          const fmt = (n: number) =>
+            `$${(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           return (
             <View style={styles.wideContainer}>
-              <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.overviewBorder}
-              >
-                <View style={styles.overviewInner}>
-              {/* SECTION TITLE */}
-              <View style={styles.overviewPageHeader}>
-                <Text style={styles.overviewPageTitle}>Project Overview</Text>
-                <Text style={styles.overviewPageSubtitle}>
-                  Summary of your project status and spending
-                </Text>
-              </View>
-
-              {/* 1. OVERVIEW SUMMARY */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-
-                  <View style={styles.overviewNameRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="info" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.overviewProjectTitle} numberOfLines={2}>{name}</Text>
-                    </View>
+              <View>
+                  <View style={styles.overviewPageHeader}>
+                    <Text style={styles.overviewPageTitle}>Project Overview</Text>
+                    <Text style={styles.overviewPageSubtitle}>
+                      Executive snapshot of contract, cost, and margin
+                    </Text>
                   </View>
 
-                  <Text style={styles.overviewMetaLine}>{lastUpdatedLine}</Text>
+                  {/* Hero summary — same grey card chrome as Financial Health / Project Status */}
+                  <View style={[styles.innerCard, styles.overviewHeroCard]}>
+                      <Text style={styles.overviewHeroProjectName} numberOfLines={2}>
+                        {name}
+                      </Text>
+                      <Text style={styles.overviewHeroMeta}>{lastUpdatedLine}</Text>
 
-                  <View style={styles.overviewMetricsBlock}>
-                    <View style={styles.overviewBudgetAnchor}>
-                      <Text style={styles.mutedLabel}>Budget</Text>
-                      <Text style={styles.overviewBudgetAmount}>
-                        {metrics.budgetDisplay}
-                      </Text>
-                    </View>
+                      <View style={styles.overviewHeroMetricsGrid}>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Adjusted Contract Value</Text>
+                          <Text style={styles.overviewHeroMetricValue}>{fmt(metrics.financials?.adjustedContractValue)}</Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Planned Cost Budget</Text>
+                          <Text style={styles.overviewHeroMetricValue}>{fmt(metrics.financials?.adjustedCostBudget)}</Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Projected Profit</Text>
+                          <Text
+                            style={[
+                              styles.overviewHeroMetricValue,
+                              { color: (pf?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
+                            ]}
+                          >
+                            {fmt(pf?.projectedProfit ?? 0)}
+                          </Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Projected Margin</Text>
+                          <Text style={[styles.overviewHeroMetricValue, { color: marginAccent }]}>
+                            {(pf?.projectedMarginPct ?? 0).toFixed(1)}%
+                          </Text>
+                        </View>
+                      </View>
 
-                    <View style={styles.overviewSecondaryGrid}>
-                      <View style={styles.overviewSecondaryCell}>
-                        <Text style={styles.mutedLabel}>Spent So Far</Text>
-                        <Text style={styles.mediumNumber}>{metrics.spentDisplay}</Text>
+                      <View style={styles.overviewHeroFooter}>
+                        <View style={styles.overviewHeroFooterCol}>
+                          <Text style={styles.overviewHeroFooterLabel}>Spent So Far</Text>
+                          <Text style={styles.overviewHeroFooterValue}>{metrics.spentDisplay}</Text>
+                        </View>
+                        <View style={styles.overviewHeroFooterCol}>
+                          <Text style={styles.overviewHeroFooterLabel}>Cost Budget Used</Text>
+                          <Text style={styles.overviewHeroFooterValue}>{metrics.spentPercentUsed.toFixed(1)}%</Text>
+                        </View>
+                        <View style={[styles.overviewHeroFooterCol, styles.overviewHeroFooterColEnd]}>
+                          <Text style={styles.overviewHeroFooterLabel}>Status</Text>
+                          <View
+                            style={[
+                              styles.overviewHeroStatusChip,
+                              { backgroundColor: `${metrics.spendingTrendCostStatus.color}28` },
+                            ]}
+                          >
+                            <Text style={[styles.overviewHeroStatusChipText, { color: metrics.spendingTrendCostStatus.color }]}>
+                              {overviewCostStatusHeadline}
+                            </Text>
+                          </View>
+                        </View>
                       </View>
-                      <View style={[styles.overviewSecondaryCell, styles.overviewSecondaryCellRight]}>
-                        <Text style={styles.mutedLabel}>Remaining</Text>
-                        <Text style={styles.mediumNumber}>{metrics.remainingDisplay}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.overviewBudgetUsedRow}>
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={styles.mutedLabel}>Budget Used</Text>
-                        <Text style={styles.overviewHelperMuted}>Percent of budget spent so far</Text>
-                      </View>
-                      <Text style={[styles.overviewBudgetUsedPercent, { color: metrics.budgetColor }]}>
-                        {metrics.budgetProgress.toFixed(0)}%
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 2. FINANCIAL HEALTH */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-                  <View style={styles.overviewCardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="pie-chart" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.overviewSectionTitle}>Financial Health</Text>
-                    </View>
-                    <View style={{
-                      backgroundColor: (metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
-                        metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
-                        metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
-                        metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444') + '22',
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 999,
-                    }}>
-                      <Text style={{
-                        color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
-                          metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
-                          metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
-                          metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
-                        fontWeight: '700',
-                        fontSize: 12,
-                      }}>
-                        {metrics.profitForecast?.status || '—'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.overviewFinancialBody}>
-                    <View style={styles.budgetRow}>
-                      <Text style={styles.budgetLabel}>Contract Value</Text>
-                      <Text style={styles.budgetValue}>
-                        ${(metrics.profitForecast?.contractValue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetRow}>
-                      <View>
-                        <Text style={styles.budgetLabel}>Projected Final Cost</Text>
-                        {metrics.profitForecast?.forecastMethod === 'run-rate' && (
-                          <Text style={styles.budgetHelperLine}>Trend forecast</Text>
-                        )}
-                        {metrics.profitForecast?.forecastMethod === 'completed' && (
-                          <Text style={styles.budgetHelperLine}>Actual (job complete)</Text>
-                        )}
-                      </View>
-                      <Text style={styles.budgetValue}>
-                        ${(metrics.profitForecast?.forecastFinalCost ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetRow}>
-                      <Text style={styles.budgetLabel}>Projected Profit</Text>
-                      <Text style={[
-                        styles.budgetValue,
-                        { color: (metrics.profitForecast?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
-                      ]}>
-                        ${(metrics.profitForecast?.projectedProfit ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetRow}>
-                      <View style={{ flex: 1, paddingRight: 10 }}>
-                        <Text style={styles.budgetLabel}>Spend-to-Date Margin</Text>
-                        <Text style={styles.budgetHelperLine}>
-                          {metrics.totalSpent <= 0.005
-                            ? 'No costs logged yet'
-                            : 'Based on costs logged so far'}
-                        </Text>
-                      </View>
-                      <Text style={[
-                        styles.budgetValue,
-                        {
-                          color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
-                            metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
-                            metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
-                            metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
-                        },
-                      ]}>
-                        {(metrics.profitForecast?.spendToDateMarginPct ?? 0).toFixed(1)}%
-                      </Text>
-                    </View>
-                    <View style={styles.budgetRow}>
-                      <View>
-                        <Text style={styles.budgetLabel}>Projected Margin</Text>
-                        <Text style={styles.budgetHelperLine}>Based on current spend vs completion progress</Text>
-                      </View>
-                      <Text style={[
-                        styles.budgetValue,
-                        {
-                          color: metrics.profitForecast?.status === 'Strong' ? '#22C55E' :
-                            metrics.profitForecast?.status === 'Healthy' ? '#10B981' :
-                            metrics.profitForecast?.status === 'Tight' ? '#F59E0B' :
-                            metrics.profitForecast?.status === 'At Risk' ? '#F97316' : '#EF4444',
-                        },
-                      ]}>
-                        {(metrics.profitForecast?.projectedMarginPct ?? 0).toFixed(1)}%
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 3. PROJECT STATUS */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.projectStatusCard}>
-                  <View style={styles.overviewCardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="bar-chart-2" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={styles.overviewSectionTitle}>Project Status</Text>
-                    </View>
                   </View>
 
-                  <View style={styles.projectStatusStatusRow}>
-                    <View style={styles.statusChipCompact}>
-                      <Text style={[styles.statusChipCompactText, { color: metrics.statusColor }]}>
-                        {project?.health?.projectStatus || 'On Track'}
-                      </Text>
-                      <Text style={styles.statusChipCompactDot}> · </Text>
-                      <Text style={[styles.statusChipCompactText, { color: metrics.daysLeftColor }]}>
-                        {metrics.daysLeft}d left
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.projectStatusMetrics}>
-                    <View style={styles.projectStatusMetricRow}>
-                      <View style={{ flex: 1, paddingRight: 10 }}>
-                        <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
-                        <Text style={styles.projectStatusHelper}>Percent of budget spent so far</Text>
-                      </View>
-                      <Text style={styles.projectStatusMetricValue}>{metrics.budgetProgress.toFixed(0)}%</Text>
-                    </View>
-                    <View style={styles.projectStatusBarTrack}>
-                      <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, metrics.budgetProgress)}%`, backgroundColor: metrics.budgetColor }]} />
-                    </View>
-
-                    <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
-                      <Text style={styles.projectStatusMetricLabel}>Schedule</Text>
-                      <Text style={styles.projectStatusMetricValue}>{metrics.scheduleProgress.toFixed(0)}%</Text>
-                    </View>
-                    <View style={styles.projectStatusBarTrack}>
-                      <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, metrics.scheduleProgress)}%`, backgroundColor: metrics.daysLeftColor }]} />
-                    </View>
-                  </View>
-
-                  <View style={styles.projectStatusDivider} />
-
-                  <View style={styles.projectStatusDates}>
-                    <View style={styles.projectStatusDateRow}>
-                      <Text style={styles.projectStatusDateLabel}>Start</Text>
-                      <Text style={styles.projectStatusDateValue}>{metrics.startDateDisplay}</Text>
-                    </View>
-                    <View style={styles.projectStatusDateRow}>
-                      <Text style={styles.projectStatusDateLabel}>End</Text>
-                      <Text style={styles.projectStatusDateValue}>{metrics.endDateDisplay}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* 4. SPENDING TREND */}
-              {(() => {
-                const formatLabel = (d: Date) =>
-                  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-                const points: { ts: number; label: string; spent: number }[] = metrics.spendingData.map(
-                  (p: { date: string; spent: number }) => {
-                    const d = new Date(p.date + (p.date.includes('T') ? '' : 'T12:00:00'));
-                    return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
-                  }
-                );
-                const labels = points.map((p) => p.label);
-                const actualValues = points.map((p) => p.spent);
-                const actualCumulative = labels.map((label, idx) => ({ label, value: actualValues[idx] ?? 0 }));
-
-                // Planned = linear burn from $0 at project start to full adjusted budget by project end (calendar).
-                // Matches varianceAtToday logic so the chart, badge, and header totals stay consistent.
-                const projectStart = new Date(safeProjectData?.startISO || new Date().toISOString());
-                const projectEnd = new Date(safeProjectData?.endISO || new Date().toISOString());
-                projectStart.setHours(0, 0, 0, 0);
-                projectEnd.setHours(0, 0, 0, 0);
-                const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
-                const plannedCumulative = points.map((p) => {
-                  const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
-                  return {
-                    label: p.label,
-                    value: Math.round(metrics.adjustedBudget * frac),
-                  };
-                });
-
-                return (
-                  <View style={styles.spendingCard}>
-                    <View style={styles.spendingCardInner}>
-                      <View style={styles.spendingHeaderRow}>
+                  {/* Financial Health — supporting detail */}
+                  <View style={styles.innerCardContainer}>
+                    <View style={styles.innerCard}>
+                      <View style={styles.overviewCardHeaderRow}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                           <View style={styles.iconBadge}>
-                            <Feather name="trending-up" size={16} color="#22c55e" />
+                            <Feather name="pie-chart" size={16} color="#22c55e" />
                           </View>
-                          <Text style={styles.overviewSectionTitle}>Spending Trend</Text>
+                          <Text style={styles.overviewSectionTitle}>Financial Health</Text>
                         </View>
-                        <View style={styles.spendingSummaryBlock}>
-                          <Text style={styles.spendingSummaryPrimary}>
-                            {metrics.spentPercentUsed.toFixed(1)}% used
-                          </Text>
-                          <Text style={styles.spendingSummarySecondary}>
-                            {metrics.spentDisplay} / {metrics.totalBudgetDisplay}
+                        <View
+                          style={{
+                            backgroundColor: `${(pfStatus === 'Strong' ? '#22C55E' : pfStatus === 'Healthy' ? '#10B981' : pfStatus === 'Tight' ? '#F59E0B' : pfStatus === 'At Risk' ? '#F97316' : '#EF4444')}22`,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color:
+                                pfStatus === 'Strong'
+                                  ? '#22C55E'
+                                  : pfStatus === 'Healthy'
+                                    ? '#10B981'
+                                    : pfStatus === 'Tight'
+                                      ? '#F59E0B'
+                                      : pfStatus === 'At Risk'
+                                        ? '#F97316'
+                                        : '#EF4444',
+                              fontWeight: '700',
+                              fontSize: 12,
+                            }}
+                          >
+                            {pf?.status || '—'}
                           </Text>
                         </View>
                       </View>
-
-                      <View style={styles.chartBox}>
-                        <SpendingTrendChart
-                          actualCumulative={actualCumulative}
-                          plannedCumulative={plannedCumulative}
-                          totalBudget={metrics.adjustedBudget}
-                          showHeader={false}
-                          showLegend={true}
-                          scrollable
-                          hideLegendSpendTotal
-                        />
+                      <View style={styles.overviewFhGrid}>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Adjusted Contract Value</Text>
+                          <Text style={styles.overviewHeroMetricValue}>
+                            ${(metrics.financials?.adjustedContractValue ?? 0).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Planned Cost Budget</Text>
+                          <Text style={styles.overviewHeroMetricValue}>
+                            ${(metrics.financials?.adjustedCostBudget ?? 0).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Projected Profit</Text>
+                          <Text
+                            style={[
+                              styles.overviewHeroMetricValue,
+                              { color: (pf?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
+                            ]}
+                          >
+                            ${(pf?.projectedProfit ?? 0).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </Text>
+                        </View>
+                        <View style={styles.overviewHeroMetricCell}>
+                          <Text style={styles.overviewHeroMetricLabel}>Projected Margin</Text>
+                          <Text style={[styles.overviewHeroMetricValue, { color: marginAccent }]}>
+                            {(pf?.projectedMarginPct ?? 0).toFixed(1)}%
+                          </Text>
+                          <Text style={styles.overviewFhMarginHelper}>
+                            Based on current spend vs completion progress
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   </View>
-                );
-              })()}
 
-              {/* 5. BUDGET SUMMARY */}
-              <View style={styles.innerCardContainer}>
-                <View style={styles.innerCard}>
-                  <View style={styles.overviewCardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.iconBadge}>
-                        <Feather name="dollar-sign" size={16} color="#22c55e" />
+                  {/* Project Status — same card chrome + metric typography as Financial Health */}
+                  <View style={styles.innerCardContainer}>
+                    <View style={styles.innerCard}>
+                      <View style={styles.overviewCardHeaderRow}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                          <View style={styles.iconBadge}>
+                            <Feather name="bar-chart-2" size={16} color="#22c55e" />
+                          </View>
+                          <Text style={styles.overviewSectionTitle}>Project Status</Text>
+                        </View>
                       </View>
-                      <Text style={styles.overviewSectionTitle}>Budget Summary</Text>
-                    </View>
-                  </View>
 
-                  <View style={styles.budgetSummaryTable}>
-                    <View style={styles.budgetSummaryRow}>
-                      <Text style={styles.budgetLabel}>Base Budget</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.baseBudgetDisplay}</Text>
-                    </View>
-                    <View style={styles.budgetSummaryRow}>
-                      <Text style={styles.budgetLabel}>Approved Change Orders</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>
-                        {metrics.changeOrdersDisplay}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetSummaryRow}>
-                      <Text style={styles.budgetLabel}>Total Budget</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.totalBudgetDisplay}</Text>
-                    </View>
-                    <View style={styles.budgetSummaryRow}>
-                      <Text style={styles.budgetLabel}>Spent So Far</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValueRight, styles.budgetValuePositive]}>
-                        {metrics.spentDisplay}
-                      </Text>
-                    </View>
-                    <View style={styles.budgetSummaryRowLast}>
-                      <Text style={styles.budgetLabel}>Remaining</Text>
-                      <Text style={[styles.budgetValue, styles.budgetValueRight]}>{metrics.remainingDisplay}</Text>
+                      <View style={[styles.projectStatusMetrics, { paddingTop: 2 }]}>
+                        <View style={[styles.projectStatusMetricRow, { alignItems: 'center' }]}>
+                          <Text style={styles.overviewHeroMetricLabel}>Status</Text>
+                          <View
+                            style={[
+                              styles.overviewHeroStatusChip,
+                              { backgroundColor: `${metrics.spendingTrendCostStatus.color}28` },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.overviewHeroStatusChipText,
+                                { color: metrics.spendingTrendCostStatus.color },
+                              ]}
+                            >
+                              {overviewCostStatusHeadline}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.projectStatusMetricRow}>
+                          <View style={{ flex: 1, paddingRight: 10 }}>
+                            <Text style={styles.overviewHeroMetricLabel}>Cost Budget Used</Text>
+                            <Text style={styles.overviewFhMarginHelper}>
+                              Percent of planned cost budget used (incl. committed POs)
+                            </Text>
+                          </View>
+                          <Text style={styles.overviewHeroMetricValue}>
+                            {metrics.spentPercentUsed.toFixed(1)}%
+                          </Text>
+                        </View>
+                        <View style={styles.projectStatusBarTrack}>
+                          <View
+                            style={[
+                              styles.projectStatusBarFill,
+                              {
+                                width: `${Math.min(100, metrics.budgetProgress)}%`,
+                                backgroundColor: metrics.budgetColor,
+                              },
+                            ]}
+                          />
+                        </View>
+
+                        <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
+                          <Text style={styles.overviewHeroMetricLabel}>Schedule</Text>
+                          <Text style={styles.overviewHeroMetricValue}>
+                            {metrics.scheduleProgress.toFixed(0)}%
+                          </Text>
+                        </View>
+                        <View style={styles.projectStatusBarTrack}>
+                          <View
+                            style={[
+                              styles.projectStatusBarFill,
+                              {
+                                width: `${Math.min(100, metrics.scheduleProgress)}%`,
+                                backgroundColor: metrics.daysLeftColor,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={styles.projectStatusDivider} />
+
+                      <View style={styles.projectStatusDates}>
+                        <View style={styles.projectStatusDateRow}>
+                          <Text style={styles.overviewHeroMetricLabel}>Start</Text>
+                          <Text style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}>{metrics.startDateDisplay}</Text>
+                        </View>
+                        <View style={styles.projectStatusDateRow}>
+                          <Text style={styles.overviewHeroMetricLabel}>End</Text>
+                          <Text style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}>{metrics.endDateDisplay}</Text>
+                        </View>
+                      </View>
                     </View>
                   </View>
-                </View>
               </View>
-
-                </View>
-              </LinearGradient>
             </View>
           );
+        }
         case 'Budget':
           return (
             <View style={styles.wideContainer}>
@@ -2209,8 +1802,15 @@ function ProjectDetailContent() {
     (tab: TabKey) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setActiveTab(tab);
+      if (apWtWalkthroughEligible) {
+        const idx = AP_WT_STEPS.findIndex((s) => s.tab === tab);
+        if (idx >= 0) {
+          setApWtStepIndex(idx);
+          void persistApWtProgress({ detailStepIndex: idx });
+        }
+      }
     },
-    []
+    [apWtWalkthroughEligible, persistApWtProgress]
   );
 
   // Get project title for header
@@ -2259,16 +1859,70 @@ function ProjectDetailContent() {
     return status.charAt(0).toUpperCase() + status.slice(1);
   }, [safeProjectData?.status, showJustActivated, justActivatedDismissed]);
 
+  const projectSegmentScroll = useMemo(
+    () => (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.segmentInner}
+        style={styles.segmentScrollView}
+      >
+        <SegmentTab
+          label="Overview"
+          icon="grid-outline"
+          isActive={activeTab === 'Overview'}
+          onPress={() => handleTabPress('Overview')}
+          styles={styles}
+        />
+        <SegmentTab
+          label="Budget"
+          icon="wallet-outline"
+          isActive={activeTab === 'Budget'}
+          onPress={() => handleTabPress('Budget')}
+          styles={styles}
+        />
+        <SegmentTab
+          label="Timeline"
+          icon="calendar-outline"
+          isActive={activeTab === 'Timeline'}
+          onPress={() => handleTabPress('Timeline')}
+          styles={styles}
+        />
+        <SegmentTab
+          label="Calendar"
+          icon="calendar"
+          isActive={activeTab === 'Calendar'}
+          onPress={() => handleTabPress('Calendar')}
+          styles={styles}
+        />
+        <SegmentTab
+          label="Team"
+          icon="people-outline"
+          isActive={activeTab === 'Team'}
+          onPress={() => handleTabPress('Team')}
+          styles={styles}
+        />
+      </ScrollView>
+    ),
+    [activeTab, styles, handleTabPress]
+  );
+
   try {
     return (
       <SafeAreaView style={styles.root}>
         <StatusBar barStyle="light-content" />
 
-        {/* Background */}
-        <View style={StyleSheet.absoluteFill} />
+        {/* Background — opaque black so ScrollView never shows default system gray between sections */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: darkMode ? '#000000' : Colors.bg }]} />
 
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={darkMode ? { backgroundColor: '#000000' } : undefined}
+          contentContainerStyle={[
+            styles.scrollContent,
+            apWtScrollPadBottom > 0 && {
+              paddingBottom: 24 + apWtScrollPadBottom,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           {/* HEADER */}
@@ -2323,177 +1977,6 @@ function ProjectDetailContent() {
               </Pressable>
             </LinearGradient>
           </View>
-
-          {/* Project Kickoff Card - Actionable setup steps */}
-          {(() => {
-            console.log('🎨 [RENDER] Kickoff card render check:', {
-              showKickoffCard,
-              activeTab,
-              willRender: showKickoffCard && activeTab === 'Overview',
-            });
-            return null;
-          })()}
-          {/* Project Activation Card - Emotional anchor for newly activated projects */}
-          {showKickoffCard && activeTab === 'Overview' && (
-            <View style={[styles.activationCardContainer, styles.wideContainer]}>
-              <View style={styles.activationCard}>
-                <TouchableOpacity
-                  style={styles.activationCardClose}
-                  onPress={dismissKickoffCard}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name="close" size={18} color={Colors.sub} />
-                </TouchableOpacity>
-                
-                <View style={styles.activationCardHeader}>
-                  <View style={styles.activationCardIconContainer}>
-                    <Ionicons name="rocket" size={28} color="#2DFFC4" />
-                  </View>
-                  <Text style={styles.activationCardTitle}>Project activated</Text>
-                  <Text style={styles.activationCardSubtitle}>
-                    Your estimate is now locked in. Let's get the job ready to run smoothly.
-                  </Text>
-                </View>
-                
-                {/* Tappable Activation Checklist */}
-                <View style={styles.activationChecklist}>
-                  <TouchableOpacity
-                    style={[
-                      styles.activationChecklistItem,
-                      activationChecklist.timelineConfirmed && styles.activationChecklistItemDone,
-                    ]}
-                    onPress={() => {
-                      if (expandedChecklistItem === 'timeline') {
-                        setExpandedChecklistItem(null);
-                      } else {
-                        setExpandedChecklistItem('timeline');
-                        setShowActivationFlow(true);
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.activationChecklistItemLeft}>
-                      {activationChecklist.timelineConfirmed ? (
-                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
-                      ) : (
-                        <Ionicons name="time-outline" size={22} color={Colors.sub} />
-                      )}
-                      <Text style={[
-                        styles.activationChecklistItemText,
-                        activationChecklist.timelineConfirmed && styles.activationChecklistItemTextDone,
-                      ]}>
-                        Timeline confirmed
-                      </Text>
-                    </View>
-                    {!activationChecklist.timelineConfirmed && (
-                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
-                    )}
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[
-                      styles.activationChecklistItem,
-                      activationChecklist.paymentScheduleReviewed && styles.activationChecklistItemDone,
-                    ]}
-                    onPress={() => {
-                      if (expandedChecklistItem === 'payment') {
-                        setExpandedChecklistItem(null);
-                      } else {
-                        setExpandedChecklistItem('payment');
-                        setShowActivationFlow(true);
-                        // Navigate to step 2
-                        setTimeout(() => {
-                          // This will be handled by the modal
-                        }, 100);
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.activationChecklistItemLeft}>
-                      {activationChecklist.paymentScheduleReviewed ? (
-                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
-                      ) : (
-                        <Ionicons name="calendar-outline" size={22} color={Colors.sub} />
-                      )}
-                      <Text style={[
-                        styles.activationChecklistItemText,
-                        activationChecklist.paymentScheduleReviewed && styles.activationChecklistItemTextDone,
-                      ]}>
-                        Payment schedule reviewed
-                      </Text>
-                    </View>
-                    {!activationChecklist.paymentScheduleReviewed && (
-                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
-                    )}
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[
-                      styles.activationChecklistItem,
-                      activationChecklist.teamAssigned && styles.activationChecklistItemDone,
-                    ]}
-                    onPress={() => {
-                      if (expandedChecklistItem === 'team') {
-                        setExpandedChecklistItem(null);
-                      } else {
-                        setExpandedChecklistItem('team');
-                        setShowActivationFlow(true);
-                        // Navigate to step 3
-                        setTimeout(() => {
-                          // This will be handled by the modal
-                        }, 100);
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.activationChecklistItemLeft}>
-                      {activationChecklist.teamAssigned ? (
-                        <Ionicons name="checkmark-circle" size={22} color="#22c55e" />
-                      ) : (
-                        <Ionicons name="people-outline" size={22} color={Colors.sub} />
-                      )}
-                      <Text style={[
-                        styles.activationChecklistItemText,
-                        activationChecklist.teamAssigned && styles.activationChecklistItemTextDone,
-                      ]}>
-                        Team assigned
-                        <Text style={styles.activationChecklistItemOptional}> (optional)</Text>
-                      </Text>
-                    </View>
-                    {!activationChecklist.teamAssigned && (
-                      <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
-                    )}
-                  </TouchableOpacity>
-                </View>
-                
-                {/* Quick Action Button */}
-                <TouchableOpacity
-                  style={styles.activationCardPrimaryButton}
-                  onPress={() => {
-                    if (allChecklistComplete) {
-                      dismissKickoffCard();
-                      return;
-                    }
-                    setShowActivationFlow(true);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={['#2DFFC4', '#00A6FF']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.activationCardPrimaryGradient}
-                  >
-                    <Text style={styles.activationCardPrimaryText}>
-                      {allChecklistComplete
-                        ? 'View live project' 
-                        : 'Start project setup'}
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
 
           {/* Post-Activation Command Center - Action-Driven Success Card */}
           {showCommandCenter && activeTab === 'Overview' && (
@@ -2563,83 +2046,21 @@ function ProjectDetailContent() {
             </View>
           )}
 
-          {/* Activation Celebration Overlay - Disabled to prevent glitching */}
-          {/* The activation card provides sufficient visual feedback */}
-
-          {/* Smart First Action Suggestions */}
-          {showKickoffCard && activeTab === 'Overview' && (
-            <View style={[styles.smartSuggestionsContainer, styles.wideContainer]}>
-              <View style={styles.smartSuggestionsCard}>
-                <Ionicons name="bulb-outline" size={18} color={Colors.sub} />
-                <Text style={[styles.smartSuggestionsText, { color: Colors.sub }]}>
-                  {(() => {
-                    const projectType = (realProjectData as any)?.projectType || '';
-                    const projectName = realProjectData?.title || 'this project';
-                    
-                    if (projectType.toLowerCase().includes('kitchen')) {
-                      return `💡 Start by logging materials from your first supplier for ${projectName}`;
-                    } else if (projectType.toLowerCase().includes('bathroom')) {
-                      return `💡 Begin tracking your first expenses for ${projectName}`;
-                    } else if (projectType.toLowerCase().includes('new build') || projectType.toLowerCase().includes('custom')) {
-                      return `💡 Set your first milestone: Foundation complete for ${projectName}`;
-                    } else {
-                      return `💡 Most contractors start by logging their first expense for ${projectName}`;
-                    }
-                  })()}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* SEGMENTED CONTROL - Scrollable */}
+          {/* SEGMENTED CONTROL — no walkthrough gradient wrapper here: highlight ring used slate/teal tints that read as gray inside the pill */}
           <View style={styles.wideContainer}>
-            <View style={styles.slideHintContainer}>
-              <Text style={styles.slideHintText}>slide to see all pages</Text>
-            </View>
-            <BlurView intensity={35} tint={darkMode ? "dark" : "light"} style={styles.segmentContainer}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.segmentInner}
-                style={styles.segmentScrollView}
+            {darkMode ? (
+              <View style={[styles.segmentContainer, styles.segmentTrackDark]}>
+                {projectSegmentScroll}
+              </View>
+            ) : (
+              <BlurView
+                intensity={28}
+                tint="light"
+                style={[styles.segmentContainer, { backgroundColor: Colors.surface2 }]}
               >
-              <SegmentTab
-                label="Overview"
-                icon="grid-outline"
-                isActive={activeTab === "Overview"}
-                onPress={() => handleTabPress("Overview")}
-                styles={styles}
-              />
-              <SegmentTab
-                label="Budget"
-                icon="wallet-outline"
-                isActive={activeTab === "Budget"}
-                onPress={() => handleTabPress("Budget")}
-                styles={styles}
-              />
-              <SegmentTab
-                label="Timeline"
-                icon="calendar-outline"
-                isActive={activeTab === "Timeline"}
-                onPress={() => handleTabPress("Timeline")}
-                styles={styles}
-              />
-              <SegmentTab
-                label="Calendar"
-                icon="calendar"
-                isActive={activeTab === "Calendar"}
-                onPress={() => handleTabPress("Calendar")}
-                styles={styles}
-              />
-              <SegmentTab
-                label="Team"
-                icon="people-outline"
-                isActive={activeTab === "Team"}
-                onPress={() => handleTabPress("Team")}
-                styles={styles}
-              />
-            </ScrollView>
-          </BlurView>
+                {projectSegmentScroll}
+              </BlurView>
+            )}
           </View>
 
           {/* CONTENT */}
@@ -2649,6 +2070,23 @@ function ProjectDetailContent() {
 
           <View style={{ height: 32 }} />
         </ScrollView>
+
+        {apWtSheetVisible ? (
+          <FirstEstimateWalkthroughSheetShell
+            darkMode={darkMode}
+            bottomOffset={Math.max(insets.bottom, 12) + 12}
+            backdropVariant="blurOnly"
+          >
+            <FirstEstimateWalkthroughStepSheetContent
+              darkMode={darkMode}
+              Colors={Colors}
+              title={AP_WT_STEPS[apWtStepIndex].title}
+              body={AP_WT_STEPS[apWtStepIndex].body}
+              onGotIt={handleApWtGotIt}
+              onSkipWalkthrough={skipActiveProjectWalkthrough}
+            />
+          </FirstEstimateWalkthroughSheetShell>
+        ) : null}
 
         {/* FLOATING AI PM — same look as Dashboard FAB; opens assistant (does not toggle mode) */}
         <Pressable
@@ -2691,91 +2129,6 @@ function ProjectDetailContent() {
           </LinearGradient>
         </Pressable>
 
-        {/* AI Suggestions Modal - iOS-style popup */}
-        <Modal
-          visible={showAiSuggestions && activeTab === 'Overview'}
-          transparent={true}
-          animationType="none"
-          onRequestClose={dismissAiSuggestions}
-        >
-          <BlurView intensity={20} tint={darkMode ? "dark" : "light"} style={styles.aiSuggestionsModalBackdrop}>
-            <TouchableOpacity
-              style={styles.aiSuggestionsModalBackdropTouchable}
-              activeOpacity={1}
-              onPress={dismissAiSuggestions}
-            />
-            <Animated.View
-              style={[
-                styles.aiSuggestionsModalContainer,
-                {
-                  opacity: aiSuggestionAnim,
-                  transform: [
-                    {
-                      scale: aiSuggestionAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.9, 1],
-                      }),
-                    },
-                    {
-                      translateY: aiSuggestionAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [50, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <View style={[styles.aiSuggestionsCard, { backgroundColor: darkMode ? '#1E293B' : '#F1F5F9' }]}>
-                <View style={styles.aiSuggestionsHeader}>
-                  <View style={styles.aiSuggestionsHeaderLeft}>
-                    <Ionicons name="sparkles" size={20} color={darkMode ? '#FFFFFF' : '#64748B'} />
-                    <Text style={[styles.aiSuggestionsTitle, { color: darkMode ? '#F1F5F9' : '#0F172A' }]} numberOfLines={1}>AI Project Manager is active</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.aiSuggestionsClose}
-                    onPress={dismissAiSuggestions}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="close" size={18} color={Colors.sub} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#FFFFFF' : '#64748B' }]}>
-                  I'll flag cost, labor, or schedule drift as it happens.
-                </Text>
-                <View style={styles.aiProactiveInsight}>
-                  <Ionicons name="bulb" size={14} color={darkMode ? '#FFFFFF' : '#64748B'} />
-                  <Text style={[styles.aiProactiveInsightText, { color: darkMode ? '#FFFFFF' : '#64748B' }]}>
-                    Based on your estimate, labor will be your biggest risk area.
-                  </Text>
-                </View>
-                <Text style={[styles.aiSuggestionsSubtitle, { color: darkMode ? '#FFFFFF' : '#64748B', marginTop: 8 }]}>
-                  Try asking:
-                </Text>
-                <View style={styles.aiSuggestionsList}>
-                  {aiSuggestions.map((suggestion, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[styles.aiSuggestionButton, { backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9', borderColor: darkMode ? Colors.line : '#E2E8F0' }]}
-                      onPress={() => {
-                        handleAISuggestion(suggestion);
-                        dismissAiSuggestions();
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="chatbubble-outline" size={16} color={Colors.sub} />
-                      <Text style={[styles.aiSuggestionText, { color: Colors.text }]} numberOfLines={2}>
-                        {suggestion}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={16} color={Colors.sub} />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </Animated.View>
-          </BlurView>
-        </Modal>
-
         {/* Project Activation Flow */}
         <ProjectActivationFlow
           visible={showActivationFlow}
@@ -2783,10 +2136,8 @@ function ProjectDetailContent() {
               // Close the activation flow modal first - do this immediately
               setShowActivationFlow(false);
               
-              // Dismiss the activation card since setup is complete
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              setShowKickoffCard(false);
-              
+
               // Save dismissal state
               if (id) {
                 try {
@@ -2812,22 +2163,6 @@ function ProjectDetailContent() {
                 
                 // Haptic feedback
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                
-                // Show AI suggestions card 5 seconds after project setup completes
-                setTimeout(() => {
-                  const suggestions = generateAISuggestions(realProjectData);
-                  setAiSuggestions(suggestions);
-                  // Reset animation to 0 before showing
-                  aiSuggestionAnim.setValue(0);
-                  setShowAiSuggestions(true);
-                  // Animate in with iOS-style spring animation
-                  Animated.spring(aiSuggestionAnim, {
-                    toValue: 1,
-                    tension: 50,
-                    friction: 7,
-                    useNativeDriver: true,
-                  }).start();
-                }, 5000);
               }, 500);
           }}
           onStepComplete={(completedSteps) => {
@@ -3683,131 +3018,64 @@ function ProjectDetailContent() {
             } else if (action.type === 'mark_payment_collected') {
               try {
                 console.log('💸 Action handler: mark_payment_collected', action);
-                const timelineV2Key = `bps.timeline.v2.${id}`;
-                
-                // First, try to load existing milestones from v2 storage
-                let existingMilestones: any[] = [];
-                const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
-                if (timelineV2Raw) {
-                  existingMilestones = JSON.parse(timelineV2Raw);
-                }
-                
-                // If no milestones exist in storage, create them from project's payment milestones
-                if (existingMilestones.length === 0) {
-                  console.log('📋 No milestones in storage, creating from project payment data');
-                  const projectFromList = getProjectById?.(id);
-                  const projectData = realProjectData || projectFromList;
-                  
-                  // Collect payment milestones from all possible sources
-                  let paymentMilestones: any[] = [];
-                  if (projectData?.milestones?.length) {
-                    paymentMilestones = projectData.milestones;
-                  } else if (projectData?.weeklyPayments?.length) {
-                    paymentMilestones = projectData.weeklyPayments.map((w: any, i: number) => ({
-                      id: w.id || `week-${i}`,
-                      title: w.description || w.name || `Week ${w.weekNumber || i + 1} Payment`,
-                      name: w.description || w.name || `Week ${w.weekNumber || i + 1} Payment`,
-                      amount: w.amount || w.paymentAmount || 0,
-                      plannedDate: w.scheduledDate || w.dueDate || w.plannedDate || new Date().toISOString().split('T')[0],
-                      status: w.status || 'pending',
-                      progressPct: w.progressPct || (w.status === 'completed' ? 100 : 0),
-                    }));
-                  } else if (projectData?.estimateData?.paymentMilestones?.length) {
-                    paymentMilestones = projectData.estimateData.paymentMilestones;
-                  } else if (projectData?.estimateData?.weeklyPayments?.length) {
-                    paymentMilestones = projectData.estimateData.weeklyPayments.map((w: any, i: number) => ({
-                      id: w.id || `week-${i}`,
-                      title: w.description || `Week ${w.weekNumber || i + 1} Payment`,
-                      name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
-                      amount: w.amount || 0,
-                      plannedDate: w.scheduledDate || w.dueDate || new Date().toISOString().split('T')[0],
-                      status: w.status || 'pending',
-                      progressPct: w.progressPct || (w.status === 'completed' ? 100 : 0),
-                    }));
-                  }
-                  
-                  // Convert to timeline format
-                  existingMilestones = paymentMilestones.map((pm: any, index: number) => ({
-                    id: pm.id || `milestone-${index}`,
-                    title: pm.title || pm.name || pm.description || `Payment ${index + 1}`,
-                    plannedDate: pm.plannedDate || pm.scheduledDate || pm.dueDate || new Date().toISOString().split('T')[0],
-                    status: pm.status || 'pending',
-                    progressPct: pm.progressPct || (pm.status === 'completed' ? 100 : 0),
-                    amount: pm.amount || pm.paymentAmount || 0,
-                    assignee: pm.assignee || 'Client',
-                  }));
-                  
-                  console.log(`📋 Created ${existingMilestones.length} milestones from project data`);
-                }
-                
-                // Update the specific milestone that was marked as collected
-                const updatedMilestones = existingMilestones.map((item: any) => {
-                  const matches = (action.milestoneId && item.id === action.milestoneId) ||
-                    (action.milestoneName && (
-                      (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()) ||
-                      (item.name || '').toLowerCase().includes(action.milestoneName.toLowerCase())
-                    ));
-                  
-                  if (matches) {
-                    console.log(`✅ Marking milestone as collected: ${item.title || item.name} (${item.id})`);
-                    return { 
-                      ...item, 
-                      status: 'completed', 
-                      progressPct: 100,
-                      collectedAt: action.collectedAt || new Date().toISOString(), 
-                      collectedAmount: action.amount 
-                    };
-                  }
-                  return item;
-                });
-                
-                // Save updated milestones to v2 storage
-                await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedMilestones));
-                console.log(`💾 Saved ${updatedMilestones.length} milestones to v2 storage`);
-                
-                // Calculate new overall progress from work milestones (exclude deposit — paid before work starts)
+                const projectFromList = getProjectById?.(id);
+                const base = realProjectData || projectFromList;
+                const mergedProject = base
+                  ? {
+                      ...base,
+                      ...(base.projectData || {}),
+                      estimateData:
+                        base.estimateData || base.projectData?.estimateData,
+                    }
+                  : null;
+
+                const { matched, updatedMilestones } =
+                  await applyMarkPaymentCollectedFromAction(
+                    String(id),
+                    {
+                      milestoneId: action.milestoneId,
+                      milestoneName: action.milestoneName,
+                      amount: action.amount,
+                      collectedAt: action.collectedAt,
+                    },
+                    () => mergedProject
+                  );
+
                 if (updatedMilestones.length > 0) {
-                  const isDeposit = (m: any) => {
-                    const t = (m?.title || m?.name || "").toLowerCase();
-                    return t.includes("deposit") || m?.type === "deposit";
-                  };
-                  const workMilestones = updatedMilestones.filter((m: any) => !isDeposit(m));
-                  const count = workMilestones.length || 1;
-                  const totalProgress = workMilestones.reduce((sum: number, m: any) => {
-                    const pct = Math.min(100, Math.max(0, m.progressPct || 0));
-                    return sum + pct;
-                  }, 0);
-                  const overallProgress = Math.round(totalProgress / count);
-                  
-                  console.log(`📊 Calculated progress: ${overallProgress}% from ${count} work milestones (deposit excluded)`);
-                  console.log(`📊 Milestone details:`, updatedMilestones.map(m => `${m.title || m.name}: ${m.progressPct}%`).join(', '));
-                  
-                  // Update project progress immediately
+                  const overallProgress =
+                    computeOverallProgressExcludingDeposit(updatedMilestones);
+                  console.log(
+                    `📊 Calculated progress: ${overallProgress}% (deposit excluded)`
+                  );
                   if (updateProject && id) {
                     try {
-                      updateProject(id, { progress: overallProgress, overallProgressPct: overallProgress });
-                      console.log(`✅ Successfully updated project ${id} progress to ${overallProgress}%`);
+                      updateProject(id, {
+                        progress: overallProgress,
+                        overallProgressPct: overallProgress,
+                      });
                     } catch (error) {
                       console.error(`❌ Error calling updateProject:`, error);
                     }
-                  } else {
-                    console.warn(`⚠️ Cannot update project progress: updateProject=${!!updateProject}, id=${id}`);
                   }
-                } else {
-                  console.warn('⚠️ No milestones found to calculate progress');
                 }
-                
-                // Trigger reload of project data to refresh timeline
+
                 reloadFromStorage();
-                
-                // Force a timeline reload by triggering a small delay then reload
-                // This ensures the timeline recalculates progress after payment is marked
                 setTimeout(() => {
                   reloadFromStorage();
                 }, 1000);
-                
-                console.log('✅ Payment marked as collected with progressPct: 100');
-                Alert.alert('✅ Payment Collected', `"${action.milestoneName}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`);
+
+                if (matched) {
+                  console.log('✅ Payment marked as collected with progressPct: 100');
+                  Alert.alert(
+                    '✅ Payment Collected',
+                    `"${action.milestoneName || 'Payment'}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`
+                  );
+                } else {
+                  Alert.alert(
+                    'Could not update payment',
+                    'No matching payment milestone was found. Open Timeline once so the schedule is saved, or mark the payment from there.'
+                  );
+                }
               } catch (e) {
                 console.error('❌ Error marking payment collected:', e);
               }
@@ -4110,6 +3378,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 24,
+    flexGrow: 1,
+    ...(darkMode ? { backgroundColor: '#000000' } : {}),
   },
   wideContainer: {
     marginHorizontal: -20,
@@ -4139,6 +3409,109 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: darkMode ? "rgba(255,255,255,0.87)" : "#64748b",
+  },
+  overviewHeroCard: {
+    marginBottom: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  overviewHeroProjectName: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: Colors.text,
+    lineHeight: 26,
+  },
+  overviewHeroMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: darkMode ? "rgba(255,255,255,0.72)" : "#64748b",
+  },
+  overviewHeroMetricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 16,
+    marginHorizontal: -6,
+  },
+  overviewHeroMetricCell: {
+    width: "50%",
+    paddingHorizontal: 6,
+    marginBottom: 14,
+  },
+  overviewHeroMetricLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: darkMode ? "rgba(255,255,255,0.55)" : "#64748b",
+    textTransform: "uppercase",
+  },
+  overviewHeroMetricValue: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    color: Colors.text,
+  },
+  overviewHeroFooter: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginTop: 4,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: darkMode ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.1)",
+  },
+  overviewHeroFooterCol: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  overviewHeroFooterColEnd: {
+    alignItems: "flex-end",
+    paddingRight: 0,
+  },
+  overviewHeroFooterLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+    color: darkMode ? "rgba(255,255,255,0.5)" : "#94a3b8",
+    textTransform: "uppercase",
+  },
+  overviewHeroFooterValue: {
+    marginTop: 3,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    color: Colors.text,
+  },
+  overviewHeroStatusChip: {
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    maxWidth: "100%",
+  },
+  overviewHeroStatusChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+  },
+  overviewFhGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -6,
+    marginTop: 4,
+  },
+  overviewFhMarginHelper: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 15,
+    color: darkMode ? "rgba(255,255,255,0.55)" : "#8891a0",
+    fontWeight: "500",
   },
   overviewCardHeaderRow: {
     flexDirection: "row",
@@ -4217,9 +3590,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.35,
   },
-  overviewFinancialBody: {
-    marginTop: 14,
-  },
   budgetHelperLine: {
     fontSize: 11,
     lineHeight: 15,
@@ -4248,15 +3618,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     textAlign: "right",
     maxWidth: "52%",
   },
-  projectStatusHelper: {
-    fontSize: 11,
-    lineHeight: 15,
-    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
-    marginTop: 3,
-    fontWeight: "400",
-  },
   projectStatusMetricRowSpaced: {
-    marginTop: 18,
+    marginTop: 12,
   },
   spendingSummaryBlock: {
     alignItems: "flex-end",
@@ -4310,17 +3673,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   inviteButtonContainer: {
     marginBottom: 18,
   },
-  slideHintContainer: {
-    paddingHorizontal: 4,
-    marginBottom: 6,
-  },
-  slideHintText: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#22c55e",
-    textAlign: "center",
-    textTransform: "lowercase",
-  },
+  /** Match Dashboard tab pill: full capsule, emerald border, blur fill; horizontal scroll for 5 tabs */
   segmentContainer: {
     borderRadius: 999,
     overflow: "hidden",
@@ -4328,40 +3681,48 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderColor: "#19E180",
     marginBottom: 18,
   },
+  /** Opaque black track — avoids gray from blur, gradients, or ScrollView defaults */
+  segmentTrackDark: {
+    backgroundColor: "#000000",
+  },
   segmentScrollView: {
     flexGrow: 0,
+    backgroundColor: "transparent",
   },
   segmentInner: {
     flexDirection: "row",
+    alignItems: "center",
     padding: 4,
-    backgroundColor: darkMode ? "transparent" : Colors.surface2,
-    minWidth: "100%",
+    gap: 4,
+    backgroundColor: "transparent",
   },
   segmentTab: {
     flexShrink: 0,
-    minWidth: 100,
+    minWidth: 88,
     borderRadius: 999,
-    marginHorizontal: 2,
+    marginHorizontal: 1,
   },
   segmentTabActive: {
-    backgroundColor: darkMode ? "transparent" : "#FFFFFF",
-    shadowColor: darkMode ? "#22c55e" : "#000",
-    shadowOpacity: darkMode ? 0.4 : 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 },
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: darkMode ? 0.35 : 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   segmentTabInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
     gap: 6,
   },
   segmentLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: darkMode ? "#E5F7FF" : "#475569",
+    letterSpacing: -0.1,
+    color: darkMode ? "#FFFFFF" : Colors.text,
   },
   segmentLabelActive: {
     color: darkMode ? "#050B13" : "#071018",
@@ -4421,13 +3782,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
     borderRadius: 16,
     padding: 15,
-    borderWidth: darkMode ? 1 : 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
-  },
-  projectStatusCard: {
-    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 16,
-    padding: 16,
     borderWidth: darkMode ? 1 : 1,
     borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
   },
@@ -4498,26 +3852,16 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 12,
   },
   projectStatusMetrics: {
-    marginTop: 20,
+    marginTop: 12,
   },
   projectStatusMetricRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  projectStatusMetricLabel: {
-    fontSize: 14,
-    color: darkMode ? 'rgba(255,255,255,0.9)' : '#334155',
-    fontWeight: '600',
-  },
-  projectStatusMetricValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: darkMode ? '#F9FAFB' : Colors.text,
+    marginBottom: 6,
   },
   projectStatusBarTrack: {
-    height: 7,
+    height: 5,
     borderRadius: 999,
     backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     overflow: 'hidden',
@@ -4529,8 +3873,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   projectStatusDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
-    marginTop: 20,
-    marginBottom: 18,
+    marginTop: 14,
+    marginBottom: 12,
   },
   projectStatusDates: {
     gap: 12,
@@ -4539,16 +3883,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  projectStatusDateLabel: {
-    fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.85)' : '#8891a0',
-    fontWeight: '600',
-  },
-  projectStatusDateValue: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: darkMode ? '#F9FAFB' : Colors.text,
   },
   statusContent: {
     flexDirection: "row",
@@ -5058,20 +4392,6 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: Colors.sub,
     marginTop: 2,
   },
-  aiProactiveInsight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)',
-  },
-  aiProactiveInsightText: {
-    fontSize: 13,
-    lineHeight: 18,
-    flex: 1,
-  },
   kickoffCardContainer: {
     marginTop: 16,
     marginBottom: 16,
@@ -5153,98 +4473,5 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.sub,
-  },
-  // AI Suggestions styles
-  aiSuggestionsContainer: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  aiSuggestionsContainerWide: {
-    marginHorizontal: 4,
-  },
-  aiSuggestionsCard: {
-    backgroundColor: darkMode ? '#1E293B' : '#F1F5F9',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  aiSuggestionsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    width: '100%',
-  },
-  aiSuggestionsHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    minWidth: 0,
-    marginRight: 12,
-  },
-  aiSuggestionsTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.text,
-    flex: 1,
-    flexShrink: 1,
-  },
-  aiSuggestionsClose: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-  },
-  aiSuggestionsSubtitle: {
-    fontSize: 14,
-    color: darkMode ? '#FFFFFF' : '#64748B',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  aiSuggestionsList: {
-    gap: 10,
-  },
-  aiSuggestionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  aiSuggestionText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  // iOS-style Modal styles
-  aiSuggestionsModalBackdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  aiSuggestionsModalBackdropTouchable: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  aiSuggestionsModalContainer: {
-    width: '90%',
-    maxWidth: 400,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
   },
 });

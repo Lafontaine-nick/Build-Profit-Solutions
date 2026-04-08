@@ -27,8 +27,15 @@ export async function isFirstEstimateWalkthroughComplete(): Promise<boolean> {
   }
 }
 
-export async function markFirstEstimateWalkthroughComplete(): Promise<void> {
+export async function markFirstEstimateWalkthroughComplete(
+  userId?: string | null
+): Promise<void> {
   try {
+    if (userId) {
+      const { markWalkthroughCompleted } = await import('./walkthroughStateService');
+      await markWalkthroughCompleted(userId, 'firstEstimate');
+      return;
+    }
     await AsyncStorage.setItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY, 'true');
     await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
   } catch {

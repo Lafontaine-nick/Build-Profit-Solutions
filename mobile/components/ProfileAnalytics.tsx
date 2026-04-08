@@ -19,15 +19,10 @@ interface ProfileAnalyticsProps {
   completedProjects?: any[];
 }
 
-const defaultProjectTypes: ProjectTypeStat[] = [
-  { label: "Addition", amount: "$12,744", percent: 58.4 },
-  { label: "Kitchen Remodel", amount: "$3,068", percent: 80.4 },
-];
-
 const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
   activeWonCount = 0,
   completedCount,
-  projectTypeStats = defaultProjectTypes,
+  projectTypeStats = [],
   overviewProfit = 0,
   completedProjects = [],
 }) => {
@@ -342,28 +337,37 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
             </View>
           </View>
 
-          {projectTypeStats.map((pt) => (
-            <View key={pt.label} style={styles.projectRow}>
-              <View style={styles.projectRowHeader}>
-                <Text style={styles.projectLabel}>{pt.label}</Text>
-                <Text style={styles.projectAmount}>{pt.amount}</Text>
+          {projectTypeStats.length === 0 ? (
+            <Text style={styles.profitSubnote}>
+              No data yet. Complete projects with a project type (from estimates) to
+              see average margin by Kitchen, Bathroom, and other types.
+            </Text>
+          ) : (
+            projectTypeStats.map((pt) => (
+              <View key={pt.label} style={styles.projectRow}>
+                <View style={styles.projectRowHeader}>
+                  <Text style={styles.projectLabel}>{pt.label}</Text>
+                  <Text style={styles.projectAmount}>{pt.amount}</Text>
+                </View>
+                <Text style={styles.projectSubLabel}>
+                  Avg margin {pt.percent.toFixed(1)}%
+                </Text>
+                <View style={styles.progressTrack}>
+                  <LinearGradient
+                    colors={['#22c55e', '#14b8a6', '#0ea5e9']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, pt.percent))}%`,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
-              <Text style={styles.projectSubLabel}>
-                Actual {pt.percent.toFixed(1)}%
-              </Text>
-              <View style={styles.progressTrack}>
-                <LinearGradient
-                  colors={['#22c55e', '#14b8a6', '#0ea5e9']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[
-                    styles.progressFill,
-                    { width: `${Math.min(pt.percent, 100)}%` },
-                  ]}
-                />
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
       </LinearGradient>
 

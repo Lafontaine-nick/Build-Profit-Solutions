@@ -220,6 +220,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   const hasLoadedForProjectRef = useRef<string>("");
   const isLoadingRef = useRef<boolean>(false);
   const lastEstimateDataRef = useRef<string>("");
+  const milestonesRef = useRef<Milestone[]>([]);
+  milestonesRef.current = milestones;
 
   // Live bid from Estimate tab (when user edits dates there) - use when bid.id matches project
   const [liveBidPaymentData, setLiveBidPaymentData] = useState<{
@@ -715,27 +717,35 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   
   // Periodic check for external updates (e.g., AI marking payments)
   // This ensures progress updates even if projectData.updatedAt doesn't change
+  const timelineStatusSig = (arr: any[]) =>
+    JSON.stringify(
+      (Array.isArray(arr) ? arr : []).map((m: any) => ({
+        id: m.id,
+        st: m.status,
+        p: m.progressPct,
+      }))
+    );
+
   useEffect(() => {
     if (!project?.id || !isLoaded) return;
     const interval = setInterval(() => {
-      // Only reload if we're on the timeline tab (to avoid unnecessary reloads)
-      // Check if milestones might have been updated externally
-      AsyncStorage.getItem(getStorageKey(project.id)).then(saved => {
-        if (saved) {
+      AsyncStorage.getItem(getStorageKey(project.id))
+        .then((saved) => {
+          if (!saved) return;
           const parsed = JSON.parse(saved);
-          const savedCount = Array.isArray(parsed) ? parsed.length : 0;
-          const currentCount = milestones.length;
-          // If counts differ or any milestone status might have changed, reload
-          if (savedCount !== currentCount) {
-            console.log('🔄 Milestone count changed - reloading timeline');
-            setReloadTrigger(prev => prev + 1);
+          if (!Array.isArray(parsed)) return;
+          const savedSig = timelineStatusSig(parsed);
+          const currentSig = timelineStatusSig(milestonesRef.current);
+          if (savedSig !== currentSig) {
+            console.log("🔄 Timeline storage drift (status/count) — reloading");
+            setReloadTrigger((prev) => prev + 1);
           }
-        }
-      }).catch(() => {});
-    }, 2000); // Check every 2 seconds
-    
+        })
+        .catch(() => {});
+    }, 2000);
+
     return () => clearInterval(interval);
-  }, [project?.id, isLoaded, milestones.length]);
+  }, [project?.id, isLoaded]);
 
   useEffect(() => {
     if (!isLoaded || !project?.id) return;

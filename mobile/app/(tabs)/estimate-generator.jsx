@@ -53,10 +53,10 @@ import {
 } from '../../components/FirstEstimateWalkthrough';
 import {
   markFirstEstimateWalkthroughComplete,
-  isFirstEstimateWalkthroughComplete,
   loadFirstEstimateWalkthroughProgress,
   saveFirstEstimateWalkthroughProgress,
 } from '../../lib/firstEstimateWalkthroughStorage';
+import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
 import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
@@ -69,7 +69,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
 import api from '../../services/BackendAPI';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
 import { getTabScrollContentBottomInset } from '../../constants/ScreenLayout';
@@ -381,7 +381,7 @@ const STEPS = [
   { id: 3, title: 'Materials & Supplies', subtitle: 'Live pricing and inflation' },
   { id: 4, title: 'Labor & Subs', subtitle: 'Regional wages and subcontractors' },
   { id: 5, title: 'Direct costs, overhead & markup', subtitle: 'Direct costs, overhead, and markup rate' },
-  { id: 6, title: 'Project Analysis', subtitle: 'Project outcome scenarios' },
+  { id: 6, title: 'Project Analysis', subtitle: 'Scenario presets & stress testing' },
   { id: 7, title: 'Payment / Work Schedule', subtitle: 'Payment terms and work scheduling' },
   { id: 8, title: 'Final Proposal & Agreement', subtitle: 'Generate a polished client-facing PDF from this estimate' },
 ];
@@ -2498,6 +2498,20 @@ const money = (n) => {
   });
 };
 
+/** Shorter labels for narrow bar-chart columns (avoids $5,052,000.00 wrapping). */
+const moneyCompactBar = (n) => {
+  const value = Number(n) || 0;
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1_000_000) {
+    return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  }
+  if (abs >= 100_000) {
+    return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+  }
+  return money(value);
+};
+
 const ESTIMATE_AI_PACKAGES = {
   kitchen: {
     scopeSections: ['Demo & protection', 'Cabinetry & Tops', 'Fixtures', 'Flooring', 'Electrical', 'Paint & trim'],
@@ -3641,6 +3655,40 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
 });
 
+/** Latest contractor row for PDF: merge AsyncStorage (profile saves) + Clerk account fallbacks. */
+async function resolveProfileForContractExport(baseProfile, clerkUser) {
+  let fromDisk = {};
+  try {
+    const raw = await AsyncStorage.getItem('bps.contractorProfile');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') fromDisk = parsed;
+    }
+  } catch (_e) {
+    /* ignore */
+  }
+  const merged = { ...(baseProfile || {}), ...fromDisk };
+  if (!clerkUser) return merged;
+
+  const email = clerkUser.primaryEmailAddress?.emailAddress?.trim();
+  if (email && !String(merged.email || '').trim()) merged.email = email;
+
+  const phone = clerkUser.primaryPhoneNumber?.phoneNumber?.trim();
+  if (phone && !String(merged.phone || '').trim()) merged.phone = phone;
+
+  const fullName =
+    String(clerkUser.fullName || '').trim() ||
+    [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim();
+  if (fullName && !String(merged.name || '').trim()) merged.name = fullName;
+
+  const pubCo = clerkUser.publicMetadata && clerkUser.publicMetadata.company;
+  const unsafeCo = clerkUser.unsafeMetadata && clerkUser.unsafeMetadata.company;
+  const clerkCo = pubCo || unsafeCo;
+  if (clerkCo && !String(merged.company || '').trim()) merged.company = String(clerkCo);
+
+  return merged;
+}
+
 export default function EstimateGeneratorScreen() {
   // Require authentication to access this screen
   useRequireAuth();
@@ -3650,6 +3698,13 @@ export default function EstimateGeneratorScreen() {
   const darkMode = theme.bg === '#000000';
   const { t } = useTranslation();
   const { getToken } = useAuth();
+  const { user: clerkUser } = useUser();
+  const {
+    hydrated: wtHydrated,
+    shouldShowFirstEstimate,
+    markSkipped: markWalkthroughSkipped,
+    refresh: refreshWalkthroughState,
+  } = useWalkthroughState();
   const Colors = useMemo(() => {
     const baseColors = getColors(theme);
     return {
@@ -3697,9 +3752,8 @@ export default function EstimateGeneratorScreen() {
   const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
   const [isOnboardingReset, setIsOnboardingReset] = useState(false);
   const [estimateAiInitialQuestion, setEstimateAiInitialQuestion] = useState('');
-  /** Persistent: first-estimate walkthrough off after project conversion or second bid. */
-  const [firstEstimateWalkthroughStorageComplete, setFirstEstimateWalkthroughStorageComplete] =
-    useState(false);
+  /** Account + device: first-estimate walkthrough off after skip/complete/second bid. */
+  const firstEstimateWalkthroughDone = wtHydrated && !shouldShowFirstEstimate;
   /** Intro resolved (Start / Skip); persisted while first-estimate walkthrough is active. */
   const [firstEstimateWtIntroResolved, setFirstEstimateWtIntroResolved] = useState(false);
   const [firstEstimateWtStarted, setFirstEstimateWtStarted] = useState(false);
@@ -3898,22 +3952,21 @@ export default function EstimateGeneratorScreen() {
 
   const refreshCoachGate = useCallback(async () => {
     try {
-      const [second, first, reset, feDone] = await Promise.all([
+      const [second, first, reset] = await Promise.all([
         AsyncStorage.getItem('bps.secondBidCreated'),
         AsyncStorage.getItem('bps.isFirstTimeEstimate'),
         AsyncStorage.getItem('bps.forceEstimateOnboarding'),
-        isFirstEstimateWalkthroughComplete(),
       ]);
       setCoachGate({
         secondBid: second === 'true',
         firstTimeEst: first === 'true',
         reset: reset === 'true',
       });
-      setFirstEstimateWalkthroughStorageComplete(feDone);
+      await refreshWalkthroughState();
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [refreshWalkthroughState]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -3925,18 +3978,18 @@ export default function EstimateGeneratorScreen() {
     (async () => {
       try {
         await AsyncStorage.setItem('bps.secondBidCreated', 'true');
-        await markFirstEstimateWalkthroughComplete();
+        await markFirstEstimateWalkthroughComplete(clerkUser?.id);
         await AsyncStorage.multiRemove([
           'bps.isFirstTimeEstimate',
           'bps.forceEstimateOnboarding',
         ]);
         setCoachGate((g) => ({ ...g, secondBid: true, firstTimeEst: false, reset: false }));
-        setFirstEstimateWalkthroughStorageComplete(true);
+        await refreshWalkthroughState();
       } catch {
         /* ignore */
       }
     })();
-  }, [isLoaded, hasMultipleBids]);
+  }, [isLoaded, hasMultipleBids, clerkUser?.id, refreshWalkthroughState]);
 
   const shouldShowGuidance =
     !hasMultipleBids &&
@@ -3948,11 +4001,14 @@ export default function EstimateGeneratorScreen() {
   }, [shouldShowGuidance]);
 
   const shouldShowFirstEstimateWalkthrough =
-    !firstEstimateWalkthroughStorageComplete && !hasMultipleBids && !coachGate.secondBid;
+    wtHydrated &&
+    shouldShowFirstEstimate &&
+    !hasMultipleBids &&
+    !coachGate.secondBid;
 
   // Persist intro / skip / per-step dismissals so leaving the app does not replay completed cards.
   useEffect(() => {
-    if (!isLoaded || firstEstimateWalkthroughStorageComplete) {
+    if (!isLoaded || firstEstimateWalkthroughDone) {
       setFirstEstimateWtProgressHydrated(false);
       return;
     }
@@ -3974,7 +4030,12 @@ export default function EstimateGeneratorScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, firstEstimateWalkthroughStorageComplete]);
+  }, [isLoaded, firstEstimateWalkthroughDone]);
+
+  useEffect(() => {
+    if (!clerkUser?.id || !firstEstimateWtSkipTipsSession) return;
+    void markWalkthroughSkipped('firstEstimate');
+  }, [clerkUser?.id, firstEstimateWtSkipTipsSession, markWalkthroughSkipped]);
 
   useEffect(() => {
     if (
@@ -4009,7 +4070,7 @@ export default function EstimateGeneratorScreen() {
 
   // Existing installs: if they already have a live / won project from an estimate, never show first-estimate tips.
   useEffect(() => {
-    if (!isLoaded || firstEstimateWalkthroughStorageComplete) return;
+    if (!isLoaded || firstEstimateWalkthroughDone) return;
     const hasLiveConverted =
       Array.isArray(activeProjects) &&
       activeProjects.some((p) => {
@@ -4021,13 +4082,13 @@ export default function EstimateGeneratorScreen() {
     if (!hasLiveConverted) return;
     let cancelled = false;
     (async () => {
-      await markFirstEstimateWalkthroughComplete();
-      if (!cancelled) setFirstEstimateWalkthroughStorageComplete(true);
+      await markFirstEstimateWalkthroughComplete(clerkUser?.id);
+      if (!cancelled) await refreshWalkthroughState();
     })();
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, activeProjects, firstEstimateWalkthroughStorageComplete]);
+  }, [isLoaded, activeProjects, firstEstimateWalkthroughDone, clerkUser?.id, refreshWalkthroughState]);
 
   const dismissFirstEstimateWalkthroughStep = useCallback((stepKey) => {
     setFirstEstimateWtDismissed((prev) => ({ ...prev, [String(stepKey)]: true }));
@@ -4477,6 +4538,29 @@ export default function EstimateGeneratorScreen() {
       };
       checkTutorial();
     }, [router])
+  );
+
+  // Keep contract / PDF branding in sync with Profile (bps.contractorProfile updates on profile save)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const saved = await AsyncStorage.getItem('bps.contractorProfile');
+          if (cancelled || !saved) return;
+          const parsed = JSON.parse(saved);
+          if (cancelled || !parsed || typeof parsed !== 'object') return;
+          setContractorProfile((prev) => ({ ...prev, ...parsed }));
+        } catch (e) {
+          if (!cancelled) {
+            console.error('Failed to refresh contractor profile for estimates:', e);
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
   );
 
   // Sync markup percentage text with bid state (only when not focused to prevent glitching)
@@ -7997,8 +8081,9 @@ export default function EstimateGeneratorScreen() {
     }
   }, [bid?.projectType, bid?.projectCategory, bid?.category, bid?.template, activeScope, normalizeScope]);
 
-  // Build Contract Document from Bid Data
-  const buildDocFromBid = (bidData, calcData) => {
+  // Build Contract Document from Bid Data (optional profile snapshot for PDF export = fresh branding)
+  const buildDocFromBid = (bidData, calcData, profileSnapshot = null) => {
+    const cp = profileSnapshot || contractorProfile;
     const scopeBullets = bidData.scopeDescription
       ? bidData.scopeDescription.split('\n').filter(line => line.trim())
       : [];
@@ -8080,21 +8165,21 @@ export default function EstimateGeneratorScreen() {
         version: bidData.revision ? `Rev ${bidData.revision}` : 'Final',
       },
       contractor: {
-        contactName: contractorProfile.name || undefined,
-        legalName: contractorProfile.company || contractorProfile.name || undefined,
+        contactName: cp.name || undefined,
+        legalName: cp.company || cp.name || undefined,
         licenseNo:
           bidData.licenseNumber ||
-          contractorProfile.licenseNumber ||
-          contractorProfile.licenseNo ||
-          (Array.isArray(contractorProfile.licenses)
-            ? contractorProfile.licenses.find(value => String(value || '').trim())
+          cp.licenseNumber ||
+          cp.licenseNo ||
+          (Array.isArray(cp.licenses)
+            ? cp.licenses.find(value => String(value || '').trim())
             : undefined),
-        phone: contractorProfile.phone || undefined,
-        email: contractorProfile.email || undefined,
+        phone: cp.phone || undefined,
+        email: cp.email || undefined,
         insurer: bidData.insuranceCoverage || undefined,
         glLimit: undefined,
         wcActive: bidData.insurance || false,
-        logoUrl: contractorProfile.avatar || contractorProfile.logoUrl || undefined,
+        logoUrl: cp.avatar || cp.logoUrl || undefined,
       },
       owner: {
         legalName: bidData.customerName || 'Client',
@@ -8192,8 +8277,9 @@ export default function EstimateGeneratorScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       const contractType = getContractTypeForProject(bid.projectType);
-      const branding = resolveContractBranding(contractorProfile);
-      const doc = buildDocFromBid(bid, calc);
+      const profileForPdf = await resolveProfileForContractExport(contractorProfile, clerkUser);
+      const branding = resolveContractBranding(profileForPdf);
+      const doc = buildDocFromBid(bid, calc, profileForPdf);
       const contractOptions = {
         branding,
         pdfMode: 'detailed',
@@ -8205,7 +8291,7 @@ export default function EstimateGeneratorScreen() {
       const preflightWarnings = validateContractPreflight(doc, contractOptions);
 
       const runExport = async () => {
-        const brandAsset = await resolveContractBrandAsset(contractorProfile);
+        const brandAsset = await resolveContractBrandAsset(profileForPdf);
         if (brandAsset) {
           doc.contractor.logoUrl = brandAsset;
           contractOptions.branding = { ...branding, logoUrl: brandAsset };
@@ -8715,8 +8801,8 @@ export default function EstimateGeneratorScreen() {
       };
 
       await addEstimate(estimateData);
-      await markFirstEstimateWalkthroughComplete();
-      setFirstEstimateWalkthroughStorageComplete(true);
+      await markFirstEstimateWalkthroughComplete(clerkUser?.id);
+      await refreshWalkthroughState();
       console.log(`✅ Upserted active project with latest schedule dates (${estimateData.status})`);
       
       // Update lead stage to "won" if this bid came from a qualified lead
@@ -9501,9 +9587,16 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 
                 {/* Bar Chart */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: maxBarHeight + 52, marginBottom: 4, paddingHorizontal: 2 }}>
-                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.materials)}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: maxBarHeight + 52, marginBottom: 4, paddingHorizontal: 0 }}>
+                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.65}
+                      style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
+                    >
+                      {moneyCompactBar(calc.materials)}
+                    </Text>
                     <LinearGradient
                       colors={['#3b82f6', '#60a5fa']}
                       start={{ x: 0, y: 1 }}
@@ -9524,8 +9617,15 @@ export default function EstimateGeneratorScreen() {
                       Materials
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.labor)}</Text>
+                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.65}
+                      style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
+                    >
+                      {moneyCompactBar(calc.labor)}
+                    </Text>
                     <LinearGradient
                       colors={['#22c55e', '#4ade80']}
                       start={{ x: 0, y: 1 }}
@@ -9546,8 +9646,15 @@ export default function EstimateGeneratorScreen() {
                       Labor
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.overhead)}</Text>
+                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.65}
+                      style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
+                    >
+                      {moneyCompactBar(calc.overhead)}
+                    </Text>
                     <View
                       style={{
                         width: '80%',
@@ -9566,8 +9673,15 @@ export default function EstimateGeneratorScreen() {
                       Overhead
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1, maxWidth: '26%', paddingHorizontal: 2 }}>
-                    <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>{money(calc.profit)}</Text>
+                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.65}
+                      style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
+                    >
+                      {moneyCompactBar(calc.profit)}
+                    </Text>
                     <View
                       style={{
                         width: '80%',
@@ -11464,7 +11578,7 @@ export default function EstimateGeneratorScreen() {
               <View style={{
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.095)' : Colors.line,
                 backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.028)' : Colors.surface2,
                 padding: 14,
                 marginBottom: 18,
@@ -11494,27 +11608,27 @@ export default function EstimateGeneratorScreen() {
                           }}
                           style={{
                             flex: 1,
-                            paddingVertical: 10,
+                            paddingVertical: 9,
                             paddingHorizontal: 11,
                             borderRadius: 12,
                             borderWidth: selected ? 1.5 : 1,
                             borderColor: selected
-                              ? (darkMode ? 'rgba(74, 222, 128, 0.26)' : 'rgba(22, 163, 74, 0.32)')
+                              ? (darkMode ? 'rgba(74, 222, 128, 0.22)' : 'rgba(22, 163, 74, 0.3)')
                               : (darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line),
                             backgroundColor: selected
-                              ? (darkMode ? 'rgba(15, 22, 20, 0.92)' : 'rgba(236, 253, 245, 0.55)')
+                              ? (darkMode ? 'rgba(12, 36, 28, 0.94)' : 'rgba(214, 247, 231, 0.68)')
                               : (darkMode ? 'rgba(0, 0, 0, 0.28)' : Colors.surface),
                           }}
                         >
                           <Text
                             style={{
                               color: selected
-                                ? (darkMode ? 'rgba(209, 250, 229, 0.9)' : '#14532d')
+                                ? (darkMode ? 'rgba(236, 253, 244, 0.96)' : '#14532d')
                                 : Colors.text,
                               fontSize: 13,
                               fontWeight: selected ? '800' : '700',
                               letterSpacing: -0.2,
-                              lineHeight: 17,
+                              lineHeight: 16,
                             }}
                             numberOfLines={2}
                           >
@@ -11526,8 +11640,8 @@ export default function EstimateGeneratorScreen() {
                                 ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
                                 : step5MutedSoft,
                               fontSize: 11,
-                              lineHeight: 14,
-                              marginTop: 3,
+                              lineHeight: 13,
+                              marginTop: 2,
                             }}
                             numberOfLines={2}
                           >
@@ -11547,17 +11661,17 @@ export default function EstimateGeneratorScreen() {
                   }}
                   style={{
                     width: '100%',
-                    paddingVertical: 10,
+                    paddingVertical: 9,
                     paddingHorizontal: 11,
                     borderRadius: 12,
                     borderWidth: normalizedContractorType === 5 ? 1.5 : 1,
                     borderColor:
                       normalizedContractorType === 5
-                        ? (darkMode ? 'rgba(74, 222, 128, 0.26)' : 'rgba(22, 163, 74, 0.32)')
+                        ? (darkMode ? 'rgba(74, 222, 128, 0.22)' : 'rgba(22, 163, 74, 0.3)')
                         : (darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line),
                     backgroundColor:
                       normalizedContractorType === 5
-                        ? (darkMode ? 'rgba(15, 22, 20, 0.92)' : 'rgba(236, 253, 245, 0.55)')
+                        ? (darkMode ? 'rgba(12, 36, 28, 0.94)' : 'rgba(214, 247, 231, 0.68)')
                         : (darkMode ? 'rgba(0, 0, 0, 0.28)' : Colors.surface),
                     marginBottom: 4,
                   }}
@@ -11566,12 +11680,12 @@ export default function EstimateGeneratorScreen() {
                     style={{
                       color:
                         normalizedContractorType === 5
-                          ? (darkMode ? 'rgba(209, 250, 229, 0.9)' : '#14532d')
+                          ? (darkMode ? 'rgba(236, 253, 244, 0.96)' : '#14532d')
                           : Colors.text,
                       fontSize: 13,
                       fontWeight: normalizedContractorType === 5 ? '800' : '700',
                       letterSpacing: -0.2,
-                      lineHeight: 17,
+                      lineHeight: 16,
                     }}
                   >
                     {contractorTypes[5].name}
@@ -11583,8 +11697,8 @@ export default function EstimateGeneratorScreen() {
                           ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
                           : step5MutedSoft,
                       fontSize: 11,
-                      lineHeight: 14,
-                      marginTop: 3,
+                      lineHeight: 13,
+                      marginTop: 2,
                     }}
                   >
                     {contractorTypes[5].subtitle}
@@ -11594,8 +11708,9 @@ export default function EstimateGeneratorScreen() {
                 {(recommendationInfo || isCustomProfile) && (
                   <View
                     style={{
-                      marginTop: 12,
-                      paddingVertical: 7,
+                      marginTop: 11,
+                      paddingTop: 6,
+                      paddingBottom: 8,
                       paddingHorizontal: 11,
                       borderRadius: 11,
                       backgroundColor: darkMode ? 'rgba(10, 14, 20, 0.75)' : 'rgba(226, 232, 240, 0.65)',
@@ -11607,10 +11722,10 @@ export default function EstimateGeneratorScreen() {
                       <>
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(71, 85, 105, 0.9)',
+                            color: darkMode ? 'rgba(186, 198, 210, 0.88)' : 'rgba(71, 85, 105, 0.88)',
                             fontSize: 10.5,
                             fontWeight: '700',
-                            marginBottom: 5,
+                            marginBottom: 4,
                             letterSpacing: 0.35,
                             textTransform: 'uppercase',
                           }}
@@ -11626,22 +11741,22 @@ export default function EstimateGeneratorScreen() {
                             key={String(label)}
                             style={{
                               fontSize: 11,
-                              lineHeight: 15,
-                              marginBottom: 1,
+                              lineHeight: 16,
+                              marginBottom: 2,
                               fontWeight: '500',
                             }}
                           >
                             <Text
                               style={{
-                                color: darkMode ? 'rgba(148, 163, 184, 0.72)' : 'rgba(100, 116, 139, 0.92)',
+                                color: darkMode ? 'rgba(203, 213, 225, 0.86)' : 'rgba(71, 85, 105, 0.88)',
                               }}
                             >
                               {`${label}: `}
                             </Text>
                             <Text
                               style={{
-                                color: darkMode ? 'rgba(167, 243, 208, 0.96)' : 'rgba(21, 128, 61, 0.95)',
-                                fontWeight: '700',
+                                color: darkMode ? 'rgba(167, 243, 208, 0.98)' : 'rgba(21, 128, 61, 0.96)',
+                                fontWeight: '600',
                               }}
                             >
                               {`${range.min}\u2013${range.max}%`}
@@ -11650,10 +11765,10 @@ export default function EstimateGeneratorScreen() {
                         ))}
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(100, 116, 139, 0.68)' : 'rgba(100, 116, 139, 0.82)',
-                            fontSize: 9.5,
-                            marginTop: 5,
-                            lineHeight: 13.5,
+                            color: darkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.84)',
+                            fontSize: 9,
+                            marginTop: 6,
+                            lineHeight: 12.5,
                             fontWeight: '500',
                           }}
                         >
@@ -11661,10 +11776,10 @@ export default function EstimateGeneratorScreen() {
                         </Text>
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(100, 116, 139, 0.62)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: 9.5,
-                            marginTop: 4,
-                            lineHeight: 13,
+                            color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
+                            fontSize: 8.5,
+                            marginTop: 3,
+                            lineHeight: 12,
                             fontWeight: '500',
                           }}
                         >
@@ -11685,10 +11800,10 @@ export default function EstimateGeneratorScreen() {
                         </Text>
                         <Text
                           style={{
-                            color: darkMode ? 'rgba(100, 116, 139, 0.62)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: 9.5,
+                            color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
+                            fontSize: 8.5,
                             marginTop: 5,
-                            lineHeight: 13,
+                            lineHeight: 12,
                             fontWeight: '500',
                           }}
                         >
@@ -12239,7 +12354,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Project Analysis</Text>
-                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, marginTop: 4 }}>Project outcome scenarios</Text>
+                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, marginTop: 4 }}>Scenario presets & stress testing</Text>
                 </View>
               </View>
               {shouldGateAdvanced ? (
@@ -12257,7 +12372,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 12, lineHeight: 18 }}>
-                    Complete your estimate to unlock outcome scenarios and risk modeling.
+                    Complete your estimate to unlock scenario presets and risk modeling.
                   </Text>
                   <TouchableOpacity
                     onPress={handleReadinessCTA}
@@ -16521,7 +16636,7 @@ export default function EstimateGeneratorScreen() {
               </Text>
             </View>
           </View>
-          {isFirstTimeFlow && (
+          {isFirstTimeFlow && step !== 0 && (
             <View style={{
               alignSelf: 'center',
               paddingVertical: 8,
@@ -16533,33 +16648,13 @@ export default function EstimateGeneratorScreen() {
               marginBottom: 10,
             }}>
               {(() => {
-                // Get current step info - step 0 is Summary, steps 1-8 are the actual steps
-                const currentStepNumber = step === 0 ? 0 : step;
-                const currentStepInfo = step === 0 ? null : STEPS.find(s => s.id === step);
-                const totalSteps = STEPS.length; // 8 steps
-                const stepsRemaining = step === 0 ? totalSteps : totalSteps - currentStepNumber + 1;
-                
-                // Get step title - use the actual step title, not nextStepLabel
-                const stepTitle = step === 0 
-                  ? 'BID SUMMARY' 
-                  : currentStepInfo 
-                    ? currentStepInfo.title.toUpperCase().replace(' & ', ' & ').replace('/', ' / ')
-                    : nextStepLabel.toUpperCase();
-                
-                // For step 0 (Summary), show it as a preview step
-                if (step === 0) {
-                  return (
-                    <>
-                      <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
-                        REVIEW YOUR ESTIMATE
-                      </Text>
-                      <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
-                        You&apos;re doing great. {totalSteps} steps to complete.
-                      </Text>
-                    </>
-                  );
-                }
-                
+                const currentStepNumber = step;
+                const currentStepInfo = STEPS.find(s => s.id === step);
+                const totalSteps = STEPS.length;
+                const stepsRemaining = totalSteps - currentStepNumber + 1;
+                const stepTitle = currentStepInfo
+                  ? currentStepInfo.title.toUpperCase().replace(' & ', ' & ').replace('/', ' / ')
+                  : nextStepLabel.toUpperCase();
                 return (
                   <>
                     <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>

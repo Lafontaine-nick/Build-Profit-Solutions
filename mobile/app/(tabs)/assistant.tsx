@@ -10,6 +10,10 @@ import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
+import {
+  applyMarkPaymentCollectedFromAction,
+  computeOverallProgressExcludingDeposit,
+} from '@/lib/markPaymentCollected';
 
 const getStyles = (Colors: any) => StyleSheet.create({
   container: {
@@ -442,48 +446,45 @@ export default function AssistantScreen() {
               console.log('✅ Added labor expense to project:', action.projectName, action.amount);
             }
           } else if (action.type === 'mark_payment_collected' && action.projectId) {
-            // Mark a payment milestone as collected
             try {
-              const storageKey = `timeline_${action.projectId}`;
-              const raw = await AsyncStorage.getItem(storageKey);
-              const items = raw ? JSON.parse(raw) : [];
-              const updated = items.map((item: any) => {
-                if ((action.milestoneId && item.id === action.milestoneId) ||
-                    (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
-                  return { 
-                    ...item, 
-                    status: 'completed', 
-                    progressPct: 100,
-                    collectedAt: action.collectedAt || new Date().toISOString(), 
-                    collectedAmount: action.amount 
-                  };
-                }
-                return item;
-              });
-              await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-              
-              // Also update in bps.timeline.v2.{id} if it exists
-              const timelineV2Key = `bps.timeline.v2.${action.projectId}`;
-              const timelineV2Raw = await AsyncStorage.getItem(timelineV2Key);
-              if (timelineV2Raw) {
-                const timelineV2Items = JSON.parse(timelineV2Raw);
-                const updatedV2 = timelineV2Items.map((item: any) => {
-                  if ((action.milestoneId && item.id === action.milestoneId) ||
-                      (action.milestoneName && (item.title || '').toLowerCase().includes(action.milestoneName.toLowerCase()))) {
-                    return { 
-                      ...item, 
-                      status: 'completed', 
-                      progressPct: 100,
-                      collectedAt: action.collectedAt || new Date().toISOString(), 
-                      collectedAmount: action.amount 
-                    };
+              const project = [...activeProjects, ...estimates].find(
+                (p) => String(p.id) === String(action.projectId)
+              );
+              const merged = project
+                ? {
+                    ...project,
+                    ...(project.projectData || {}),
+                    estimateData:
+                      project.estimateData || project.projectData?.estimateData,
                   }
-                  return item;
+                : null;
+
+              const { matched, updatedMilestones } =
+                await applyMarkPaymentCollectedFromAction(
+                  String(action.projectId),
+                  {
+                    milestoneId: action.milestoneId,
+                    milestoneName: action.milestoneName,
+                    amount: action.amount,
+                    collectedAt: action.collectedAt,
+                  },
+                  () => merged
+                );
+
+              if (matched && updatedMilestones.length > 0) {
+                const overallProgress =
+                  computeOverallProgressExcludingDeposit(updatedMilestones);
+                updateProject(String(action.projectId), {
+                  progress: overallProgress,
+                  overallProgressPct: overallProgress,
                 });
-                await AsyncStorage.setItem(timelineV2Key, JSON.stringify(updatedV2));
               }
-              
-              console.log('✅ Payment marked as collected from assistant page with progressPct: 100');
+
+              console.log(
+                matched
+                  ? '✅ Payment marked as collected (timeline v2 + progress)'
+                  : '⚠️ mark_payment_collected: no matching milestone — check name/id'
+              );
             } catch (e) {
               console.error('❌ Error marking payment collected:', e);
             }

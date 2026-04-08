@@ -660,6 +660,30 @@ class ApiService {
     }
   }
 
+  /** Account-level first-run flows (onboarding + walkthroughs). Source of truth when serverPersisted. */
+  async getWalkthroughState(): Promise<{
+    success: boolean;
+    serverPersisted?: boolean;
+    walkthroughs: import('@/lib/walkthroughStateTypes').WalkthroughsState;
+  }> {
+    const response = await this.makeRequest('/api/walkthrough-state');
+    return response.data;
+  }
+
+  async patchWalkthroughState(body: {
+    walkthroughs: Partial<import('@/lib/walkthroughStateTypes').WalkthroughsState>;
+  }): Promise<{
+    success: boolean;
+    serverPersisted?: boolean;
+    walkthroughs: import('@/lib/walkthroughStateTypes').WalkthroughsState;
+  }> {
+    const response = await this.makeRequest('/api/walkthrough-state', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    return response.data;
+  }
+
   async updateUserSettings(updates: {
     ai_project_manager_mode?: boolean;
     ai_manager_aggressiveness?: string;

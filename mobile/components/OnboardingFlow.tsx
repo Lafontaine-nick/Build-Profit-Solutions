@@ -14,10 +14,12 @@ import { useRouter } from 'expo-router';
 import { useUser } from '@clerk/clerk-expo';
 import { isClerkEnabled } from '../lib/isClerkEnabled';
 import { clerkAuthService } from '../services/clerkAuth';
+import { onboardingDataKeyForUser } from '../lib/onboardingStorage';
 import {
-  onboardingDataKeyForUser,
-  setOnboardingCompleteForUser,
-} from '../lib/onboardingStorage';
+  markWalkthroughCompleted,
+  markWalkthroughSkipped,
+} from '../lib/walkthroughStateService';
+import { mergeOnboardingRoleIntoContractorProfile } from '../lib/onboardingRoleMapping';
 import { clearUnifiedProjectsListCache } from '../lib/projectListCache';
 import { useProjectList } from '../contexts/ProjectListContext';
 
@@ -25,7 +27,7 @@ interface OnboardingFlowProps {
   onComplete: () => void;
 }
 
-type RoleOption = 'solo' | 'small-team' | 'gc' | 'subcontractor';
+type RoleOption = 'gc' | 'subcontractor' | 'developer' | 'owner-builder';
 type WorkSource = 'referrals' | 'repeat' | 'online' | 'subcontractor' | 'mix';
 type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
 
@@ -90,7 +92,7 @@ function OnboardingFlowCore({
 
   const handleSkip = async () => {
     try {
-      await setOnboardingCompleteForUser(userId);
+      await markWalkthroughSkipped(userId, 'appOnboarding');
       await resyncProjectsFromServer();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       onComplete();
@@ -165,10 +167,10 @@ function OnboardingFlowCore({
   // PAGE 2 — Role Selection
   const renderPage2 = () => {
     const roles = [
-      { id: 'solo' as RoleOption, label: 'Solo Contractor' },
-      { id: 'small-team' as RoleOption, label: 'Small Team (2–10 people)' },
-      { id: 'gc' as RoleOption, label: 'General Contractor / Developer' },
+      { id: 'gc' as RoleOption, label: 'General contractor' },
       { id: 'subcontractor' as RoleOption, label: 'Subcontractor' },
+      { id: 'developer' as RoleOption, label: 'Developer' },
+      { id: 'owner-builder' as RoleOption, label: 'Owner-Builder' },
     ];
 
     return (
@@ -333,7 +335,8 @@ function OnboardingFlowCore({
         onboardingDataKeyForUser(userId),
         JSON.stringify(onboardingData)
       );
-      await setOnboardingCompleteForUser(userId);
+      await mergeOnboardingRoleIntoContractorProfile(selectedRole);
+      await markWalkthroughCompleted(userId, 'appOnboarding');
       await resyncProjectsFromServer();
       await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

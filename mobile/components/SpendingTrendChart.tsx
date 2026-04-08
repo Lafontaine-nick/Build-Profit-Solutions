@@ -21,6 +21,15 @@ interface SpendingTrendChartProps {
   varianceOverride?: number;
   /** When true, omit the spent/total figures on the legend row (parent shows the same summary). */
   hideLegendSpendTotal?: boolean;
+  /**
+   * When set, badge uses cost vs cap + forecast (from computeSpendingTrendCostStatus).
+   * Omit to fall back to legacy cumulative-curve variance (demo / mock data only).
+   */
+  costBudgetStatus?: { text: string; color: string };
+  /** Tighter chart area, padding, and Y-axis headroom (visual only). */
+  compact?: boolean;
+  /** Hide the reference-line label (e.g. when the parent shows the planned cost cap). */
+  hideReferenceLineLabel?: boolean;
 }
 
 function moneyTick(n: number) {
@@ -62,6 +71,9 @@ export default function SpendingTrendChart({
   scrollable = false,
   varianceOverride,
   hideLegendSpendTotal = false,
+  costBudgetStatus,
+  compact = false,
+  hideReferenceLineLabel = false,
 }: SpendingTrendChartProps) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -120,9 +132,22 @@ export default function SpendingTrendChart({
   const maxVal = useMemo(() => {
     const maxA = Math.max(...actualPoints.map((p) => p.value), 0);
     const maxP = Math.max(...plannedPoints.map((p) => p.value), 0);
-    const headroom = 1.12;
+    const headroom = compact ? 1.06 : 1.12;
     return Math.max(budgetTotal, maxA, maxP) * headroom;
-  }, [actualPoints, plannedPoints, budgetTotal]);
+  }, [actualPoints, plannedPoints, budgetTotal, compact]);
+
+  const referenceLine1Config = useMemo(
+    () => ({
+      color: "#2dd4bf",
+      type: "dotted" as const,
+      thickness: 2,
+      labelText: hideReferenceLineLabel ? "" : `Planned cost cap: ${moneyTick(budgetTotal)}`,
+      labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600" as const, marginTop: 6 },
+    }),
+    [budgetTotal, hideReferenceLineLabel],
+  );
+
+  const chartPlotHeight = compact ? 160 : 200;
 
   const variance = useMemo(() => {
     if (typeof varianceOverride === 'number') return varianceOverride;
@@ -132,10 +157,13 @@ export default function SpendingTrendChart({
   }, [actualPoints, plannedPoints, varianceOverride]);
 
   const statusLabel = useMemo(() => {
+    if (costBudgetStatus?.text) {
+      return { text: costBudgetStatus.text, color: costBudgetStatus.color };
+    }
     if (variance > 0) return { text: "Over budget", color: "#ef4444" };
     if (variance < 0) return { text: "Under budget", color: "#10b981" };
     return { text: "On track", color: "#22c55e" };
-  }, [variance]);
+  }, [costBudgetStatus, variance]);
 
   const legendTextColor = darkMode ? "rgba(255,255,255,0.87)" : "#64748b";
   const chartSurface = darkMode ? "rgba(255,255,255,0.10)" : "#CBD5E1";
@@ -154,7 +182,7 @@ export default function SpendingTrendChart({
     : undefined;
 
   return (
-    <View style={{ paddingTop: showHeader ? 10 : 0 }}>
+    <View style={{ paddingTop: showHeader ? 10 : compact ? 2 : 0 }}>
       {showHeader && (
         <View>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -185,8 +213,8 @@ export default function SpendingTrendChart({
           style={{
             flexDirection: "row",
             gap: 14,
-            marginTop: showHeader ? 12 : 0,
-            marginBottom: 12,
+            marginTop: showHeader ? 12 : compact ? 6 : 0,
+            marginBottom: compact ? 8 : 12,
             alignItems: "center",
             flexWrap: "wrap",
             justifyContent: "flex-start",
@@ -224,13 +252,13 @@ export default function SpendingTrendChart({
         style={{
           backgroundColor: chartSurface,
           borderRadius: 16,
-          paddingVertical: 16,
-          paddingHorizontal: 12,
+          paddingVertical: compact ? 8 : 16,
+          paddingHorizontal: compact ? 8 : 12,
           borderWidth: 1,
           borderColor: chartBorder,
           position: "relative",
           overflow: scrollable ? "visible" : "hidden",
-          minHeight: 180,
+          minHeight: compact ? 148 : 180,
         }}
       >
         {scrollable && chartWidth ? (
@@ -241,6 +269,7 @@ export default function SpendingTrendChart({
           >
             <LineChart
               width={chartWidth}
+              height={chartPlotHeight}
           thickness={2.5}
           curved
           areaChart
@@ -268,13 +297,7 @@ export default function SpendingTrendChart({
           maxValue={maxVal}
           showReferenceLine1={budgetTotal > 0 && budgetTotal < maxVal}
           referenceLine1Position={budgetTotal}
-          referenceLine1Config={{
-            color: "#2dd4bf",
-            type: "dotted",
-            thickness: 2,
-            labelText: `Budget cap: ${moneyTick(budgetTotal)}`,
-            labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600", marginTop: 6 },
-          }}
+          referenceLine1Config={referenceLine1Config}
           yAxisThickness={0}
           xAxisThickness={0}
           hideYAxisText={false}
@@ -336,6 +359,7 @@ export default function SpendingTrendChart({
           </ScrollView>
         ) : (
           <LineChart
+            height={chartPlotHeight}
             thickness={2.5}
             curved
             areaChart
@@ -363,13 +387,7 @@ export default function SpendingTrendChart({
             maxValue={maxVal}
             showReferenceLine1={budgetTotal > 0 && budgetTotal < maxVal}
             referenceLine1Position={budgetTotal}
-            referenceLine1Config={{
-              color: "#2dd4bf",
-              type: "dotted",
-              thickness: 2,
-              labelText: `Budget cap: ${moneyTick(budgetTotal)}`,
-              labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600", marginTop: 6 },
-            }}
+            referenceLine1Config={referenceLine1Config}
             yAxisThickness={0}
             xAxisThickness={0}
             hideYAxisText={false}

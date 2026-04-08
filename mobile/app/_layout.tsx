@@ -22,7 +22,11 @@ import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
-import { isOnboardingCompleteForUser } from '../lib/onboardingStorage';
+import {
+  WalkthroughStateProvider,
+  WalkthroughStateProviderLegacy,
+  useWalkthroughState,
+} from '../contexts/WalkthroughStateContext';
 import '../i18n/config'; // Initialize i18n
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 
@@ -42,12 +46,14 @@ function AuthGateWithClerk() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
   const { user } = useUser();
   const { userRole, isLoading } = useUserRole();
+  const {
+    hydrated: wtHydrated,
+    shouldShowAppOnboarding,
+  } = useWalkthroughState();
 
   // IMPORTANT: All hooks must be declared BEFORE any conditional returns
   // Check if profile setup is needed
   const [needsProfileSetup, setNeedsProfileSetup] = useState<boolean | null>(null);
-  // Check if onboarding is needed
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   // Timeout for Clerk loading
   const [clerkTimeout, setClerkTimeout] = useState(false);
 
@@ -129,7 +135,7 @@ function AuthGateWithClerk() {
         clearTimeout(timeoutId);
         console.error('Error checking profile completeness:', error);
         // If there's an error, only check Clerk name
-        setNeedsProfileSetup(!(user.firstName && user.lastName));
+        setNeedsProfileSetup(!(user?.firstName && user?.lastName));
       }
     };
 
@@ -158,33 +164,6 @@ function AuthGateWithClerk() {
       cancelled = true;
     };
   }, [isLoaded, isSignedIn, getToken]);
-
-  // Check onboarding as soon as the user is signed in (before profile / role gates)
-  useEffect(() => {
-    const checkOnboardingStatus = async () => {
-      const timeoutId = setTimeout(() => {
-        console.warn('Onboarding check timeout - defaulting to show onboarding');
-        setNeedsOnboarding(true);
-      }, 5000);
-
-      try {
-        const uid = user?.id;
-        const complete = await isOnboardingCompleteForUser(uid);
-        clearTimeout(timeoutId);
-        setNeedsOnboarding(!complete);
-      } catch (error) {
-        clearTimeout(timeoutId);
-        console.error('Error checking onboarding status:', error);
-        setNeedsOnboarding(true);
-      }
-    };
-
-    if (isSignedIn && user) {
-      checkOnboardingStatus();
-    } else {
-      setNeedsOnboarding(null);
-    }
-  }, [isSignedIn, user]);
 
   // Debug logging
   console.log('AuthGate - isLoaded:', isLoaded, 'isSignedIn:', isSignedIn, 'user:', !!user, 'userId:', user?.id);
@@ -237,16 +216,16 @@ function AuthGateWithClerk() {
     );
   }
 
-  // Wait for profile + onboarding AsyncStorage checks
-  if (needsProfileSetup === null || needsOnboarding === null) {
-    console.log('AuthGate - Checking profile and/or onboarding...');
+  // Wait for profile + walkthrough hydration
+  if (needsProfileSetup === null || !wtHydrated) {
+    console.log('AuthGate - Checking profile and/or walkthrough state...');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
 
   // Flow: sign in → onboarding (first-time) → profile setup (if needed) → role → main app
-  if (needsOnboarding === true) {
+  if (shouldShowAppOnboarding) {
     console.log('AuthGate - Showing onboarding');
     return (
       <Stack
@@ -286,8 +265,11 @@ function AuthGateWithClerk() {
 function AuthGateWithoutClerk() {
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [needsOnboarding, setNeedsOnboarding] = React.useState<boolean | null>(null);
   const segments = useSegments();
+  const {
+    hydrated: wtHydrated,
+    shouldShowAppOnboarding,
+  } = useWalkthroughState();
 
   // Initialize notification service
   useEffect(() => {
@@ -314,28 +296,6 @@ function AuthGateWithoutClerk() {
     return unsubscribe;
   }, []);
 
-  // Check onboarding status (only when authenticated)
-  useEffect(() => {
-    const checkOnboardingStatus = async () => {
-      try {
-        const authState = clerkAuthService.getAuthState();
-        const uid = authState.user?.id ?? null;
-        const complete = await isOnboardingCompleteForUser(uid);
-        setNeedsOnboarding(!complete);
-      } catch (error) {
-        console.error('Error checking onboarding status:', error);
-        // Default to showing onboarding if check fails
-        setNeedsOnboarding(true);
-      }
-    };
-
-    if (isAuthenticated) {
-      checkOnboardingStatus();
-    } else {
-      setNeedsOnboarding(null);
-    }
-  }, [isAuthenticated, segments]);
-
   // Show loading while checking auth state
   if (isLoading || isAuthenticated === null) {
     console.log('AuthGate - Checking authentication state...');
@@ -359,9 +319,8 @@ function AuthGateWithoutClerk() {
     );
   }
 
-  // Check onboarding status (wait for check to complete)
-  if (needsOnboarding === null) {
-    console.log('AuthGate - Checking onboarding status...');
+  if (!wtHydrated) {
+    console.log('AuthGate - Waiting for walkthrough state...');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
@@ -369,8 +328,7 @@ function AuthGateWithoutClerk() {
     );
   }
 
-  // Show onboarding if needed
-  if (needsOnboarding === true) {
+  if (shouldShowAppOnboarding) {
     console.log('AuthGate - Showing onboarding');
     return (
       <Stack
@@ -430,23 +388,25 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <ErrorBoundary>
         <ApiProvider>
-          <UserRoleProvider>
-            <ProjectListProvider>
-              <ProjectProvider>
-                <ChatProvider>
-                <ThemeProvider>
-                  <LanguageProvider>
-                    <NotificationProvider>
-                      <ThemeAwareLayout>
-                        <AuthGate useClerk={false} />
-                      </ThemeAwareLayout>
-                    </NotificationProvider>
-                  </LanguageProvider>
-                </ThemeProvider>
-              </ChatProvider>
-            </ProjectProvider>
-            </ProjectListProvider>
-          </UserRoleProvider>
+          <WalkthroughStateProviderLegacy>
+            <UserRoleProvider>
+              <ProjectListProvider>
+                <ProjectProvider>
+                  <ChatProvider>
+                  <ThemeProvider>
+                    <LanguageProvider>
+                      <NotificationProvider>
+                        <ThemeAwareLayout>
+                          <AuthGate useClerk={false} />
+                        </ThemeAwareLayout>
+                      </NotificationProvider>
+                    </LanguageProvider>
+                  </ThemeProvider>
+                </ChatProvider>
+              </ProjectProvider>
+              </ProjectListProvider>
+            </UserRoleProvider>
+          </WalkthroughStateProviderLegacy>
         </ApiProvider>
         </ErrorBoundary>
       </GestureHandlerRootView>
@@ -458,25 +418,27 @@ export default function RootLayout() {
       <ErrorBoundary>
         <ApiProvider>
           <ClerkProvider publishableKey={publishableKey} tokenCache={clerkTokenCache}>
-            <UserRoleProvider>
-              <ProjectListProvider>
-                <ProjectProvider>
-                  <ChatProvider>
-                  <ThemeProvider>
-                    <LanguageProvider>
-                      <NotificationProvider>
-                        <BetaFeedbackProvider>
-                          <ThemeAwareLayout>
-                            <AuthGate useClerk={true} />
-                          </ThemeAwareLayout>
-                        </BetaFeedbackProvider>
-                      </NotificationProvider>
-                    </LanguageProvider>
-                  </ThemeProvider>
-                </ChatProvider>
-              </ProjectProvider>
-            </ProjectListProvider>
-          </UserRoleProvider>
+            <WalkthroughStateProvider>
+              <UserRoleProvider>
+                <ProjectListProvider>
+                  <ProjectProvider>
+                    <ChatProvider>
+                    <ThemeProvider>
+                      <LanguageProvider>
+                        <NotificationProvider>
+                          <BetaFeedbackProvider>
+                            <ThemeAwareLayout>
+                              <AuthGate useClerk={true} />
+                            </ThemeAwareLayout>
+                          </BetaFeedbackProvider>
+                        </NotificationProvider>
+                      </LanguageProvider>
+                    </ThemeProvider>
+                  </ChatProvider>
+                </ProjectProvider>
+              </ProjectListProvider>
+            </UserRoleProvider>
+            </WalkthroughStateProvider>
           </ClerkProvider>
         </ApiProvider>
       </ErrorBoundary>

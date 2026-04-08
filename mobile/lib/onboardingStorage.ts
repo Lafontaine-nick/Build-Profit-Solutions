@@ -12,12 +12,22 @@ export function onboardingDataKeyForUser(userId: string): string {
 }
 
 /**
- * Whether this signed-in user has completed or skipped onboarding on this device.
- * Only `bps.onboardingComplete.{userId}` counts — never a global flag (that skipped onboarding
- * for every new Clerk user on the same phone).
+ * Whether this signed-in user should skip app onboarding (completed or skipped for current version).
+ * Prefers account-level cache from walkthrough state; falls back to legacy AsyncStorage.
  */
 export async function isOnboardingCompleteForUser(userId: string | null | undefined): Promise<boolean> {
   if (!userId) return false;
+
+  try {
+    const { readWalkthroughCache } = await import('./walkthroughStateService');
+    const { shouldShowWalkthrough } = await import('./walkthroughStateTypes');
+    const cached = await readWalkthroughCache(userId);
+    if (cached) {
+      return !shouldShowWalkthrough('appOnboarding', cached);
+    }
+  } catch {
+    /* fall through */
+  }
 
   const perUserKey = onboardingCompleteKeyForUser(userId);
   const perUser = await AsyncStorage.getItem(perUserKey);
@@ -25,8 +35,8 @@ export async function isOnboardingCompleteForUser(userId: string | null | undefi
 }
 
 export async function setOnboardingCompleteForUser(userId: string): Promise<void> {
-  await AsyncStorage.setItem(onboardingCompleteKeyForUser(userId), 'true');
-  await AsyncStorage.removeItem(LEGACY_ONBOARDING_COMPLETE_KEY);
+  const { markWalkthroughCompleted } = await import('./walkthroughStateService');
+  await markWalkthroughCompleted(userId, 'appOnboarding');
 }
 
 export async function clearOnboardingCompleteForUser(userId: string): Promise<void> {

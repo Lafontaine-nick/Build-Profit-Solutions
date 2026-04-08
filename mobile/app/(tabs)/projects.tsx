@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,12 +15,16 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  Dimensions,
+  BackHandler,
+  PanResponder,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -35,6 +39,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
+import {
+  FirstEstimateWalkthroughSheetShell,
+  FirstEstimateWalkthroughIntroSheetContent,
+  FirstEstimateWalkthroughHighlight,
+} from '@/components/FirstEstimateWalkthrough';
+import {
+  loadActiveProjectWalkthroughProgress,
+  saveActiveProjectWalkthroughProgress,
+  setPendingActiveProjectWalkthroughProjectId,
+  getPendingActiveProjectWalkthroughProjectId,
+  clearPendingActiveProjectWalkthroughProjectId,
+} from '@/lib/activeProjectWalkthroughStorage';
+import { useUser } from '@clerk/clerk-expo';
+import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 
@@ -285,6 +303,97 @@ export default function ProjectsScreen() {
     return tabFromRouteParam(params.tab) ?? 'active';
   });
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
+  const submitBannerTranslateY = useRef(new Animated.Value(0)).current;
+  const submitBannerOpacity = useRef(new Animated.Value(0)).current;
+  const submitBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submitBannerPanStartY = useRef(0);
+  const submitBannerClosingRef = useRef(false);
+
+  const dismissSubmitBannerAnimated = useCallback(() => {
+    if (submitBannerClosingRef.current) return;
+    submitBannerClosingRef.current = true;
+    if (submitBannerTimerRef.current) {
+      clearTimeout(submitBannerTimerRef.current);
+      submitBannerTimerRef.current = null;
+    }
+    Animated.parallel([
+      Animated.timing(submitBannerTranslateY, {
+        toValue: -72,
+        duration: 260,
+        useNativeDriver: true,
+      }),
+      Animated.timing(submitBannerOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      submitBannerClosingRef.current = false;
+      if (finished) setShowSubmitBanner(false);
+    });
+  }, [submitBannerTranslateY, submitBannerOpacity]);
+
+  const submitBannerPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dy) > Math.abs(g.dx) && g.dy < -8,
+        onPanResponderGrant: () => {
+          submitBannerTranslateY.stopAnimation((v) => {
+            submitBannerPanStartY.current = v;
+          });
+        },
+        onPanResponderMove: (_, g) => {
+          const next = Math.min(0, submitBannerPanStartY.current + g.dy);
+          submitBannerTranslateY.setValue(next);
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy < -36 || g.vy < -0.55) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            dismissSubmitBannerAnimated();
+          } else {
+            Animated.spring(submitBannerTranslateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 78,
+              friction: 11,
+            }).start();
+          }
+        },
+      }),
+    [submitBannerTranslateY, dismissSubmitBannerAnimated]
+  );
+
+  useEffect(() => {
+    if (!showSubmitBanner) return;
+    submitBannerClosingRef.current = false;
+    submitBannerTranslateY.setValue(-52);
+    submitBannerOpacity.setValue(0);
+    Animated.parallel([
+      Animated.spring(submitBannerTranslateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 72,
+        friction: 12,
+      }),
+      Animated.timing(submitBannerOpacity, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    submitBannerTimerRef.current = setTimeout(() => {
+      dismissSubmitBannerAnimated();
+    }, 4000);
+    return () => {
+      if (submitBannerTimerRef.current) {
+        clearTimeout(submitBannerTimerRef.current);
+        submitBannerTimerRef.current = null;
+      }
+    };
+  }, [showSubmitBanner, dismissSubmitBannerAnimated, submitBannerTranslateY, submitBannerOpacity]);
+
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
   const skipNextRefreshRef = React.useRef(false);
@@ -419,7 +528,6 @@ export default function ProjectsScreen() {
               /* ignore */
             }
             setShowSubmitBanner(fromSubmit === 'true');
-            if (fromSubmit === 'true') setTimeout(() => setShowSubmitBanner(false), 3000);
           }
           await AsyncStorage.removeItem('bps.pendingProjectsTab');
           await AsyncStorage.removeItem('bps.fromSubmitBid');
@@ -442,9 +550,6 @@ export default function ProjectsScreen() {
       // Show confirmation banner when arriving from submit bid
       if (params.fromSubmit === 'true') {
         setShowSubmitBanner(true);
-        setTimeout(() => {
-          setShowSubmitBanner(false);
-        }, 3000);
       }
     } else if (t === 'completed') {
       setActiveTab('completed');
@@ -707,7 +812,224 @@ export default function ProjectsScreen() {
   const [selectedProjectForWon, setSelectedProjectForWon] = useState<any>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
   const [successProjectName, setSuccessProjectName] = useState('');
+  const successBannerTranslateY = useRef(new Animated.Value(0)).current;
   const successBannerOpacity = useRef(new Animated.Value(0)).current;
+  const successBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successBannerPanStartY = useRef(0);
+  const successBannerClosingRef = useRef(false);
+
+  const dismissSuccessBannerAnimated = useCallback(() => {
+    if (successBannerClosingRef.current) return;
+    successBannerClosingRef.current = true;
+    if (successBannerTimerRef.current) {
+      clearTimeout(successBannerTimerRef.current);
+      successBannerTimerRef.current = null;
+    }
+    Animated.parallel([
+      Animated.timing(successBannerTranslateY, {
+        toValue: -72,
+        duration: 260,
+        useNativeDriver: true,
+      }),
+      Animated.timing(successBannerOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      successBannerClosingRef.current = false;
+      if (finished) setShowSuccessBanner(false);
+    });
+  }, [successBannerTranslateY, successBannerOpacity]);
+
+  const successBannerPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dy) > Math.abs(g.dx) && g.dy < -8,
+        onPanResponderGrant: () => {
+          successBannerTranslateY.stopAnimation((v) => {
+            successBannerPanStartY.current = v;
+          });
+        },
+        onPanResponderMove: (_, g) => {
+          const next = Math.min(0, successBannerPanStartY.current + g.dy);
+          successBannerTranslateY.setValue(next);
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy < -36 || g.vy < -0.55) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            dismissSuccessBannerAnimated();
+          } else {
+            Animated.spring(successBannerTranslateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 78,
+              friction: 11,
+            }).start();
+          }
+        },
+      }),
+    [successBannerTranslateY, dismissSuccessBannerAnimated]
+  );
+
+  useEffect(() => {
+    if (!showSuccessBanner) return;
+    successBannerClosingRef.current = false;
+    successBannerTranslateY.setValue(-52);
+    successBannerOpacity.setValue(0);
+    Animated.parallel([
+      Animated.spring(successBannerTranslateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 72,
+        friction: 12,
+      }),
+      Animated.timing(successBannerOpacity, {
+        toValue: 1,
+        duration: 280,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    successBannerTimerRef.current = setTimeout(() => {
+      dismissSuccessBannerAnimated();
+    }, 4000);
+    return () => {
+      if (successBannerTimerRef.current) {
+        clearTimeout(successBannerTimerRef.current);
+        successBannerTimerRef.current = null;
+      }
+    };
+  }, [showSuccessBanner, dismissSuccessBannerAnimated, successBannerTranslateY, successBannerOpacity]);
+
+  const { user: clerkUser } = useUser();
+  const {
+    hydrated: wtHydrated,
+    shouldShowFirstProject,
+    markSkipped: markWalkthroughSkipped,
+  } = useWalkthroughState();
+  const [apWtProgressHydrated, setApWtProgressHydrated] = useState(false);
+  const [apWtIntroResolved, setApWtIntroResolved] = useState(false);
+  const [apWtStarted, setApWtStarted] = useState(false);
+  const [apWtSkipTips, setApWtSkipTips] = useState(false);
+  const [apWtPendingProjectId, setApWtPendingProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!wtHydrated) {
+      setApWtProgressHydrated(false);
+      return;
+    }
+    if (!shouldShowFirstProject) {
+      setApWtProgressHydrated(true);
+      return;
+    }
+    (async () => {
+      const p = await loadActiveProjectWalkthroughProgress();
+      if (cancelled) return;
+      if (p) {
+        setApWtIntroResolved(Boolean(p.introResolved));
+        setApWtStarted(Boolean(p.started));
+        setApWtSkipTips(Boolean(p.skipTips));
+      }
+      setApWtProgressHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wtHydrated, shouldShowFirstProject]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const pending = await getPendingActiveProjectWalkthroughProjectId();
+        if (cancelled) return;
+        setApWtPendingProjectId(pending);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const hasActiveProjectForWalkthrough = useMemo(() => {
+    if (apWtPendingProjectId) return true;
+    return allProjects.some(
+      (p) =>
+        p.status === 'Active' ||
+        p.rawStatus === 'won' ||
+        p.rawStatus === 'in_progress' ||
+        p.rawStatus === 'in-progress' ||
+        p.rawStatus === 'active'
+    );
+  }, [allProjects, apWtPendingProjectId]);
+
+  const shouldShowActiveProjectWalkthrough =
+    wtHydrated &&
+    shouldShowFirstProject &&
+    apWtProgressHydrated &&
+    hasActiveProjectForWalkthrough;
+
+  const activeProjectWalkthroughIntroVisible =
+    shouldShowActiveProjectWalkthrough &&
+    activeTab === 'active' &&
+    (projects.length > 0 || Boolean(apWtPendingProjectId)) &&
+    !apWtIntroResolved &&
+    !apWtStarted &&
+    !apWtSkipTips;
+
+  const activeProjectWalkthroughScrollPadBottom =
+    activeProjectWalkthroughIntroVisible
+      ? Math.round(Dimensions.get('window').height * 0.24) + 28
+      : 0;
+
+  const handleActiveProjectWalkthroughIntroStart = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const chosenId =
+      apWtPendingProjectId ||
+      projects.find(
+        (p) =>
+          p.status === 'Active' ||
+          p.rawStatus === 'won' ||
+          p.rawStatus === 'in_progress' ||
+          p.rawStatus === 'in-progress' ||
+          p.rawStatus === 'active'
+      )?.id;
+    if (!chosenId) return;
+    await saveActiveProjectWalkthroughProgress({
+      introResolved: true,
+      started: true,
+      detailStepIndex: 0,
+      tourProjectId: String(chosenId),
+    });
+    await clearPendingActiveProjectWalkthroughProjectId();
+    setApWtPendingProjectId(null);
+    setApWtIntroResolved(true);
+    setApWtStarted(true);
+    router.push(`/project-detail/${chosenId}?apWt=1`);
+  }, [apWtPendingProjectId, projects, router]);
+
+  const handleActiveProjectWalkthroughIntroSkip = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setApWtIntroResolved(true);
+    setApWtSkipTips(true);
+    await clearPendingActiveProjectWalkthroughProjectId();
+    setApWtPendingProjectId(null);
+    if (clerkUser?.id) {
+      await markWalkthroughSkipped('firstProject');
+    }
+  }, [clerkUser?.id, markWalkthroughSkipped]);
+
+  useEffect(() => {
+    if (!activeProjectWalkthroughIntroVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleActiveProjectWalkthroughIntroSkip();
+      return true;
+    });
+    return () => sub.remove();
+  }, [activeProjectWalkthroughIntroVisible, handleActiveProjectWalkthroughIntroSkip]);
 
   const handleDeleteProject = async (project: any, e: any) => {
     // Stop event propagation so it doesn't trigger the card press
@@ -772,6 +1094,11 @@ export default function ProjectsScreen() {
     setSelectedProjectForWon(null);
 
     try {
+      const walkthroughDone = wtHydrated && !shouldShowFirstProject;
+      if (!walkthroughDone) {
+        await setPendingActiveProjectWalkthroughProjectId(projectId);
+        setApWtPendingProjectId(projectId);
+      }
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setActiveTab('active');
       try {
@@ -783,23 +1110,6 @@ export default function ProjectsScreen() {
 
       setSuccessProjectName(projectName);
       setShowSuccessBanner(true);
-      successBannerOpacity.setValue(0);
-      Animated.timing(successBannerOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-
-      const dismissAfter = 3000;
-      setTimeout(() => {
-        Animated.timing(successBannerOpacity, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }).start(({ finished }) => {
-          if (finished) setShowSuccessBanner(false);
-        });
-      }, dismissAfter);
     } catch (error) {
       console.error('Error marking project as won:', error);
       Alert.alert('Error', 'Failed to mark project as won');
@@ -810,7 +1120,12 @@ export default function ProjectsScreen() {
     <SafeAreaView style={styles.root}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          activeProjectWalkthroughScrollPadBottom > 0 && {
+            paddingBottom: getTabScrollContentBottomInset(insets.bottom) + activeProjectWalkthroughScrollPadBottom,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
@@ -887,7 +1202,8 @@ export default function ProjectsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ALL PROJECTS CARD */}
+        {/* ALL PROJECTS CARD — highlight ring while active-project walkthrough intro is showing */}
+        <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
         <View style={styles.wideContainer}>
           <LinearGradient
             colors={["#2DFFC4", "#00A6FF"]}
@@ -1134,31 +1450,90 @@ export default function ProjectsScreen() {
             </View>
           </LinearGradient>
         </View>
+        </FirstEstimateWalkthroughHighlight>
 
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* Submit Bid Confirmation Banner */}
-      {showSubmitBanner && (
-        <View style={styles.submitBanner}>
-          <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-          <Text style={styles.submitBannerText}>
-            ✅ Bid submitted{'\n'}
-            We'll keep this estimate ready to turn into a project.
-          </Text>
-        </View>
-      )}
-
-      {/* Success Banner - smooth fade in/out, auto-dismiss after 3 sec */}
-      {showSuccessBanner && (
-        <Animated.View style={[styles.successBanner, { opacity: successBannerOpacity }]}>
-          <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-          <Text style={styles.successBannerText}>
-            🏁 Project activated{'\n'}
-            {successProjectName} is now a live project.
-          </Text>
+      {/* Submit bid — floating glass toast (auto-dismiss + swipe up) */}
+      {showSubmitBanner ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.submitBannerWrap,
+            {
+              top: insets.top + 10,
+              opacity: submitBannerOpacity,
+              transform: [{ translateY: submitBannerTranslateY }],
+            },
+          ]}
+          {...submitBannerPanResponder.panHandlers}
+        >
+          <BlurView
+            intensity={darkMode ? 38 : 44}
+            tint={darkMode ? 'dark' : 'light'}
+            style={styles.submitBannerBlur}
+          >
+            <LinearGradient
+              colors={['rgba(34, 197, 94, 0.55)', 'rgba(45, 255, 196, 0.2)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.submitBannerTopAccent}
+            />
+            <View style={styles.submitBannerInner}>
+              <View style={styles.submitBannerIconWrap}>
+                <Ionicons name="checkmark-circle" size={17} color="#4ade80" />
+              </View>
+              <View style={styles.submitBannerTextCol}>
+                <Text style={styles.submitBannerTitle}>Bid submitted</Text>
+                <Text style={styles.submitBannerBody}>
+                  Ready to convert into a project.
+                </Text>
+              </View>
+            </View>
+          </BlurView>
         </Animated.View>
-      )}
+      ) : null}
+
+      {/* Project activated — same glass toast as bid submitted (auto-dismiss + swipe up) */}
+      {showSuccessBanner ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.submitBannerWrap,
+            {
+              top: insets.top + 10,
+              opacity: successBannerOpacity,
+              transform: [{ translateY: successBannerTranslateY }],
+            },
+          ]}
+          {...successBannerPanResponder.panHandlers}
+        >
+          <BlurView
+            intensity={darkMode ? 38 : 44}
+            tint={darkMode ? 'dark' : 'light'}
+            style={styles.submitBannerBlur}
+          >
+            <LinearGradient
+              colors={['rgba(34, 197, 94, 0.55)', 'rgba(45, 255, 196, 0.2)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.submitBannerTopAccent}
+            />
+            <View style={styles.submitBannerInner}>
+              <View style={styles.submitBannerIconWrap}>
+                <Ionicons name="checkmark-circle" size={17} color="#4ade80" />
+              </View>
+              <View style={styles.submitBannerTextCol}>
+                <Text style={styles.submitBannerTitle}>Project activated</Text>
+                <Text style={styles.submitBannerBody} numberOfLines={2}>
+                  {successProjectName} is now a live project.
+                </Text>
+              </View>
+            </View>
+          </BlurView>
+        </Animated.View>
+      ) : null}
 
       {/* Mark as Won Confirmation Modal (Bottom Sheet) */}
       <Modal
@@ -1207,6 +1582,28 @@ export default function ProjectsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {activeProjectWalkthroughIntroVisible ? (
+        <View
+          style={styles.activeProjectWalkthroughLayer}
+          pointerEvents="box-none"
+        >
+          <FirstEstimateWalkthroughSheetShell
+            darkMode={darkMode}
+            bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+          >
+            <FirstEstimateWalkthroughIntroSheetContent
+              darkMode={darkMode}
+              Colors={Colors}
+              title="Manage your active project"
+              body="Take a quick tour of Overview, Budget, Timeline, Calendar, and Team so you know where to track costs, payments, and crew."
+              startButtonLabel="Start walkthrough"
+              onStart={handleActiveProjectWalkthroughIntroStart}
+              onSkip={handleActiveProjectWalkthroughIntroSkip}
+            />
+          </FirstEstimateWalkthroughSheetShell>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1582,59 +1979,75 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontSize: 15,
     fontWeight: '700',
   },
-  submitBanner: {
+  /** Walkthrough layer above ScrollView; below toast banners (3000) so glass toasts stay crisp */
+  activeProjectWalkthroughLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2500,
+    elevation: 2500,
+  },
+  submitBannerWrap: {
     position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    backgroundColor: darkMode ? '#1e293b' : '#f1f5f9',
-    borderRadius: 12,
-    padding: 16,
+    left: 16,
+    right: 16,
+    /** Above FirstEstimateWalkthroughSheetShell (zIndex 2000) so dim/blur doesn’t flatten the glass toast */
+    zIndex: 3000,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: darkMode ? 0.35 : 0.12,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 3000,
+      },
+    }),
+  },
+  submitBannerBlur: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: darkMode ? 'rgba(74, 222, 128, 0.22)' : 'rgba(34, 197, 94, 0.18)',
+    backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.65)' : 'rgba(255, 255, 255, 0.78)',
+  },
+  submitBannerTopAccent: {
+    height: 2,
+    width: '100%',
+    opacity: 0.95,
+  },
+  submitBannerInner: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 11,
+    gap: 10,
+  },
+  submitBannerIconWrap: {
+    marginTop: 1,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.1)',
     alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    zIndex: 1000,
+    justifyContent: 'center',
   },
-  submitBannerText: {
+  submitBannerTextCol: {
     flex: 1,
-    color: darkMode ? Colors.text : Colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
+    minWidth: 0,
   },
-  successBanner: {
-    position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    backgroundColor: darkMode ? '#1e293b' : '#f1f5f9',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    zIndex: 1000,
+  submitBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    color: darkMode ? Colors.text : '#0f172a',
+    marginBottom: 2,
   },
-  successBannerText: {
-    flex: 1,
-    color: darkMode ? Colors.text : Colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 20,
+  submitBannerBody: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 17,
+    color: darkMode ? 'rgba(248, 250, 252, 0.78)' : 'rgba(51, 65, 85, 0.92)',
   },
   modalOverlay: {
     flex: 1,

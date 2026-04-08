@@ -22,7 +22,7 @@ import {
   Keyboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -44,6 +44,7 @@ import {
   FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
   FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
 } from '@/lib/firstEstimateWalkthroughStorage';
+import { resetActiveProjectWalkthroughStorage } from '@/lib/activeProjectWalkthroughStorage';
 // Conditionally import Clerk - only if configured
 let useClerkAuth: any = null;
 let useUser: any = null;
@@ -376,6 +377,41 @@ export default function ProfileScreen() {
     };
     loadProfile();
   }, []);
+
+  // Refresh from storage when returning to Profile (e.g. after onboarding writes role)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const saved = await AsyncStorage.getItem('bps.contractorProfile');
+          if (cancelled || !saved) return;
+          const profile = JSON.parse(saved);
+          setUser((prev) => ({
+            ...prev,
+            name: profile.name || prev.name,
+            company: profile.company || prev.company,
+            avatar: profile.avatar || prev.avatar,
+            phone: profile.phone || prev.phone,
+            email: profile.email || prev.email,
+            website: profile.website || prev.website,
+            role: profile.role || prev.role,
+            location: profile.location || prev.location,
+            insurance: profile.insurance || prev.insurance,
+            licenses: profile.licenses || prev.licenses,
+            companyBio:
+              profile.companyBio !== undefined ? profile.companyBio : prev.companyBio,
+            projectPortfolio: profile.projectPortfolio || prev.projectPortfolio || [],
+          }));
+        } catch (e) {
+          if (__DEV__) console.error('Profile focus: reload from storage failed', e);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
 
   // Load leads data
   React.useEffect(() => {
@@ -2069,6 +2105,7 @@ export default function ProfileScreen() {
                         await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
                         await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
                         await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
+                        await resetActiveProjectWalkthroughStorage();
                         
                         router.push('/onboarding');
                       } catch (error) {

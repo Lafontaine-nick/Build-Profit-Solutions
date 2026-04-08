@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Animated } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, Animated, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { MaterialIcons } from '@expo/vector-icons';
@@ -48,6 +48,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     mutedOpacity: darkMode ? 1 : 0.7,
     subtleOpacity: darkMode ? 1 : 0.6,
     faintOpacity: darkMode ? 1 : 0.5,
+    stepperBtnBg: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
   }), [darkMode, themeColors]);
   const styles = useMemo(() => getStyles(palette), [palette]);
 
@@ -484,7 +485,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   }, [adj]);
   
   // Preset definitions (include timeline: extended = more labor/overhead, early = less)
-  // Softened values so presets feel realistic, not catastrophic. Names match severity.
+  // Scenario stress-test templates — not industry benchmarks. Percentages unchanged by UX copy.
   const presets = {
     typical: { 
       name: 'Typical Friction',
@@ -495,7 +496,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       timelinePct: 0, // Minor inefficiencies, job stays on schedule
     },
     bad: { 
-      name: 'Rough Remodel',
+      name: 'High Friction Job',
       laborPct: 10, 
       materialPct: 6, 
       markupPct: 0, 
@@ -562,9 +563,9 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     
     // AI explanations for each scenario (include timeline impact)
     const aiExplanations = {
-      typical: "Most projects experience small inefficiencies — minor rework, material overages, and admin drag. These don't break the job, but they quietly reduce margin if not planned for.",
-      bad: "Rough remodels uncover hidden conditions and scope creep. Labor inefficiencies, rework, and extended timelines compound — still hurts, but the numbers reflect a tough job, not instant catastrophe.",
-      smooth: "Tight scope, experienced crews, and clean sequencing reduce waste and downtime. Finishing ahead of schedule cuts labor and overhead — rewards good execution without feeling unrealistic."
+      typical: "Many jobs pick up small inefficiencies — minor rework, material overages, and admin drag. This preset stress-tests that pattern: not a benchmark, just a common execution scenario.",
+      bad: "High-friction work often hits hidden conditions, scope creep, and delays. Labor inefficiencies, rework, and longer timelines compound — painful, but framed as a stress template, not a prediction.",
+      smooth: "Tight scope, experienced crews, and clean sequencing reduce waste and downtime. Finishing ahead of schedule cuts labor and overhead — a best-case scenario template for comparison."
     };
     
     return {
@@ -609,18 +610,28 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     }
   }, [sim.netProfit]);
 
-  // Adjustment quick buttons
-  const QuickAdjust = ({ label, field, delta }) => (
-    <TouchableOpacity
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setAdj((p) => ({ ...p, [field]: (p[field] ?? 0) + delta }));
-      }}
-      style={styles.chip}
-    >
-      <Text style={styles.chipText}>{label}</Text>
-    </TouchableOpacity>
-  );
+  const scenarioStepperRows = [
+    { label: 'Labor', field: 'laborPct', step: 5 },
+    { label: 'Materials', field: 'materialPct', step: 5 },
+    { label: 'Overhead', field: 'overheadPct', step: 5 },
+    { label: 'Timeline', field: 'timelinePct', step: 5 },
+    { label: 'Bid', field: 'markupPct', step: 2 },
+  ];
+
+  /** Stepper + summary row: cost/drag up = warm, down = green, 0 = muted; bid = contract price (not cost). */
+  const fineTuneValueColor = (field, raw) => {
+    const v = raw ?? 0;
+    const muted = 'rgba(148, 163, 184, 0.78)';
+    const costUp = 'rgba(245, 158, 11, 0.92)';
+    const costDown = '#34d399';
+    if (field === 'markupPct') {
+      if (v === 0) return muted;
+      return v > 0 ? palette.accent : 'rgba(251, 146, 60, 0.92)';
+    }
+    if (v === 0) return muted;
+    if (v > 0) return costUp;
+    return costDown;
+  };
 
   // Tab switching with haptic feedback
   const switchTab = (tabName) => {
@@ -638,7 +649,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.cardHeader}>
               <Text style={[styles.cardTitle, { color: darkMode ? palette.text : '#000000' }]}>
-                🎯 Project Outcome Scenarios
+                🎯 Outcome scenario presets
               </Text>
               {hasChanges && (
                 <TouchableOpacity onPress={resetScenario} style={styles.resetBtn}>
@@ -647,12 +658,12 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               )}
             </View>
             <Text style={[styles.cardSubtitle, { color: darkMode ? palette.textDim : '#475569' }]}>
-              Adjust variables to see impacts on total bid, net profit, and margin on revenue.
+              Use these presets to see how common execution scenarios may affect profit and margin. They are stress-test templates, not industry benchmarks — fine-tune below for a custom view.
             </Text>
 
             {/* Preset Scenarios */}
             <Text style={[styles.sectionLabel, { marginBottom: 8, fontSize: 12, textAlign: 'center', color: '#38d39f' }]}>
-              Click to see potential impacts on profit
+              Scenario presets
             </Text>
             <View style={styles.presetRow}>
               <TouchableOpacity
@@ -688,7 +699,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                   styles.presetChipText,
                   getActivePreset === 'bad' && styles.presetChipTextActiveBad
                 ]}>
-                  Rough Remodel
+                  High Friction Job
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -720,7 +731,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     backgroundColor: 'rgba(234, 179, 8, 0.12)',
                     borderColor: 'rgba(234, 179, 8, 0.25)',
                   },
-                  getPresetDetails.name === 'Rough Remodel' && {
+                  getPresetDetails.name === 'High Friction Job' && {
                     backgroundColor: 'rgba(249, 115, 22, 0.12)',
                     borderColor: 'rgba(249, 115, 22, 0.25)',
                   }
@@ -731,7 +742,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </View>
                 {getPresetDetails.name === 'Typical Friction' && (
                   <Text style={styles.presetDefaultNote}>
-                    Typical Friction selected — reflects most real-world jobs
+                    Typical Friction is the default preset — moderate execution drag for stress-testing (not a universal benchmark).
                   </Text>
                 )}
                 {/* AI Explanation */}
@@ -747,67 +758,101 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </View>
             )}
 
-            {/* Cost Risk Section */}
-            <Text style={styles.sectionLabel}>Cost Risk</Text>
-            <View style={styles.chipRow}>
-              <QuickAdjust label="↑ Labor +10%" field="laborPct" delta={10} />
-              <QuickAdjust label="↓ Labor -10%" field="laborPct" delta={-10} />
-              <QuickAdjust label="↑ Materials +5%" field="materialPct" delta={5} />
-              <QuickAdjust label="↓ Materials -5%" field="materialPct" delta={-5} />
-            </View>
-
-            {/* Business Drag Section */}
-            <Text style={styles.sectionLabel}>Business Drag</Text>
-            <View style={styles.chipRow}>
-              <QuickAdjust label="↑ Overhead +10%" field="overheadPct" delta={10} />
-              <QuickAdjust label="↓ Overhead -10%" field="overheadPct" delta={-10} />
-            </View>
-
-            {/* Timeline Section */}
-            <Text style={styles.sectionLabel}>Timeline</Text>
-            <Text style={[styles.sectionLabel, { fontSize: 11, marginTop: 0, marginBottom: 4, fontWeight: '400', opacity: 0.8 }]}>
-              Job runs longer or finishes early
-            </Text>
-            <View style={styles.chipRow}>
-              <QuickAdjust label="↑ +20% longer" field="timelinePct" delta={20} />
-              <QuickAdjust label="↓ -20% early" field="timelinePct" delta={-20} />
-            </View>
-
-            {/* Pricing Strategy Section */}
-            <Text style={styles.sectionLabel}>Bid Adjustment</Text>
-            <Text style={[styles.sectionLabel, { fontSize: 11, marginTop: 0, marginBottom: 4, opacity: palette.mutedOpacity, fontWeight: '400' }]}>
-              What if you had charged more/less?
+            <Text style={styles.fineTuneSectionTitle}>Fine-Tune Scenario</Text>
+            <Text style={styles.fineTuneHint}>
+              Use the controls below to fine-tune the scenario. Most changes move in 5% steps; bid moves in 2% steps.
             </Text>
             {isMarkupManuallyAdjusted && (
-              <View style={{ backgroundColor: 'rgba(56, 211, 159, 0.1)', padding: 8, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(56, 211, 159, 0.3)' }}>
-                <Text style={{ color: palette.accent, fontSize: 11, fontWeight: '700' }}>
-                  ⚡ Bid Adjustment Active: Bid will recalculate
+              <View style={styles.bidActiveBanner}>
+                <Text style={styles.bidActiveBannerText}>
+                  Bid fine-tune active — total price recalculates
                 </Text>
               </View>
             )}
-            <View style={styles.chipRow}>
-              <QuickAdjust label="+2% Bid" field="markupPct" delta={2} />
-              <QuickAdjust label="-2% Bid" field="markupPct" delta={-2} />
+            <View style={styles.fineTuneCard}>
+              {scenarioStepperRows.map((row, i) => {
+                const v = adj[row.field] ?? 0;
+                const display = `${v > 0 ? '+' : ''}${v}%`;
+                const isLast = i === scenarioStepperRows.length - 1;
+                const valueColor = fineTuneValueColor(row.field, v);
+                return (
+                  <View
+                    key={row.field}
+                    style={[styles.stepperRow, isLast && styles.stepperRowLast]}
+                  >
+                    <View style={styles.stepperLabelCol}>
+                      <Text style={styles.stepperLabel}>{row.label}</Text>
+                      {row.field === 'timelinePct' ? (
+                        <Text style={styles.stepperLabelHint}>Longer + · earlier −</Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.stepperControl}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setAdj((p) => ({
+                            ...p,
+                            [row.field]: (p[row.field] ?? 0) - row.step,
+                          }));
+                        }}
+                        style={styles.stepperBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Decrease ${row.label}`}
+                        hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
+                      >
+                        <Text style={styles.stepperBtnText}>−</Text>
+                      </TouchableOpacity>
+                      <Text
+                        style={[
+                          styles.stepperValue,
+                          {
+                            color: valueColor,
+                            ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
+                          },
+                        ]}
+                      >
+                        {display}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setAdj((p) => ({
+                            ...p,
+                            [row.field]: (p[row.field] ?? 0) + row.step,
+                          }));
+                        }}
+                        style={styles.stepperBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Increase ${row.label}`}
+                        hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
+                      >
+                        <Text style={styles.stepperBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
 
             {/* Adjustment summary strip — same deltas, tightened spacing */}
             <View style={styles.deltaRow}>
               {[
-                { label: "Labor", value: adj.laborPct, color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.laborPct < 0 ? palette.green : palette.textDim },
-                { label: "Materials", value: adj.materialPct, color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.materialPct < 0 ? palette.green : palette.textDim },
-                { label: "Overhead", value: adj.overheadPct, color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : adj.overheadPct < 0 ? palette.green : palette.textDim },
-                { label: "Timeline", value: adj.timelinePct ?? 0, color: (adj.timelinePct ?? 0) > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : (adj.timelinePct ?? 0) < 0 ? palette.green : palette.textDim },
-                { label: "Bid", value: adj.markupPct, color: adj.markupPct > 0 ? palette.accent : adj.markupPct < 0 ? palette.red : palette.textDim },
+                { label: 'Labor', field: 'laborPct', value: adj.laborPct },
+                { label: 'Materials', field: 'materialPct', value: adj.materialPct },
+                { label: 'Overhead', field: 'overheadPct', value: adj.overheadPct },
+                { label: 'Timeline', field: 'timelinePct', value: adj.timelinePct ?? 0 },
+                { label: 'Bid', field: 'markupPct', value: adj.markupPct },
               ].map((item) => (
                 <View key={item.label} style={styles.deltaItem}>
                   <Text style={styles.deltaLabel}>{item.label}</Text>
-                  <Text style={[styles.deltaValue, { color: item.color }]}>
+                  <Text style={[styles.deltaValue, { color: fineTuneValueColor(item.field, item.value) }]}>
                     {item.value > 0 ? '+' : ''}{item.value}%
                   </Text>
                 </View>
               ))}
             </View>
 
+            <View style={styles.scenarioResultsDivider} />
             <Text style={styles.heroSectionEyebrow}>Scenario results</Text>
 
             {/* A) Key outcomes — same values as before, clearer hierarchy */}
@@ -1148,7 +1193,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                       Based on the current market analysis, your area shows {aiData.marketData.analysis.competitivenessScore} competition levels with a {aiData.marketData.analysis.marketTrend} trend.
                     </Text>
                     <Text style={styles.detailText}>
-                      The regional multiplier of {aiData.marketData.analysis.regionalMultiplier}x indicates how your local rates compare to national averages.
+                      The regional multiplier of {aiData.marketData.analysis.regionalMultiplier}x indicates how your local rates compare to national reference data.
                     </Text>
                   </View>
                 </View>
@@ -1454,6 +1499,102 @@ const getStyles = (palette) => StyleSheet.create({
     fontSize: 13,
   },
 
+  fineTuneSectionTitle: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  fineTuneHint: {
+    color: palette.textDim,
+    fontSize: 11,
+    lineHeight: 14,
+    marginBottom: 8,
+    opacity: palette.subtleOpacity,
+  },
+  bidActiveBanner: {
+    backgroundColor: 'rgba(56, 211, 159, 0.1)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 211, 159, 0.28)',
+  },
+  bidActiveBannerText: {
+    color: palette.accent,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  fineTuneCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.divider,
+    backgroundColor: palette.chip,
+    overflow: 'hidden',
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.divider,
+  },
+  stepperRowLast: {
+    borderBottomWidth: 0,
+  },
+  stepperLabelCol: {
+    flex: 1,
+    paddingRight: 8,
+    justifyContent: 'center',
+  },
+  stepperLabel: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  stepperLabelHint: {
+    color: palette.textDim,
+    fontSize: 10,
+    lineHeight: 13,
+    marginTop: 2,
+    opacity: palette.faintOpacity,
+  },
+  stepperControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepperBtn: {
+    width: 30,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: palette.stepperBtnBg,
+    borderWidth: 1,
+    borderColor: palette.divider,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperBtnText: {
+    color: palette.textDim,
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.85,
+    marginTop: -1,
+  },
+  stepperValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    minWidth: 56,
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+
   chartRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -1491,9 +1632,16 @@ const getStyles = (palette) => StyleSheet.create({
   deltaRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 16,
-    marginBottom: 20,
-    paddingVertical: 12,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingVertical: 10,
+  },
+  scenarioResultsDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.divider,
+    marginTop: 10,
+    marginBottom: 14,
+    opacity: 0.9,
   },
   deltaItem: {
     alignItems: 'center',
@@ -1516,6 +1664,7 @@ const getStyles = (palette) => StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+    marginTop: 2,
     marginBottom: 10,
   },
   heroOutcomes: {

@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import PricingModeSection, { PricingMode, sanitizeOneDecimalField } from "./PricingModeSection";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
@@ -31,6 +31,9 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
   const [vendor, setVendor] = useState("");
   const [category, setCategory] = useState("Materials");
   const [amount, setAmount] = useState("");
+  const [pricingMode, setPricingMode] = useState<PricingMode>("flat");
+  const [sqftInput, setSqftInput] = useState("");
+  const [ratePerSqftInput, setRatePerSqftInput] = useState("");
   const [scope, setScope] = useState("");
   const [description, setDescription] = useState("");
   const [orderDate, setOrderDate] = useState(new Date());
@@ -41,6 +44,8 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
   const poRef = useRef<TextInput>(null);
   const vendorRef = useRef<TextInput>(null);
   const amountRef = useRef<TextInput>(null);
+  const sqftRef = useRef<TextInput>(null);
+  const ratePerSqftRef = useRef<TextInput>(null);
   const descriptionRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -49,16 +54,50 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
       // Auto-generate PO number
       const poNum = `PO-${String(Date.now()).slice(-6)}`;
       setPONumber(poNum);
+      setPricingMode("flat");
+      setSqftInput("");
+      setRatePerSqftInput("");
       setTimeout(() => vendorRef.current?.focus(), 100);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (pricingMode !== "sqft") return;
+    const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+    const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+    if (sq > 0 && rate > 0) {
+      setAmount((sq * rate).toFixed(2));
+    } else {
+      setAmount("");
+    }
+  }, [pricingMode, sqftInput, ratePerSqftInput]);
+
+  const onSqftChange = useCallback((text: string) => {
+    setSqftInput(sanitizeOneDecimalField(text));
+  }, []);
+
+  const onRatePerSqftChange = useCallback((text: string) => {
+    setRatePerSqftInput(sanitizeOneDecimalField(text));
+  }, []);
 
   const handleSave = () => {
     if (!vendor.trim()) {
       Alert.alert("Required", "Please enter a vendor name");
       return;
     }
-    
+
+    if (pricingMode === "sqft") {
+      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      if (sq <= 0 || rate <= 0) {
+        Alert.alert(
+          "Square feet & rate required",
+          "Enter square feet and rate ($/sq ft) to calculate the total, or switch to Flat amount."
+        );
+        return;
+      }
+    }
+
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount");
@@ -81,6 +120,9 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
     setVendor("");
     setCategory("Materials");
     setAmount("");
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
     setScope("");
     setDescription("");
     setOrderDate(new Date());
@@ -92,6 +134,12 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
     setVendor("");
     setCategory("Materials");
     setAmount("");
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
     setScope("");
     setDescription("");
     setOrderDate(new Date());
@@ -202,7 +250,13 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   onChangeText={setVendor}
                   autoCapitalize="words"
                   returnKeyType="next"
-                  onSubmitEditing={() => amountRef.current?.focus()}
+                  onSubmitEditing={() => {
+                    if (pricingMode === "sqft") {
+                      sqftRef.current?.focus();
+                    } else {
+                      amountRef.current?.focus();
+                    }
+                  }}
                   blurOnSubmit={false}
                 />
               </View>
@@ -233,37 +287,32 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Amount *</Text>
-              <View style={styles.inputWrapper}>
-                <Feather
-                  name="dollar-sign"
-                  size={16}
-                  color="#22c55e"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  ref={amountRef}
-                  style={styles.input}
-                  placeholder="$ 0.00"
-                  placeholderTextColor={placeholderTint}
-                  value={amount}
-                  onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    const parts = cleaned.split('.');
-                    if (parts.length > 2) {
-                      setAmount(parts[0] + '.' + parts.slice(1).join(''));
-                    } else {
-                      setAmount(cleaned);
-                    }
-                  }}
-                  keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                />
-              </View>
-              {amount && !isNaN(parseFloat(amount)) && (
-                <Text style={styles.hint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
-              )}
+              <PricingModeSection
+                pricingMode={pricingMode}
+                onPricingModeChange={(mode) => {
+                  setPricingMode(mode);
+                  if (mode === "sqft") {
+                    setSqftInput("");
+                    setRatePerSqftInput("");
+                    setAmount("");
+                  }
+                }}
+                sqftInput={sqftInput}
+                ratePerSqftInput={ratePerSqftInput}
+                onSqftInputChange={onSqftChange}
+                onRatePerSqftInputChange={onRatePerSqftChange}
+                amount={amount}
+                onAmountChange={setAmount}
+                sqftRef={sqftRef}
+                ratePerSqftRef={ratePerSqftRef}
+                amountRef={amountRef}
+                onFlatAmountSubmitEditing={() => Keyboard.dismiss()}
+                onSqftSubmitEditing={() => ratePerSqftRef.current?.focus()}
+                onRateSubmitEditing={() => {
+                  Keyboard.dismiss();
+                  descriptionRef.current?.focus();
+                }}
+              />
             </View>
 
             <View style={styles.fieldGroup}>

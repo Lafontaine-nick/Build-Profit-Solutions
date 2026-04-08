@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView } from "react-native";
 import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
@@ -10,6 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { useProjectData } from "@/contexts/ProjectDataContext";
+import { classifyExpensePriceReasonableness } from "@/utils/expensePriceReasonableness";
 
 type Props = {
   visible: boolean;
@@ -35,6 +37,12 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const { projectData } = useProjectData();
+
+  const referenceBudgetUsd = useMemo(() => {
+    const b = Number(projectData?.budgeted);
+    return Number.isFinite(b) && b > 0 ? b : 0;
+  }, [projectData?.budgeted]);
   
   const [vendor, setVendor] = useState("");
   const [amount, setAmount] = useState("");
@@ -49,13 +57,31 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const [expectedDelivery, setExpectedDelivery] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
   const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
 
+  /** Same idea as estimate-generator materials/labor: flat total vs sq ft × $/sq ft */
+  const [pricingMode, setPricingMode] = useState<"flat" | "sqft">("flat");
+  const [sqftInput, setSqftInput] = useState("");
+  const [ratePerSqftInput, setRatePerSqftInput] = useState("");
+
   // Input refs for keyboard navigation
   const vendorRef = useRef<TextInput>(null);
   const amountRef = useRef<TextInput>(null);
+  const sqftRef = useRef<TextInput>(null);
+  const ratePerSqftRef = useRef<TextInput>(null);
   const descriptionRef = useRef<TextInput>(null);
   const poRef = useRef<TextInput>(null);
 
   const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
+
+  const supportsPerSqftPricing = useMemo(() => {
+    const c = categoryName.toLowerCase();
+    return (
+      c.includes("material") ||
+      c.includes("equipment") ||
+      c.includes("labor") ||
+      c.includes("purchase order") ||
+      c.includes("change order")
+    );
+  }, [categoryName]);
 
   useEffect(() => {
     if (visible) {
@@ -66,25 +92,35 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       setScope('');
       setPriceReasonableness(null);
       setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+      setPricingMode("flat");
+      setSqftInput("");
+      setRatePerSqftInput("");
     }
   }, [visible]);
 
-  // Check price reasonableness when amount changes
+  // Per-sq-ft: keep Amount in sync (total = sq ft × $/sq ft), like Estimates
+  useEffect(() => {
+    if (!supportsPerSqftPricing || pricingMode !== "sqft") return;
+    const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+    const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+    if (sq > 0 && rate > 0) {
+      setAmount((sq * rate).toFixed(2));
+    } else {
+      setAmount("");
+    }
+  }, [supportsPerSqftPricing, pricingMode, sqftInput, ratePerSqftInput]);
+
+  // High / outlier vs total project budget (not fixed dollar cutoffs on large bids)
   useEffect(() => {
     if (amount && !isNaN(parseFloat(amount))) {
       const amountNum = parseFloat(amount);
-      // Simple heuristic: >$5000 is high, >$10000 is outlier (can be enhanced with AI)
-      if (amountNum > 10000) {
-        setPriceReasonableness('outlier');
-      } else if (amountNum > 5000) {
-        setPriceReasonableness('high');
-      } else {
-        setPriceReasonableness('normal');
-      }
+      setPriceReasonableness(
+        classifyExpensePriceReasonableness(amountNum, referenceBudgetUsd)
+      );
     } else {
       setPriceReasonableness(null);
     }
-  }, [amount]);
+  }, [amount, referenceBudgetUsd]);
 
   // Request camera permissions
   const requestCameraPermissions = async () => {
@@ -264,18 +300,40 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       Alert.alert("Required", `Please enter a ${fieldName}`);
       return;
     }
-    
+
+    if (supportsPerSqftPricing && pricingMode === "sqft") {
+      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      if (sq <= 0 || rate <= 0) {
+        Alert.alert(
+          "Square feet & rate required",
+          "Enter square feet and rate ($/sq ft) to calculate the total, or switch to Flat amount."
+        );
+        return;
+      }
+    }
+
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount");
       return;
     }
 
+    let descriptionOut = description.trim();
+    if (supportsPerSqftPricing && pricingMode === "sqft") {
+      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      if (sq > 0 && rate > 0) {
+        const line = `📐 ${sq.toLocaleString()} sq ft × $${rate.toFixed(2)}/sq ft`;
+        descriptionOut = descriptionOut ? `${descriptionOut}\n${line}` : line;
+      }
+    }
+
     onSave({
       id: `txn-${Date.now()}`,
       vendor: vendor.trim(),
       amount: amountNum,
-      description: description.trim(),
+      description: descriptionOut,
       po: po.trim() || undefined,
       date: new Date().toISOString(),
       receiptUri: receiptUri || undefined,
@@ -299,6 +357,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     setScope('');
     setPriceReasonableness(null);
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
   };
 
   const handleCancel = () => {
@@ -312,8 +373,31 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     setScope('');
     setPriceReasonableness(null);
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
     onClose();
   };
+
+  const onSqftChange = useCallback((text: string) => {
+    const cleaned = text.replace(/[^0-9.]/g, "");
+    const parts = cleaned.split(".");
+    if (parts.length > 2) {
+      setSqftInput(parts[0] + "." + parts.slice(1).join(""));
+    } else {
+      setSqftInput(cleaned);
+    }
+  }, []);
+
+  const onRatePerSqftChange = useCallback((text: string) => {
+    const cleaned = text.replace(/[^0-9.]/g, "");
+    const parts = cleaned.split(".");
+    if (parts.length > 2) {
+      setRatePerSqftInput(parts[0] + "." + parts.slice(1).join(""));
+    } else {
+      setRatePerSqftInput(cleaned);
+    }
+  }, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -401,14 +485,87 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 onChangeText={setVendor}
                 autoCapitalize="words"
                 returnKeyType="next"
-                onSubmitEditing={() => amountRef.current?.focus()}
+                onSubmitEditing={() => {
+                  if (supportsPerSqftPricing && pricingMode === "sqft") {
+                    sqftRef.current?.focus();
+                  } else {
+                    amountRef.current?.focus();
+                  }
+                }}
                 blurOnSubmit={false}
               />
             </View>
 
+            {supportsPerSqftPricing && (
+              <View style={styles.field}>
+                <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setPricingMode("flat");
+                    }}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: pricingMode === "flat" ? "#22c55e" : Colors.line,
+                      backgroundColor: pricingMode === "flat" ? "#22c55e" : Colors.surface2,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: pricingMode === "flat" ? "#000000" : Colors.text,
+                        fontWeight: "600",
+                        fontSize: 14,
+                      }}
+                    >
+                      💵 Flat amount
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setPricingMode("sqft");
+                      setSqftInput("");
+                      setRatePerSqftInput("");
+                      setAmount("");
+                    }}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: pricingMode === "sqft" ? "#22c55e" : Colors.line,
+                      backgroundColor: pricingMode === "sqft" ? "#22c55e" : Colors.surface2,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: pricingMode === "sqft" ? "#000000" : Colors.text,
+                        fontWeight: "600",
+                        fontSize: 14,
+                      }}
+                    >
+                      📐 Per sq ft
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <View style={styles.field}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={[styles.label, { color: Colors.text }]}>Amount *</Text>
+                <Text style={[styles.label, { color: Colors.text }]}>
+                  {supportsPerSqftPricing && pricingMode === "sqft" ? "Total (calculated) *" : "Amount *"}
+                </Text>
                 {priceReasonableness && (
                   <View style={{
                     paddingHorizontal: 8,
@@ -440,48 +597,176 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                   </View>
                 )}
               </View>
-              <View style={[
-                styles.amountInputContainer,
-                {
-                  backgroundColor: Colors.surface2,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                  borderRadius: 12,
-                }
-              ]}>
-                <Text style={styles.dollarSign}>$</Text>
-                <TextInput
-                  ref={amountRef}
-                  style={[
-                    styles.input,
-                    styles.amountInput,
-                    {
-                      backgroundColor: 'transparent',
-                      borderWidth: 0,
-                      color: Colors.text,
-                    }
-                  ]}
-                  placeholder="0.00"
-                  placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                  value={amount}
-                  onChangeText={(text) => {
-                    // Allow only numbers and one decimal point
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    const parts = cleaned.split('.');
-                    if (parts.length > 2) {
-                      setAmount(parts[0] + '.' + parts.slice(1).join(''));
-                    } else {
-                      setAmount(cleaned);
-                    }
-                  }}
-                  keyboardType="numeric"
-                  returnKeyType="next"
-                  onSubmitEditing={() => descriptionRef.current?.focus()}
-                  blurOnSubmit={false}
-                />
-              </View>
 
-              {amount && !isNaN(parseFloat(amount)) && (
+              {supportsPerSqftPricing && pricingMode === "sqft" ? (
+                <>
+                  <View style={{ flexDirection: "row", gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>
+                        Square feet *
+                      </Text>
+                      <View
+                        style={[
+                          styles.amountInputContainer,
+                          {
+                            backgroundColor: Colors.surface2,
+                            borderColor: Colors.line,
+                            borderWidth: 1,
+                            borderRadius: 12,
+                          },
+                        ]}
+                      >
+                        <Feather
+                          name="maximize-2"
+                          size={16}
+                          color="#8DA0B8"
+                          style={{ marginLeft: 12, marginRight: 8 }}
+                        />
+                        <TextInput
+                          ref={sqftRef}
+                          style={[
+                            styles.input,
+                            styles.amountInput,
+                            {
+                              backgroundColor: "transparent",
+                              borderWidth: 0,
+                              color: Colors.text,
+                            },
+                          ]}
+                          placeholder="0"
+                          placeholderTextColor={
+                            darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
+                          }
+                          value={sqftInput}
+                          onChangeText={onSqftChange}
+                          keyboardType="numeric"
+                          returnKeyType="next"
+                          onSubmitEditing={() => ratePerSqftRef.current?.focus()}
+                          blurOnSubmit={false}
+                        />
+                      </View>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.label, { color: Colors.text, marginBottom: 8 }]}>
+                        Rate ($/sq ft) *
+                      </Text>
+                      <View
+                        style={[
+                          styles.amountInputContainer,
+                          {
+                            backgroundColor: Colors.surface2,
+                            borderColor: Colors.line,
+                            borderWidth: 1,
+                            borderRadius: 12,
+                          },
+                        ]}
+                      >
+                        <Text style={styles.dollarSign}>$</Text>
+                        <TextInput
+                          ref={ratePerSqftRef}
+                          style={[
+                            styles.input,
+                            styles.amountInput,
+                            {
+                              backgroundColor: "transparent",
+                              borderWidth: 0,
+                              color: Colors.text,
+                            },
+                          ]}
+                          placeholder="0.00"
+                          placeholderTextColor={
+                            darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
+                          }
+                          value={ratePerSqftInput}
+                          onChangeText={onRatePerSqftChange}
+                          keyboardType="numeric"
+                          returnKeyType="next"
+                          onSubmitEditing={() => descriptionRef.current?.focus()}
+                          blurOnSubmit={false}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                  <View
+                    style={{
+                      marginTop: 12,
+                      backgroundColor: "rgba(45, 255, 196, 0.1)",
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(45, 255, 196, 0.3)",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#2DFFC4",
+                        fontSize: 18,
+                        fontWeight: "700",
+                        textAlign: "center",
+                      }}
+                    >
+                      Total:{" "}
+                      {(() => {
+                        const sq =
+                          parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
+                        const rate =
+                          parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) ||
+                          0;
+                        const t = sq * rate;
+                        return formatMoneyFull(t, { decimals: 2 });
+                      })()}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View
+                  style={[
+                    styles.amountInputContainer,
+                    {
+                      backgroundColor: Colors.surface2,
+                      borderColor: Colors.line,
+                      borderWidth: 1,
+                      borderRadius: 12,
+                    },
+                  ]}
+                >
+                  <Text style={styles.dollarSign}>$</Text>
+                  <TextInput
+                    ref={amountRef}
+                    style={[
+                      styles.input,
+                      styles.amountInput,
+                      {
+                        backgroundColor: "transparent",
+                        borderWidth: 0,
+                        color: Colors.text,
+                      },
+                    ]}
+                    placeholder="0.00"
+                    placeholderTextColor={
+                      darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
+                    }
+                    value={amount}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/[^0-9.]/g, "");
+                      const parts = cleaned.split(".");
+                      if (parts.length > 2) {
+                        setAmount(parts[0] + "." + parts.slice(1).join(""));
+                      } else {
+                        setAmount(cleaned);
+                      }
+                    }}
+                    keyboardType="numeric"
+                    returnKeyType="next"
+                    onSubmitEditing={() => descriptionRef.current?.focus()}
+                    blurOnSubmit={false}
+                  />
+                </View>
+              )}
+
+              {amount &&
+                !isNaN(parseFloat(amount)) &&
+                (!supportsPerSqftPricing || pricingMode !== "sqft") && (
                 <Text style={styles.hint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
               )}
             </View>

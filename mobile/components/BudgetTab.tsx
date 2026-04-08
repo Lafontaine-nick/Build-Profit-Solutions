@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   View,
@@ -11,11 +11,10 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
-  Animated,
   InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -27,10 +26,17 @@ import { useProjectList } from '../contexts/ProjectListContext';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
 import { computeProfitForecast, type ProfitForecastOutput } from '../src/lib/profitForecast';
+import {
+  computeProjectFinancials,
+  sumPlannedCostFromBuckets,
+  computeSpendingTrendCostStatus,
+} from '../src/lib/projectFinancials';
+import SpendingTrendChart from './SpendingTrendChart';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
 import EditPurchaseOrderModal from './EditPurchaseOrderModal';
+import PricingModeSection, { PricingMode, sanitizeOneDecimalField } from './PricingModeSection';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -209,6 +215,52 @@ export default function BudgetTab({
   const [newExpense, setNewExpense] = useState({ vendor: '', amount: '', category: '', notes: '' });
   const [newChangeOrder, setNewChangeOrder] = useState({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
+  const [changeOrderPricingMode, setChangeOrderPricingMode] = useState<PricingMode>('flat');
+  const [changeOrderSqftInput, setChangeOrderSqftInput] = useState('');
+  const [changeOrderRateInput, setChangeOrderRateInput] = useState('');
+  const changeOrderSqftRef = useRef<TextInput>(null);
+  const changeOrderRateRef = useRef<TextInput>(null);
+  const changeOrderAmountRef = useRef<TextInput>(null);
+  const changeOrderIsEditingRef = useRef(false);
+
+  const onChangeOrderSqftChange = useCallback((text: string) => {
+    setChangeOrderSqftInput(sanitizeOneDecimalField(text));
+  }, []);
+
+  const onChangeOrderRateChange = useCallback((text: string) => {
+    setChangeOrderRateInput(sanitizeOneDecimalField(text));
+  }, []);
+
+  useEffect(() => {
+    if (!showChangeOrderModal) return;
+    setChangeOrderPricingMode('flat');
+    setChangeOrderSqftInput('');
+    setChangeOrderRateInput('');
+  }, [showChangeOrderModal]);
+
+  useEffect(() => {
+    if (!showChangeOrderModal) return;
+    changeOrderIsEditingRef.current = editingChangeOrder != null;
+  }, [showChangeOrderModal, editingChangeOrder]);
+
+  useEffect(() => {
+    if (!showChangeOrderModal || changeOrderPricingMode !== 'sqft') return;
+    const sq = parseFloat(changeOrderSqftInput.replace(/[^0-9.]/g, '')) || 0;
+    const rate = parseFloat(changeOrderRateInput.replace(/[^0-9.]/g, '')) || 0;
+    const total = sq > 0 && rate > 0 ? (sq * rate).toFixed(2) : '';
+    if (changeOrderIsEditingRef.current) {
+      setEditingChangeOrder((prev: any) =>
+        prev ? { ...prev, amount: total, materialsAmount: '', laborAmount: '' } : null
+      );
+    } else {
+      setNewChangeOrder((prev) => ({
+        ...prev,
+        amount: total,
+        materialsAmount: '',
+        laborAmount: '',
+      }));
+    }
+  }, [showChangeOrderModal, changeOrderPricingMode, changeOrderSqftInput, changeOrderRateInput]);
 
   const router = useRouter();
   const { projectData: contextProjectData, addExpense, deleteExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO, reloadFromStorage } = useProjectData();
@@ -323,43 +375,28 @@ export default function BudgetTab({
     return total;
   }, [projectData?.buckets]);
 
-  // Calculate base budget (ORIGINAL contract amount, WITHOUT change orders)
-  // CRITICAL: Must use estimate's grandTotal (what user saw in estimate), NOT projectData.budgeted (may include COs)
-  // Priority order matches Projects page logic to ensure consistency
-  const baseBudget = useMemo(() => {
-    // Priority order for finding the original contract amount:
-    // 1. estimateData.grandTotal (PRIMARY - this is what shows in estimate, e.g. $7,200)
-    // 2. estimateData.bidPrice (secondary estimate field)
-    // 3. estimateData.total (tertiary estimate field)
-    // 4. bidPrice (project-level, should match estimate)
-    // 5. projectData.bidPrice (projectData level)
-    // 6. estimatedCost (fallback)
-    // 7. plannedFromBuckets (sum of bucket budgets - original estimate breakdown)
-    // DO NOT use data.plannedBudget or projectData.budgeted as they may already include approved change orders
-    
-    const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
-    const budgetCandidates = [
-      ed?.grandTotal,
-      ed?.bidPrice,
-      ed?.total,
-      ed?.calculatedTotal,
-      (projectFromList as any)?.bidPrice,
-      (projectData as any)?.bidPrice,
-      data?.plannedBudget,
-      (projectFromList as any)?.estimatedCost,
-      (projectData as any)?.estimatedCost,
-    ];
-    const explicitBudget = firstPositiveNumber(...budgetCandidates);
-    if (explicitBudget !== null) {
-      // Reduced logging
-      return explicitBudget;
-    }
-    return plannedFromBuckets;
-  }, [data?.plannedBudget, projectData, projectFromList, plannedFromBuckets]);
+  const mergedProjectForFinancials = useMemo(
+    () => ({
+      ...(projectFromList as any),
+      ...(projectData as any),
+      estimateData:
+        (projectFromList as any)?.estimateData || (projectData as any)?.estimateData,
+      changeOrders: projectData?.changeOrders,
+      buckets: projectData?.buckets,
+    }),
+    [projectData, projectFromList]
+  );
 
-  // Use baseBudget for planned (without change orders)
-  // This ensures we don't double-count when adding coApproved
-  const planned = baseBudget;
+  const financials = useMemo(
+    () =>
+      computeProjectFinancials(mergedProjectForFinancials, {
+        plannedFromBuckets,
+        contractValueOverride: data?.plannedBudget,
+        plannedCostBucketSum: sumPlannedCostFromBuckets(projectData?.buckets),
+      }),
+    [mergedProjectForFinancials, plannedFromBuckets, data?.plannedBudget, projectData?.buckets]
+  );
+
   const normalizedChangeOrders: ChangeOrder[] = useMemo(() => {
     const rawChangeOrders = projectData?.changeOrders || [];
     
@@ -394,21 +431,6 @@ export default function BudgetTab({
     
     return normalized;
   }, [projectData?.changeOrders]);
-
-  const coApproved = useMemo(
-    () => {
-      const approved = normalizedChangeOrders
-        .filter(c => {
-          // Check both approved boolean and status string
-          return c.approved === true || c.status === 'Approved';
-        })
-        .reduce((s, c) => s + safe(c.amount), 0);
-      
-      return approved;
-    },
-    [normalizedChangeOrders]
-  );
-  const adjustedBudget = planned + coApproved;
 
   // Calculate Purchase Orders total - includes ONLY PENDING POs (not paid for yet)
   // Logic:
@@ -516,111 +538,11 @@ export default function BudgetTab({
     return expensesTotal + receivedPOsTotal;
   }, [projectData?.expenses, receivedPOsTotal]);
   const committed = safe(projectData?.committedPOs || 0);
-  const remaining = Math.max(adjustedBudget - actual - purchaseOrdersTotal, 0);
-  // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
-  const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
-  let baseBid = firstPositiveNumber(
-    ed?.grandTotal,
-    ed?.bidPrice,
-    ed?.total,
-    ed?.calculatedTotal,
-    (projectFromList as any)?.bidPrice,
-    (projectData as any)?.bidPrice,
-    ed?.estimateData?.grandTotal,
-    ed?.estimateData?.total
-  );
-  // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
-  if (baseBid == null && planned > 0) {
-    const marginPct = Number((projectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-    const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
-    baseBid = planned / (1 - effectiveMargin / 100);
-  }
-  const contractValue = baseBid != null && baseBid > 0 ? baseBid + coApproved : adjustedBudget;
-  // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
-  // CRITICAL: Prefer cost from line items first — it's the source of truth from the estimate breakdown.
-  // Stored estimatedCost may be wrong (e.g. derived from 20% margin instead of actual 18.2%).
-  const costFromLineItems = (() => {
-    const bid = ed ?? (projectFromList as any) ?? (projectData as any);
-    const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-    const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-    const overhead =
-      Number(bid?.equipment || 0) +
-      Number(bid?.facilities || 0) +
-      Number(bid?.insuranceOverhead || 0) +
-      Number(bid?.otherOverhead || 0) +
-      Number(bid?.planCost || 0) +
-      Number(bid?.permitCost || 0) +
-      Number(bid?.otherDirectCost || 0);
-    if (materials + labor + overhead > 0) return materials + labor + overhead;
-    // Fallback: sum Labor + Materials + Overhead buckets
-    const buckets = (projectData as any)?.buckets || (projectFromList as any)?.buckets || [];
-    const costBuckets = buckets.filter((b: any) =>
-      (b?.name || '').toLowerCase().includes('labor') ||
-      (b?.name || '').toLowerCase().includes('material') ||
-      (b?.name || '').toLowerCase().includes('overhead')
-    );
-    const fromBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
-    if (fromBuckets > 0) return fromBuckets;
-    // Fallback: cost = bid - markup (Markup bucket = profit, so subtotal = bid - markup)
-    const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
-    const markupAmt = Number(markupBucket?.budget || 0);
-    if (baseBid != null && baseBid > 0 && markupAmt > 0 && markupAmt < baseBid) {
-      return baseBid - markupAmt;
-    }
-    return 0;
-  })();
-  const estimateCostFromParts =
-    Number((ed?.materials ?? (projectFromList as any)?.materials ?? (projectData as any)?.materials) || 0) +
-    Number((ed?.labor ?? (projectFromList as any)?.labor ?? (projectData as any)?.labor) || 0) +
-    Number((ed?.equipment ?? (projectFromList as any)?.equipment ?? (projectData as any)?.equipment) || 0) +
-    Number((ed?.facilities ?? (projectFromList as any)?.facilities ?? (projectData as any)?.facilities) || 0) +
-    Number((ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead) || 0) +
-    Number((ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead) || 0) +
-    Number((ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost) || 0) +
-    Number((ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost) || 0) +
-    Number((ed?.otherDirectCost ?? (projectFromList as any)?.otherDirectCost ?? (projectData as any)?.otherDirectCost) || 0);
-  // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
-  // Net profit = gross profit - overhead (estimate subtracts overhead from markup to get net)
-  const estimateNetProfit = Number((projectFromList as any)?.profit ?? (projectData as any)?.profit ?? ed?.profit ?? 0);
-  const overheadFromEstimate =
-    Number(ed?.equipment ?? (projectFromList as any)?.equipment ?? (projectData as any)?.equipment ?? 0) +
-    Number(ed?.facilities ?? (projectFromList as any)?.facilities ?? (projectData as any)?.facilities ?? 0) +
-    Number(ed?.insuranceOverhead ?? (projectFromList as any)?.insuranceOverhead ?? (projectData as any)?.insuranceOverhead ?? 0) +
-    Number(ed?.otherOverhead ?? (projectFromList as any)?.otherOverhead ?? (projectData as any)?.otherOverhead ?? 0) +
-    Number(ed?.planCost ?? (projectFromList as any)?.planCost ?? (projectData as any)?.planCost ?? 0) +
-    Number(ed?.permitCost ?? (projectFromList as any)?.permitCost ?? (projectData as any)?.permitCost ?? 0) +
-    Number(ed?.otherDirectCost ?? (projectFromList as any)?.otherDirectCost ?? (projectData as any)?.otherDirectCost ?? 0);
-  const derivedNetProfit =
-    costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
-      ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
-      : 0;
-  const effectiveEstimateProfit = estimateNetProfit > 0 ? estimateNetProfit : (derivedNetProfit > 0 && derivedNetProfit < contractValue ? derivedNetProfit : 0);
-  // Use estimate's net-profit cost whenever we have it so margin stays at estimate (e.g. 15%) even after adding expenses.
-  const costFromEstimateProfit =
-    contractValue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < contractValue
-      ? contractValue - effectiveEstimateProfit
-      : 0;
-  let costBase = Number(
-    (costFromEstimateProfit > 0 ? costFromEstimateProfit : null) ??
-    (costFromLineItems > 0 ? costFromLineItems : null) ??
-    (projectFromList as any)?.estimatedCost ??
-    (projectFromList as any)?.subtotal ??
-    (projectData as any)?.estimatedCost ??
-    (projectData as any)?.subtotal ??
-    ed?.estimatedCost ??
-    ed?.subtotal ??
-    ed?.totalCost ??
-    ed?.baseCost ??
-    (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
+  const remaining = Math.max(
+    financials.adjustedCostBudget - actual - purchaseOrdersTotal,
     0
   );
-  if (costBase <= 0 && baseBid != null && baseBid > 0) {
-    const marginPct = Number((projectData as any)?.margin ?? (projectFromList as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-    if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
-    else costBase = baseBid / 1.18; // Default 18% markup if no margin
-  }
-  if (costBase <= 0) costBase = planned;
-  const costBaseline = costBase + coApproved;
+  const ed = (projectFromList as any)?.estimateData || (projectData as any)?.estimateData || {};
   const milestoneProgressPct = useMemo(() => {
     const milestoneSources = [
       (projectFromList as any)?.milestones,
@@ -655,21 +577,142 @@ export default function BudgetTab({
     const status = String((projectFromList as any)?.status ?? (projectData as any)?.status ?? '').toLowerCase();
     return status === 'completed';
   }, [projectFromList, projectData]);
-  const computedProfitForecast = useMemo(() => computeProfitForecast({
-    contractValue,
-    adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
-    estimatedCostBaseline: costBase > 0 ? costBase : undefined,
-    actualExpenses: actual,
-    committedPOs: purchaseOrdersTotal,
-    progressPct: progressForForecast,
-    isCompleted: isProjectCompleted,
-  }), [contractValue, costBaseline, adjustedBudget, costBase, actual, purchaseOrdersTotal, progressForForecast, isProjectCompleted]);
+  const computedProfitForecast = useMemo(
+    () =>
+      computeProfitForecast({
+        contractValue: financials.adjustedContractValue,
+        adjustedBudget:
+          financials.adjustedCostBudget > 0
+            ? financials.adjustedCostBudget
+            : financials.adjustedContractValue,
+        estimatedCostBaseline:
+          financials.plannedCostBudget > 0 ? financials.plannedCostBudget : undefined,
+        actualExpenses: actual,
+        committedPOs: purchaseOrdersTotal,
+        progressPct: progressForForecast,
+        isCompleted: isProjectCompleted,
+      }),
+    [
+      financials.adjustedContractValue,
+      financials.adjustedCostBudget,
+      financials.plannedCostBudget,
+      actual,
+      purchaseOrdersTotal,
+      progressForForecast,
+      isProjectCompleted,
+    ]
+  );
   const profitForecast = profitForecastOverride ?? computedProfitForecast;
   const profitStatusColor =
     profitForecast.status === 'Strong' ? '#22C55E' :
     profitForecast.status === 'Healthy' ? '#10B981' :
     profitForecast.status === 'Tight' ? '#F59E0B' :
     profitForecast.status === 'At Risk' ? '#F97316' : '#EF4444';
+
+  const spendingTrendCostStatus = useMemo(
+    () =>
+      computeSpendingTrendCostStatus({
+        spendCap: financials.adjustedCostBudget,
+        actualCosts: actual,
+        committedPOs: purchaseOrdersTotal,
+        forecastFinalCost: profitForecast.forecastFinalCost,
+      }),
+    [
+      financials.adjustedCostBudget,
+      actual,
+      purchaseOrdersTotal,
+      profitForecast.forecastFinalCost,
+    ]
+  );
+
+  const costBudgetUsedPctDisplay = useMemo(() => {
+    const cap = financials.adjustedCostBudget;
+    if (!(cap > 0)) return 0;
+    return Math.min(100, Math.max(0, ((actual + purchaseOrdersTotal) / cap) * 100));
+  }, [financials.adjustedCostBudget, actual, purchaseOrdersTotal]);
+
+  const spendingTrendStatusHeadline = useMemo(
+    () =>
+      spendingTrendCostStatus.text
+        .split(' ')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' '),
+    [spendingTrendCostStatus.text],
+  );
+
+  const spendingDataPoints = useMemo(() => {
+    const start = new Date(
+      (projectFromList as any)?.startISO ||
+        (projectData as any)?.startISO ||
+        new Date().toISOString()
+    );
+    const end = new Date(
+      (projectFromList as any)?.endISO || (projectData as any)?.endISO || new Date().toISOString()
+    );
+    const totalSpent = actual;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    const chartEndMs = Math.min(today.getTime(), end.getTime());
+    const spanMs = chartEndMs - start.getTime();
+    if (!Number.isFinite(spanMs) || spanMs <= 0) {
+      return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
+    }
+    const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
+    const daysBetweenPoints = 5;
+    const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
+    const points: { date: string; spent: number }[] = [];
+    for (let i = 0; i <= numPoints; i++) {
+      const t = i / numPoints;
+      const date = new Date(start.getTime() + spanMs * t);
+      if (date.getTime() > today.getTime()) break;
+      points.push({
+        date: date.toISOString().split('T')[0],
+        spent: Math.round(totalSpent * t),
+      });
+    }
+    if (points.length === 0) {
+      return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
+    }
+    const last = points[points.length - 1];
+    if (last.spent !== totalSpent) {
+      last.date = new Date(chartEndMs).toISOString().split('T')[0];
+      last.spent = totalSpent;
+    }
+    return points;
+  }, [actual, projectFromList, projectData]);
+
+  const spendingChartCumulative = useMemo(() => {
+    const formatLabel = (d: Date) =>
+      d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+    const points = spendingDataPoints.map((p) => {
+      const d = new Date(p.date + (p.date.includes('T') ? '' : 'T12:00:00'));
+      return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
+    });
+    const labels = points.map((p) => p.label);
+    const actualValues = points.map((p) => p.spent);
+    const actualCumulative = labels.map((label, idx) => ({
+      label,
+      value: actualValues[idx] ?? 0,
+    }));
+    const projectStart = new Date(
+      (projectFromList as any)?.startISO || new Date().toISOString()
+    );
+    const projectEnd = new Date((projectFromList as any)?.endISO || new Date().toISOString());
+    projectStart.setHours(0, 0, 0, 0);
+    projectEnd.setHours(0, 0, 0, 0);
+    const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
+    const cap = financials.adjustedCostBudget;
+    const plannedCumulative = points.map((p) => {
+      const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
+      return {
+        label: p.label,
+        value: Math.round(cap * frac),
+      };
+    });
+    return { actualCumulative, plannedCumulative, totalBudget: cap };
+  }, [spendingDataPoints, financials.adjustedCostBudget, projectFromList]);
 
   // Calculate projected costs for alerts
   const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
@@ -691,7 +734,7 @@ export default function BudgetTab({
   const alerts = useBudgetAlerts({
     projectId: projectData?.id || 'default',
     thresholds,
-    overall: { planned: adjustedBudget, projected: projectedTotal },
+    overall: { planned: financials.adjustedCostBudget, projected: projectedTotal },
     categories: categorySnapshots,
     notify: false, // Disable push in Expo Go
   });
@@ -718,7 +761,8 @@ export default function BudgetTab({
   // const { mutate: categorize } = useAiCategorize();
   // const { mutate: ingestReceipt } = useAiReceiptIngest();
 
-  const usageRatio = adjustedBudget > 0 ? actual / adjustedBudget : 0;
+  const usageRatio =
+    financials.adjustedCostBudget > 0 ? actual / financials.adjustedCostBudget : 0;
   const usagePercent = Math.min(Math.max(usageRatio * 100, 0), 200);
   const remainingPercent = Math.max(0, 100 - Math.min(usagePercent, 100));
 
@@ -771,51 +815,7 @@ export default function BudgetTab({
     helperSubtext: pageCaption,
   };
 
-  const hasExpenses = (projectData?.expenses || []).length > 0;
-  const hasEverLoggedCosts = useMemo(() => {
-    const currentProjectHasCosts = (projectData?.expenses || []).some((exp: any) => Number(exp?.amount || 0) > 0);
-    if (currentProjectHasCosts) return true;
-
-    return (projects || []).some((project: any) => {
-      const expenseSources = [
-        project?.projectData?.expenses,
-        project?.expenses,
-        project?.estimateData?.expenses,
-      ];
-      const hasExpenseEntries = expenseSources.some((entries: any) =>
-        Array.isArray(entries) && entries.some((exp: any) => Number(exp?.amount || 0) > 0)
-      );
-      if (hasExpenseEntries) return true;
-
-      const spentCandidates = [
-        project?.actualCost,
-        project?.projectData?.spent,
-        project?.projectData?.totalSpent,
-        project?.projectData?.actualCost,
-      ];
-      return spentCandidates.some((value: any) => Number(value || 0) > 0);
-    });
-  }, [projectData?.expenses, projects]);
   const totalSpent = actual;
-  const quickAddPulse = useRef(new Animated.Value(1)).current;
-  const hasPulsedRef = useRef(false);
-
-  useEffect(() => {
-    if (hasPulsedRef.current || hasExpenses || totalSpent !== 0) return;
-    hasPulsedRef.current = true;
-    Animated.sequence([
-      Animated.timing(quickAddPulse, {
-        toValue: 1.12,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-      Animated.timing(quickAddPulse, {
-        toValue: 1,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [hasExpenses, totalSpent, quickAddPulse]);
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
@@ -857,179 +857,227 @@ export default function BudgetTab({
                 </View>
               </View>
 
-              {/* Zero-State Budget Callout - Enhanced with Quick Add */}
-              {actual === 0 && (projectData?.expenses || []).length === 0 && !hasEverLoggedCosts && (
-                <View style={[styles.zeroStateCallout, { 
-                  backgroundColor: Colors.surface2, 
-                  borderColor: Colors.line 
-                }]}>
-                  <Ionicons name="wallet-outline" size={24} color="#22c55e" />
-                  <Text style={[styles.zeroStateTitle, { color: theme.text }]}>
-                    No costs logged yet
-                  </Text>
-                  <Text style={[styles.zeroStateSubtitle, { color: pageCaption }]}>
-                    Most contractors log their first expense within the first day.
-                  </Text>
-                  
-                  <View style={styles.zeroStateButtons}>
-                    <TouchableOpacity
-                      style={[styles.zeroStatePrimaryButton, { 
-                        backgroundColor: '#22c55e' + '20',
-                        borderColor: '#22c55e' + '40'
-                      }]}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        // Navigate to materials and equipment page
-                        const projectId = contextProjectData?.id || data?.projectId;
-                        if (projectId) {
-                          router.push({
-                            pathname: '/materials-equipment',
-                            params: { projectId }
-                          });
-                        } else {
-                          router.push('/materials-equipment');
-                        }
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Animated.View style={{ transform: [{ scale: quickAddPulse }], marginRight: 6 }}>
-                        <Ionicons name="add-circle" size={18} color="#22c55e" />
-                      </Animated.View>
-                      <Text style={[styles.zeroStatePrimaryButtonText, { color: '#22c55e' }]}>
-                        Quick Add Expense
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={[styles.zeroStateHelperText, { color: pageCaption }]}>
-                    Add materials, labor, or misc costs
-                  </Text>
-                  <View style={styles.zeroStateSuggestionRow}>
-                    <Ionicons name="bulb-outline" size={14} color={pageCaption} />
-                    <Text style={[styles.zeroStateSuggestionText, { color: pageCaption }]}>
-                      Suggested: Log materials from your first supplier
-                    </Text>
-                  </View>
-                </View>
-              )}
-
               {/* Budget Details Header */}
               <View style={styles.budgetHeaderRow}>
                 <View>
-                  <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Details</Text>
+                  <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget</Text>
                   <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
-                    Once expenses are logged, you&apos;ll see actual vs planned in real time.
+                    Detailed cost tracking, profitability, and category performance
                   </Text>
                 </View>
               </View>
 
-              {/* Totals Card */}
+              {/* 1. Spending trend — visual + minimal context */}
               <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
-          <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : Colors.line }]}>
-            <MaterialIcons name='account-balance-wallet' size={22} color='#22c55e' />
-            <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 12 }]}>
-              Budget Totals
-            </Text>
-          </View>
-          <View style={styles.totalsContent}>
-          <Row
-            label='Planned Budget'
-            value={money(planned, currency)}
-            theme={budgetTotalsTheme}
-            variant='book'
-          />
-          <Row
-            label='Approved Change Orders'
-            value={`+ ${money(coApproved, currency)}`}
-            theme={budgetTotalsTheme}
-            variant='book'
-          />
-          <Row
-            label='Adjusted Budget'
-            value={money(adjustedBudget, currency)}
-            theme={budgetTotalsTheme}
-            variant='book'
-          />
-          <Row
-            label='Actual Expenses'
-            value={money(actual, currency)}
-            theme={budgetTotalsTheme}
-            variant='book'
-          />
-          <Row
-            label='Committed POs'
-            value={money(purchaseOrdersTotal, currency)}
-            theme={budgetTotalsTheme}
-            variant='book'
-          />
-          <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.08)' }]} />
-          <Row
-            label='Forecast Final Cost'
-            sublabel={
-              profitForecast.forecastMethod === 'run-rate'
-                ? 'Trend forecast'
-                : profitForecast.forecastMethod === 'completed'
-                ? 'Actual (job complete)'
-                : undefined
-            }
-            value={money(profitForecast.forecastFinalCost, currency)}
-            theme={budgetTotalsTheme}
-            variant='intel'
-          />
-          <Row
-            label='Projected Profit'
-            value={money(profitForecast.projectedProfit, currency)}
-            theme={budgetTotalsTheme}
-            valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
-            variant='intel'
-          />
-          <Row
-            label='Spend-to-Date Margin'
-            sublabel='Based on costs logged so far'
-            value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
-            theme={budgetTotalsTheme}
-            valueColor={profitStatusColor}
-            variant='intel'
-          />
-          <Row
-            label='Projected Margin'
-            sublabel='Based on current spend vs completion progress'
-            value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
-            theme={budgetTotalsTheme}
-            valueColor={profitStatusColor}
-            variant='intel'
-          />
-          <Row
-            label='Profit Variance vs Estimate'
-            value={money(profitForecast.profitVarianceVsEstimate, currency)}
-            theme={budgetTotalsTheme}
-            valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
-            variant='intel'
-          />
-          <View style={styles.remainingSection}>
-            <Text style={[styles.remainingLabel, { color: budgetTotalsTheme.subtext }]}>
-              Remaining
-            </Text>
-            <Text style={[styles.remainingBarHint, { color: pageCaption }]}>
-              Bar fill shows share of adjusted budget used. Light ticks at 25%, 50%, and 75%.
-            </Text>
-          <Bar
-            pct={remainingPercent}
-            tone={tone}
-            usagePct={usagePercent}
-          />
-            <Text
-              style={[
-                styles.remainingText,
-              { color: remainingColor },
-              ]}
-            >
-              {remaining > 0
-                ? `${money(remaining, currency)} available`
-                : `Over budget by ${money(Math.abs(remaining), currency)}`}
-            </Text>
-          </View>
-          </View>
+                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
+                  <View
+                    style={[
+                      styles.spendingTrendHeaderBlock,
+                      { borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : Colors.line },
+                    ]}
+                  >
+                    <View style={styles.spendingTrendTitleRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                        <Feather name="trending-up" size={20} color="#22c55e" />
+                        <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 12 }]}>Spending Trend</Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          fontSize: 15,
+                          fontWeight: '700',
+                          fontVariant: ['tabular-nums'],
+                        }}
+                      >
+                        {costBudgetUsedPctDisplay.toFixed(1)}% used
+                      </Text>
+                    </View>
+                    <View style={styles.spendingTrendLegendRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: '#34d399' }} />
+                        <Text style={{ color: pageSubtext, fontSize: 12, fontWeight: '700' }}>Actual</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: '#60a5fa' }} />
+                        <Text style={{ color: pageSubtext, fontSize: 12, fontWeight: '700' }}>Planned</Text>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: `${spendingTrendCostStatus.color}22`,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ color: spendingTrendCostStatus.color, fontSize: 11, fontWeight: '700' }}>
+                          {spendingTrendStatusHeadline}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.spendingTrendCapLine, { color: pageCaption }]}>
+                      Planned cost cap {money(financials.adjustedCostBudget, currency)}
+                    </Text>
+                  </View>
+                  <View style={{ paddingHorizontal: 4, paddingBottom: 8 }}>
+                    <SpendingTrendChart
+                      actualCumulative={spendingChartCumulative.actualCumulative}
+                      plannedCumulative={spendingChartCumulative.plannedCumulative}
+                      totalBudget={spendingChartCumulative.totalBudget}
+                      showHeader={false}
+                      showLegend={false}
+                      scrollable
+                      hideLegendSpendTotal
+                      costBudgetStatus={spendingTrendCostStatus}
+                      compact
+                      hideReferenceLineLabel
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* 2. Contract & cost detail */}
+              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
+                  <View style={styles.budgetCardHeaderMatch}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                      <View style={styles.budgetOverviewIconBadge}>
+                        <MaterialIcons name="account-balance-wallet" size={16} color="#22c55e" />
+                      </View>
+                      <Text style={[styles.budgetSectionTitleMatch, { color: theme.text }]}>Contract &amp; Cost</Text>
+                    </View>
+                  </View>
+                  <View style={styles.totalsContent}>
+                    <Row
+                      label="Contract Value"
+                      value={money(financials.contractValueBase, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    {financials.approvedChangeOrderRevenue > 0 && (
+                      <Row
+                        label="Approved Change Orders"
+                        value={`+ ${money(financials.approvedChangeOrderRevenue, currency)}`}
+                        theme={budgetTotalsTheme}
+                        variant="book"
+                        metricLabel
+                      />
+                    )}
+                    <Row
+                      label="Adjusted Contract Value"
+                      value={money(financials.adjustedContractValue, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.08)' }]} />
+                    <Row
+                      label="Planned Cost Budget"
+                      value={money(financials.adjustedCostBudget, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <Row
+                      label="Actual Costs"
+                      value={money(actual, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <Row
+                      label="Committed POs"
+                      value={money(purchaseOrdersTotal, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <Row
+                      label="Remaining Cost Budget"
+                      value={money(remaining, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <View style={styles.remainingSection}>
+                      <Text style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.subtext }]}>
+                        Usage vs planned cost budget
+                      </Text>
+                      <Text style={[styles.remainingBarHint, { color: pageCaption }]}>
+                        Fill = share of planned cost budget used (ticks at 25%, 50%, 75%).
+                      </Text>
+                      <Bar pct={remainingPercent} tone={tone} usagePct={usagePercent} />
+                      <Text style={[styles.remainingText, { color: remainingColor }]}>
+                        {remaining > 0
+                          ? `${money(remaining, currency)} available`
+                          : `Over budget by ${money(Math.abs(remaining), currency)}`}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* 3. Profitability */}
+              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
+                  <View style={styles.budgetCardHeaderMatch}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                      <View style={styles.budgetOverviewIconBadge}>
+                        <MaterialIcons name="show-chart" size={16} color="#22c55e" />
+                      </View>
+                      <Text style={[styles.budgetSectionTitleMatch, { color: theme.text }]}>Profitability</Text>
+                    </View>
+                  </View>
+                  <View style={styles.totalsContent}>
+                    <Row
+                      label="Forecast Final Cost"
+                      sublabel={
+                        profitForecast.forecastMethod === 'run-rate'
+                          ? 'Trend forecast'
+                          : profitForecast.forecastMethod === 'completed'
+                            ? 'Actual (job complete)'
+                            : undefined
+                      }
+                      value={money(profitForecast.forecastFinalCost, currency)}
+                      theme={budgetTotalsTheme}
+                      variant="intel"
+                      metricLabel
+                    />
+                    <Row
+                      label="Projected Profit"
+                      value={money(profitForecast.projectedProfit, currency)}
+                      theme={budgetTotalsTheme}
+                      valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
+                      variant="intel"
+                      metricLabel
+                    />
+                    <Row
+                      label="Spend-to-Date Margin"
+                      sublabel="Based on costs logged so far"
+                      value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
+                      theme={budgetTotalsTheme}
+                      valueColor={profitStatusColor}
+                      variant="intel"
+                      metricLabel
+                    />
+                    <Row
+                      label="Projected Margin"
+                      sublabel="Based on current spend vs completion progress"
+                      value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
+                      theme={budgetTotalsTheme}
+                      valueColor={profitStatusColor}
+                      variant="intel"
+                      metricLabel
+                    />
+                    <Row
+                      label="Profit Variance vs Estimate"
+                      value={money(profitForecast.profitVarianceVsEstimate, currency)}
+                      theme={budgetTotalsTheme}
+                      valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
+                      variant="intel"
+                      metricLabel
+                    />
+                  </View>
                 </View>
               </View>
             </View>
@@ -1588,80 +1636,135 @@ export default function BudgetTab({
             </View>
             
             <View style={styles.field}>
-              <Text style={styles.modalLabel}>Breakdown</Text>
-              <Text style={styles.modalSubLabel}>Specify materials and labor amounts</Text>
-            
-            {/* Materials Box */}
-              <View style={[styles.breakdownBox, { overflow: 'hidden' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <MaterialCommunityIcons name="package-variant" size={24} color="#10f297" style={{ marginRight: 8 }} />
-                  <Text style={styles.breakdownBoxLabel}>Materials</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.currencySymbol}>$</Text>
-                <TextInput
-                    style={styles.breakdownInput}
-                  placeholder="0.00"
-                    placeholderTextColor="rgba(226,232,240,0.58)"
-                  keyboardType="numeric"
-                  underlineColorAndroid="transparent"
-                  value={editingChangeOrder ? (editingChangeOrder.materialsAmount?.toString() || '') : newChangeOrder.materialsAmount}
-                  onChangeText={(text) => {
-                    const numericValue = text.replace(/[^0-9.]/g, '');
-                    if (editingChangeOrder) {
-                      setEditingChangeOrder({...editingChangeOrder, materialsAmount: numericValue});
-                    } else {
-                      setNewChangeOrder({...newChangeOrder, materialsAmount: numericValue});
-                    }
-                    // Auto-calculate total
-                    const materials = parseFloat(numericValue) || 0;
-                    const labor = parseFloat(editingChangeOrder ? (editingChangeOrder.laborAmount || '0') : (newChangeOrder.laborAmount || '0')) || 0;
-                    const total = materials + labor;
-                    if (editingChangeOrder) {
-                      setEditingChangeOrder({...editingChangeOrder, amount: total.toFixed(2)});
-                    } else {
-                      setNewChangeOrder({...newChangeOrder, amount: total.toFixed(2)});
-                    }
-                  }}
-                />
-              </View>
-            </View>
-            
-            {/* Labor Box */}
-              <View style={[styles.breakdownBox, { marginTop: 16, overflow: 'hidden' }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <MaterialCommunityIcons name="hard-hat" size={24} color="#10f297" style={{ marginRight: 8 }} />
-                  <Text style={styles.breakdownBoxLabel}>Labor</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.currencySymbol}>$</Text>
-                <TextInput
-                    style={styles.breakdownInput}
-                  placeholder="0.00"
-                    placeholderTextColor="rgba(226,232,240,0.58)"
-                  keyboardType="numeric"
-                  underlineColorAndroid="transparent"
-                  value={editingChangeOrder ? (editingChangeOrder.laborAmount?.toString() || '') : newChangeOrder.laborAmount}
-                  onChangeText={(text) => {
-                    const numericValue = text.replace(/[^0-9.]/g, '');
-                    if (editingChangeOrder) {
-                      setEditingChangeOrder({...editingChangeOrder, laborAmount: numericValue});
-                    } else {
-                      setNewChangeOrder({...newChangeOrder, laborAmount: numericValue});
-                    }
-                    // Auto-calculate total
-                    const materials = parseFloat(editingChangeOrder ? (editingChangeOrder.materialsAmount || '0') : (newChangeOrder.materialsAmount || '0')) || 0;
-                    const labor = parseFloat(numericValue) || 0;
-                    const total = materials + labor;
-                    if (editingChangeOrder) {
-                      setEditingChangeOrder({...editingChangeOrder, amount: total.toFixed(2)});
-                    } else {
-                      setNewChangeOrder({...newChangeOrder, amount: total.toFixed(2)});
-                    }
-                  }}
-                />
-              </View>
-            </View>
+              <PricingModeSection
+                pricingMode={changeOrderPricingMode}
+                onPricingModeChange={(mode) => {
+                  if (mode === changeOrderPricingMode) return;
+                  setChangeOrderPricingMode(mode);
+                  setChangeOrderSqftInput('');
+                  setChangeOrderRateInput('');
+                  if (editingChangeOrder) {
+                    setEditingChangeOrder({
+                      ...editingChangeOrder,
+                      amount: '',
+                      materialsAmount: '',
+                      laborAmount: '',
+                    });
+                  } else {
+                    setNewChangeOrder({
+                      ...newChangeOrder,
+                      amount: '',
+                      materialsAmount: '',
+                      laborAmount: '',
+                    });
+                  }
+                }}
+                sqftInput={changeOrderSqftInput}
+                ratePerSqftInput={changeOrderRateInput}
+                onSqftInputChange={onChangeOrderSqftChange}
+                onRatePerSqftInputChange={onChangeOrderRateChange}
+                amount={String(
+                  editingChangeOrder != null
+                    ? (editingChangeOrder.amount ?? '')
+                    : newChangeOrder.amount
+                )}
+                onAmountChange={() => {}}
+                sqftRef={changeOrderSqftRef}
+                ratePerSqftRef={changeOrderRateRef}
+                amountRef={changeOrderAmountRef}
+                onSqftSubmitEditing={() => changeOrderRateRef.current?.focus()}
+                onRateSubmitEditing={() => {}}
+                flatModeLabel="Breakdown"
+                flatReplacement={
+                  <>
+                    <Text style={styles.modalSubLabel}>Specify materials and labor amounts</Text>
+                    <View style={[styles.breakdownBox, { overflow: 'hidden' }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                        <MaterialCommunityIcons name="package-variant" size={24} color="#10f297" style={{ marginRight: 8 }} />
+                        <Text style={styles.breakdownBoxLabel}>Materials</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.currencySymbol}>$</Text>
+                        <TextInput
+                          style={styles.breakdownInput}
+                          placeholder="0.00"
+                          placeholderTextColor="rgba(226,232,240,0.58)"
+                          keyboardType="numeric"
+                          underlineColorAndroid="transparent"
+                          value={
+                            editingChangeOrder
+                              ? editingChangeOrder.materialsAmount?.toString() || ''
+                              : newChangeOrder.materialsAmount
+                          }
+                          onChangeText={(text) => {
+                            const numericValue = text.replace(/[^0-9.]/g, '');
+                            if (editingChangeOrder) {
+                              setEditingChangeOrder({ ...editingChangeOrder, materialsAmount: numericValue });
+                            } else {
+                              setNewChangeOrder({ ...newChangeOrder, materialsAmount: numericValue });
+                            }
+                            const materials = parseFloat(numericValue) || 0;
+                            const labor =
+                              parseFloat(
+                                editingChangeOrder
+                                  ? editingChangeOrder.laborAmount || '0'
+                                  : newChangeOrder.laborAmount || '0'
+                              ) || 0;
+                            const total = materials + labor;
+                            if (editingChangeOrder) {
+                              setEditingChangeOrder({ ...editingChangeOrder, amount: total.toFixed(2) });
+                            } else {
+                              setNewChangeOrder({ ...newChangeOrder, amount: total.toFixed(2) });
+                            }
+                          }}
+                        />
+                      </View>
+                    </View>
+                    <View style={[styles.breakdownBox, { marginTop: 16, overflow: 'hidden' }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                        <MaterialCommunityIcons name="hard-hat" size={24} color="#10f297" style={{ marginRight: 8 }} />
+                        <Text style={styles.breakdownBoxLabel}>Labor</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.currencySymbol}>$</Text>
+                        <TextInput
+                          style={styles.breakdownInput}
+                          placeholder="0.00"
+                          placeholderTextColor="rgba(226,232,240,0.58)"
+                          keyboardType="numeric"
+                          underlineColorAndroid="transparent"
+                          value={
+                            editingChangeOrder
+                              ? editingChangeOrder.laborAmount?.toString() || ''
+                              : newChangeOrder.laborAmount
+                          }
+                          onChangeText={(text) => {
+                            const numericValue = text.replace(/[^0-9.]/g, '');
+                            if (editingChangeOrder) {
+                              setEditingChangeOrder({ ...editingChangeOrder, laborAmount: numericValue });
+                            } else {
+                              setNewChangeOrder({ ...newChangeOrder, laborAmount: numericValue });
+                            }
+                            const materials =
+                              parseFloat(
+                                editingChangeOrder
+                                  ? editingChangeOrder.materialsAmount || '0'
+                                  : newChangeOrder.materialsAmount || '0'
+                              ) || 0;
+                            const labor = parseFloat(numericValue) || 0;
+                            const total = materials + labor;
+                            if (editingChangeOrder) {
+                              setEditingChangeOrder({ ...editingChangeOrder, amount: total.toFixed(2) });
+                            } else {
+                              setNewChangeOrder({ ...newChangeOrder, amount: total.toFixed(2) });
+                            }
+                          }}
+                        />
+                      </View>
+                    </View>
+                  </>
+                }
+              />
             </View>
             
             <View style={styles.field}>
@@ -1699,12 +1802,44 @@ export default function BudgetTab({
             <TouchableOpacity 
               onPress={() => {
                 const co = editingChangeOrder || newChangeOrder;
-                if (co.title && (co.amount || co.materialsAmount || co.laborAmount)) {
-                  const materials = parseFloat(co.materialsAmount || '0') || 0;
-                  const labor = parseFloat(co.laborAmount || '0') || 0;
-                  const total = parseFloat(co.amount || '0') || (materials + labor);
-                  
-                  if (editingChangeOrder) {
+                if (!co.title?.trim()) {
+                  Alert.alert('Error', 'Please enter a change order title');
+                  return;
+                }
+                if (changeOrderPricingMode === 'sqft') {
+                  const sq = parseFloat(changeOrderSqftInput.replace(/[^0-9.]/g, '')) || 0;
+                  const rate = parseFloat(changeOrderRateInput.replace(/[^0-9.]/g, '')) || 0;
+                  if (sq <= 0 || rate <= 0) {
+                    Alert.alert(
+                      'Square feet & rate required',
+                      'Enter square feet and rate ($/sq ft) to calculate the total, or switch to Flat amount.'
+                    );
+                    return;
+                  }
+                } else if (!(co.amount || co.materialsAmount || co.laborAmount)) {
+                  Alert.alert('Error', 'Please fill in materials and/or labor, or switch to Per sq ft');
+                  return;
+                }
+
+                let materials = 0;
+                let labor = 0;
+                let total = 0;
+                if (changeOrderPricingMode === 'sqft') {
+                  materials = 0;
+                  labor = 0;
+                  total = parseFloat(String(co.amount || '0')) || 0;
+                } else {
+                  materials = parseFloat(String(co.materialsAmount || '0')) || 0;
+                  labor = parseFloat(String(co.laborAmount || '0')) || 0;
+                  total = parseFloat(String(co.amount || '0')) || materials + labor;
+                }
+
+                if (!Number.isFinite(total) || total <= 0) {
+                  Alert.alert('Invalid Amount', 'Please enter a valid total amount');
+                  return;
+                }
+
+                if (editingChangeOrder) {
                     // Update existing change order - keep existing approval status
                     const updatedCO = {
                       ...editingChangeOrder,
@@ -1770,9 +1905,6 @@ export default function BudgetTab({
                       ]
                     );
                   }
-                } else {
-                  Alert.alert('Error', 'Please fill in title and at least one amount (materials or labor)');
-                }
               }}
               style={styles.modalSaveButtonWrap}
             >
@@ -1851,6 +1983,7 @@ function Row({
   theme,
   valueColor,
   variant = 'book',
+  metricLabel = false,
 }: {
   label: string;
   sublabel?: string;
@@ -1858,13 +1991,23 @@ function Row({
   theme: any;
   valueColor?: string;
   variant?: 'book' | 'intel';
+  /** Match Overview Financial Health: uppercase muted labels + strong values */
+  metricLabel?: boolean;
 }) {
   const helperColor = theme.helperSubtext ?? theme.subtext;
   const isIntel = variant === 'intel';
   return (
     <View style={[styles.row, isIntel ? styles.rowIntel : styles.rowBook]}>
       <View style={styles.rowLabelCol}>
-        <Text style={[styles.rowLabel, { color: theme.subtext }]}>{label}</Text>
+        <Text
+          style={[
+            styles.rowLabel,
+            metricLabel && styles.rowLabelMetric,
+            { color: metricLabel ? helperColor : theme.subtext },
+          ]}
+        >
+          {label}
+        </Text>
         {sublabel ? (
           <Text style={[styles.rowSublabel, { color: helperColor }]}>{sublabel}</Text>
         ) : null}
@@ -1872,7 +2015,8 @@ function Row({
       <Text
         style={[
           styles.rowValue,
-          isIntel && styles.rowValueIntel,
+          metricLabel && styles.rowValueMetric,
+          !metricLabel && isIntel && styles.rowValueIntel,
           { color: valueColor || theme.text, fontVariant: ['tabular-nums'] },
         ]}
         numberOfLines={2}
@@ -2112,8 +2256,28 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   sectionCard: {
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 16,
+    padding: 15,
+  },
+  /** Match project Overview Financial Health / innerCard headers */
+  budgetCardHeaderMatch: {
+    marginBottom: 12,
+  },
+  budgetOverviewIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  budgetSectionTitleMatch: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.25,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -2122,6 +2286,29 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(148, 163, 184, 0.08)',
+  },
+  spendingTrendHeaderBlock: {
+    paddingBottom: 12,
+    marginBottom: 2,
+    borderBottomWidth: 1,
+  },
+  spendingTrendTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  spendingTrendLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 10,
+  },
+  spendingTrendCapLine: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
   },
   sectionCardElevated: {
     shadowColor: '#000',
@@ -2135,8 +2322,8 @@ const styles = StyleSheet.create({
   },
   totalsDivider: {
     height: StyleSheet.hairlineWidth,
-    marginTop: 10,
-    marginBottom: 6,
+    marginTop: 8,
+    marginBottom: 4,
   },
   totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
   row: {
@@ -2145,10 +2332,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   rowBook: {
-    paddingVertical: 5,
+    paddingVertical: 3,
   },
   rowIntel: {
-    paddingVertical: 8,
+    paddingVertical: 5,
   },
   rowLabelCol: {
     flex: 1,
@@ -2157,6 +2344,13 @@ const styles = StyleSheet.create({
   rowLabel: { 
     fontSize: 15,
     lineHeight: 21,
+  },
+  rowLabelMetric: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
   },
   rowSublabel: {
     fontSize: 12,
@@ -2177,15 +2371,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.2,
   },
-  remainingSection: { marginTop: 14 },
-  remainingLabel: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  rowValueMetric: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  remainingSection: { marginTop: 10 },
+  remainingLabel: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
+  remainingLabelMetric: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
   remainingBarHint: {
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '500',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  remainingText: { fontSize: 16, fontWeight: '600', marginTop: 10, textAlign: 'right' },
+  remainingText: { fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'right' },
   actionButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
   tabContainer: { flexDirection: 'row', gap: 8, marginTop: 20, marginBottom: 14 },
   tabPillWrap: {
@@ -2246,13 +2452,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   budgetCard: {
-    padding: 14,
+    padding: 11,
   },
   budgetCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 8,
     position: 'relative',
   },
   budgetCardHeaderMain: {
@@ -2278,7 +2484,7 @@ const styles = StyleSheet.create({
   budgetTapHint: {
     fontSize: 12,
     fontWeight: '500',
-    marginTop: 4,
+    marginTop: 3,
   },
   budgetCardTitle: {
     fontSize: 17,
@@ -2320,14 +2526,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   progressBarContainer: {
-    marginBottom: 4,
-    marginTop: 4,
+    marginBottom: 2,
+    marginTop: 2,
   },
   progressBarBackground: {
     height: 8,
     borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   progressBarFill: {
     height: '100%',
@@ -2342,7 +2548,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    paddingTop: 12,
+    paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(148, 163, 184, 0.12)',
   },
@@ -2350,7 +2556,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 5,
   },
   categoryRemainingEmphasis: {
     fontSize: 14,
@@ -2986,58 +3192,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     marginBottom: 4,
-  },
-  zeroStateCallout: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  zeroStateTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 12,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  zeroStateSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  zeroStateButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  zeroStatePrimaryButton: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    alignItems: 'center',
-  },
-  zeroStatePrimaryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  zeroStateHelperText: {
-    marginTop: 10,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  zeroStateSuggestionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 6,
-  },
-  zeroStateSuggestionText: {
-    fontSize: 12,
-    fontWeight: '500',
   },
   baselineIndicator: {
     flexDirection: 'row',

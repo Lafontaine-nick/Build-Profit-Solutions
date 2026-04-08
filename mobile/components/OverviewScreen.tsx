@@ -7,6 +7,11 @@ import SpendingTrendChart from './SpendingTrendChart';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { computeProfitForecast } from '../src/lib/profitForecast';
+import {
+  computeProjectFinancials,
+  sumPlannedCostFromBuckets,
+  computeSpendingTrendCostStatus,
+} from '../src/lib/projectFinancials';
 
 // Types for the detailed overview screen
 export type ProjectOverview = {
@@ -192,67 +197,25 @@ export default function OverviewScreen({
     0
   );
 
-  // Get base budget (original budget without change orders) - matching BudgetTab and Projects page priority order
-  // CRITICAL: Must use estimate's grandTotal (what user saw in estimate), NOT budgeted (may include COs)
-  const getBaseBudget = (proj: any): number => {
-    // Priority order matches BudgetTab and Projects page to ensure consistency:
-    // 1. estimateData.grandTotal (PRIMARY - this is what shows in estimate, e.g. $7,200)
-    // 2. estimateData.bidPrice (secondary estimate field)
-    // 3. estimateData.total (tertiary estimate field)
-    // 4. bidPrice (project-level, should match estimate)
-    // 5. projectData.bidPrice (projectData level)
-    // 6. estimatedCost (fallback)
-    // DO NOT use budgeted or projectData.budgeted as they may already include approved change orders
-    const budgetCandidates: any[] = [
-      proj?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal ($7,200)
-      proj?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
-      proj?.estimateData?.total,          // Tertiary: estimate's total
-      proj?.bidPrice,                     // Fallback: project bidPrice
-      proj?.projectData?.bidPrice,         // Fallback: projectData bidPrice
-      proj?.projectData?.totalBidPrice,   // Fallback: projectData totalBidPrice
-      proj?.estimatedCost,                // Fallback: estimatedCost
-      proj?.projectData?.estimatedCost,   // Fallback: projectData estimatedCost
-      proj?.total,                        // Fallback: project total
-      proj?.totalRevenue,                 // Fallback: totalRevenue
-      proj?.contractValue,                // Fallback: contractValue
-    ];
-    
-    for (const candidate of budgetCandidates) {
-      const sanitized = candidate != null ? Number(candidate) : 0;
-      if (sanitized > 0) {
-        return sanitized;
-      }
-    }
-    return 0;
-  };
+  const plannedFromBuckets = useMemo(() => {
+    const buckets = project.buckets || [];
+    const relevantBuckets = buckets.filter(
+      (bucket) =>
+        bucket.name === 'Materials/Equipment' || bucket.name === 'Labor'
+    );
+    return relevantBuckets.reduce((sum, l) => sum + Number(l.budget || 0), 0);
+  }, [project.buckets]);
 
-  // Collect change orders from all possible locations (matching Projects page logic)
-  const changeOrderSources = [
-    project?.projectData?.changeOrders,
-    project?.changeOrders,
-  ];
-  
-  let changeOrders: any[] = [];
-  for (const source of changeOrderSources) {
-    if (Array.isArray(source) && source.length > 0) {
-      changeOrders = source;
-      break;
-    }
-  }
-
-  const approvedChangeOrdersTotal = changeOrders.reduce(
-    (sum, co) => {
-      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
-      const isApproved =
-        (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-      return isApproved ? sum + amount : sum;
-    },
-    0
+  const financials = useMemo(
+    () =>
+      computeProjectFinancials(project, {
+        plannedFromBuckets,
+        plannedCostBucketSum: sumPlannedCostFromBuckets(project.buckets),
+      }),
+    [project, plannedFromBuckets]
   );
 
-  const baseBudget = getBaseBudget(project);
-  const adjustedBudget = baseBudget + approvedChangeOrdersTotal;
+  const approvedChangeOrdersTotal = financials.approvedChangeOrderRevenue;
 
   // Calculate Purchase Orders total - ONLY includes PENDING POs (matches BudgetTab logic)
   // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing
@@ -306,15 +269,15 @@ export default function OverviewScreen({
     return baseExpenses + receivedPOsTotal;
   })();
 
-  // Remaining budget accounts for both actual expenses and committed POs (matches BudgetTab)
-  const budgetDeltaRaw = adjustedBudget - actualSpent - purchaseOrdersTotal;
+  const costBudgetCap = financials.adjustedCostBudget;
+  // Remaining cost budget: actual + pending POs vs planned cost (not contract sell price)
+  const budgetDeltaRaw = costBudgetCap - actualSpent - purchaseOrdersTotal;
   const isUnderBudget = budgetDeltaRaw >= 0;
 
   const getBudgetProgress = () => {
-    if (!adjustedBudget || adjustedBudget <= 0) return 0;
-    // Budget progress includes both actual spent and committed POs
+    if (!costBudgetCap || costBudgetCap <= 0) return 0;
     const totalCommitted = actualSpent + purchaseOrdersTotal;
-    const progress = (totalCommitted / adjustedBudget) * 100;
+    const progress = (totalCommitted / costBudgetCap) * 100;
     return Math.min(100, Math.max(0, progress));
   };
 
@@ -407,121 +370,38 @@ export default function OverviewScreen({
   const lastUpdated = project.lastUpdated
     ? formatDate(project.lastUpdated)
     : 'Invalid Date';
-  // Contract value = revenue (bid + approved COs), NOT cost. Using adjustedBudget gave 0 profit.
-  let baseBid = (() => {
-    const candidates = [
-      project?.estimateData?.grandTotal,
-      project?.estimateData?.bidPrice,
-      project?.estimateData?.total,
-      project?.bidPrice,
-      (project as any)?.projectData?.bidPrice,
-    ];
-    for (const c of candidates) {
-      const n = c != null ? Number(c) : 0;
-      if (Number.isFinite(n) && n > 0) return n;
-    }
-    return null;
-  })();
-  // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
-  if (baseBid == null && baseBudget > 0) {
-    const marginPct = Number(project?.margin ?? project?.estimateData?.marginPct ?? project?.estimateData?.margin ?? 0);
-    const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
-    baseBid = baseBudget / (1 - effectiveMargin / 100);
-  }
-  const contractValue = baseBid != null && baseBid > 0 ? baseBid + approvedChangeOrdersTotal : adjustedBudget;
-  // Cost baseline = materials + labor + overhead (incl. plans & permits) from estimate
-  // CRITICAL: Prefer cost from line items first — it's the source of truth from the estimate breakdown.
-  // Stored estimatedCost may be wrong (e.g. derived from 20% margin instead of actual 18.2%).
-  const ed = project?.estimateData;
-  const costFromLineItems = (() => {
-    const bid = ed ?? project;
-    const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-    const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-    const permitCosts =
-      Number(bid?.planCost || 0) +
-      Number(bid?.permitCost || 0);
-    const equipmentRental = Number(bid?.equipment || 0);
-    const otherDirectCost = Number(bid?.otherDirectCost || 0);
-    const directSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-    if (directSubtotal > 0) return directSubtotal;
-    // Fallback: sum Labor + Materials + Overhead buckets
-    const buckets = (project as any)?.buckets || [];
-    const costBuckets = buckets.filter((b: any) =>
-      (b?.name || '').toLowerCase().includes('labor') ||
-      (b?.name || '').toLowerCase().includes('material') ||
-      (b?.name || '').toLowerCase().includes('overhead')
-    );
-    const fromBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
-    if (fromBuckets > 0) return fromBuckets;
-    // Fallback: cost = bid - markup (Markup bucket = profit, so subtotal = bid - markup)
-    const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
-    const markupAmt = Number(markupBucket?.budget || 0);
-    if (baseBid != null && baseBid > 0 && markupAmt > 0 && markupAmt < baseBid) {
-      return baseBid - markupAmt;
-    }
-    return 0;
-  })();
-  const estimateCostFromParts =
-    Number((ed?.materials ?? (project as any)?.materials) || 0) +
-    Number((ed?.labor ?? (project as any)?.labor) || 0) +
-    Number((ed?.equipment ?? (project as any)?.equipment) || 0) +
-    Number((ed?.equipmentMaintenance ?? (project as any)?.equipmentMaintenance) || 0) +
-    Number((ed?.facilities ?? (project as any)?.facilities) || 0) +
-    Number((ed?.insuranceOverhead ?? (project as any)?.insuranceOverhead) || 0) +
-    Number((ed?.otherOverhead ?? (project as any)?.otherOverhead) || 0) +
-    Number((ed?.planCost ?? (project as any)?.planCost) || 0) +
-    Number((ed?.permitCost ?? (project as any)?.permitCost) || 0) +
-    Number((ed?.otherDirectCost ?? (project as any)?.otherDirectCost) || 0);
-  // When no real spend yet, use estimate net profit so forecast margin matches estimate (e.g. 18.7%)
-  // Fallback: derive net profit when not stored (gross profit - overhead) so we don't show 20% from gross margin
-  const estimateNetProfit = Number((project as any)?.profit ?? ed?.profit ?? 0);
-  const overheadFromEstimate =
-    Number(ed?.equipmentMaintenance ?? (project as any)?.equipmentMaintenance ?? 0) +
-    Number(ed?.facilities ?? (project as any)?.facilities ?? 0) +
-    Number(ed?.insuranceOverhead ?? (project as any)?.insuranceOverhead ?? 0) +
-    Number(ed?.otherOverhead ?? (project as any)?.otherOverhead ?? 0);
-  const derivedNetProfit =
-    costFromLineItems > 0 && contractValue > costFromLineItems && overheadFromEstimate >= 0
-      ? Math.max(0, (contractValue - costFromLineItems) - overheadFromEstimate)
-      : 0;
-  const effectiveEstimateProfit = estimateNetProfit > 0 ? estimateNetProfit : (derivedNetProfit > 0 && derivedNetProfit < contractValue ? derivedNetProfit : 0);
-  // Use estimate's net-profit cost whenever we have it so margin stays at estimate (e.g. 15%) even after adding expenses.
-  // Previously we only used it when actualSpent === 0, which made margin jump to 20% after first material expense.
-  const costFromEstimateProfit =
-    contractValue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < contractValue
-      ? contractValue - effectiveEstimateProfit
-      : 0;
-  let costBase = Number(
-    (costFromEstimateProfit > 0 ? costFromEstimateProfit : null) ??
-    (costFromLineItems > 0 ? costFromLineItems : null) ??
-    (project as any)?.estimatedCost ??
-    (project as any)?.subtotal ??
-    ed?.estimatedCost ??
-    ed?.subtotal ??
-    ed?.totalCost ??
-    ed?.baseCost ??
-    (estimateCostFromParts > 0 ? estimateCostFromParts : null) ??
-    0
-  );
-  if (costBase <= 0 && baseBid != null && baseBid > 0) {
-    const marginPct = Number(project?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-    if (marginPct > 0 && marginPct < 100) costBase = baseBid * (1 - marginPct / 100);
-    else costBase = baseBid / 1.18;
-  }
-  if (costBase <= 0) costBase = baseBudget;
-  const costBaseline = costBase + approvedChangeOrdersTotal;
   const projectStatus = String((project as any)?.status ?? '').toLowerCase();
   const isProjectCompleted = projectStatus === 'completed';
   const progressForForecast = isProjectCompleted ? 100 : (project.overallProgressPct ?? 0);
   const profitForecast = computeProfitForecast({
-    contractValue,
-    adjustedBudget: costBaseline > 0 ? costBaseline : adjustedBudget,
-    estimatedCostBaseline: costBase > 0 ? costBase : undefined,
+    contractValue: financials.adjustedContractValue,
+    adjustedBudget:
+      financials.adjustedCostBudget > 0
+        ? financials.adjustedCostBudget
+        : financials.adjustedContractValue,
+    estimatedCostBaseline:
+      financials.plannedCostBudget > 0 ? financials.plannedCostBudget : undefined,
     actualExpenses: actualSpent,
     committedPOs: purchaseOrdersTotal,
     progressPct: progressForForecast,
     isCompleted: isProjectCompleted,
   });
+
+  const spendingTrendCostStatus = useMemo(
+    () =>
+      computeSpendingTrendCostStatus({
+        spendCap: financials.adjustedCostBudget,
+        actualCosts: actualSpent,
+        committedPOs: purchaseOrdersTotal,
+        forecastFinalCost: profitForecast.forecastFinalCost,
+      }),
+    [
+      financials.adjustedCostBudget,
+      actualSpent,
+      purchaseOrdersTotal,
+      profitForecast.forecastFinalCost,
+    ]
+  );
   const profitStatusColor =
     profitForecast.status === 'Strong' ? '#22C55E' :
     profitForecast.status === 'Healthy' ? '#10B981' :
@@ -567,9 +447,9 @@ export default function OverviewScreen({
           <Text style={styles.cardSubtitle}>Updated {lastUpdated}</Text>
 
         <View style={{ marginTop: 12 }}>
-          <Text style={styles.metricLabel}>Budget</Text>
+          <Text style={styles.metricLabel}>Planned Cost Budget</Text>
           <Text style={styles.metricValue}>
-            {formatMoney(adjustedBudget)}
+            {formatMoney(costBudgetCap)}
             </Text>
           </View>
 
@@ -577,6 +457,13 @@ export default function OverviewScreen({
           <Text style={styles.metricLabel}>Spent So Far</Text>
           <Text style={styles.metricValue}>
             {formatMoney(actualSpent)}
+          </Text>
+        </View>
+
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.metricLabel}>Remaining Cost Budget</Text>
+          <Text style={[styles.metricValue, { color: isUnderBudget ? '#38BDF8' : '#EF4444' }]}>
+            {formatMoney(budgetDeltaRaw)}
           </Text>
         </View>
         </View>
@@ -618,8 +505,8 @@ export default function OverviewScreen({
           <View style={styles.projectStatusMetrics}>
             <View style={styles.projectStatusMetricRow}>
               <View>
-                <Text style={styles.projectStatusMetricLabel}>Budget Used</Text>
-                <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of budget spent so far</Text>
+                <Text style={styles.projectStatusMetricLabel}>Cost Budget Used</Text>
+                <Text style={[styles.projectStatusMetricLabel, { fontSize: 10, opacity: 0.7, marginTop: 1, fontWeight: '400' }]}>Percent of planned cost budget used (incl. committed POs)</Text>
               </View>
               <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{budgetProgress.toFixed(0)}%</Text>
             </View>
@@ -677,7 +564,21 @@ export default function OverviewScreen({
           <View style={styles.budgetDetails}>
             <View style={styles.budgetRow}>
               <Text style={styles.budgetLabel}>Contract Value</Text>
-              <Text style={styles.budgetValue}>{formatMoney(profitForecast.contractValue)}</Text>
+              <Text style={styles.budgetValue}>{formatMoney(financials.contractValueBase)}</Text>
+            </View>
+            {approvedChangeOrdersTotal > 0 && (
+              <View style={styles.budgetRow}>
+                <Text style={styles.budgetLabel}>Approved Change Orders</Text>
+                <Text style={styles.budgetValue}>{formatMoney(approvedChangeOrdersTotal)}</Text>
+              </View>
+            )}
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>Adjusted Contract Value</Text>
+              <Text style={styles.budgetValue}>{formatMoney(financials.adjustedContractValue)}</Text>
+            </View>
+            <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
+              <Text style={styles.budgetLabel}>Planned Cost Budget</Text>
+              <Text style={styles.budgetValue}>{formatMoney(financials.adjustedCostBudget)}</Text>
             </View>
             <View style={styles.budgetRow}>
               <View>
@@ -757,7 +658,7 @@ export default function OverviewScreen({
             projectStart.setHours(0, 0, 0, 0);
             projectEnd.setHours(0, 0, 0, 0);
             const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
-            const adj = Number(adjustedBudget || 0);
+            const adj = Number(costBudgetCap || 0);
             const plannedCumulative = points.map((p) => {
               const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
               return { label: p.label, value: Math.round(adj * frac) };
@@ -771,6 +672,7 @@ export default function OverviewScreen({
                 showHeader={false}
                 showLegend={true}
                 scrollable
+                costBudgetStatus={spendingTrendCostStatus}
           />
             );
           })()}
@@ -800,9 +702,9 @@ export default function OverviewScreen({
 
           <View style={styles.budgetDetails}>
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Base Budget</Text>
+            <Text style={styles.budgetLabel}>Contract Value</Text>
             <Text style={styles.budgetValue}>
-                {formatMoney(project.budgeted)}
+                {formatMoney(financials.contractValueBase)}
               </Text>
             </View>
 
@@ -816,14 +718,21 @@ export default function OverviewScreen({
             )}
 
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Total Budget</Text>
+            <Text style={styles.budgetLabel}>Adjusted Contract Value</Text>
             <Text style={styles.budgetValue}>
-                {formatMoney(adjustedBudget)}
+                {formatMoney(financials.adjustedContractValue)}
+              </Text>
+            </View>
+
+            <View style={[styles.budgetRow, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.line }]}>
+            <Text style={styles.budgetLabel}>Planned Cost Budget</Text>
+            <Text style={styles.budgetValue}>
+                {formatMoney(financials.adjustedCostBudget)}
               </Text>
             </View>
 
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Spent So Far</Text>
+            <Text style={styles.budgetLabel}>Actual Costs</Text>
             <Text style={[styles.budgetValue, { color: '#22c55e' }]}>
                 {formatMoney(actualSpent)}
               </Text>
@@ -879,7 +788,7 @@ export default function OverviewScreen({
             </View>
 
             <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Remaining</Text>
+            <Text style={styles.budgetLabel}>Remaining Cost Budget</Text>
             <Text style={[
                   styles.budgetValue,
               { color: isUnderBudget ? Colors.text : '#EF4444' }

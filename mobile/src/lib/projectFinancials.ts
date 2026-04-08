@@ -1,0 +1,302 @@
+/**
+ * Cost vs revenue for project budgeting.
+ * Contract / sell price (grandTotal, bid) is revenue; spend tracking uses planned cost + allocated CO cost.
+ */
+
+const safeNum = (value: unknown) => {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const toPositiveNumber = (value: unknown): number | null => {
+  if (value == null) return null;
+  const numeric =
+    typeof value === 'string'
+      ? Number(String(value).replace(/[$,\s]/g, ''))
+      : Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+};
+
+const firstPositiveNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const resolved = toPositiveNumber(value);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+};
+
+function coalesceChangeOrders(project: any): any[] {
+  const sources = [project?.changeOrders, project?.projectData?.changeOrders];
+  for (const s of sources) {
+    if (Array.isArray(s) && s.length > 0) return s;
+  }
+  return [];
+}
+
+function isApprovedChangeOrder(co: any): boolean {
+  return (
+    (typeof co.approved === 'boolean' && co.approved) ||
+    (typeof co.status === 'string' && co.status.toLowerCase() === 'approved')
+  );
+}
+
+/** Client-facing change order total (sell dollars). */
+export function sumApprovedChangeOrderRevenue(changeOrders: any[]): number {
+  return changeOrders.reduce((sum, co) => {
+    if (!isApprovedChangeOrder(co)) return sum;
+    const amount = safeNum(co.amount ?? co.clientPrice ?? 0);
+    return sum + amount;
+  }, 0);
+}
+
+/**
+ * Estimated cost added by approved COs: explicit materials+labor when present,
+ * else prorate sell amount by plannedCost / contractValueBase.
+ */
+export function sumApprovedChangeOrderEstimatedCost(
+  changeOrders: any[],
+  contractValueBase: number,
+  plannedCostBase: number
+): number {
+  let total = 0;
+  for (const co of changeOrders) {
+    if (!isApprovedChangeOrder(co)) continue;
+    const rev = safeNum(co.amount ?? co.clientPrice ?? 0);
+    const mat = co.materialsAmount != null ? Number(co.materialsAmount) : NaN;
+    const lab = co.laborAmount != null ? Number(co.laborAmount) : NaN;
+    const explicit =
+      (Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0);
+    if (explicit > 0) {
+      total += explicit;
+      continue;
+    }
+    if (rev > 0 && contractValueBase > 0 && plannedCostBase > 0) {
+      total += rev * (plannedCostBase / contractValueBase);
+    }
+  }
+  return total;
+}
+
+/** Original contract / sell price (excludes change orders). */
+export function getContractValueBase(project: any, plannedFromBucketsFallback = 0): number {
+  const ed = project?.estimateData || {};
+  const candidates = [
+    ed?.grandTotal,
+    ed?.bidPrice,
+    ed?.total,
+    ed?.calculatedTotal,
+    project?.bidPrice,
+    project?.projectData?.bidPrice,
+    project?.totalBidPrice,
+    project?.budgeted,
+    project?.projectData?.budgeted,
+    project?.estimatedCost,
+    project?.projectData?.estimatedCost,
+  ];
+  const explicit = firstPositiveNumber(...candidates);
+  if (explicit !== null) return explicit;
+  return Math.max(0, plannedFromBucketsFallback);
+}
+
+export type ProjectFinancialSnapshot = {
+  contractValueBase: number;
+  approvedChangeOrderRevenue: number;
+  adjustedContractValue: number;
+  /** Planned direct job cost from estimate (before change-order cost allocation). */
+  plannedCostBudget: number;
+  /** Estimated cost from approved change orders. */
+  approvedChangeOrderCost: number;
+  /** Spend cap: planned cost + allocated CO cost. */
+  adjustedCostBudget: number;
+};
+
+/**
+ * Sum bucket `budget` values that represent planned job cost.
+ * Excludes buckets that are clearly markup / sell-side / revenue (not cost to build).
+ */
+export function sumPlannedCostFromBuckets(buckets: unknown[] | undefined): number {
+  if (!Array.isArray(buckets)) return 0;
+  return buckets.reduce((sum: number, b: any) => {
+    const name = String(b?.name || "").toLowerCase();
+    if (
+      name.includes("markup") ||
+      name.includes("revenue") ||
+      name.includes("contract value") ||
+      name.includes("sell price") ||
+      (name.includes("profit") && !name.includes("cost"))
+    ) {
+      return sum;
+    }
+    return sum + safeNum(b?.budget);
+  }, 0);
+}
+
+/**
+ * Spending Trend badge: use real cost position vs cap + forecast — not cumulative-curve variance
+ * (which falsely shows "over" when spend is front-loaded but still under budget).
+ */
+export function computeSpendingTrendCostStatus(params: {
+  /** Operational spend cap (planned cost + approved CO cost allocation). */
+  spendCap: number;
+  actualCosts: number;
+  committedPOs: number;
+  forecastFinalCost: number;
+}): { text: "On track" | "At risk" | "Over budget"; color: string } {
+  const cap = safeNum(params.spendCap);
+  const actualPlus = safeNum(params.actualCosts) + safeNum(params.committedPOs);
+  const forecast = safeNum(params.forecastFinalCost);
+  if (cap <= 0) {
+    return { text: "On track", color: "#22c55e" };
+  }
+  if (actualPlus > cap || forecast > cap) {
+    return { text: "Over budget", color: "#ef4444" };
+  }
+  if (forecast >= cap * 0.95) {
+    return { text: "At risk", color: "#f59e0b" };
+  }
+  return { text: "On track", color: "#22c55e" };
+}
+
+/**
+ * Single source of truth for revenue vs cost caps (matches prior BudgetTab / Overview heuristics).
+ */
+export function computeProjectFinancials(
+  project: any,
+  options?: {
+    plannedFromBuckets?: number;
+    contractValueOverride?: number;
+    /** Preferred when line-item costs are missing: sum of cost buckets (see sumPlannedCostFromBuckets). */
+    plannedCostBucketSum?: number;
+  }
+): ProjectFinancialSnapshot {
+  const plannedFromBuckets = options?.plannedFromBuckets ?? 0;
+  const ed = project?.estimateData || {};
+  const changeOrders = coalesceChangeOrders(project);
+
+  let contractValueBase = getContractValueBase(project, plannedFromBuckets);
+  if (!(contractValueBase > 0) && options?.contractValueOverride != null) {
+    const o = toPositiveNumber(options.contractValueOverride);
+    if (o != null) contractValueBase = o;
+  }
+  const approvedChangeOrderRevenue = sumApprovedChangeOrderRevenue(changeOrders);
+  const adjustedContractValue = contractValueBase + approvedChangeOrderRevenue;
+
+  let baseBid = firstPositiveNumber(
+    ed?.grandTotal,
+    ed?.bidPrice,
+    ed?.total,
+    ed?.calculatedTotal,
+    project?.bidPrice,
+    project?.projectData?.bidPrice,
+    ed?.estimateData?.grandTotal,
+    ed?.estimateData?.total
+  );
+  if (baseBid == null && contractValueBase > 0) {
+    const marginPct = Number(project?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
+    baseBid = contractValueBase / (1 - effectiveMargin / 100);
+  }
+
+  const bidForMarkup = baseBid ?? contractValueBase;
+
+  const costFromLineItems = (() => {
+    const bid = ed || project;
+    const materials = (bid?.materialLineItems || []).reduce(
+      (s: number, i: any) => s + Number(i?.total || 0),
+      0
+    );
+    const labor = (bid?.laborLineItems || []).reduce(
+      (s: number, i: any) => s + Number(i?.total || 0),
+      0
+    );
+    const overhead =
+      Number(bid?.equipment || 0) +
+      Number(bid?.facilities || 0) +
+      Number(bid?.insuranceOverhead || 0) +
+      Number(bid?.otherOverhead || 0) +
+      Number(bid?.planCost || 0) +
+      Number(bid?.permitCost || 0) +
+      Number(bid?.otherDirectCost || 0);
+    if (materials + labor + overhead > 0) return materials + labor + overhead;
+    const buckets = project?.buckets || [];
+    const costBuckets = buckets.filter(
+      (b: any) =>
+        (b?.name || '').toLowerCase().includes('labor') ||
+        (b?.name || '').toLowerCase().includes('material') ||
+        (b?.name || '').toLowerCase().includes('overhead')
+    );
+    const fromBuckets = costBuckets.reduce(
+      (s: number, b: any) => s + Number(b?.budget || 0),
+      0
+    );
+    if (fromBuckets > 0) return fromBuckets;
+    const markupBucket = buckets.find((b: any) =>
+      (b?.name || '').toLowerCase().includes('markup')
+    );
+    const markupAmt = Number(markupBucket?.budget || 0);
+    if (bidForMarkup > 0 && markupAmt > 0 && markupAmt < bidForMarkup) {
+      return bidForMarkup - markupAmt;
+    }
+    return 0;
+  })();
+
+  const estimateCostFromParts =
+    Number((ed?.materials ?? project?.materials) || 0) +
+    Number((ed?.labor ?? project?.labor) || 0) +
+    Number((ed?.equipment ?? project?.equipment) || 0) +
+    Number((ed?.facilities ?? project?.facilities) || 0) +
+    Number((ed?.insuranceOverhead ?? project?.insuranceOverhead) || 0) +
+    Number((ed?.otherOverhead ?? project?.otherOverhead) || 0) +
+    Number((ed?.planCost ?? project?.planCost) || 0) +
+    Number((ed?.permitCost ?? project?.permitCost) || 0) +
+    Number((ed?.otherDirectCost ?? project?.otherDirectCost) || 0);
+
+  /**
+   * Planned cost budget = direct cost only (materials, labor, burden, permits, etc.).
+   * Never use: contract sell price, grandTotal, subtotal (often sell), or "revenue − profit" imputation
+   * as a primary source — those mix revenue/markup into the cost cap.
+   */
+  let plannedCostBudget = 0;
+  if (costFromLineItems > 0) {
+    plannedCostBudget = costFromLineItems;
+  } else if (estimateCostFromParts > 0) {
+    plannedCostBudget = estimateCostFromParts;
+  } else {
+    plannedCostBudget = safeNum(
+      project?.estimatedCost ??
+        ed?.estimatedCost ??
+        ed?.totalCost ??
+        ed?.baseCost
+    );
+  }
+  const bucketSumOpt = options?.plannedCostBucketSum;
+  if (plannedCostBudget <= 0 && bucketSumOpt != null && bucketSumOpt > 0) {
+    plannedCostBudget = bucketSumOpt;
+  }
+
+  if (plannedCostBudget <= 0 && bidForMarkup > 0) {
+    const marginPct = Number(project?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
+    if (marginPct > 0 && marginPct < 100) {
+      plannedCostBudget = bidForMarkup * (1 - marginPct / 100);
+    } else {
+      plannedCostBudget = bidForMarkup / 1.18;
+    }
+  }
+  // Do not fall back to contractValueBase — it is typically bid/sell/revenue, not job cost.
+
+  const approvedChangeOrderCost = sumApprovedChangeOrderEstimatedCost(
+    changeOrders,
+    contractValueBase,
+    plannedCostBudget
+  );
+  const adjustedCostBudget = plannedCostBudget + approvedChangeOrderCost;
+
+  return {
+    contractValueBase,
+    approvedChangeOrderRevenue,
+    adjustedContractValue,
+    plannedCostBudget,
+    approvedChangeOrderCost,
+    adjustedCostBudget,
+  };
+}

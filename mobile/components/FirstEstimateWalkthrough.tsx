@@ -22,10 +22,17 @@ type ColorTokens = {
   primary: string;
 };
 
+export type WalkthroughBackdropVariant = 'full' | 'blurOnly' | 'none';
+
 type ShellProps = {
   darkMode: boolean;
   bottomOffset: number;
   children: React.ReactNode;
+  /**
+   * full: dim + blur (default). blurOnly: blur only, no dim — keeps black behind nav/pills true
+   * while still frosting content behind the sheet. none: sheet only.
+   */
+  backdropVariant?: WalkthroughBackdropVariant;
 };
 
 /**
@@ -36,6 +43,7 @@ export function FirstEstimateWalkthroughSheetShell({
   darkMode,
   bottomOffset,
   children,
+  backdropVariant = 'full',
 }: ShellProps) {
   const maxH = Math.round(Dimensions.get('window').height * SHEET_MAX_VH);
 
@@ -44,21 +52,33 @@ export function FirstEstimateWalkthroughSheetShell({
       style={[styles.shellRoot, { zIndex: 2000, elevation: 2000 }]}
       pointerEvents="box-none"
     >
-      <View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          {
-            backgroundColor: darkMode ? 'rgba(0,0,0,0.115)' : 'rgba(0,0,0,0.038)',
-          },
-        ]}
-      />
-      {Platform.OS === 'ios' ? (
+      {backdropVariant === 'full' ? (
+        <>
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: darkMode ? 'rgba(0,0,0,0.115)' : 'rgba(0,0,0,0.038)',
+              },
+            ]}
+          />
+          {Platform.OS === 'ios' ? (
+            <BlurView
+              pointerEvents="none"
+              intensity={darkMode ? 6 : 4}
+              tint={darkMode ? 'dark' : 'light'}
+              style={[StyleSheet.absoluteFillObject, { opacity: darkMode ? 0.5 : 0.31 }]}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {backdropVariant === 'blurOnly' ? (
         <BlurView
           pointerEvents="none"
           intensity={darkMode ? 6 : 4}
           tint={darkMode ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFillObject, { opacity: darkMode ? 0.5 : 0.31 }]}
+          style={[StyleSheet.absoluteFillObject, { opacity: darkMode ? 0.36 : 0.26 }]}
         />
       ) : null}
 
@@ -118,6 +138,10 @@ type IntroContentProps = {
   Colors: ColorTokens;
   onStart: () => void;
   onSkip: () => void;
+  /** Override defaults (e.g. active-project walkthrough on Projects tab). */
+  title?: string;
+  body?: string;
+  startButtonLabel?: string;
 };
 
 export function FirstEstimateWalkthroughIntroSheetContent({
@@ -125,15 +149,18 @@ export function FirstEstimateWalkthroughIntroSheetContent({
   Colors,
   onStart,
   onSkip,
+  title = "Let's build your first estimate",
+  body = "We'll point out the key parts so you can price the job right and bid with confidence.",
+  startButtonLabel = 'Start walkthrough',
 }: IntroContentProps) {
   return (
     <>
-      <Text style={[styles.title, { color: Colors.text }]}>{"Let's build your first estimate"}</Text>
+      <Text style={[styles.title, { color: Colors.text }]}>{title}</Text>
       <Text
         style={[styles.body, { color: darkMode ? 'rgba(248, 250, 252, 0.78)' : Colors.sub }]}
-        numberOfLines={3}
+        numberOfLines={4}
       >
-        We&apos;ll point out the key parts so you can price the job right and bid with confidence.
+        {body}
       </Text>
       <View style={styles.introRow}>
         <LinearGradient
@@ -143,7 +170,7 @@ export function FirstEstimateWalkthroughIntroSheetContent({
           style={styles.gradFlex}
         >
           <Pressable style={styles.gradPadSm} onPress={onStart}>
-            <Text style={styles.gradLabel}>Start walkthrough</Text>
+            <Text style={styles.gradLabel}>{startButtonLabel}</Text>
           </Pressable>
         </LinearGradient>
         <TouchableOpacity onPress={onSkip} style={styles.skipCompact} hitSlop={10} activeOpacity={0.7}>

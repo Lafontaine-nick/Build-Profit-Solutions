@@ -102,4 +102,11 @@ CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_user_settings_updated_at BEFORE UPDATE ON user_settings
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(); 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Account-level first-run / walkthrough flags (Clerk user id or string user id from JWT)
+CREATE TABLE IF NOT EXISTS user_walkthrough_state (
+    user_id VARCHAR(255) PRIMARY KEY,
+    walkthroughs JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+); 

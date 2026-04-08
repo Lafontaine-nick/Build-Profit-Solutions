@@ -20,6 +20,7 @@ import {
   normalizeContractPdfMode,
   filterContractWarningsForAudience,
   normalizeProjectContractCopy,
+  resolvePdfHeaderCompany,
   sanitizeContractDoc,
 } from "./contractTemplate";
 
@@ -891,8 +892,7 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
     day: "numeric",
     year: "numeric",
   });
-  const company =
-    options.branding.companyName || sanitizedDoc.contractor.legalName || "Build Profit Solutions";
+  const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const accentColor = options.branding.accentColorHex || "#22C7A8";
   const contractorName =
     options.branding.contractorName || sanitizedDoc.contractor.contactName || company;

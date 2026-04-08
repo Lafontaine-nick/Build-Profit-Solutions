@@ -77,6 +77,18 @@ export const resolveBrandImageUrl = (profile: any): string | undefined =>
     profile?.avatar,
   );
 
+/** Cover header “company” line: prefer saved company, then doc legal name, then person name before app default. */
+export const resolvePdfHeaderCompany = (
+  branding: ContractBranding,
+  contractor: { legalName?: string; contactName?: string },
+): string =>
+  nonEmpty(
+    branding.companyName,
+    contractor?.legalName,
+    branding.contractorName,
+    contractor?.contactName,
+  ) || "Build Profit Solutions";
+
 export const resolveContractBranding = (profile: any): ContractBranding => {
   const licenseValue = Array.isArray(profile?.licenses)
     ? profile.licenses.find((value: unknown) => String(value || "").trim())

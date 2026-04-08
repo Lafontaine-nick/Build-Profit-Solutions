@@ -25,6 +25,8 @@ import {
   FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
   FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
 } from '@/lib/firstEstimateWalkthroughStorage';
+import { resetActiveProjectWalkthroughStorage } from '@/lib/activeProjectWalkthroughStorage';
+import { resetAllWalkthroughsForAccount } from '@/lib/walkthroughStateService';
 
 interface SettingItem {
   id: string;
@@ -115,6 +117,7 @@ export default function AccountSettingsScreen() {
               const uid = clerkAuthService.getAuthState().user?.id;
               if (uid) {
                 await clearOnboardingCompleteForUser(uid);
+                await resetAllWalkthroughsForAccount(uid);
               } else {
                 await clearAllOnboardingCompletionKeys();
               }
@@ -134,6 +137,7 @@ export default function AccountSettingsScreen() {
               await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
               await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
               await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
+              await resetActiveProjectWalkthroughStorage();
               
               // Navigate directly to onboarding
               router.push('/onboarding');

@@ -60,6 +60,8 @@ import {
   sortNextStepsForControlCenter,
   type ActionBucket,
 } from "@/utils/aiInsightsUi";
+import { getProjectRevenue } from "@/lib/projectRevenue";
+import { computeProfitabilityByProjectType } from "@/lib/completedProjectProfitability";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
 const isDepositMilestone = (m: any): boolean => {
@@ -136,103 +138,6 @@ const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgr
 const { width } = Dimensions.get("window");
 
 type TabKey = "overview" | "analytics" | "calendar" | "insights";
-
-const sanitizePositiveNumber = (value: any): number => {
-  if (value == null) return 0;
-  const num =
-    typeof value === "string"
-      ? Number(value.replace(/[$,\s]/g, ""))
-      : Number(value);
-  return Number.isFinite(num) && num > 0 ? num : 0;
-};
-
-const getProjectRevenue = (project: any): number => {
-  if (!project) return 0;
-
-  // CRITICAL: Use the SAME logic as projects.tsx to ensure consistency
-  // Original budget MUST come from estimate/contract fields ONLY
-  // NEVER use projectData.budgeted or project.budgeted - these may already include change orders!
-  const originalBudgetCandidates: any[] = [
-    project?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal
-    project?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
-    project?.estimateData?.total,           // Tertiary: estimate's total
-    project?.bidPrice,                      // Fallback: project's bidPrice
-    project?.projectData?.bidPrice,         // Fallback: projectData bidPrice
-    project?.projectData?.totalBidPrice,    // Fallback: projectData totalBidPrice
-    project?.total,                         // Fallback: project total
-    project?.totalRevenue,                  // Fallback: totalRevenue
-    project?.contractValue,                 // Fallback: contractValue
-  ];
-
-  let originalBudget = 0;
-  for (const candidate of originalBudgetCandidates) {
-    const sanitized = sanitizePositiveNumber(candidate);
-    if (sanitized > 0) {
-      originalBudget = sanitized;
-      break;
-    }
-  }
-
-  // If no original estimate value exists, return 0
-  if (originalBudget <= 0) {
-    // Only warn for projects that should have a budget (not draft/estimate)
-    const status = (project?.status || '').toString().toLowerCase();
-    if (__DEV__ && status !== 'estimate' && status !== 'draft') {
-      const projectName = project?.title || project?.name || 'Unknown';
-      console.warn(`⚠️ [Dashboard] No original budget found for ${projectName}. Estimate fields missing.`);
-    }
-    return 0;
-  }
-
-  // Collect change orders from all possible locations and compute approved total
-  const changeOrderSources: any[] = [
-    project?.projectData?.changeOrders,
-    project?.changeOrders,
-    (project as any)?.rawProject?.projectData?.changeOrders,
-    (project as any)?.rawProject?.changeOrders,
-  ];
-
-  const collected: any[] = [];
-  for (const source of changeOrderSources) {
-    if (Array.isArray(source) && source.length > 0) {
-      collected.push(...source);
-    }
-  }
-
-  // Deduplicate by id when available, otherwise by title+amount signature
-  const seen = new Set<string>();
-  const uniqueChangeOrders = collected.filter((co: any) => {
-    const key = co?.id != null
-      ? `id:${String(co.id)}`
-      : `sig:${String(co?.title || '')}:${String(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  let approvedChangeOrdersTotal = uniqueChangeOrders.reduce(
-    (sum, co) => {
-      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
-      const isApproved =
-        (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-      return isApproved ? sum + amount : sum;
-    },
-    0
-  );
-
-  // Legacy fallback: some records persist only aggregate CO total
-  if (approvedChangeOrdersTotal <= 0) {
-    approvedChangeOrdersTotal = sanitizePositiveNumber(
-      project?.projectData?.changeOrderTotal ??
-      (project as any)?.changeOrderTotal ??
-      (project as any)?.rawProject?.projectData?.changeOrderTotal
-    );
-  }
-
-  // Core rule: adjusted budget = original budget + approved COs
-  return originalBudget + approvedChangeOrdersTotal;
-};
 
 // Status theme matching projects page
 const statusTheme: Record<string, { bg: string; border: string; color: string }> = {
@@ -2268,7 +2173,7 @@ const DashboardScreen: React.FC = () => {
     () => getStyles(Colors, getTabScrollContentBottomInset(insets.bottom)),
     [Colors, insets.bottom]
   );
-  const { dashboardMetrics, activeProjects, estimates } = useProjectList();
+  const { activeProjects, estimates } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [aiPmMode, setAiPmMode] = useState<boolean>(true);
@@ -2751,6 +2656,9 @@ const DashboardScreen: React.FC = () => {
     const totalBids = pipelineTotals.totalBidValue;
     // activeProjectsValue should only include active projects (not submitted), so don't fallback to totalBids
     const activeProjectsValue = pipelineTotals.activeProjectsValue;
+
+    const projectTypeStats =
+      computeProfitabilityByProjectType(deduplicatedProjects);
     
     const avgMargin =
       projects.length > 0
@@ -2758,11 +2666,12 @@ const DashboardScreen: React.FC = () => {
         : 0;
 
     const result = {
-      totalBids: formatMoneyUSD(totalBids),
-      activeProjects: formatMoneyUSD(activeProjectsValue),
+      totalBids: formatMoneyCompact(totalBids),
+      activeProjects: formatMoneyCompact(activeProjectsValue),
       avgMargin: `${avgMargin.toFixed(1)}%`,
       completedProfit: formatMoneyUSD(pipelineTotals.completedProfit),
       rawCompletedProfit: pipelineTotals.completedProfit,
+      projectTypeStats,
       // Include raw values for debugging
       _rawTotalBids: totalBids,
       _rawActiveProjects: activeProjectsValue,
@@ -2943,7 +2852,6 @@ const DashboardScreen: React.FC = () => {
         {activeTab === "analytics" && (
           <AnalyticsSection
             metrics={metrics}
-            dashboardMetrics={dashboardMetrics}
             activeCount={activeCount}
             activeWonCount={activeWonCount}
             completedCount={completedCount}
@@ -3174,7 +3082,16 @@ const EnhancedMetricCard = ({
                   />
                 </View>
           </View>
-          <Text style={[styles.metricValue, (gradient || label === "Avg Margin") && { color: "#020617" }]}>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.55}
+            style={[
+              styles.metricValue,
+              (gradient || label === "Avg Margin") && { color: "#020617" },
+              { width: "100%" },
+            ]}
+          >
             {value}
           </Text>
           <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "rgba(2,6,23,0.75)" }]}>
@@ -3416,6 +3333,7 @@ interface OverviewSectionProps {
     avgMargin: string;
     completedProfit: string;
     rawCompletedProfit: number;
+    _rawTotalBids?: number;
   };
   projects: any[];
   onProjectPress: (project: any) => void;
@@ -3867,8 +3785,9 @@ interface AnalyticsSectionProps {
     avgMargin: string;
     completedProfit: string;
     rawCompletedProfit: number;
+    projectTypeStats?: { label: string; amount: string; percent: number }[];
+    _rawTotalBids?: number;
   };
-  dashboardMetrics: any;
   activeCount: number;
   activeWonCount: number;
   completedCount: number;
@@ -3878,7 +3797,6 @@ interface AnalyticsSectionProps {
 
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   metrics,
-  dashboardMetrics,
   activeCount,
   activeWonCount,
   completedCount,
@@ -3888,19 +3806,19 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
-  // Simple avg project value for the snapshot card
+  // Simple avg project value for the snapshot card (use raw total — display string may be $12.8M / $123.5M)
   const avgProjectValue = useMemo(() => {
-    const rawTotal = metrics.totalBids; // e.g. "$44K"
-
-    const numeric = parseFloat(rawTotal.replace(/[^\d.]/g, "")); // 44
-    if (!numeric || !activeWonCount) return "$0";
-
-    // If the string contains "K", treat it as thousands
-    const isThousands = /K/i.test(rawTotal);
-    const totalValue = isThousands ? numeric * 1000 : numeric; // 44,000
-
-    return formatMoneyCompact(totalValue / activeWonCount);
-  }, [metrics.totalBids, activeWonCount]);
+    const rawTotal = (metrics as { _rawTotalBids?: number })._rawTotalBids;
+    if (
+      typeof rawTotal !== "number" ||
+      !Number.isFinite(rawTotal) ||
+      rawTotal <= 0 ||
+      !activeWonCount
+    ) {
+      return "$0";
+    }
+    return formatMoneyCompact(rawTotal / activeWonCount);
+  }, [metrics, activeWonCount]);
 
   return (
     <>
@@ -3953,7 +3871,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
         <ProfileAnalytics
           activeWonCount={activeCount}
           completedCount={completedCount}
-          projectTypeStats={dashboardMetrics?.projectTypeStats}
+          projectTypeStats={metrics.projectTypeStats}
           overviewProfit={metrics.rawCompletedProfit ?? 0}
           completedProjects={[...activeProjects, ...estimates].filter(
             (p) => (p.status || "").toString().toLowerCase() === "completed"

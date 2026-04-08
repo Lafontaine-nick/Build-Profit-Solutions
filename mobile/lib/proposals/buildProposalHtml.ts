@@ -14,6 +14,7 @@ import {
   normalizeContractAudience,
   normalizeProjectContractCopy,
   filterContractWarningsForAudience,
+  resolvePdfHeaderCompany,
   sanitizeContractDoc,
 } from "./contractTemplate";
 
@@ -83,7 +84,7 @@ export function getContractPdfPrintFooterParts(
 ): { footerLeft: string; footerCenter: string } {
   const options = resolveProposalOptions(input);
   const sanitizedDoc = sanitizeContractDoc(doc, options);
-  const company = options.branding.companyName || sanitizedDoc.contractor.legalName || "Build Profit Solutions";
+  const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const docTitle =
     options.contractType === "home-improvement"
       ? "Home Improvement Agreement"
@@ -115,7 +116,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     day: "numeric",
     year: "numeric",
   });
-  const company = options.branding.companyName || sanitizedDoc.contractor.legalName || "Build Profit Solutions";
+  const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const contractorName = options.branding.contractorName || sanitizedDoc.contractor.contactName || company;
   const contractorTitle = options.branding.contractorTitle || "Contractor";
   const logo = options.branding.logoUrl || sanitizedDoc.contractor.logoUrl;
