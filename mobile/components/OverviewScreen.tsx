@@ -6,12 +6,17 @@ import Svg, { Circle } from 'react-native-svg';
 import SpendingTrendChart from './SpendingTrendChart';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
-import { computeProfitForecast } from '../src/lib/profitForecast';
+import { computeProfitForecast, computeElapsedCalendarPct } from '../src/lib/profitForecast';
 import {
   computeProjectFinancials,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '../src/lib/projectFinancials';
+import {
+  buildSpendingTrendSamplePoints,
+  resolveProjectScheduleEnd,
+  resolveProjectScheduleStart,
+} from '../src/lib/projectChartTimeline';
 
 // Types for the detailed overview screen
 export type ProjectOverview = {
@@ -319,50 +324,9 @@ export default function OverviewScreen({
     return '#9ca3af';
   };
 
-  // Cumulative spend 0 → currentSpent along calendar (start → min(today, end)); avoids divide-by-tiny-progress blowups.
-  const generateSpendingData = (proj: ProjectOverview) => {
-    const start = new Date(proj.startISO || new Date().toISOString());
-    const end = new Date(proj.endISO || new Date().toISOString());
-    const currentSpent = Number(proj.spent || 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
-
-    const chartEndMs = Math.min(today.getTime(), end.getTime());
-    const spanMs = chartEndMs - start.getTime();
-
-    if (!Number.isFinite(spanMs) || spanMs <= 0) {
-      return [{ date: today.toISOString().split('T')[0], spent: currentSpent }];
-    }
-
-    const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
-    const daysBetweenPoints = 5;
-    const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
-
-    const points: { date: string; spent: number }[] = [];
-    for (let i = 0; i <= numPoints; i++) {
-      const t = i / numPoints;
-      const date = new Date(start.getTime() + spanMs * t);
-      if (date.getTime() > today.getTime()) break;
-      points.push({
-        date: date.toISOString().split('T')[0],
-        spent: Math.round(currentSpent * t),
-      });
-    }
-
-    if (points.length === 0) {
-      return [{ date: today.toISOString().split('T')[0], spent: currentSpent }];
-    }
-
-    const last = points[points.length - 1];
-    if (last.spent !== currentSpent) {
-      last.date = new Date(chartEndMs).toISOString().split('T')[0];
-      last.spent = currentSpent;
-    }
-
-    return points;
-  };
+  /** Cumulative spend from estimate/project start through today (shared with Budget). */
+  const generateSpendingData = (proj: ProjectOverview) =>
+    buildSpendingTrendSamplePoints(proj as unknown as Record<string, unknown>, Number(proj.spent || 0));
 
   const budgetProgress = getBudgetProgress();
   const scheduleProgress = getScheduleProgress();
@@ -373,6 +337,7 @@ export default function OverviewScreen({
   const projectStatus = String((project as any)?.status ?? '').toLowerCase();
   const isProjectCompleted = projectStatus === 'completed';
   const progressForForecast = isProjectCompleted ? 100 : (project.overallProgressPct ?? 0);
+  const elapsedTimePct = computeElapsedCalendarPct(project.startISO, project.endISO);
   const profitForecast = computeProfitForecast({
     contractValue: financials.adjustedContractValue,
     adjustedBudget:
@@ -384,6 +349,7 @@ export default function OverviewScreen({
     actualExpenses: actualSpent,
     committedPOs: purchaseOrdersTotal,
     progressPct: progressForForecast,
+    elapsedTimePct,
     isCompleted: isProjectCompleted,
   });
 
@@ -653,10 +619,8 @@ export default function OverviewScreen({
               value: actualValues[idx] ?? 0,
             }));
 
-            const projectStart = new Date(project.startISO || new Date().toISOString());
-            const projectEnd = new Date(project.endISO || new Date().toISOString());
-            projectStart.setHours(0, 0, 0, 0);
-            projectEnd.setHours(0, 0, 0, 0);
+            const projectStart = resolveProjectScheduleStart(project as unknown as Record<string, unknown>);
+            const projectEnd = resolveProjectScheduleEnd(project as unknown as Record<string, unknown>);
             const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
             const adj = Number(costBudgetCap || 0);
             const plannedCumulative = points.map((p) => {

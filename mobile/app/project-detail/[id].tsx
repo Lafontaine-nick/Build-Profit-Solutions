@@ -12,17 +12,23 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
 import OverviewScreen from '../../components/OverviewScreen';
+import BudgetProfitMixCard from '../../components/BudgetProfitMixCard';
 import BudgetTab from '../../components/BudgetTab';
 import TimelineTabV2 from '../../components/TimelineTabV2';
 import TeamTab from '../../components/TeamTab';
 import ProjectCalendar from '../../components/ProjectCalendar';
 import MessagesTab from '../../components/MessagesTab';
-import { computeProfitForecast } from '../../src/lib/profitForecast';
+import {
+  computeProfitForecast,
+  contractCollectedPctFromMilestones,
+  computeElapsedCalendarPct,
+} from '../../src/lib/profitForecast';
 import {
   computeProjectFinancials,
   sumPlannedCostFromBuckets,
   computeSpendingTrendCostStatus,
 } from '../../src/lib/projectFinancials';
+import { buildSpendingTrendSamplePoints } from '../../src/lib/projectChartTimeline';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
@@ -1290,6 +1296,16 @@ function ProjectDetailContent() {
     const isProjectCompleted = projectStatus === 'completed';
     const progressForForecast = isProjectCompleted ? 100 : scheduleProgress;
 
+    const milestonesForCollection =
+      (liveTimelineMilestones?.length ? liveTimelineMilestones : null) ??
+      (safeProjectData?.milestones as unknown[] | undefined);
+    const contractCollectedPct = contractCollectedPctFromMilestones(
+      milestonesForCollection,
+      financials.adjustedContractValue
+    );
+
+    const elapsedTimePct = computeElapsedCalendarPct(safeProjectData?.startISO, safeProjectData?.endISO);
+
     const profitForecast = computeProfitForecast({
       contractValue: financials.adjustedContractValue,
       adjustedBudget:
@@ -1299,6 +1315,8 @@ function ProjectDetailContent() {
       actualExpenses: totalSpent,
       committedPOs: committedPOsTotal,
       progressPct: progressForForecast,
+      contractCollectedPct,
+      elapsedTimePct,
       isCompleted: isProjectCompleted,
     });
 
@@ -1331,56 +1349,9 @@ function ProjectDetailContent() {
       return '#22c55e'; // green: plenty of time
     };
 
-    // Generate spending data for chart — cumulative spend from $0 at project start to totalSpent at chart end.
-    // Linear along elapsed calendar time (start → min(today, end)). Never divide by near-zero "progress through
-    // full project" (that blew up the last point to hundreds of thousands and broke Y-axis / budget cap).
-    const generateSpendingData = () => {
-      const start = new Date(safeProjectData?.startISO || new Date().toISOString());
-      const end = new Date(safeProjectData?.endISO || new Date().toISOString());
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(0, 0, 0, 0);
-
-      const chartEndMs = Math.min(today.getTime(), end.getTime());
-      const spanMs = chartEndMs - start.getTime();
-
-      if (!Number.isFinite(spanMs) || spanMs <= 0) {
-        return [
-          {
-            date: today.toISOString().split('T')[0],
-            spent: totalSpent,
-          },
-        ];
-      }
-
-      const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
-      const daysBetweenPoints = 5;
-      const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
-
-      const points: { date: string; spent: number }[] = [];
-      for (let i = 0; i <= numPoints; i++) {
-        const t = i / numPoints;
-        const date = new Date(start.getTime() + spanMs * t);
-        if (date.getTime() > today.getTime()) break;
-        points.push({
-          date: date.toISOString().split('T')[0],
-          spent: Math.round(totalSpent * t),
-        });
-      }
-
-      if (points.length === 0) {
-        return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
-      }
-
-      const last = points[points.length - 1];
-      if (last.spent !== totalSpent) {
-        last.date = new Date(chartEndMs).toISOString().split('T')[0];
-        last.spent = totalSpent;
-      }
-
-      return points;
-    };
+    /** Cumulative spend from estimate/project start through today (same as Budget / Overview). */
+    const generateSpendingData = () =>
+      buildSpendingTrendSamplePoints(safeProjectData as Record<string, unknown>, totalSpent);
 
     const formatCurrency = (amount: number) => {
       // Show accurate bid values with 2 decimal places, no rounding
@@ -1463,14 +1434,6 @@ function ProjectDetailContent() {
     };
   }, [safeProjectData, currentDate, liveTimelineMilestones]); // Include liveTimelineMilestones so Schedule matches Timeline tab
 
-  const name = safeProjectData?.title || 'Project';
-  const lastUpdatedLine = useMemo(() => {
-    if (!safeProjectData?.lastUpdated) return 'Last updated: —';
-    const d = new Date(safeProjectData.lastUpdated);
-    if (Number.isNaN(d.getTime())) return 'Last updated: —';
-    return `Last updated: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-  }, [safeProjectData?.lastUpdated]);
-
   const renderTabContent = () => {
     try {
       console.log('🔍 Rendering tab:', activeTab);
@@ -1495,15 +1458,13 @@ function ProjectDetailContent() {
                   : pfStatus === 'At Risk'
                     ? '#F97316'
                     : '#EF4444';
-          const fmt = (n: number) =>
-            `$${(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           return (
             <View style={styles.wideContainer}>
               <LinearGradient
                 colors={['#2DFFC4', '#00A6FF']}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
-                style={styles.overviewBorder}
+                style={styles.overviewGradientRing}
               >
                 <View style={[styles.overviewInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
                   <View style={styles.overviewPageHeader}>
@@ -1513,181 +1474,59 @@ function ProjectDetailContent() {
                     </Text>
                   </View>
 
-                  {/* Hero summary — same grey card chrome as Financial Health / Project Status */}
-                  <View style={[styles.innerCard, styles.overviewHeroCard]}>
-                      <Text style={styles.overviewHeroProjectName} numberOfLines={2}>
-                        {name}
-                      </Text>
-                      <Text style={styles.overviewHeroMeta}>{lastUpdatedLine}</Text>
+                  <BudgetProfitMixCard
+                    currency={(safeProjectData as { currency?: string }).currency ?? 'USD'}
+                    adjustedContractValue={metrics.financials.adjustedContractValue}
+                    spentToDate={metrics.totalSpent}
+                    committedPOsTotal={metrics.committedPOsTotal}
+                    adjustedCostBudget={metrics.financials.adjustedCostBudget}
+                    profitForecast={metrics.profitForecast}
+                    onChipsPress={() => {
+                      void Haptics.selectionAsync();
+                      setActiveTab('Budget');
+                    }}
+                    marginTop={0}
+                  />
 
-                      <View style={styles.overviewHeroMetricsGrid}>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Adjusted Contract Value</Text>
-                          <Text style={styles.overviewHeroMetricValue}>{fmt(metrics.financials?.adjustedContractValue)}</Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Planned Cost Budget</Text>
-                          <Text style={styles.overviewHeroMetricValue}>{fmt(metrics.financials?.adjustedCostBudget)}</Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Projected Profit</Text>
-                          <Text
-                            style={[
-                              styles.overviewHeroMetricValue,
-                              { color: (pf?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
-                            ]}
-                          >
-                            {fmt(pf?.projectedProfit ?? 0)}
-                          </Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Projected Margin</Text>
-                          <Text style={[styles.overviewHeroMetricValue, { color: marginAccent }]}>
-                            {(pf?.projectedMarginPct ?? 0).toFixed(1)}%
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.overviewHeroFooter}>
-                        <View style={styles.overviewHeroFooterCol}>
-                          <Text style={styles.overviewHeroFooterLabel}>Spent So Far</Text>
-                          <Text style={styles.overviewHeroFooterValue}>{metrics.spentDisplay}</Text>
-                        </View>
-                        <View style={styles.overviewHeroFooterCol}>
-                          <Text style={styles.overviewHeroFooterLabel}>Cost Budget Used</Text>
-                          <Text style={styles.overviewHeroFooterValue}>{metrics.spentPercentUsed.toFixed(1)}%</Text>
-                        </View>
-                        <View style={[styles.overviewHeroFooterCol, styles.overviewHeroFooterColEnd]}>
-                          <Text style={styles.overviewHeroFooterLabel}>Status</Text>
-                          <View
-                            style={[
-                              styles.overviewHeroStatusChip,
-                              { backgroundColor: `${metrics.spendingTrendCostStatus.color}28` },
-                            ]}
-                          >
-                            <Text style={[styles.overviewHeroStatusChipText, { color: metrics.spendingTrendCostStatus.color }]}>
-                              {overviewCostStatusHeadline}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                  </View>
-
-                  {/* Financial Health — supporting detail */}
+                  {/* Project Status — cost/schedule progress */}
                   <View style={styles.innerCardContainer}>
                     <View style={styles.innerCard}>
                       <View style={styles.overviewCardHeaderRow}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                          <View style={styles.iconBadge}>
-                            <Feather name="pie-chart" size={16} color="#22c55e" />
-                          </View>
-                          <Text style={styles.overviewSectionTitle}>Financial Health</Text>
-                        </View>
-                        <View
-                          style={{
-                            backgroundColor: `${(pfStatus === 'Strong' ? '#22C55E' : pfStatus === 'Healthy' ? '#10B981' : pfStatus === 'Tight' ? '#F59E0B' : pfStatus === 'At Risk' ? '#F97316' : '#EF4444')}22`,
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            borderRadius: 999,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color:
-                                pfStatus === 'Strong'
-                                  ? '#22C55E'
-                                  : pfStatus === 'Healthy'
-                                    ? '#10B981'
-                                    : pfStatus === 'Tight'
-                                      ? '#F59E0B'
-                                      : pfStatus === 'At Risk'
-                                        ? '#F97316'
-                                        : '#EF4444',
-                              fontWeight: '700',
-                              fontSize: 12,
-                            }}
-                          >
-                            {pf?.status || '—'}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.overviewFhGrid}>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Adjusted Contract Value</Text>
-                          <Text style={styles.overviewHeroMetricValue}>
-                            ${(metrics.financials?.adjustedContractValue ?? 0).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Planned Cost Budget</Text>
-                          <Text style={styles.overviewHeroMetricValue}>
-                            ${(metrics.financials?.adjustedCostBudget ?? 0).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Projected Profit</Text>
-                          <Text
-                            style={[
-                              styles.overviewHeroMetricValue,
-                              { color: (pf?.projectedProfit ?? 0) >= 0 ? '#22c55e' : '#EF4444' },
-                            ]}
-                          >
-                            ${(pf?.projectedProfit ?? 0).toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </Text>
-                        </View>
-                        <View style={styles.overviewHeroMetricCell}>
-                          <Text style={styles.overviewHeroMetricLabel}>Projected Margin</Text>
-                          <Text style={[styles.overviewHeroMetricValue, { color: marginAccent }]}>
-                            {(pf?.projectedMarginPct ?? 0).toFixed(1)}%
-                          </Text>
-                          <Text style={styles.overviewFhMarginHelper}>
-                            Based on current spend vs completion progress
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Project Status — same card chrome + metric typography as Financial Health */}
-                  <View style={styles.innerCardContainer}>
-                    <View style={styles.innerCard}>
-                      <View style={styles.overviewCardHeaderRow}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                        <View style={styles.overviewCardHeaderTitleCluster}>
                           <View style={styles.iconBadge}>
                             <Feather name="bar-chart-2" size={16} color="#22c55e" />
                           </View>
-                          <Text style={styles.overviewSectionTitle}>Project Status</Text>
+                          <View style={styles.overviewCardHeaderTitleWrap}>
+                            <Text
+                              style={styles.overviewSectionTitle}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              Project Status
+                            </Text>
+                          </View>
+                        </View>
+                        <View
+                          style={[
+                            styles.overviewHeroStatusChip,
+                            styles.overviewHeaderStatusChip,
+                            {
+                              backgroundColor: `${metrics.spendingTrendCostStatus.color}29`,
+                              borderColor: `${metrics.spendingTrendCostStatus.color}38`,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.overviewHeroStatusChipText, { color: metrics.spendingTrendCostStatus.color }]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
+                            {overviewCostStatusHeadline}
+                          </Text>
                         </View>
                       </View>
 
                       <View style={[styles.projectStatusMetrics, { paddingTop: 2 }]}>
-                        <View style={[styles.projectStatusMetricRow, { alignItems: 'center' }]}>
-                          <Text style={styles.overviewHeroMetricLabel}>Status</Text>
-                          <View
-                            style={[
-                              styles.overviewHeroStatusChip,
-                              { backgroundColor: `${metrics.spendingTrendCostStatus.color}28` },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.overviewHeroStatusChipText,
-                                { color: metrics.spendingTrendCostStatus.color },
-                              ]}
-                            >
-                              {overviewCostStatusHeadline}
-                            </Text>
-                          </View>
-                        </View>
                         <View style={styles.projectStatusMetricRow}>
                           <View style={{ flex: 1, paddingRight: 10 }}>
                             <Text style={styles.overviewHeroMetricLabel}>Cost Budget Used</Text>
@@ -1695,7 +1534,12 @@ function ProjectDetailContent() {
                               Percent of planned cost budget used (incl. committed POs)
                             </Text>
                           </View>
-                          <Text style={styles.overviewHeroMetricValue}>
+                          <Text
+                            style={styles.overviewHeroMetricValueSecondary}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.75}
+                          >
                             {metrics.spentPercentUsed.toFixed(1)}%
                           </Text>
                         </View>
@@ -1713,7 +1557,12 @@ function ProjectDetailContent() {
 
                         <View style={[styles.projectStatusMetricRow, styles.projectStatusMetricRowSpaced]}>
                           <Text style={styles.overviewHeroMetricLabel}>Schedule</Text>
-                          <Text style={styles.overviewHeroMetricValue}>
+                          <Text
+                            style={styles.overviewHeroMetricValueSecondary}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.75}
+                          >
                             {metrics.scheduleProgress.toFixed(0)}%
                           </Text>
                         </View>
@@ -1735,13 +1584,66 @@ function ProjectDetailContent() {
                       <View style={styles.projectStatusDates}>
                         <View style={styles.projectStatusDateRow}>
                           <Text style={styles.overviewHeroMetricLabel}>Start</Text>
-                          <Text style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}>{metrics.startDateDisplay}</Text>
+                          <Text
+                            style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}
+                            numberOfLines={1}
+                          >
+                            {metrics.startDateDisplay}
+                          </Text>
                         </View>
-                        <View style={styles.projectStatusDateRow}>
+                        <View style={[styles.projectStatusDateRow, styles.projectStatusDateRowLast]}>
                           <Text style={styles.overviewHeroMetricLabel}>End</Text>
-                          <Text style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}>{metrics.endDateDisplay}</Text>
+                          <Text
+                            style={[styles.overviewHeroMetricValue, { fontSize: 15 }]}
+                            numberOfLines={1}
+                          >
+                            {metrics.endDateDisplay}
+                          </Text>
                         </View>
                       </View>
+                    </View>
+                  </View>
+
+                  {/* Financial Health — headline + outlook only (figures live in snapshot above) */}
+                  <View style={styles.innerCardContainer}>
+                    <View style={styles.innerCard}>
+                      <View style={styles.overviewCardHeaderRow}>
+                        <View style={styles.overviewCardHeaderTitleCluster}>
+                          <View style={styles.iconBadge}>
+                            <Feather name="pie-chart" size={16} color="#22c55e" />
+                          </View>
+                          <View style={styles.overviewCardHeaderTitleWrap}>
+                            <Text
+                              style={styles.overviewSectionTitle}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              Financial Health
+                            </Text>
+                          </View>
+                        </View>
+                        <View
+                          style={[
+                            styles.overviewFhStatusPill,
+                            styles.overviewHeaderStatusChip,
+                            {
+                              backgroundColor: `${marginAccent}29`,
+                              borderColor: `${marginAccent}38`,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.overviewFhStatusPillText, { color: marginAccent }]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
+                            {pf?.status || '—'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.overviewFhSlimBody}>
+                        Profit outlook reflects spend pace versus completion progress — distinct from cost status in the snapshot above.
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -1756,10 +1658,15 @@ function ProjectDetailContent() {
             </View>
           );
         case 'Timeline':
-          return <TimelineTabV2 project={safeProjectData as any} />;
+          return (
+            <View style={styles.wideContainer}>
+              <TimelineTabV2 embedded project={safeProjectData as any} />
+            </View>
+          );
         case 'Calendar':
           return (
             <ProjectCalendar
+              embedded
               projectId={id as string}
               projectName={safeProjectData?.title || 'Project'}
               milestones={safeProjectData?.milestones || []}
@@ -1789,7 +1696,11 @@ function ProjectDetailContent() {
             />
           );
         case 'Team':
-          return <TeamTab refreshTrigger={teamRefreshTrigger} />;
+          return (
+            <View style={styles.wideContainer}>
+              <TeamTab embedded refreshTrigger={teamRefreshTrigger} />
+            </View>
+          );
         default:
           return <OverviewScreen project={safeProjectData} theme='dark' />;
       }
@@ -2070,6 +1981,24 @@ function ProjectDetailContent() {
             )}
           </View>
 
+          {/* AI PM — single stable slot under tabs (not floating over cards) */}
+          <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowAIAssistant(true);
+              }}
+              style={styles.aiFloatingInline}
+              accessibilityRole="button"
+              accessibilityLabel={t('dashboard.aiPmModeOn')}
+            >
+              <Ionicons name="sparkles" size={15} color="#34D399" />
+              <Text style={[styles.aiFloatingText, styles.aiFloatingTextOn]} numberOfLines={1}>
+                {t('dashboard.aiPmModeOn')}
+              </Text>
+            </Pressable>
+          </View>
+
           {/* CONTENT */}
           <View style={styles.tabContent}>
             {renderTabContent()}
@@ -2094,47 +2023,6 @@ function ProjectDetailContent() {
             />
           </FirstEstimateWalkthroughSheetShell>
         ) : null}
-
-        {/* FLOATING AI PM — same look as Dashboard FAB; opens assistant (does not toggle mode) */}
-        <Pressable
-          style={[
-            styles.aiFloatingWrapper,
-            activeTab === 'Calendar' && styles.aiFloatingWrapperCalendarTab,
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setShowAIAssistant(true);
-          }}
-        >
-          <LinearGradient
-            colors={
-              activeTab === 'Calendar'
-                ? ['#134e2a', '#115e59']
-                : ['#15803d', '#0e7490']
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[
-              styles.aiFloating,
-              activeTab === 'Calendar' && styles.aiFloatingCalendarTab,
-            ]}
-          >
-            <Ionicons
-              name="sparkles"
-              size={activeTab === 'Calendar' ? 14 : 15}
-              color="#ecfdf5"
-            />
-            <Text
-              style={[
-                styles.aiFloatingText,
-                styles.aiFloatingTextOn,
-                activeTab === 'Calendar' && styles.aiFloatingTextCalendarTab,
-              ]}
-            >
-              {t('dashboard.aiPmModeOn')}
-            </Text>
-          </LinearGradient>
-        </Pressable>
 
         {/* Project Activation Flow */}
         <ProjectActivationFlow
@@ -3392,145 +3280,226 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginHorizontal: -20,
     paddingHorizontal: 4,
   },
-  overviewBorder: {
-    borderRadius: 22,
+  /** Green → blue gradient frame (1px ring via padding) */
+  overviewGradientRing: {
+    borderRadius: 30,
     padding: 1,
-    marginBottom: 16,
+    marginBottom: 14,
+    overflow: "hidden",
   },
   overviewInner: {
     backgroundColor: darkMode ? Colors.card : Colors.cardDark,
-    borderRadius: 20,
-    padding: 14,
+    borderRadius: 29,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
   },
   overviewPageHeader: {
-    marginBottom: 14,
+    marginBottom: 16,
   },
   overviewPageTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "800",
-    letterSpacing: -0.35,
-    color: Colors.text,
+    letterSpacing: -0.4,
+    color: darkMode ? "#F5F7FA" : Colors.text,
   },
   overviewPageSubtitle: {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
-    color: darkMode ? "rgba(255,255,255,0.87)" : "#64748b",
+    fontWeight: "500",
+    color: darkMode ? "rgba(255,255,255,0.62)" : "#64748b",
   },
   overviewHeroCard: {
-    marginBottom: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
   },
   overviewHeroProjectName: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-    color: Colors.text,
-    lineHeight: 26,
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    color: darkMode ? "#F5F7FA" : Colors.text,
+    lineHeight: 22,
   },
   overviewHeroMeta: {
     marginTop: 6,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.72)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.62)" : "#64748b",
   },
   overviewHeroMetricsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 16,
-    marginHorizontal: -6,
+    marginTop: 18,
+    marginHorizontal: -8,
   },
   overviewHeroMetricCell: {
     width: "50%",
-    paddingHorizontal: 6,
-    marginBottom: 14,
+    paddingHorizontal: 8,
+    marginBottom: 18,
   },
   overviewHeroMetricLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-    color: darkMode ? "rgba(255,255,255,0.55)" : "#64748b",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    color: darkMode ? "rgba(255,255,255,0.50)" : "#64748b",
     textTransform: "uppercase",
   },
+  /** Legacy single value style — dates / misc */
   overviewHeroMetricValue: {
-    marginTop: 4,
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.35,
+    color: darkMode ? "#F5F7FA" : Colors.text,
+  },
+  overviewHeroMetricValueSecondary: {
+    marginTop: 6,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: -0.28,
+    color: darkMode ? "#F5F7FA" : Colors.text,
+  },
+  overviewHeroMetricValueHero: {
+    marginTop: 6,
+    fontSize: 21,
+    fontWeight: "800",
     letterSpacing: -0.3,
-    color: Colors.text,
+    color: darkMode ? "#F5F7FA" : Colors.text,
   },
   overviewHeroFooter: {
+    marginTop: 18,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: darkMode ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.1)",
+  },
+  overviewHeroFooterLabelsRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginTop: 4,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: darkMode ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.1)",
+    width: "100%",
+  },
+  overviewHeroFooterValuesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginTop: 6,
   },
   overviewHeroFooterCol: {
     flex: 1,
     minWidth: 0,
     paddingRight: 8,
   },
+  overviewHeroFooterColLeft: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 6,
+    alignItems: "flex-start",
+  },
+  /** Slightly wider + centered so "Cost Budget Used" aligns cleanly vs side columns */
+  overviewHeroFooterColMiddle: {
+    flex: 1.2,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    alignItems: "center",
+  },
   overviewHeroFooterColEnd: {
     alignItems: "flex-end",
     paddingRight: 0,
+    paddingLeft: 6,
   },
   overviewHeroFooterLabel: {
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: "600",
-    letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.5)" : "#94a3b8",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    letterSpacing: 0.45,
+    color: darkMode ? "rgba(255,255,255,0.50)" : "#94a3b8",
     textTransform: "uppercase",
   },
+  overviewHeroFooterLabelCentered: {
+    textAlign: "center",
+    width: "100%",
+    letterSpacing: 0.4,
+  },
   overviewHeroFooterValue: {
-    marginTop: 3,
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-    color: Colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.28,
+    color: darkMode ? "#F5F7FA" : Colors.text,
+  },
+  overviewHeroFooterValueCentered: {
+    textAlign: "center",
+    width: "100%",
   },
   overviewHeroStatusChip: {
-    marginTop: 4,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
     maxWidth: "100%",
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  overviewHeaderStatusChip: {
+    marginTop: 0,
+    flexShrink: 0,
+    alignSelf: "center",
   },
   overviewHeroStatusChipText: {
     fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.1,
-  },
-  overviewFhGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginHorizontal: -6,
-    marginTop: 4,
+    letterSpacing: 0,
   },
   overviewFhMarginHelper: {
-    marginTop: 4,
-    fontSize: 11,
-    lineHeight: 15,
-    color: darkMode ? "rgba(255,255,255,0.55)" : "#8891a0",
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: darkMode ? "rgba(255,255,255,0.58)" : "#8891a0",
     fontWeight: "500",
+  },
+  overviewFhSlimBody: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: darkMode ? "rgba(255,255,255,0.58)" : "#64748b",
+  },
+  overviewFhStatusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  overviewFhStatusPillText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   overviewCardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 18,
+  },
+  overviewCardHeaderTitleCluster: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  overviewCardHeaderTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "center",
   },
   overviewSectionTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: -0.25,
-    color: Colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: darkMode ? "#F5F7FA" : Colors.text,
   },
   overviewProjectTitle: {
     fontSize: 17,
@@ -3779,18 +3748,25 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 18,
   },
   innerCardContainer: {
-    marginTop: 14,
+    marginTop: 18,
   },
   innerCardBorder: {
     borderRadius: 20,
     padding: 1,
   },
   innerCard: {
-    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 16,
-    padding: 15,
-    borderWidth: darkMode ? 1 : 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
+    backgroundColor: darkMode ? "#0B0D10" : Colors.surface2,
+    borderRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    borderWidth: 1,
+    borderColor: darkMode ? "rgba(255,255,255,0.06)" : Colors.line,
+    shadowColor: "#000",
+    shadowOpacity: darkMode ? 0.18 : 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: darkMode ? 4 : 2,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -3799,15 +3775,15 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 16,
   },
   iconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.4)",
+    borderColor: "rgba(34, 197, 94, 0.22)",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 12,
   },
   cardTitle: {
     fontSize: 18,
@@ -3868,9 +3844,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 6,
   },
   projectStatusBarTrack: {
-    height: 5,
+    height: 10,
     borderRadius: 999,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)',
     overflow: 'hidden',
   },
   projectStatusBarFill: {
@@ -3878,18 +3854,23 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 999,
   },
   projectStatusDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
-    marginTop: 14,
-    marginBottom: 12,
+    height: 1,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)',
+    marginTop: 18,
+    marginBottom: 16,
   },
   projectStatusDates: {
     gap: 12,
+    paddingBottom: 8,
   },
   projectStatusDateRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingBottom: 14,
+  },
+  projectStatusDateRowLast: {
+    paddingBottom: 20,
   },
   statusContent: {
     flexDirection: "row",
@@ -4085,46 +4066,33 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 2,
   },
-  // FLOATING AI PM — matches Dashboard FAB (opens assistant on project detail)
-  aiFloatingWrapper: {
-    position: "absolute",
-    right: 18,
-    bottom: 68,
-    zIndex: 10,
+  aiPmUnderTabs: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    marginTop: 2,
+    marginBottom: 8,
   },
-  aiFloating: {
+  aiFloatingInline: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
-    shadowColor: "#000000",
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    backgroundColor: "rgba(34,197,94,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.2)",
+    maxWidth: "100%",
   },
   aiFloatingText: {
     marginLeft: 6,
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#d4d4d8",
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#34D399",
   },
   aiFloatingTextOn: {
-    color: "#ecfdf5",
-  },
-  aiFloatingWrapperCalendarTab: {
-    opacity: 0.9,
-    bottom: 74,
-  },
-  aiFloatingCalendarTab: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-  },
-  aiFloatingTextCalendarTab: {
-    fontSize: 10,
+    color: "#34D399",
   },
   chartBox: {
     marginTop: 8,

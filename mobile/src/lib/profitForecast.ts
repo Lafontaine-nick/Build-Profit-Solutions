@@ -8,12 +8,28 @@ export interface ProfitForecastInput {
   estimatedCostBaseline?: number;
   actualExpenses: number;
   committedPOs: number;
+  /** Timeline / milestone completion % (0–100), same source as Timeline “Overall progress”. */
   progressPct?: number;
+  /**
+   * Optional: share of **contract value** collected or marked received on milestones (0–100).
+   * Used for reporting and light cash-vs-cost alignment; does not override accrual cost logic.
+   */
+  contractCollectedPct?: number;
+  /**
+   * Optional: calendar elapsed through the job (0–100), from project start → end vs **today**.
+   * When cost burn is far ahead of calendar (e.g. 66% budget in month 1 of 14), extrapolated EAC can exceed the budget.
+   */
+  elapsedTimePct?: number;
   /** When true, forecast final cost = actual expenses (job done, no more spending) */
   isCompleted?: boolean;
 }
 
-export type ForecastMethod = 'run-rate' | 'completed' | 'budget-fallback' | 'hybrid';
+export type ForecastMethod =
+  | 'run-rate'
+  | 'completed'
+  | 'budget-fallback'
+  | 'hybrid'
+  | 'calendar-run-rate';
 
 export interface ProfitForecastOutput {
   contractValue: number;
@@ -33,6 +49,16 @@ export interface ProfitForecastOutput {
   status: ProfitStatus;
   /** How the forecast was derived — for UI labeling and future hybrid model */
   forecastMethod: ForecastMethod;
+  /** Schedule % passed in (timeline). */
+  scheduleProgressPct: number;
+  /** (Actual + committed POs) / planned cost budget × 100 */
+  costBudgetUsedPct: number;
+  /** max(schedule, costBudgetUsed) — used for run-rate completion so cost pace vs timeline both matter */
+  blendedProgressPct: number;
+  /** Echo of optional input when provided */
+  contractCollectedPct?: number;
+  /** Calendar elapsed % (start→end vs today) when provided */
+  elapsedTimePct?: number;
 }
 
 const clamp = (value: number, min: number, max: number) =>
@@ -52,43 +78,119 @@ export function getProfitStatus(marginPct: number): ProfitStatus {
 }
 
 /**
- * Forecast logic — baseline is trend-based (run-rate) extrapolation.
+ * Sum milestone payment amounts that look **collected / completed** as % of contract (0–100).
+ */
+export function contractCollectedPctFromMilestones(
+  milestones: unknown[] | undefined,
+  adjustedContractValue: number
+): number | undefined {
+  if (!Array.isArray(milestones) || !(adjustedContractValue > 0)) return undefined;
+  let collected = 0;
+  for (const raw of milestones) {
+    const m = raw as Record<string, unknown>;
+    const amt = safeNum(m.amount ?? m.paymentAmount);
+    if (!(amt > 0)) continue;
+    const st = String(m.status ?? '').toLowerCase();
+    const done =
+      m.collected === true ||
+      st.includes('collected') ||
+      st.includes('received') ||
+      st === 'completed' ||
+      (Number(m.progressPct) || 0) >= 99.5;
+    if (done) collected += amt;
+  }
+  return Math.min(100, (collected / adjustedContractValue) * 100);
+}
+
+/** Share of calendar from startISO → endISO that has elapsed as of now (0–100). */
+export function computeElapsedCalendarPct(
+  startISO: string | undefined,
+  endISO: string | undefined,
+  nowMs: number = Date.now()
+): number | undefined {
+  if (!startISO || !endISO) return undefined;
+  const t0 = new Date(startISO).getTime();
+  const t1 = new Date(endISO).getTime();
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || !(t1 > t0)) return undefined;
+  const raw = (nowMs - t0) / (t1 - t0);
+  return Math.min(100, Math.max(0, raw * 100));
+}
+
+/**
+ * Forecast logic — trend-based run-rate with **blended completion** + optional **calendar** stress.
  *
- * Current: CPI-based EAC — forecastFinalCost = actualExpenses / progressRatio
- * Does NOT account for: front/back-loaded cost curves, labor vs material mix,
- * committed POs timing, subcontract phasing, schedule phase weighting.
+ * - **Blended** uses max(schedule %, cost-budget-used %) for pace vs schedule and cost.
+ * - **Calendar** extrapolation: `actual / (elapsedTimePct/100)` — if you’ve spent most of the
+ *   budget early in the project window, this can exceed the planned cap and **pull margin down**
+ *   (we do **not** cap at budget when calendar EAC is higher — that was hiding real overrun risk).
+ * - **Cap at planned budget** still applies when nothing suggests overrun (preserves Contract & Cost alignment).
  *
- * Next phase: Hybrid construction-aware model using:
- * - actual spend + committed POs
- * - remaining budget by category
- * - project phase / milestone weighting
- * - optional PM adjustment
+ * **Collections:** passed through for UI only; accrual margin is cost vs contract.
  */
 export function computeProfitForecast(input: ProfitForecastInput): ProfitForecastOutput {
   const contractValue = safeNum(input.contractValue);
   const adjustedBudget = safeNum(input.adjustedBudget);
   const actualExpenses = safeNum(input.actualExpenses);
   const committedPOs = safeNum(input.committedPOs);
-  const progressPct = clamp(safeNum(input.progressPct), 0, 100);
-  const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
+  const scheduleProgressPct = clamp(safeNum(input.progressPct), 0, 100);
+  const actualPlusCommitted = actualExpenses + committedPOs;
+  const costBudgetUsedPct =
+    adjustedBudget > 0 ? Math.min(100, (actualPlusCommitted / adjustedBudget) * 100) : 0;
+  /** Completion % for run-rate: both timeline and cost burn vs cap matter */
+  const blendedProgressPct = Math.max(scheduleProgressPct, costBudgetUsedPct);
+  const progressRatio = blendedProgressPct > 0 ? blendedProgressPct / 100 : 0;
 
-  const isCompleted = input.isCompleted === true || progressRatio >= 1;
+  const collectedInput = input.contractCollectedPct;
+  const contractCollectedPct =
+    collectedInput != null && Number.isFinite(collectedInput)
+      ? clamp(safeNum(collectedInput), 0, 100)
+      : undefined;
+
+  const elapsedInput = input.elapsedTimePct;
+  const elapsedTimePct =
+    elapsedInput != null && Number.isFinite(elapsedInput)
+      ? clamp(safeNum(elapsedInput), 0, 100)
+      : undefined;
+
+  /** Implied EAC if spend continued at average $/calendar-elapsed through the full duration. */
+  let eacCalendar: number | null = null;
+  if (elapsedTimePct != null && elapsedTimePct >= 2 && actualExpenses > 0) {
+    const elapsedRatio = Math.max(elapsedTimePct / 100, 0.02);
+    eacCalendar = actualExpenses / elapsedRatio;
+  }
+
+  /** Job “done” follows timeline / explicit flag only — not cost-budget % (avoid treating schedule 100% + low cost as finished). */
+  const isCompleted = input.isCompleted === true || scheduleProgressPct >= 99.5;
   let forecastFinalCost = adjustedBudget;
   let forecastMethod: ForecastMethod = 'budget-fallback';
 
   if (actualExpenses > 0 || committedPOs > 0) {
-    const actualPlusCommitted = actualExpenses + committedPOs;
     if (isCompleted) {
       forecastFinalCost = actualExpenses;
       forecastMethod = 'completed';
     } else if (progressRatio > 0.01 && actualExpenses > 0) {
-      // Run-rate: actual / progress = projected total at completion
+      // Run-rate: actual / blended completion → implied total at completion
       const cpiForecast = actualExpenses / progressRatio;
       forecastFinalCost = Math.max(actualPlusCommitted, cpiForecast);
       forecastMethod = 'run-rate';
+
+      const withinCostBudget = actualPlusCommitted <= adjustedBudget;
+      if (withinCostBudget && adjustedBudget > 0 && forecastFinalCost > adjustedBudget) {
+        forecastFinalCost = adjustedBudget;
+        forecastMethod = 'hybrid';
+      }
+
+      if (eacCalendar != null && eacCalendar > forecastFinalCost) {
+        forecastFinalCost = eacCalendar;
+        forecastMethod = 'calendar-run-rate';
+      }
     } else {
       forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
       forecastMethod = 'budget-fallback';
+      if (eacCalendar != null && eacCalendar > forecastFinalCost) {
+        forecastFinalCost = eacCalendar;
+        forecastMethod = 'calendar-run-rate';
+      }
     }
   }
 
@@ -118,6 +220,11 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
     profitVarianceVsEstimate,
     status,
     forecastMethod,
+    scheduleProgressPct,
+    costBudgetUsedPct,
+    blendedProgressPct,
+    contractCollectedPct,
+    elapsedTimePct,
   };
 }
 

@@ -3625,33 +3625,35 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 8,
     gap: 8,
   },
-  // FLOATING AI PM — matches project-detail Overview FAB (opens assistant on Estimate)
-  aiFloatingWrapper: {
-    position: "absolute",
-    right: 18,
-    bottom: 96, // above pill tab bar (project-detail uses 68 — no tab bar)
-    zIndex: 10,
-  },
+  // AI PM pill (inline under Bid Summary stepper; same look as project-detail `aiFloatingInline`)
   aiFloating: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
-    shadowColor: "#000000",
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    backgroundColor: "rgba(34,197,94,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.2)",
+    maxWidth: "100%",
   },
   aiFloatingText: {
     marginLeft: 6,
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#d4d4d8",
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#34D399",
   },
   aiFloatingTextOn: {
-    color: "#ecfdf5",
+    color: "#34D399",
+  },
+  // Same slot as project-detail Overview: row under chrome, pill right-aligned
+  aiPmUnderTabs: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    marginTop: 14,
+    marginBottom: 8,
   },
 });
 
@@ -9499,10 +9501,11 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <View style={[s.wideContainer, {
-            paddingVertical: 22,
+            paddingTop: 4,
+            paddingBottom: 22,
             backgroundColor: darkMode ? Colors.card : Colors.bg,
             marginBottom: 16,
-            marginTop: 16,
+            marginTop: 0,
           }]}>
                 {/* Total Bid Section - green to blue gradient border */}
               <LinearGradient
@@ -9923,7 +9926,7 @@ export default function EstimateGeneratorScreen() {
       
       case 1: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 24 }]}>
+          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 24, paddingTop: 4 }]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
@@ -10154,7 +10157,7 @@ export default function EstimateGeneratorScreen() {
       
       case 2: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
@@ -10303,7 +10306,7 @@ export default function EstimateGeneratorScreen() {
         
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
+            <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
                 {/* Header */}
                 <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
                 <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
@@ -10961,7 +10964,7 @@ export default function EstimateGeneratorScreen() {
 
         return (
           <>
-            <View style={[s.wideContainer, { marginTop: 14, marginBottom: 80 }]}>
+            <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
               {/* Header */}
               <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <GlassBorderCard radius={22} innerRadius={20} pad={14} lightBg>
@@ -11561,7 +11564,7 @@ export default function EstimateGeneratorScreen() {
 
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={[s.wideContainer, { marginTop: 16, marginBottom: 100 }]}>
+            <View style={[s.wideContainer, { marginTop: 0, marginBottom: 100, paddingTop: 4 }]}>
               <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
@@ -12345,7 +12348,7 @@ export default function EstimateGeneratorScreen() {
 
       case 6: {
         return (
-          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
@@ -12659,7 +12662,7 @@ export default function EstimateGeneratorScreen() {
         const step7FieldLabel = { color: step7Muted, fontSize: 11, fontWeight: '600', marginBottom: 5, letterSpacing: 0.2 };
         
         return (
-          <View style={[s.wideContainer, { marginTop: 16, marginBottom: 80 }]}>
+          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
@@ -16786,6 +16789,26 @@ export default function EstimateGeneratorScreen() {
           </View>
         </LinearGradient>
       </View>
+
+      {/* AI PM — directly under Bid Summary stepper (same slot as project Overview under tabs) */}
+      {step !== 8 && !firstEstimateWalkthroughUiActive && (
+        <View style={[s.wideContainer, s.aiPmUnderTabs]}>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              openEstimateCopilot('');
+            }}
+            style={s.aiFloating}
+            accessibilityRole="button"
+            accessibilityLabel={t('dashboard.aiPmModeOn')}
+          >
+            <Ionicons name="sparkles" size={15} color="#34D399" />
+            <Text style={[s.aiFloatingText, s.aiFloatingTextOn]} numberOfLines={1}>
+              {t('dashboard.aiPmModeOn')}
+            </Text>
+          </Pressable>
+        </View>
+      )}
       
         {/* Step Content */}
         {(() => {
@@ -17341,35 +17364,6 @@ export default function EstimateGeneratorScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-
-      {/* FLOATING AI PM — same look as project Overview (opens estimate AI assistant) */}
-      {step !== 8 && !firstEstimateWalkthroughUiActive && (
-        <Pressable
-          style={s.aiFloatingWrapper}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            openEstimateCopilot('');
-          }}
-        >
-          <LinearGradient
-            colors={['#15803d', '#0e7490']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.aiFloating}
-          >
-            <Ionicons
-              name="sparkles"
-              size={15}
-              color="#ecfdf5"
-            />
-            <Text
-              style={[s.aiFloatingText, s.aiFloatingTextOn]}
-            >
-              {t('dashboard.aiPmModeOn')}
-            </Text>
-          </LinearGradient>
-        </Pressable>
-      )}
 
       <AIAssistantModal
         visible={showAIAssistant}

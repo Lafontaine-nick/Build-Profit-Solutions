@@ -14,7 +14,7 @@ import {
   InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, MaterialCommunityIcons, Ionicons, Feather } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -25,13 +25,16 @@ import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
-import { computeProfitForecast, type ProfitForecastOutput } from '../src/lib/profitForecast';
+import {
+  computeProfitForecast,
+  contractCollectedPctFromMilestones,
+  computeElapsedCalendarPct,
+  type ProfitForecastOutput,
+} from '../src/lib/profitForecast';
 import {
   computeProjectFinancials,
   sumPlannedCostFromBuckets,
-  computeSpendingTrendCostStatus,
 } from '../src/lib/projectFinancials';
-import SpendingTrendChart from './SpendingTrendChart';
 import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
@@ -222,6 +225,7 @@ export default function BudgetTab({
   const changeOrderRateRef = useRef<TextInput>(null);
   const changeOrderAmountRef = useRef<TextInput>(null);
   const changeOrderIsEditingRef = useRef(false);
+  const budgetScrollViewRef = useRef<ScrollView>(null);
 
   const onChangeOrderSqftChange = useCallback((text: string) => {
     setChangeOrderSqftInput(sanitizeOneDecimalField(text));
@@ -577,6 +581,24 @@ export default function BudgetTab({
     const status = String((projectFromList as any)?.status ?? (projectData as any)?.status ?? '').toLowerCase();
     return status === 'completed';
   }, [projectFromList, projectData]);
+  const contractCollectedPct = useMemo(
+    () =>
+      contractCollectedPctFromMilestones(
+        ((projectFromList as any)?.milestones ||
+          (projectData as any)?.milestones ||
+          ed?.paymentMilestones) as unknown[] | undefined,
+        financials.adjustedContractValue
+      ),
+    [projectFromList, projectData, ed?.paymentMilestones, financials.adjustedContractValue]
+  );
+  const elapsedTimePct = useMemo(
+    () =>
+      computeElapsedCalendarPct(
+        (projectFromList as any)?.startISO ?? (projectData as any)?.startISO,
+        (projectFromList as any)?.endISO ?? (projectData as any)?.endISO
+      ),
+    [projectFromList, projectData]
+  );
   const computedProfitForecast = useMemo(
     () =>
       computeProfitForecast({
@@ -590,6 +612,8 @@ export default function BudgetTab({
         actualExpenses: actual,
         committedPOs: purchaseOrdersTotal,
         progressPct: progressForForecast,
+        contractCollectedPct,
+        elapsedTimePct,
         isCompleted: isProjectCompleted,
       }),
     [
@@ -599,120 +623,12 @@ export default function BudgetTab({
       actual,
       purchaseOrdersTotal,
       progressForForecast,
+      contractCollectedPct,
+      elapsedTimePct,
       isProjectCompleted,
     ]
   );
   const profitForecast = profitForecastOverride ?? computedProfitForecast;
-  const profitStatusColor =
-    profitForecast.status === 'Strong' ? '#22C55E' :
-    profitForecast.status === 'Healthy' ? '#10B981' :
-    profitForecast.status === 'Tight' ? '#F59E0B' :
-    profitForecast.status === 'At Risk' ? '#F97316' : '#EF4444';
-
-  const spendingTrendCostStatus = useMemo(
-    () =>
-      computeSpendingTrendCostStatus({
-        spendCap: financials.adjustedCostBudget,
-        actualCosts: actual,
-        committedPOs: purchaseOrdersTotal,
-        forecastFinalCost: profitForecast.forecastFinalCost,
-      }),
-    [
-      financials.adjustedCostBudget,
-      actual,
-      purchaseOrdersTotal,
-      profitForecast.forecastFinalCost,
-    ]
-  );
-
-  const costBudgetUsedPctDisplay = useMemo(() => {
-    const cap = financials.adjustedCostBudget;
-    if (!(cap > 0)) return 0;
-    return Math.min(100, Math.max(0, ((actual + purchaseOrdersTotal) / cap) * 100));
-  }, [financials.adjustedCostBudget, actual, purchaseOrdersTotal]);
-
-  const spendingTrendStatusHeadline = useMemo(
-    () =>
-      spendingTrendCostStatus.text
-        .split(' ')
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' '),
-    [spendingTrendCostStatus.text],
-  );
-
-  const spendingDataPoints = useMemo(() => {
-    const start = new Date(
-      (projectFromList as any)?.startISO ||
-        (projectData as any)?.startISO ||
-        new Date().toISOString()
-    );
-    const end = new Date(
-      (projectFromList as any)?.endISO || (projectData as any)?.endISO || new Date().toISOString()
-    );
-    const totalSpent = actual;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
-    const chartEndMs = Math.min(today.getTime(), end.getTime());
-    const spanMs = chartEndMs - start.getTime();
-    if (!Number.isFinite(spanMs) || spanMs <= 0) {
-      return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
-    }
-    const elapsedDays = Math.max(1, Math.ceil(spanMs / (1000 * 60 * 60 * 24)));
-    const daysBetweenPoints = 5;
-    const numPoints = Math.min(24, Math.max(8, Math.ceil(elapsedDays / daysBetweenPoints)));
-    const points: { date: string; spent: number }[] = [];
-    for (let i = 0; i <= numPoints; i++) {
-      const t = i / numPoints;
-      const date = new Date(start.getTime() + spanMs * t);
-      if (date.getTime() > today.getTime()) break;
-      points.push({
-        date: date.toISOString().split('T')[0],
-        spent: Math.round(totalSpent * t),
-      });
-    }
-    if (points.length === 0) {
-      return [{ date: today.toISOString().split('T')[0], spent: totalSpent }];
-    }
-    const last = points[points.length - 1];
-    if (last.spent !== totalSpent) {
-      last.date = new Date(chartEndMs).toISOString().split('T')[0];
-      last.spent = totalSpent;
-    }
-    return points;
-  }, [actual, projectFromList, projectData]);
-
-  const spendingChartCumulative = useMemo(() => {
-    const formatLabel = (d: Date) =>
-      d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-    const points = spendingDataPoints.map((p) => {
-      const d = new Date(p.date + (p.date.includes('T') ? '' : 'T12:00:00'));
-      return { ts: d.getTime(), label: formatLabel(d), spent: p.spent ?? 0 };
-    });
-    const labels = points.map((p) => p.label);
-    const actualValues = points.map((p) => p.spent);
-    const actualCumulative = labels.map((label, idx) => ({
-      label,
-      value: actualValues[idx] ?? 0,
-    }));
-    const projectStart = new Date(
-      (projectFromList as any)?.startISO || new Date().toISOString()
-    );
-    const projectEnd = new Date((projectFromList as any)?.endISO || new Date().toISOString());
-    projectStart.setHours(0, 0, 0, 0);
-    projectEnd.setHours(0, 0, 0, 0);
-    const totalSpanMs = Math.max(1, projectEnd.getTime() - projectStart.getTime());
-    const cap = financials.adjustedCostBudget;
-    const plannedCumulative = points.map((p) => {
-      const frac = Math.min(1, Math.max(0, (p.ts - projectStart.getTime()) / totalSpanMs));
-      return {
-        label: p.label,
-        value: Math.round(cap * frac),
-      };
-    });
-    return { actualCumulative, plannedCumulative, totalBudget: cap };
-  }, [spendingDataPoints, financials.adjustedCostBudget, projectFromList]);
 
   // Calculate projected costs for alerts
   const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
@@ -777,6 +693,8 @@ export default function BudgetTab({
           ? 'yellow'
           : 'green';
 
+  /** Softer than hero #22C55E so “available” doesn’t compete with projected profit */
+  const remainingAvailableAccent = '#86efac';
   const remainingColor =
     tone === 'red'
       ? '#ef4444'
@@ -784,7 +702,7 @@ export default function BudgetTab({
         ? '#f97316'
         : tone === 'yellow'
           ? '#facc15'
-          : '#22c55e';
+          : remainingAvailableAccent;
 
   const theme = darkMode
     ? {
@@ -805,22 +723,29 @@ export default function BudgetTab({
       };
 
   /** Match project Overview secondary text: neutral grey / soft white (see [id].tsx mutedLabel). */
-  const pageSubtext = darkMode ? 'rgba(255,255,255,0.85)' : '#8891a0';
-  const pageCaption = darkMode ? 'rgba(255,255,255,0.74)' : '#8891a0';
+  const pageSubtext = darkMode ? 'rgba(255,255,255,0.88)' : '#8891a0';
+  const pageCaption = darkMode ? 'rgba(255,255,255,0.78)' : '#8891a0';
+  /** Tertiary: instructional one-liners (e.g. usage bar) — dimmer than row sublabels */
+  const pageInstructional = darkMode ? 'rgba(255,255,255,0.56)' : '#94a3b8';
 
   /** Budget Totals: row labels + helper lines under margin rows */
   const budgetTotalsTheme = {
     ...theme,
     subtext: pageSubtext,
     helperSubtext: pageCaption,
+    instructionalHint: pageInstructional,
+    /** ~4.6:1 on black — clearer than 0.5 white while staying “secondary” vs values */
+    metricLabelColor: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
+    valueNeutral: darkMode ? '#F5F7FA' : theme.text,
   };
 
   const totalSpent = actual;
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
-      <ScrollView 
-        style={styles.scrollContent} 
+      <ScrollView
+        ref={budgetScrollViewRef}
+        style={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 24 }}
       >
@@ -833,117 +758,44 @@ export default function BudgetTab({
             !darkMode && { backgroundColor: Colors.bg },
           ]}
         >
-          {/* Outer green-to-blue border wrapping Budget Details header and Budget Totals card */}
+          {/* Green → blue gradient frame (matches Project Overview) */}
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={['#2DFFC4', '#00A6FF']}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
-            style={styles.overviewBorder}
+            style={styles.overviewGradientRing}
           >
             <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-              {/* Baseline Locked Indicator */}
-              <View style={[styles.baselineIndicator, { 
-                backgroundColor: Colors.surface2, 
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line 
-              }]}>
-                <Ionicons name="lock-closed" size={14} color={pageSubtext} />
-                <View style={styles.baselineIndicatorTextWrap}>
-                  <Text style={[styles.baselineIndicatorText, { color: pageSubtext }]}>
-                    Budget baseline locked to your estimate
-                  </Text>
-                  <Text style={[styles.baselineIndicatorSubtext, { color: pageCaption }]}>
-                    Expenses and POs are tracked automatically
-                  </Text>
-                </View>
+              {/* Budget page header — matches Project Overview (overviewPageHeader / title / subtitle) */}
+              <View style={styles.budgetPageHeader}>
+                <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                  Budget
+                </Text>
+                <Text
+                  style={[
+                    styles.budgetPageSubtitle,
+                    { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                  ]}
+                >
+                  Detailed cost tracking, profitability, and category performance
+                </Text>
               </View>
 
-              {/* Budget Details Header */}
-              <View style={styles.budgetHeaderRow}>
-                <View>
-                  <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget</Text>
-                  <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
-                    Detailed cost tracking, profitability, and category performance
-                  </Text>
-                </View>
-              </View>
-
-              {/* 1. Spending trend — visual + minimal context */}
-              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
-                  <View
-                    style={[
-                      styles.spendingTrendHeaderBlock,
-                      { borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.08)' : Colors.line },
-                    ]}
-                  >
-                    <View style={styles.spendingTrendTitleRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                        <Feather name="trending-up" size={20} color="#22c55e" />
-                        <Text style={[styles.totalsTitle, { color: theme.text, marginLeft: 12 }]}>Spending Trend</Text>
-                      </View>
-                      <Text
-                        style={{
-                          color: theme.text,
-                          fontSize: 15,
-                          fontWeight: '700',
-                          fontVariant: ['tabular-nums'],
-                        }}
-                      >
-                        {costBudgetUsedPctDisplay.toFixed(1)}% used
-                      </Text>
-                    </View>
-                    <View style={styles.spendingTrendLegendRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: '#34d399' }} />
-                        <Text style={{ color: pageSubtext, fontSize: 12, fontWeight: '700' }}>Actual</Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: '#60a5fa' }} />
-                        <Text style={{ color: pageSubtext, fontSize: 12, fontWeight: '700' }}>Planned</Text>
-                      </View>
-                      <View
-                        style={{
-                          backgroundColor: `${spendingTrendCostStatus.color}22`,
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text style={{ color: spendingTrendCostStatus.color, fontSize: 11, fontWeight: '700' }}>
-                          {spendingTrendStatusHeadline}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.spendingTrendCapLine, { color: pageCaption }]}>
-                      Planned cost cap {money(financials.adjustedCostBudget, currency)}
-                    </Text>
-                  </View>
-                  <View style={{ paddingHorizontal: 4, paddingBottom: 8 }}>
-                    <SpendingTrendChart
-                      actualCumulative={spendingChartCumulative.actualCumulative}
-                      plannedCumulative={spendingChartCumulative.plannedCumulative}
-                      totalBudget={spendingChartCumulative.totalBudget}
-                      showHeader={false}
-                      showLegend={false}
-                      scrollable
-                      hideLegendSpendTotal
-                      costBudgetStatus={spendingTrendCostStatus}
-                      compact
-                      hideReferenceLineLabel
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* 2. Contract & cost detail */}
-              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
+              {/* Contract & cost detail */}
+              <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
+                <View
+                  style={[
+                    styles.sectionCard,
+                    darkMode && styles.sectionCardElevated,
+                    darkMode ? styles.premiumBudgetCard : { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line },
+                  ]}
+                >
                   <View style={styles.budgetCardHeaderMatch}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                       <View style={styles.budgetOverviewIconBadge}>
                         <MaterialIcons name="account-balance-wallet" size={16} color="#22c55e" />
                       </View>
-                      <Text style={[styles.budgetSectionTitleMatch, { color: theme.text }]}>Contract &amp; Cost</Text>
+                      <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>Contract &amp; Cost</Text>
                     </View>
                   </View>
                   <View style={styles.totalsContent}>
@@ -970,7 +822,7 @@ export default function BudgetTab({
                       variant="book"
                       metricLabel
                     />
-                    <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.08)' }]} />
+                    <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)' }]} />
                     <Row
                       label="Planned Cost Budget"
                       value={money(financials.adjustedCostBudget, currency)}
@@ -1000,14 +852,21 @@ export default function BudgetTab({
                       metricLabel
                     />
                     <View style={styles.remainingSection}>
-                      <Text style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.subtext }]}>
+                      <Text
+                        style={[styles.remainingLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}
+                      >
                         Usage vs planned cost budget
                       </Text>
-                      <Text style={[styles.remainingBarHint, { color: pageCaption }]}>
+                      <Text style={[styles.remainingBarHint, { color: budgetTotalsTheme.instructionalHint }]}>
                         Fill = share of planned cost budget used (ticks at 25%, 50%, 75%).
                       </Text>
                       <Bar pct={remainingPercent} tone={tone} usagePct={usagePercent} />
-                      <Text style={[styles.remainingText, { color: remainingColor }]}>
+                      <Text
+                        style={[styles.remainingText, { color: remainingColor }]}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.75}
+                      >
                         {remaining > 0
                           ? `${money(remaining, currency)} available`
                           : `Over budget by ${money(Math.abs(remaining), currency)}`}
@@ -1016,72 +875,9 @@ export default function BudgetTab({
                   </View>
                 </View>
               </View>
-
-              {/* 3. Profitability */}
-              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View style={[styles.sectionCard, darkMode && styles.sectionCardElevated, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }]}>
-                  <View style={styles.budgetCardHeaderMatch}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.budgetOverviewIconBadge}>
-                        <MaterialIcons name="show-chart" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={[styles.budgetSectionTitleMatch, { color: theme.text }]}>Profitability</Text>
-                    </View>
-                  </View>
-                  <View style={styles.totalsContent}>
-                    <Row
-                      label="Forecast Final Cost"
-                      sublabel={
-                        profitForecast.forecastMethod === 'run-rate'
-                          ? 'Trend forecast'
-                          : profitForecast.forecastMethod === 'completed'
-                            ? 'Actual (job complete)'
-                            : undefined
-                      }
-                      value={money(profitForecast.forecastFinalCost, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="intel"
-                      metricLabel
-                    />
-                    <Row
-                      label="Projected Profit"
-                      value={money(profitForecast.projectedProfit, currency)}
-                      theme={budgetTotalsTheme}
-                      valueColor={profitForecast.projectedProfit >= 0 ? '#22c55e' : '#ef4444'}
-                      variant="intel"
-                      metricLabel
-                    />
-                    <Row
-                      label="Spend-to-Date Margin"
-                      sublabel="Based on costs logged so far"
-                      value={`${(profitForecast.spendToDateMarginPct ?? 0).toFixed(1)}%`}
-                      theme={budgetTotalsTheme}
-                      valueColor={profitStatusColor}
-                      variant="intel"
-                      metricLabel
-                    />
-                    <Row
-                      label="Projected Margin"
-                      sublabel="Based on current spend vs completion progress"
-                      value={`${profitForecast.projectedMarginPct.toFixed(1)}%`}
-                      theme={budgetTotalsTheme}
-                      valueColor={profitStatusColor}
-                      variant="intel"
-                      metricLabel
-                    />
-                    <Row
-                      label="Profit Variance vs Estimate"
-                      value={money(profitForecast.profitVarianceVsEstimate, currency)}
-                      theme={budgetTotalsTheme}
-                      valueColor={profitForecast.profitVarianceVsEstimate <= 0 ? '#ef4444' : '#22c55e'}
-                      variant="intel"
-                      metricLabel
-                    />
-                  </View>
-                </View>
-              </View>
             </View>
-          </LinearGradient>
+            </LinearGradient>
+          </View>
 
           {/* Tabs */}
           <View style={styles.tabContainer}>
@@ -1105,22 +901,26 @@ export default function BudgetTab({
 
           {tab === 'lines' && (
             <View style={{ marginTop: 12 }}>
-              {/* Outer green-to-blue border wrapping all budget category cards */}
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={['#2DFFC4', '#00A6FF']}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
-                style={styles.overviewBorder}
+                style={styles.overviewGradientRing}
               >
                 <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                  {/* Header for Budget Categories */}
-                  <View style={styles.budgetHeaderRow}>
-                    <View>
-                      <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Budget Categories</Text>
-                      <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
-                        Track spending by category
-                      </Text>
-                    </View>
+                  {/* Header for Budget Categories — same type scale as main Budget page */}
+                  <View style={styles.budgetPageHeader}>
+                    <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                      Budget Categories
+                    </Text>
+                    <Text
+                      style={[
+                        styles.budgetPageSubtitle,
+                        { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                      ]}
+                    >
+                      Track spending by category
+                    </Text>
                   </View>
 
                   {stableBuckets.map((item, index) => {
@@ -1164,19 +964,31 @@ export default function BudgetTab({
 
                         <View style={styles.budgetStatusRow}>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Budget</Text>
-                            <Text style={[styles.statusValue, { color: theme.text, fontSize: 16, marginTop: 3, fontWeight: '700' }]}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
+                              Budget
+                            </Text>
+                            <Text
+                              style={[
+                                styles.rowValueMetric,
+                                { color: budgetTotalsTheme.valueNeutral, marginTop: 6 },
+                              ]}
+                            >
                               {money(budgetValue, currency)}
                             </Text>
                           </View>
                           <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Spent</Text>
-                            <Text style={[styles.statusValue, { 
-                              color: isOverBudget ? theme.accent : theme.text,
-                              fontSize: 16,
-                              fontWeight: '700',
-                              marginTop: 3
-                            }]}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
+                              Spent
+                            </Text>
+                            <Text
+                              style={[
+                                styles.rowValueMetric,
+                                {
+                                  color: isOverBudget ? theme.accent : budgetTotalsTheme.valueNeutral,
+                                  marginTop: 6,
+                                },
+                              ]}
+                            >
                               {money(spent, currency)}
                             </Text>
                           </View>
@@ -1206,7 +1018,7 @@ export default function BudgetTab({
                                 Remaining {money(budgetValue - spent, currency)}
                               </Text>
                             )}
-                            <Text style={[styles.categoryPercentMuted, { color: pageCaption }]}>
+                            <Text style={[styles.categoryPercentMuted, { color: pageInstructional }]}>
                               {spentPercent.toFixed(1)}% used
                             </Text>
                           </View>
@@ -1223,22 +1035,26 @@ export default function BudgetTab({
 
         {tab === 'cos' && (
           <View style={{ marginTop: 12 }}>
-            {/* Outer green-to-blue border wrapping header and both order cards */}
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={['#2DFFC4', '#00A6FF']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={styles.overviewBorder}
+              style={styles.overviewGradientRing}
             >
               <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                {/* Header for Orders */}
-                <View style={styles.budgetHeaderRow}>
-                  <View>
-                    <Text style={[styles.budgetHeaderTitle, { color: theme.text }]}>Orders</Text>
-                    <Text style={[styles.budgetHeaderSubtitle, { color: pageCaption }]}>
-                      Purchase orders and change orders
-                    </Text>
-                  </View>
+                {/* Header for Orders — same type scale as Budget Categories */}
+                <View style={styles.budgetPageHeader}>
+                  <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                    Orders
+                  </Text>
+                  <Text
+                    style={[
+                      styles.budgetPageSubtitle,
+                      { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                    ]}
+                  >
+                    Purchase orders and change orders
+                  </Text>
                 </View>
 
                 {/* Purchase Orders Card */}
@@ -1292,8 +1108,10 @@ export default function BudgetTab({
                           </View>
 
                           <View style={styles.budgetCardFooterRow}>
-                            <Text style={[styles.statusLabel, { color: pageCaption }]}>Total</Text>
-                            <Text style={[styles.statusValue, { color: theme.text, fontSize: 17, fontWeight: '700' }]}>
+                            <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
+                              Total
+                            </Text>
+                            <Text style={[styles.rowValueMetric, { color: budgetTotalsTheme.valueNeutral }]}>
                               {money(poTotal, currency)}
                             </Text>
                           </View>
@@ -1351,8 +1169,10 @@ export default function BudgetTab({
                       </View>
 
                       <View style={styles.budgetCardFooterRow}>
-                        <Text style={[styles.statusLabel, { color: pageCaption }]}>Total</Text>
-                        <Text style={[styles.statusValue, { color: theme.text, fontSize: 17, fontWeight: '700' }]}>
+                        <Text style={[styles.rowLabelMetric, { color: budgetTotalsTheme.metricLabelColor }]}>
+                          Total
+                        </Text>
+                        <Text style={[styles.rowValueMetric, { color: budgetTotalsTheme.valueNeutral }]}>
                           {money(coTotal, currency)}
                         </Text>
                       </View>
@@ -1365,7 +1185,6 @@ export default function BudgetTab({
             </LinearGradient>
           </View>
         )}
-        </View>
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -1984,6 +1803,7 @@ function Row({
   valueColor,
   variant = 'book',
   metricLabel = false,
+  valueEmphasis,
 }: {
   label: string;
   sublabel?: string;
@@ -1993,8 +1813,11 @@ function Row({
   variant?: 'book' | 'intel';
   /** Match Overview Financial Health: uppercase muted labels + strong values */
   metricLabel?: boolean;
+  /** Larger type for key profitability figures */
+  valueEmphasis?: 'hero';
 }) {
   const helperColor = theme.helperSubtext ?? theme.subtext;
+  const labelMuted = theme.metricLabelColor ?? helperColor;
   const isIntel = variant === 'intel';
   return (
     <View style={[styles.row, isIntel ? styles.rowIntel : styles.rowBook]}>
@@ -2003,7 +1826,7 @@ function Row({
           style={[
             styles.rowLabel,
             metricLabel && styles.rowLabelMetric,
-            { color: metricLabel ? helperColor : theme.subtext },
+            { color: metricLabel ? labelMuted : theme.subtext },
           ]}
         >
           {label}
@@ -2015,11 +1838,14 @@ function Row({
       <Text
         style={[
           styles.rowValue,
-          metricLabel && styles.rowValueMetric,
+          metricLabel && variant === 'book' && styles.rowValueMetric,
+          metricLabel && variant === 'intel' && (valueEmphasis === 'hero' ? styles.rowValueIntelHero : styles.rowValueIntelMetric),
           !metricLabel && isIntel && styles.rowValueIntel,
-          { color: valueColor || theme.text, fontVariant: ['tabular-nums'] },
+          { color: valueColor ?? theme.text, fontVariant: ['tabular-nums'] },
         ]}
-        numberOfLines={2}
+        numberOfLines={1}
+        adjustsFontSizeToFit={metricLabel && variant === 'intel'}
+        minimumFontScale={metricLabel && variant === 'intel' ? 0.88 : undefined}
       >
         {value}
       </Text>
@@ -2157,11 +1983,11 @@ function Bar({
         return ['#facc15', '#f59e0b'];
       case 'green':
       default:
-        return ['#22c55e', '#22d3ee'];
+        return ['#22c55e', '#15803d'];
     }
   };
 
-  const tickColor = 'rgba(148, 163, 184, 0.28)';
+  const tickColor = 'rgba(255,255,255,0.28)';
 
   return (
     <View style={styles.barContainer}>
@@ -2218,19 +2044,41 @@ const styles = StyleSheet.create({
   budgetContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
     paddingHorizontal: 4, // Match dashboard wideContainer pattern
-    paddingVertical: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
   },
+  /** Project detail: parent `wideContainer` matches Overview; no extra top inset so gradient aligns under AI PM */
   budgetContainerEmbedded: {
     paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 18,
   },
-  overviewBorder: {
-    borderRadius: 20,
+  overviewGradientRing: {
+    borderRadius: 30,
     padding: 1,
-    marginBottom: 16,
+    marginBottom: 14,
+    overflow: 'hidden',
   },
   overviewInner: {
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 29,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
+  },
+  /** Main page title block — mirrors project-detail overviewPageHeader / overviewPageTitle / overviewPageSubtitle */
+  budgetPageHeader: {
+    marginBottom: 16,
+  },
+  budgetPageTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  budgetPageSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   budgetHeaderRow: {
     flexDirection: "row",
@@ -2259,25 +2107,39 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 15,
   },
+  premiumBudgetCard: {
+    backgroundColor: '#0B0D10',
+    borderRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 4,
+  },
   /** Match project Overview Financial Health / innerCard headers */
   budgetCardHeaderMatch: {
-    marginBottom: 12,
+    marginBottom: 18,
   },
   budgetOverviewIconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.4)',
+    borderColor: 'rgba(34, 197, 94, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
   },
   budgetSectionTitleMatch: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.25,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -2286,11 +2148,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(148, 163, 184, 0.08)',
-  },
-  spendingTrendHeaderBlock: {
-    paddingBottom: 12,
-    marginBottom: 2,
-    borderBottomWidth: 1,
   },
   spendingTrendTitleRow: {
     flexDirection: 'row',
@@ -2312,30 +2169,30 @@ const styles = StyleSheet.create({
   },
   sectionCardElevated: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 4,
   },
   totalsContent: {
     padding: 0,
   },
   totalsDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginTop: 8,
-    marginBottom: 4,
+    height: 1,
+    marginTop: 10,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
   rowBook: {
-    paddingVertical: 3,
+    paddingVertical: 8,
   },
   rowIntel: {
-    paddingVertical: 5,
+    paddingVertical: 8,
   },
   rowLabelCol: {
     flex: 1,
@@ -2346,16 +2203,16 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   rowLabelMetric: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   rowSublabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 6,
     fontWeight: '500',
   },
   rowValue: { 
@@ -2363,7 +2220,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 22,
     textAlign: 'right',
-    maxWidth: '46%',
+    maxWidth: '56%',
     flexShrink: 0,
   },
   rowValueIntel: {
@@ -2371,27 +2228,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.2,
   },
-  rowValueMetric: {
+  rowValueIntelMetric: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
+    letterSpacing: -0.28,
+  },
+  rowValueIntelHero: {
+    fontSize: 21,
+    fontWeight: '800',
     letterSpacing: -0.3,
   },
-  remainingSection: { marginTop: 10 },
+  rowValueMetric: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.28,
+  },
+  remainingSection: { marginTop: 12 },
   remainingLabel: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
   remainingLabelMetric: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 3,
+    marginBottom: 4,
   },
   remainingBarHint: {
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '500',
-    marginBottom: 6,
+    letterSpacing: 0.15,
+    marginBottom: 8,
   },
-  remainingText: { fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'right' },
+  remainingText: { fontSize: 13, fontWeight: '700', marginTop: 8, textAlign: 'right', maxWidth: '100%' },
   actionButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
   tabContainer: { flexDirection: 'row', gap: 8, marginTop: 20, marginBottom: 14 },
   tabPillWrap: {
@@ -2486,9 +2354,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 3,
   },
+  /** Category / PO / CO card titles — matches project overview overviewHeroProjectName */
   budgetCardTitle: {
     fontSize: 17,
     fontWeight: '700',
+    letterSpacing: -0.2,
     lineHeight: 22,
     flexShrink: 1,
   },
@@ -2561,11 +2431,14 @@ const styles = StyleSheet.create({
   categoryRemainingEmphasis: {
     fontSize: 14,
     fontWeight: '700',
+    letterSpacing: -0.2,
     fontVariant: ['tabular-nums'],
   },
   categoryPercentMuted: {
     fontSize: 12,
-    fontWeight: '600',
+    lineHeight: 16,
+    fontWeight: '500',
+    letterSpacing: 0.15,
   },
   budgetCardFooterRow: {
     flexDirection: 'row',
@@ -2575,14 +2448,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(148, 163, 184, 0.12)',
-  },
-  statusLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  statusValue: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   aiSuggested: { fontSize: 12, color: '#22c55e', marginTop: 4 },
   addButton: {
@@ -2904,9 +2769,9 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { fontSize: 14, fontWeight: '500' },
   barContainer: {
-    height: 10,
+    height: 14,
     borderRadius: 999,
-    backgroundColor: 'rgba(148, 163, 184, 0.2)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
     position: 'relative',
   },
@@ -3192,28 +3057,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     marginBottom: 4,
-  },
-  baselineIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-    alignSelf: 'flex-start',
-  },
-  baselineIndicatorTextWrap: {
-    gap: 2,
-  },
-  baselineIndicatorText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  baselineIndicatorSubtext: {
-    fontSize: 11,
-    fontWeight: '500',
   },
   emptyStateText: {
     fontSize: 13,

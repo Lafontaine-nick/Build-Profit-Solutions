@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Text, ScrollView, Dimensions } from "react-native";
+import { View, Text, ScrollView, Dimensions, StyleSheet } from "react-native";
 import { LineChart } from "react-native-gifted-charts";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -22,14 +22,24 @@ interface SpendingTrendChartProps {
   /** When true, omit the spent/total figures on the legend row (parent shows the same summary). */
   hideLegendSpendTotal?: boolean;
   /**
-   * When set, badge uses cost vs cap + forecast (from computeSpendingTrendCostStatus).
-   * Omit to fall back to legacy cumulative-curve variance (demo / mock data only).
+   * When set, badge uses actual + committed POs vs cost cap (computeSpendingTrendCostStatus).
+   * Omit to fall back to cumulative-curve pace labels only (not cost cap).
    */
   costBudgetStatus?: { text: string; color: string };
   /** Tighter chart area, padding, and Y-axis headroom (visual only). */
   compact?: boolean;
   /** Hide the reference-line label (e.g. when the parent shows the planned cost cap). */
   hideReferenceLineLabel?: boolean;
+  /**
+   * `percentOfBudget` — Y-axis is % of cost cap with smart zoom so curves fill the plot (Health-style).
+   * `currency` — raw dollars (sparse when spend ≪ cap).
+   */
+  yAxisMode?: "currency" | "percentOfBudget";
+  /**
+   * When true, shows a footer (Actual spent / Schedule pace / vs schedule) using the same
+   * cumulative series as the chart. “Schedule pace” is time-prorated even burn—not cost-budget status.
+   */
+  showFooterStats?: boolean;
 }
 
 function moneyTick(n: number) {
@@ -57,6 +67,23 @@ function buildPlannedCumulative(labels: string[], totalBudget: number) {
   }));
 }
 
+/** Three evenly spaced Y tick labels (finance-grade, minimal clutter). */
+function buildThreeYLabels(
+  maxVal: number,
+  mode: "currency" | "percent",
+  fmtMoney: (n: number) => string
+): string[] {
+  if (maxVal <= 0) return mode === "percent" ? ["0%", "0%", "0%"] : ["$0", "$0", "$0"];
+  const mid = maxVal / 2;
+  if (mode === "percent") {
+    const top = Math.min(100, maxVal);
+    const m = mid < 10 ? mid.toFixed(1) : String(Math.round(mid));
+    const t = top < 10 ? top.toFixed(1) : String(Math.round(top));
+    return ["0%", `${m}%`, `${t}%`];
+  }
+  return [fmtMoney(0), fmtMoney(mid), fmtMoney(maxVal)];
+}
+
 export default function SpendingTrendChart({
   plannedCumulative,
   actualCumulative,
@@ -74,6 +101,8 @@ export default function SpendingTrendChart({
   costBudgetStatus,
   compact = false,
   hideReferenceLineLabel = false,
+  yAxisMode = "currency",
+  showFooterStats = false,
 }: SpendingTrendChartProps) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -129,28 +158,79 @@ export default function SpendingTrendChart({
     return { plannedPoints: [], actualPoints: [], budgetTotal: 0 };
   }, [plannedCumulative, actualCumulative, totalBudget, labels, actual, budget, plannedBudget, data]);
 
-  const maxVal = useMemo(() => {
-    const maxA = Math.max(...actualPoints.map((p) => p.value), 0);
-    const maxP = Math.max(...plannedPoints.map((p) => p.value), 0);
-    const headroom = compact ? 1.06 : 1.12;
-    return Math.max(budgetTotal, maxA, maxP) * headroom;
-  }, [actualPoints, plannedPoints, budgetTotal, compact]);
+  const chartLayout = useMemo(() => {
+    const refLabelStyle = {
+      color: "rgba(148, 163, 184, 0.75)",
+      fontSize: 9,
+      fontWeight: "600" as const,
+      marginTop: 2,
+    };
+    const makeRefConfig = (label: string) => ({
+      color: "rgba(45, 212, 191, 0.22)",
+      type: "dashed" as const,
+      thickness: 1,
+      labelText: hideReferenceLineLabel ? "" : label,
+      labelTextStyle: refLabelStyle,
+    });
 
-  const referenceLine1Config = useMemo(
-    () => ({
-      color: "#2dd4bf",
-      type: "dotted" as const,
-      thickness: 2,
-      labelText: hideReferenceLineLabel ? "" : `Planned cost cap: ${moneyTick(budgetTotal)}`,
-      labelTextStyle: { color: "#2dd4bf", fontSize: 10, fontWeight: "600" as const, marginTop: 6 },
-    }),
-    [budgetTotal, hideReferenceLineLabel],
-  );
+    const useFewTicks = compact;
 
-  const chartPlotHeight = compact ? 160 : 200;
+    if (yAxisMode !== "percentOfBudget" || budgetTotal <= 0) {
+      const maxA = Math.max(...actualPoints.map((p) => p.value), 0);
+      const maxP = Math.max(...plannedPoints.map((p) => p.value), 0);
+      const headroom = compact ? 1.04 : 1.12;
+      const maxVal = Math.max(budgetTotal, maxA, maxP) * headroom;
+      const yLabels = useFewTicks
+        ? buildThreeYLabels(maxVal, "currency", moneyTick)
+        : [0, 0.25, 0.5, 0.75, 1].map((t) => moneyTick(maxVal * t));
+      return {
+        displayActual: actualPoints,
+        displayPlanned: plannedPoints,
+        maxVal,
+        showRefLine: budgetTotal > 0 && budgetTotal <= maxVal,
+        refPos: budgetTotal,
+        refConfig: makeRefConfig(`Planned cost cap: ${moneyTick(budgetTotal)}`),
+        yLabels,
+        pointerInPercent: false as const,
+        noOfSections: useFewTicks ? 2 : 4,
+      };
+    }
+
+    const toPct = (v: number) => (budgetTotal > 0 ? (v / budgetTotal) * 100 : 0);
+    const displayActual = actualPoints.map((p) => ({ ...p, value: toPct(p.value) }));
+    const displayPlanned = plannedPoints.map((p) => ({ ...p, value: toPct(p.value) }));
+    const peak = Math.max(
+      0.5,
+      ...displayActual.map((p) => p.value),
+      ...displayPlanned.map((p) => p.value),
+    );
+    const head = compact ? 1.06 : 1.14;
+    let chartMax = Math.min(100, Math.max(peak * head, peak + 2, 12));
+    chartMax = Math.min(100, chartMax);
+    const yLabels = useFewTicks
+      ? buildThreeYLabels(chartMax, "percent", moneyTick)
+      : [0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const v = chartMax * t;
+          if (v === 0) return "0%";
+          return `${v < 10 ? v.toFixed(1) : Math.round(v)}%`;
+        });
+    return {
+      displayActual,
+      displayPlanned,
+      maxVal: chartMax,
+      showRefLine: chartMax >= 97,
+      refPos: 100,
+      refConfig: makeRefConfig("100% of cost budget"),
+      yLabels,
+      pointerInPercent: true as const,
+      noOfSections: useFewTicks ? 2 : 4,
+    };
+  }, [yAxisMode, budgetTotal, actualPoints, plannedPoints, compact, hideReferenceLineLabel]);
+
+  const chartPlotHeight = compact ? 196 : 210;
 
   const variance = useMemo(() => {
-    if (typeof varianceOverride === 'number') return varianceOverride;
+    if (typeof varianceOverride === "number") return varianceOverride;
     const lastA = actualPoints.at(-1)?.value ?? 0;
     const lastP = plannedPoints.at(-1)?.value ?? 0;
     return lastA - lastP;
@@ -160,29 +240,135 @@ export default function SpendingTrendChart({
     if (costBudgetStatus?.text) {
       return { text: costBudgetStatus.text, color: costBudgetStatus.color };
     }
-    if (variance > 0) return { text: "Over budget", color: "#ef4444" };
-    if (variance < 0) return { text: "Under budget", color: "#10b981" };
-    return { text: "On track", color: "#22c55e" };
+    if (variance > 0) return { text: "Ahead of pace", color: "#f97316" };
+    if (variance < 0) return { text: "Behind pace", color: "#38bdf8" };
+    return { text: "On pace", color: "#22c55e" };
   }, [costBudgetStatus, variance]);
 
-  const legendTextColor = darkMode ? "rgba(255,255,255,0.87)" : "#64748b";
-  const chartSurface = darkMode ? "rgba(255,255,255,0.10)" : "#CBD5E1";
-  const chartBorder = darkMode ? "rgba(255,255,255,0.14)" : "#94A3B8";
-  const axisTextColor = darkMode ? "#F9FAFB" : "#1e293b";
-  const chartRulesColor = darkMode ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.1)";
-  const chartSpacing = 44;
-  const chartInitialSpacing = 16;
-  const chartEndSpacing = 16;
-  const actualColor = "#34d399";
-  const plannedColor = "#60a5fa";
+  const legendTextColor = darkMode ? "rgba(255,255,255,0.72)" : "#64748b";
+  // Soft plot surface — avoid a heavy empty black box
+  const plotFill = darkMode ? "rgba(255,255,255,0.03)" : "rgba(248, 250, 252, 0.92)";
+  const plotBorder = darkMode ? "rgba(255,255,255,0.06)" : "rgba(148, 163, 184, 0.2)";
+  const axisTextColor = darkMode ? "rgba(250,250,250,0.55)" : "rgba(51, 65, 85, 0.85)";
+  const gridColor = darkMode ? "rgba(255,255,255,0.05)" : "rgba(15, 23, 42, 0.06)";
+  const chartSpacing = compact ? 36 : 44;
+  const chartInitialSpacing = 12;
+  const chartEndSpacing = 12;
+  /** Actual: teal-green solid; Planned: softer blue dashed */
+  const actualLineColor = "#2DD4BF";
+  const actualFillColor = "#34d399";
+  const plannedLineColor = "rgba(96, 165, 250, 0.92)";
 
   const screenWidth = Dimensions.get("window").width - 48;
-  const chartWidth = scrollable && actualPoints.length > 8
-    ? Math.max(screenWidth, actualPoints.length * chartSpacing + chartInitialSpacing + chartEndSpacing)
-    : undefined;
+  const nPts = chartLayout.displayActual.length;
+  const chartWidth =
+    scrollable && nPts > 8
+      ? Math.max(screenWidth, nPts * chartSpacing + chartInitialSpacing + chartEndSpacing)
+      : undefined;
+
+  const lineDataActual = useMemo(() => {
+    const arr = chartLayout.displayActual;
+    const n = arr.length;
+    return arr.map((p, i) => ({
+      ...p,
+      hideDataPoint: n > 1 && i !== n - 1,
+      dataPointsRadius: i === n - 1 ? 5 : 0,
+      dataPointsColor: actualLineColor,
+    }));
+  }, [chartLayout.displayActual, actualLineColor]);
+
+  const pointerLabelComponent = (items: any[]) => {
+    const rawA = items?.[0]?.value ?? 0;
+    const rawP = items?.[1]?.value ?? 0;
+    const a = chartLayout.pointerInPercent ? (rawA / 100) * budgetTotal : rawA;
+    const p = chartLayout.pointerInPercent ? (rawP / 100) * budgetTotal : rawP;
+    const delta = a - p;
+    return (
+      <View
+        style={{
+          backgroundColor: darkMode ? "rgba(28, 28, 30, 0.94)" : "rgba(255,255,255,0.97)",
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: darkMode ? "rgba(148,163,184,0.18)" : "rgba(15,23,42,0.08)",
+          paddingVertical: 8,
+          paddingHorizontal: 10,
+          borderRadius: 10,
+        }}
+      >
+        <Text style={{ color: Colors.text, fontWeight: "700", fontSize: 12 }}>
+          Actual {moneyTick(a)}
+        </Text>
+        <Text style={{ color: Colors.sub, fontWeight: "600", fontSize: 11, marginTop: 3 }}>
+          Pace {moneyTick(p)} ·{" "}
+          <Text style={{ color: delta > 0 ? "#f87171" : "#6ee7b7" }}>
+            {delta > 0 ? "+" : "−"}
+            {moneyTick(Math.abs(delta))}
+          </Text>
+        </Text>
+      </View>
+    );
+  };
+
+  const lastActualSpend = actualPoints.at(-1)?.value ?? 0;
+  const lastPlannedSpend = plannedPoints.at(-1)?.value ?? 0;
+  const footerDelta = lastActualSpend - lastPlannedSpend;
+  const footerDeltaColor =
+    footerDelta > 0 ? "rgba(248, 113, 113, 0.95)" : footerDelta < 0 ? "rgba(110, 231, 183, 0.95)" : legendTextColor;
+
+  const commonLineChartProps = {
+    height: chartPlotHeight,
+    thickness: 2.75,
+    thickness2: 1.35,
+    curved: true,
+    areaChart: true,
+    startFillColor: actualFillColor,
+    endFillColor: actualFillColor,
+    startOpacity: darkMode ? 0.14 : 0.12,
+    endOpacity: 0,
+    strokeDashArray2: [5, 5] as [number, number],
+    hideDataPoints: false,
+    textFontSize: 9,
+    yAxisLabelWidth: chartLayout.pointerInPercent ? 38 : 46,
+    yAxisTextStyle: { color: axisTextColor, fontSize: 9, fontWeight: "600" as const },
+    xAxisLabelTextStyle: { color: axisTextColor, fontSize: 9, fontWeight: "500" as const },
+    rulesColor: gridColor,
+    rulesType: "solid" as const,
+    spacing: chartSpacing,
+    initialSpacing: chartInitialSpacing,
+    endSpacing: chartEndSpacing,
+    noOfSections: chartLayout.noOfSections,
+    maxValue: chartLayout.maxVal,
+    showReferenceLine1: chartLayout.showRefLine,
+    referenceLine1Position: chartLayout.refPos,
+    referenceLine1Config: chartLayout.refConfig,
+    yAxisThickness: 0,
+    xAxisThickness: 0,
+    hideYAxisText: false,
+    showVerticalLines: false,
+    yAxisColor: "transparent",
+    yAxisLabelPrefix: "",
+    yAxisLabelTexts: chartLayout.yLabels,
+    data: lineDataActual,
+    color: actualLineColor,
+    dataPointsColor: actualLineColor,
+    data2: chartLayout.displayPlanned,
+    color2: plannedLineColor,
+    dataPointsColor2: "transparent",
+    pointerConfig: {
+      pointerStripColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.06)",
+      pointerStripWidth: StyleSheet.hairlineWidth,
+      pointerColor: "rgba(226, 232, 240, 0.85)",
+      radius: 3,
+      pointerLabelWidth: 140,
+      pointerLabelHeight: 58,
+      autoAdjustPointerLabelPosition: true,
+      pointerLabelComponent,
+    },
+  };
+
+  const chartEmpty = nPts === 0;
 
   return (
-    <View style={{ paddingTop: showHeader ? 10 : compact ? 2 : 0 }}>
+    <View style={{ paddingTop: showHeader ? 10 : compact ? 0 : 0 }}>
       {showHeader && (
         <View>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -191,7 +377,7 @@ export default function SpendingTrendChart({
             </Text>
             <View
               style={{
-                backgroundColor: `${statusLabel.color}20`,
+                backgroundColor: `${statusLabel.color}18`,
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderRadius: 8,
@@ -203,7 +389,7 @@ export default function SpendingTrendChart({
             </View>
           </View>
           <Text style={{ color: legendTextColor, fontSize: 13, fontWeight: "500", marginTop: 4 }}>
-            Cumulative spend vs. plan
+            Cumulative spend vs. schedule pace (even burn)
           </Text>
         </View>
       )}
@@ -220,11 +406,11 @@ export default function SpendingTrendChart({
             justifyContent: "flex-start",
           }}
         >
-          <LegendDot label="Actual" color={actualColor} textColor={legendTextColor} />
-          <LegendDot label="Planned" color={plannedColor} textColor={legendTextColor} />
+          <LegendDot label="Actual" color={actualLineColor} textColor={legendTextColor} />
+          <LegendDot label="Schedule pace" color={plannedLineColor} textColor={legendTextColor} />
           <View
             style={{
-              backgroundColor: `${statusLabel.color}18`,
+              backgroundColor: `${statusLabel.color}14`,
               paddingHorizontal: 9,
               paddingVertical: 4,
               borderRadius: 8,
@@ -250,203 +436,104 @@ export default function SpendingTrendChart({
 
       <View
         style={{
-          backgroundColor: chartSurface,
-          borderRadius: 16,
-          paddingVertical: compact ? 8 : 16,
-          paddingHorizontal: compact ? 8 : 12,
-          borderWidth: 1,
-          borderColor: chartBorder,
+          backgroundColor: plotFill,
+          borderRadius: compact ? 16 : 18,
+          paddingVertical: compact ? 8 : 12,
+          paddingHorizontal: compact ? 4 : 8,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: plotBorder,
           position: "relative",
           overflow: scrollable ? "visible" : "hidden",
-          minHeight: compact ? 148 : 180,
         }}
       >
-        {scrollable && chartWidth ? (
+        {chartEmpty ? (
+          <View
+            style={{
+              height: chartPlotHeight,
+              justifyContent: "center",
+              alignItems: "center",
+              paddingHorizontal: 12,
+            }}
+          >
+            <Text style={{ color: axisTextColor, fontSize: 13, fontWeight: "600" }}>
+              No spending data for this range
+            </Text>
+          </View>
+        ) : scrollable && chartWidth ? (
           <ScrollView
             horizontal
-            showsHorizontalScrollIndicator={true}
-            contentContainerStyle={{ paddingRight: 16 }}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: 8 }}
+            nestedScrollEnabled
           >
-            <LineChart
-              width={chartWidth}
-              height={chartPlotHeight}
-          thickness={2.5}
-          curved
-          areaChart
-          startFillColor={actualColor}
-          endFillColor={actualColor}
-          startOpacity={darkMode ? 0.35 : 0.25}
-          endOpacity={0}
-          startFillColor2={plannedColor}
-          endFillColor2={plannedColor}
-          startOpacity2={darkMode ? 0.25 : 0.18}
-          endOpacity2={0}
-          hideDataPoints={actualPoints.length > 20}
-          dataPointsRadius={3}
-          dataPointsColor={actualColor}
-          textFontSize={11}
-          yAxisLabelWidth={48}
-          yAxisTextStyle={{ color: axisTextColor, fontSize: 11, fontWeight: "500" }}
-          xAxisLabelTextStyle={{ color: axisTextColor, fontSize: 11, fontWeight: "500" }}
-          rulesColor={chartRulesColor}
-          rulesType="solid"
-          spacing={chartSpacing}
-          initialSpacing={chartInitialSpacing}
-          endSpacing={chartEndSpacing}
-          noOfSections={4}
-          maxValue={maxVal}
-          showReferenceLine1={budgetTotal > 0 && budgetTotal < maxVal}
-          referenceLine1Position={budgetTotal}
-          referenceLine1Config={referenceLine1Config}
-          yAxisThickness={0}
-          xAxisThickness={0}
-          hideYAxisText={false}
-          showVerticalLines={false}
-          yAxisColor="transparent"
-          yAxisLabelPrefix=""
-          yAxisLabelTexts={[
-            moneyTick(maxVal * 0.0),
-            moneyTick(maxVal * 0.25),
-            moneyTick(maxVal * 0.5),
-            moneyTick(maxVal * 0.75),
-            moneyTick(maxVal),
-          ]}
-          data={actualPoints}
-          color={actualColor}
-          dataPointsColor={actualColor}
-          data2={plannedPoints}
-          color2={plannedColor}
-          dataPointsColor2={plannedColor}
-          pointerConfig={{
-            pointerStripColor: darkMode ? "rgba(148,163,184,0.25)" : "rgba(15,23,42,0.18)",
-            pointerStripWidth: 1,
-            pointerColor: Colors.text,
-            radius: 5,
-            pointerLabelWidth: 120,
-            pointerLabelHeight: 56,
-            autoAdjustPointerLabelPosition: true,
-            pointerLabelComponent: (items: any[]) => {
-              const a = items?.[0]?.value ?? 0;
-              const p = items?.[1]?.value ?? 0;
-              const delta = a - p;
-
-              return (
-                <View
-                  style={{
-                    backgroundColor: darkMode ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.97)",
-                    borderWidth: 1,
-                    borderColor: darkMode ? "rgba(148,163,184,0.18)" : "rgba(15,23,42,0.10)",
-                    paddingVertical: 8,
-                    paddingHorizontal: 10,
-                    borderRadius: 14,
-                  }}
-                >
-                  <Text style={{ color: Colors.text, fontWeight: "800", fontSize: 12 }}>
-                    Actual {moneyTick(a)}
-                  </Text>
-                  <Text style={{ color: Colors.sub, fontWeight: "700", fontSize: 11, marginTop: 2 }}>
-                    Planned {moneyTick(p)} ·{" "}
-                    <Text style={{ color: delta > 0 ? "#ef4444" : "#10b981" }}>
-                      {delta > 0 ? "+" : "-"}
-                      {moneyTick(Math.abs(delta))}
-                    </Text>
-                  </Text>
-                </View>
-              );
-            },
-      }}
-            />
+            <LineChart width={chartWidth} {...commonLineChartProps} />
           </ScrollView>
         ) : (
-          <LineChart
-            height={chartPlotHeight}
-            thickness={2.5}
-            curved
-            areaChart
-            startFillColor={actualColor}
-            endFillColor={actualColor}
-            startOpacity={darkMode ? 0.35 : 0.25}
-            endOpacity={0}
-            startFillColor2={plannedColor}
-            endFillColor2={plannedColor}
-            startOpacity2={darkMode ? 0.25 : 0.18}
-            endOpacity2={0}
-            hideDataPoints={actualPoints.length > 20}
-            dataPointsRadius={3}
-            dataPointsColor={actualColor}
-            textFontSize={11}
-            yAxisLabelWidth={48}
-            yAxisTextStyle={{ color: axisTextColor, fontSize: 11, fontWeight: "500" }}
-            xAxisLabelTextStyle={{ color: axisTextColor, fontSize: 11, fontWeight: "500" }}
-            rulesColor={chartRulesColor}
-            rulesType="solid"
-            spacing={chartSpacing}
-            initialSpacing={chartInitialSpacing}
-            endSpacing={chartEndSpacing}
-            noOfSections={4}
-            maxValue={maxVal}
-            showReferenceLine1={budgetTotal > 0 && budgetTotal < maxVal}
-            referenceLine1Position={budgetTotal}
-            referenceLine1Config={referenceLine1Config}
-            yAxisThickness={0}
-            xAxisThickness={0}
-            hideYAxisText={false}
-            showVerticalLines={false}
-            yAxisColor="transparent"
-            yAxisLabelPrefix=""
-            yAxisLabelTexts={[
-              moneyTick(maxVal * 0.0),
-              moneyTick(maxVal * 0.25),
-              moneyTick(maxVal * 0.5),
-              moneyTick(maxVal * 0.75),
-              moneyTick(maxVal),
-            ]}
-            data={actualPoints}
-            color={actualColor}
-            dataPointsColor={actualColor}
-            data2={plannedPoints}
-            color2={plannedColor}
-            dataPointsColor2={plannedColor}
-            pointerConfig={{
-              pointerStripColor: darkMode ? "rgba(148,163,184,0.25)" : "rgba(15,23,42,0.18)",
-              pointerStripWidth: 1,
-              pointerColor: Colors.text,
-              radius: 5,
-              pointerLabelWidth: 120,
-              pointerLabelHeight: 56,
-              autoAdjustPointerLabelPosition: true,
-              pointerLabelComponent: (items: any[]) => {
-                const a = items?.[0]?.value ?? 0;
-                const p = items?.[1]?.value ?? 0;
-                const delta = a - p;
-                return (
-                  <View
-                    style={{
-                      backgroundColor: darkMode ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.97)",
-                      borderWidth: 1,
-                      borderColor: darkMode ? "rgba(148,163,184,0.18)" : "rgba(15,23,42,0.10)",
-                      paddingVertical: 8,
-                      paddingHorizontal: 10,
-                      borderRadius: 14,
-                    }}
-                  >
-                    <Text style={{ color: Colors.text, fontWeight: "800", fontSize: 12 }}>
-                      Actual {moneyTick(a)}
-                    </Text>
-                    <Text style={{ color: Colors.sub, fontWeight: "700", fontSize: 11, marginTop: 2 }}>
-                      Planned {moneyTick(p)} ·{" "}
-                      <Text style={{ color: delta > 0 ? "#ef4444" : "#10b981" }}>
-                        {delta > 0 ? "+" : "-"}
-                        {moneyTick(Math.abs(delta))}
-                      </Text>
-                    </Text>
-                  </View>
-                );
-              },
-            }}
-          />
+          <LineChart {...commonLineChartProps} />
         )}
       </View>
+
+      {showFooterStats && !chartEmpty ? (
+        <View
+          style={{
+            flexDirection: "row",
+            marginTop: 14,
+            paddingTop: 12,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(148, 163, 184, 0.22)",
+          }}
+        >
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: legendTextColor, fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
+              ACTUAL SPENT
+            </Text>
+            <Text
+              style={{
+                color: Colors.text,
+                fontSize: 15,
+                fontWeight: "700",
+                marginTop: 4,
+                fontVariant: ["tabular-nums"],
+              }}
+            >
+              {moneyTick(lastActualSpend)}
+            </Text>
+          </View>
+          <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
+            <Text style={{ color: legendTextColor, fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
+              SCHEDULE PACE
+            </Text>
+            <Text
+              style={{
+                color: Colors.text,
+                fontSize: 15,
+                fontWeight: "700",
+                marginTop: 4,
+                fontVariant: ["tabular-nums"],
+              }}
+            >
+              {moneyTick(lastPlannedSpend)}
+            </Text>
+          </View>
+          <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>
+            <Text style={{ color: legendTextColor, fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
+              VS SCHEDULE
+            </Text>
+            <Text
+              style={{
+                color: footerDeltaColor,
+                fontSize: 15,
+                fontWeight: "700",
+                marginTop: 4,
+                fontVariant: ["tabular-nums"],
+              }}
+            >
+              {footerDelta > 0 ? "+" : footerDelta < 0 ? "−" : ""}
+              {moneyTick(Math.abs(footerDelta))}
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

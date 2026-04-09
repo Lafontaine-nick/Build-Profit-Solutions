@@ -1219,7 +1219,14 @@ const NotifyTeamModal = ({ members, onClose }: {
 // ---------- Screen ----------
 const TEAM_STORAGE_KEY = "bps.team.members";
 
-export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: number }) {
+export default function TeamTab({
+  refreshTrigger = 0,
+  embedded = false,
+}: {
+  refreshTrigger?: number;
+  /** When true (project detail), align gradient frame with Budget — flush under AI PM row */
+  embedded?: boolean;
+}) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
@@ -1457,8 +1464,15 @@ export default function TeamTab({ refreshTrigger = 0 }: { refreshTrigger?: numbe
   const supportMuted = darkMode ? 'rgba(226, 232, 240, 0.62)' : Colors.sub;
 
   return (
-    <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
-      <View style={[styles.outerCard, styles.teamContainerWide, !darkMode && { backgroundColor: Colors.bg }]}>
+    <View style={[styles.screen, embedded && styles.screenEmbedded, { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          styles.outerCard,
+          styles.teamContainerWide,
+          embedded && styles.teamContainerEmbedded,
+          !darkMode && { backgroundColor: Colors.bg },
+        ]}
+      >
         {/* Outer green-to-blue border wrapping Team Details header, Team card, and Search card */}
         <LinearGradient
           colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -1775,6 +1789,9 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     marginHorizontal: -20,
   },
+  screenEmbedded: {
+    marginHorizontal: 0,
+  },
   outerCard: {
     backgroundColor: "#000000",
     borderRadius: 28,
@@ -1783,7 +1800,12 @@ const styles = StyleSheet.create({
   teamContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
     paddingHorizontal: 4, // Match dashboard wideContainer pattern
-    paddingVertical: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+  },
+  teamContainerEmbedded: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
     paddingBottom: 18,
   },
   overviewBorder: {

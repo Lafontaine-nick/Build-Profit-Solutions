@@ -17,6 +17,7 @@ import TimelineTabV2 from '../../components/TimelineTabV2';
 import TeamTab from '../../components/TeamTab';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
 import { useProjectData } from '../../contexts/ProjectDataContext';
+import { buildSpendingTrendSamplePoints } from '../../src/lib/projectChartTimeline';
 
 type TabKey = 'Overview' | 'Budget' | 'Timeline' | 'Health' | 'Team';
 
@@ -141,38 +142,8 @@ export default function ProjectDetailContent() {
       return getStatusColor(healthStatus);
     };
 
-    // Generate spending data for chart
-    const generateSpendingData = () => {
-      const start = new Date(project?.startISO || new Date().toISOString());
-      const end = new Date(project?.endISO || new Date().toISOString());
-      const numPoints = 7;
-      const timeSpan = end.getTime() - start.getTime();
-      const now = Date.now();
-      const currentProgress = Math.min((now - start.getTime()) / timeSpan, 1);
-
-      const points: { date: string; spent: number }[] = [];
-      for (let i = 0; i <= numPoints; i++) {
-        const progress = (i / numPoints) * currentProgress;
-        const date = new Date(start.getTime() + timeSpan * progress);
-        const spent = Math.round(actualSpent * (progress / Math.max(currentProgress, 0.01)));
-
-        if (spent > 0 && date <= new Date()) {
-          points.push({
-            date: date.toISOString().split('T')[0],
-            spent,
-          });
-        }
-      }
-
-      if (points.length === 0 || points[points.length - 1].spent !== actualSpent) {
-        points.push({
-          date: new Date().toISOString().split('T')[0],
-          spent: actualSpent,
-        });
-      }
-
-      return points;
-    };
+    const generateSpendingData = () =>
+      buildSpendingTrendSamplePoints(project as unknown as Record<string, unknown>, actualSpent);
 
     return {
       adjustedBudget,

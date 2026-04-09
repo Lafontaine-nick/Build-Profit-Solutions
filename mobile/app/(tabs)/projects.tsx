@@ -1133,8 +1133,10 @@ export default function ProjectsScreen() {
           style={[styles.wideContainer, styles.projectsHeaderWrap]}
           title={t('projects.allProjects')}
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
-          titleColor={Colors.text}
-          subtitleColor={darkMode ? 'rgba(255,255,255,0.93)' : '#475569'}
+          titleColor={darkMode ? '#F5F7FA' : Colors.text}
+          subtitleColor={darkMode ? 'rgba(255,255,255,0.62)' : '#64748b'}
+          titleStyle={styles.budgetPageTitleFont}
+          subtitleStyle={styles.budgetPageSubtitleFont}
           right={
             <LinearGradient
               colors={progressGradient}
@@ -1222,8 +1224,8 @@ export default function ProjectsScreen() {
             }}>
               <View style={styles.cardHeaderRow}>
                 <View>
-                  <Text style={styles.cardTitle}>{t('projects.allProjects')}</Text>
-                  <Text style={styles.cardSubtitle}>
+                  <Text style={styles.allProjectsCardTitle}>{t('projects.allProjects')}</Text>
+                  <Text style={styles.allProjectsCardSubtitle}>
                     {projects.length} {t('dashboard.total')} · {t('projects.latestActivity')}
                   </Text>
                 </View>
@@ -1644,15 +1646,30 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     alignItems: 'flex-end',
     marginBottom: 16,
   },
-  cardTitle: {
-    fontSize: 22, // Match dashboard size
-    fontWeight: darkMode ? '700' : '800', // Heavier in light mode
-    color: darkMode ? Colors.text : Colors.text,
+  /** Matches BudgetTab budgetPageTitle / budgetPageSubtitle (project Budget screen) */
+  budgetPageTitleFont: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
-  cardSubtitle: {
-    marginTop: 2,
+  budgetPageSubtitleFont: {
+    marginTop: 6,
     fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.90)' : Colors.sub,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  allProjectsCardTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: darkMode ? '#F5F7FA' : Colors.text,
+  },
+  allProjectsCardSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b',
   },
   projectCard: {
     marginTop: 8,
@@ -1705,10 +1722,13 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     gap: 8,
     flexShrink: 0,
   },
+  /** Matches BudgetTab budgetCardTitle / overview hero project name */
   projectName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    color: darkMode ? Colors.text : Colors.text,
+    letterSpacing: -0.2,
+    lineHeight: 22,
+    color: darkMode ? '#F5F7FA' : Colors.text,
     flexShrink: 1,
   },
   projectLocationRow: {
@@ -1720,7 +1740,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   projectLocationText: {
     flex: 1,
     fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.92)' : '#64748b',
+    lineHeight: 18,
+    fontWeight: '500',
+    color: darkMode ? 'rgba(255,255,255,0.88)' : '#64748b',
   },
   projectFinancialBlock: {
     marginBottom: 12,
@@ -1749,13 +1771,17 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   projectProfitLine: {
     marginTop: 8,
     fontSize: 14,
-    fontWeight: '600',
-    color: darkMode ? 'rgba(255,255,255,0.92)' : '#1e293b',
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    color: darkMode ? '#F5F7FA' : '#1e293b',
   },
   projectMarginLine: {
     marginTop: 4,
-    fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.83)' : '#64748b',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    letterSpacing: 0.15,
+    color: darkMode ? 'rgba(255,255,255,0.56)' : '#94a3b8',
   },
   projectMetaSection: {
     gap: 6,
@@ -1800,24 +1826,28 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     color: '#e2e8f0', // Will be overridden inline for light mode
     letterSpacing: 0.2,
   },
+  /** Budget rowValueIntelHero — primary $ on list cards */
   projectAmount: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '800',
     letterSpacing: -0.3,
-    color: darkMode ? Colors.text : Colors.text,
+    color: darkMode ? '#F5F7FA' : Colors.text,
   },
   projectMetaText: {
-    marginTop: 2,
-    fontSize: 13,
-    fontWeight: '600',
-    color: darkMode ? 'rgba(255,255,255,0.9)' : '#334155',
+    marginTop: 6,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.28,
+    color: darkMode ? '#F5F7FA' : '#1e293b',
   },
+  /** Budget rowLabelMetric */
   projectMetaLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    color: darkMode ? 'rgba(255,255,255,0.72)' : '#8891a0',
+    color: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
   },
   progressSection: {
     marginTop: 14,
@@ -1829,15 +1859,19 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     marginBottom: 8,
   },
   progressHeaderLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: darkMode ? 'rgba(255,255,255,0.9)' : '#334155',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
   },
   progressHeaderPercent: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.28,
     fontVariant: ['tabular-nums'],
-    color: darkMode ? '#E5F7FF' : Colors.text,
+    color: darkMode ? '#F5F7FA' : Colors.text,
   },
   progressBarTrack: {
     width: '100%',

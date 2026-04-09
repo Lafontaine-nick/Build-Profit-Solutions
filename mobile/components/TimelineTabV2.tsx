@@ -1592,10 +1592,14 @@ const styles = StyleSheet.create({
   timelineContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
     paddingHorizontal: 4, // Match dashboard wideContainer pattern
-    paddingVertical: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
   },
+  /** Project detail: align green/blue frame with Budget tab — no extra inset under AI PM row */
   timelineContainerEmbedded: {
     paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 18,
   },
   overviewBorder: {
     borderRadius: 20,

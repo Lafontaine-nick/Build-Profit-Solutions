@@ -61,6 +61,7 @@ import {
   type ActionBucket,
 } from "@/utils/aiInsightsUi";
 import { getProjectRevenue } from "@/lib/projectRevenue";
+import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { computeProfitabilityByProjectType } from "@/lib/completedProjectProfitability";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
@@ -288,6 +289,168 @@ const computePipelineTotals = (projects: any[]) => {
     totalBidValue: totalBidValue, 
     activeProjectsValue: activeProjectsValue, 
     completedProfit: completedProfit 
+  };
+};
+
+const toFiniteDashboard = (n: unknown) => {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : 0;
+};
+
+/** In-flight jobs (same basis as Projects “Active” tab) */
+const isActiveProjectStatus = (status: string) => {
+  const s = status.toLowerCase();
+  return (
+    s === "won" ||
+    s === "in_progress" ||
+    s === "in-progress" ||
+    s === "active"
+  );
+};
+
+/** Bids awaiting decision (same basis as Projects “Submitted” tab) */
+const isSubmittedProjectStatus = (status: string) => {
+  const s = status.toLowerCase();
+  return s === "bid_submitted" || s === "submitted";
+};
+
+const isOpenPipelineProjectStatus = (status: string) =>
+  isActiveProjectStatus(status) || isSubmittedProjectStatus(status);
+
+function estimatedCostBaselineForDashboardForecast(project: any, revenue: number): number {
+  const ed = project?.estimateData || {};
+  const pd = project?.projectData || {};
+  const candidates = [
+    ed.estimatedCost,
+    ed.totalCost,
+    ed.subtotal,
+    project?.estimatedCost,
+    pd.estimatedCost,
+    pd.totalCost,
+  ];
+  for (const c of candidates) {
+    const v = toFiniteDashboard(c);
+    if (v > 0 && v < revenue) return v;
+  }
+  const mRaw = toFiniteDashboard(project?.margin ?? ed.margin);
+  const marginPct = Math.abs(mRaw) > 1 ? mRaw : mRaw * 100;
+  if (revenue > 0 && marginPct > 0 && marginPct < 100) {
+    return revenue * (1 - marginPct / 100);
+  }
+  return revenue > 0 ? revenue * 0.75 : 0;
+}
+
+function actualSpentForDashboardForecast(project: any): number {
+  return toFiniteDashboard(
+    project?.actualCost ??
+      project?.projectData?.actualCost ??
+      project?.projectData?.spent ??
+      project?.projectData?.totalSpent ??
+      project?.totalSpent
+  );
+}
+
+function committedPoTotalForDashboardForecast(project: any): number {
+  const raw = project?.purchaseOrders || project?.projectData?.purchaseOrders || [];
+  if (!Array.isArray(raw)) return 0;
+  return raw.reduce((sum: number, po: any) => {
+    if (String(po?.status || "").toLowerCase() === "cancelled") return sum;
+    return sum + toFiniteDashboard(po?.amount);
+  }, 0);
+}
+
+/**
+ * Submitted bids: net profit from estimate (estimateData.profit) or margin % × revenue — aligns with Projects list for submitted jobs.
+ */
+function submittedBidNetProfit(project: any): number {
+  const revenue = getProjectRevenue(project);
+  if (!(revenue > 0)) return 0;
+
+  const ed = project?.estimateData || {};
+  const profitDirect = toFiniteDashboard(ed.profit ?? project?.profit);
+  if (profitDirect > 0 && profitDirect < revenue) {
+    return Math.round(profitDirect);
+  }
+
+  const rawM = ed.marginPercent ?? ed.margin ?? project?.margin;
+  const parsedM = rawM != null ? Number(rawM) : NaN;
+  if (Number.isFinite(parsedM)) {
+    const marginPct = Math.abs(parsedM) > 1 ? parsedM : parsedM * 100;
+    if (marginPct > 0 && marginPct < 100) {
+      return Math.round(revenue * (marginPct / 100));
+    }
+  }
+
+  const baseline = estimatedCostBaselineForDashboardForecast(project, revenue);
+  if (baseline > 0 && baseline < revenue) {
+    return Math.round(revenue - baseline);
+  }
+  return 0;
+}
+
+/**
+ * Left card: realized net profit from completed work (same basis as Performance Snapshot / pipeline).
+ * Right card: active jobs → projected net profit at completion (computeProfitForecast); submitted bids → estimate/margin net profit (same idea as Projects “Submitted”).
+ */
+const computeDashboardProfitOutlook = (
+  projects: any[],
+  rawCompletedProfit: number,
+  completedJobCount: number,
+  timelineProgress: Record<string, number>
+) => {
+  let pipelineProjectedNetProfit = 0;
+  let activePipelineProjectCount = 0;
+  let submittedPipelineProjectCount = 0;
+
+  for (const p of projects) {
+    const st = (p?.status || "").toString().toLowerCase();
+    if (!isOpenPipelineProjectStatus(st)) continue;
+
+    const revenue = getProjectRevenue(p);
+    if (!(revenue > 0)) continue;
+
+    if (isSubmittedProjectStatus(st)) {
+      pipelineProjectedNetProfit += submittedBidNetProfit(p);
+      submittedPipelineProjectCount += 1;
+      continue;
+    }
+
+    if (isActiveProjectStatus(st)) {
+      const pid = String(p.id ?? "");
+      const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+      const baseline = estimatedCostBaselineForDashboardForecast(p, revenue);
+      const adjustedBudget = baseline > 0 ? baseline : revenue;
+
+      const pf = computeProfitForecast({
+        contractValue: revenue,
+        adjustedBudget,
+        estimatedCostBaseline: baseline > 0 ? baseline : undefined,
+        actualExpenses: actualSpentForDashboardForecast(p),
+        committedPOs: committedPoTotalForDashboardForecast(p),
+        progressPct,
+        isCompleted: false,
+      });
+      pipelineProjectedNetProfit += pf.projectedProfit;
+      activePipelineProjectCount += 1;
+    }
+  }
+
+  const completedNetProfit = Number.isFinite(rawCompletedProfit) ? rawCompletedProfit : 0;
+  const openPipelineProjectCount =
+    activePipelineProjectCount + submittedPipelineProjectCount;
+
+  return {
+    completedNetProfit,
+    pipelineProjectedNetProfit: Number.isFinite(pipelineProjectedNetProfit)
+      ? pipelineProjectedNetProfit
+      : 0,
+    completedJobCount,
+    activePipelineProjectCount,
+    submittedPipelineProjectCount,
+    openPipelineProjectCount,
+    hasCompletedData:
+      completedJobCount > 0 || completedNetProfit !== 0,
+    hasOpenPipeline: openPipelineProjectCount > 0,
   };
 };
 
@@ -2857,6 +3020,7 @@ const DashboardScreen: React.FC = () => {
             completedCount={completedCount}
             activeProjects={activeProjects}
             estimates={estimates}
+            timelineProgress={timelineProgress}
           />
         )}
         {activeTab === "calendar" && (
@@ -3793,6 +3957,7 @@ interface AnalyticsSectionProps {
   completedCount: number;
   activeProjects: any[];
   estimates: any[];
+  timelineProgress: Record<string, number>;
 }
 
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
@@ -3802,6 +3967,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   completedCount,
   activeProjects,
   estimates,
+  timelineProgress,
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -3819,6 +3985,30 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
     }
     return formatMoneyCompact(rawTotal / activeWonCount);
   }, [metrics, activeWonCount]);
+
+  const deduplicatedPipelineProjects = useMemo(() => {
+    const m = new Map<string, any>();
+    [...activeProjects, ...estimates].forEach((p) => {
+      if (p?.id) {
+        const id = String(p.id);
+        if (!m.has(id) || activeProjects.some((ap) => String(ap.id) === id)) {
+          m.set(id, p);
+        }
+      }
+    });
+    return Array.from(m.values());
+  }, [activeProjects, estimates]);
+
+  const profitOutlook = useMemo(
+    () =>
+      computeDashboardProfitOutlook(
+        deduplicatedPipelineProjects,
+        metrics.rawCompletedProfit ?? 0,
+        completedCount,
+        timelineProgress
+      ),
+    [deduplicatedPipelineProjects, metrics.rawCompletedProfit, completedCount, timelineProgress]
+  );
 
   return (
     <>
@@ -3876,6 +4066,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           completedProjects={[...activeProjects, ...estimates].filter(
             (p) => (p.status || "").toString().toLowerCase() === "completed"
           )}
+          profitOutlook={profitOutlook}
         />
       </View>
     </>
@@ -4565,15 +4756,19 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     alignItems: "flex-end",
     marginBottom: 12,
   },
+  /** Budget / All Projects page title scale */
   cardTitle: {
-    fontSize: 22, // Slightly larger
-    fontWeight: Colors.bg === '#000000' ? "700" : "800", // Heavier in light mode
-    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: Colors.bg === '#000000' ? "#F5F7FA" : Colors.text,
   },
   cardSubtitle: {
-    marginTop: 2,
+    marginTop: 6,
     fontSize: 13,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.92)" : "#334155",
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "#64748b",
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -5157,22 +5352,25 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flex: 1,
     minWidth: 0,
   },
+  /** Budget rowLabelMetric */
   analyticsLabel: {
-    fontSize: 11, // Slightly larger
-    color: Colors.bg === '#000000' ? "#FFFFFF" : "#334155",
-    fontWeight: "600",
-    letterSpacing: 0.6,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginBottom: 4,
-    lineHeight: 12,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.62)",
+    marginBottom: 6,
   },
+  /** Budget rowValueIntelHero */
   analyticsValue: {
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: "800",
-    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
-    letterSpacing: -0.4,
-    lineHeight: 24,
+    letterSpacing: -0.3,
+    color: Colors.bg === '#000000' ? "#F5F7FA" : Colors.text,
+    lineHeight: 26,
     marginBottom: 2,
+    fontVariant: ["tabular-nums"],
   },
   analyticsExtraContainer: {
     marginTop: 8,

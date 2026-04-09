@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { ScreenLayout } from '@/constants/ScreenLayout';
 
 export type TabScreenHeaderProps = {
@@ -11,6 +11,9 @@ export type TabScreenHeaderProps = {
   /** e.g. AI status row — sits under subtitle */
   belowTitle?: React.ReactNode;
   style?: ViewStyle;
+  /** Merged after base title styles — use for Budget / overview type scale (e.g. 22 / 800 / -0.4) */
+  titleStyle?: StyleProp<TextStyle>;
+  subtitleStyle?: StyleProp<TextStyle>;
 };
 
 /**
@@ -25,13 +28,15 @@ export function TabScreenHeader({
   right,
   belowTitle,
   style,
+  titleStyle,
+  subtitleStyle,
 }: TabScreenHeaderProps) {
   return (
     <View style={[styles.row, style]}>
       <View style={styles.left}>
-        <Text style={[styles.screenTitle, { color: titleColor }]}>{title}</Text>
+        <Text style={[styles.screenTitle, { color: titleColor }, titleStyle]}>{title}</Text>
         {subtitle ? (
-          <Text style={[styles.screenSubtitle, { color: subtitleColor }]}>
+          <Text style={[styles.screenSubtitle, { color: subtitleColor }, subtitleStyle]}>
             {subtitle}
           </Text>
         ) : null}

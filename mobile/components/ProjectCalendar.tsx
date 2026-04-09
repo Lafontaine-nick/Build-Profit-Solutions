@@ -13,7 +13,6 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
@@ -60,6 +59,11 @@ type ProjectCalendarProps = {
   milestones?: any[]; // For linking events to milestones
   onEventComplete?: (event: CalendarEvent) => void; // Callback when event is marked complete
   projectData?: any; // Full project data for syncing payments, POs, etc.
+  /**
+   * Project detail: flush under AI PM row (no extra top inset). Render without parent `wideContainer`
+   * so width matches dashboard calendar (`ScreenLayout.edge.horizontal` via scroll padding).
+   */
+  embedded?: boolean;
 };
 
 const EVENT_TYPE_COLORS: Record<CalendarEvent['type'], string> = {
@@ -186,6 +190,7 @@ export default function ProjectCalendar({
   milestones = [],
   onEventComplete,
   projectData,
+  embedded = false,
 }: ProjectCalendarProps) {
   const { theme, darkMode } = useTheme();
   const TC = useMemo(() => getColors(theme), [theme]);
@@ -933,11 +938,10 @@ export default function ProjectCalendar({
       ? CALENDAR_CATEGORY_ICONS[event.calendarCategory]
       : EVENT_TYPE_ICONS[event.type];
 
-  return (
-    <View style={[styles.container, { backgroundColor: COLORS.bg }]}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+  const renderCalendarScrollBody = () => (
+    <>
         {/* Calendar */}
-        <View style={styles.calendarContainer}>
+        <View style={[styles.calendarContainer, embedded && styles.calendarContainerEmbedded]}>
           <GreyCalendar
             selectedDateString={selectedDate}
             onDayPress={({ dateString }) => {
@@ -1315,6 +1319,17 @@ export default function ProjectCalendar({
             </Text>
           </View>
         )}
+    </>
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: COLORS.bg }]}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={embedded ? { paddingBottom: 24 } : undefined}
+      >
+        {renderCalendarScrollBody()}
       </ScrollView>
 
       {/* Date Events Modal - Shows all events for selected date */}
@@ -1868,6 +1883,9 @@ const styles = StyleSheet.create({
   calendarContainer: {
     marginTop: 8,
     marginBottom: 24,
+  },
+  calendarContainerEmbedded: {
+    marginTop: 0,
   },
   dayHeaders: {
     flexDirection: 'row',
