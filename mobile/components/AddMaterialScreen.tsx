@@ -29,10 +29,8 @@ import { useProjectData } from "@/contexts/ProjectDataContext";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import {
-  KeyboardNumericDoneAccessory,
-  numericKeyboardDoneAccessoryId,
-} from '@/components/KeyboardNumericDoneAccessory';
+import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
+import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -312,7 +310,8 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={Colors.bg} />
+      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
+      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
 
       <View style={styles.container}>
         <KeyboardAvoidingView
@@ -368,6 +367,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -397,7 +397,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       if (selectedPreset) setSelectedPreset(null);
                     }}
                     keyboardType="decimal-pad"
-                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                     returnKeyType="done"
                     onFocus={onAmountFieldFocus}
                     onBlur={onAmountFieldBlur}
@@ -448,6 +448,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={scope}
                     onChangeText={setScope}
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -471,6 +472,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={description}
                     onChangeText={setDescription}
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     multiline
                   />
                 </View>
@@ -492,6 +494,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={poNumber}
                     onChangeText={setPoNumber}
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit

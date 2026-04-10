@@ -1,9 +1,7 @@
 import React, { useCallback } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
-import {
-  KeyboardNumericDoneAccessory,
-  numericKeyboardDoneAccessoryId,
-} from "@/components/KeyboardNumericDoneAccessory";
+import KeyboardDoneAccessory from "@/components/ui/KeyboardDoneAccessory";
+import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
@@ -76,7 +74,8 @@ export default function PricingModeSection({
 
   return (
     <>
-      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={Colors.bg} />
+      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
+      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
       <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -195,8 +194,8 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={sqftInput}
                     onChangeText={onSqftInputChange}
-                    keyboardType="numeric"
-                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+                    keyboardType="number-pad"
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                     returnKeyType="next"
                     onSubmitEditing={onSqftSubmitEditing}
                     blurOnSubmit={false}
@@ -234,8 +233,8 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={ratePerSqftInput}
                     onChangeText={onRatePerSqftInputChange}
-                    keyboardType="numeric"
-                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+                    keyboardType="decimal-pad"
+                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                     returnKeyType="next"
                     onSubmitEditing={onRateSubmitEditing}
                     blurOnSubmit={false}
@@ -301,8 +300,8 @@ export default function PricingModeSection({
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
               value={amount}
               onChangeText={onFlatAmountChange}
-              keyboardType="numeric"
-              inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+              keyboardType="decimal-pad"
+              inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
               returnKeyType="next"
               onSubmitEditing={onFlatAmountSubmitEditing}
               blurOnSubmit={false}
