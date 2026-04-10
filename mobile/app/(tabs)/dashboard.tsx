@@ -62,7 +62,11 @@ import {
 } from "@/utils/aiInsightsUi";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
-import { computeProfitabilityByProjectType } from "@/lib/completedProjectProfitability";
+import {
+  computeProfitabilityByProjectType,
+  getCompletedProjectMarginPercent,
+  getCompletedProjectProfit,
+} from "@/lib/completedProjectProfitability";
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
 const isDepositMilestone = (m: any): boolean => {
@@ -149,9 +153,18 @@ const statusTheme: Record<string, { bg: string; border: string; color: string }>
   Draft: { bg: 'rgba(148, 163, 184, 0.2)', border: 'rgba(148, 163, 184, 0.35)', color: '#e2e8f0' },
 };
 
+/** Completed-job retrospective rows (realized profit) — not generic "info" noise. */
+const isRetrospectiveCompletedInsight = (i: any) =>
+  i?.retrospective === true || String(i?.id || "").startsWith("completed-retrospective-");
+
 /** Overview AI insights: urgency first, then impact; deprioritize low-material receipt chatter. */
 const sortInsightsForOverview = (insights: any[]): any[] => {
   const typeRank: Record<string, number> = { alert: 0, opportunity: 1, info: 2 };
+  /** Retrospective is typed as `info` but must surface in the 2-card preview above generic info. */
+  const sortTier = (i: any) => {
+    if (isRetrospectiveCompletedInsight(i)) return 0.5;
+    return typeRank[String(i?.type)] ?? 3;
+  };
   const combined = (i: any) => `${String(i?.title || "")} ${String(i?.body || "")}`.toLowerCase();
   const keywordBoost = (i: any) => {
     const s = combined(i);
@@ -167,8 +180,8 @@ const sortInsightsForOverview = (insights: any[]): any[] => {
     return /\breceipt/.test(s) && !/\b(margin|budget|permit|overrun|risk|missing|fee)\b/.test(s);
   };
   return [...(insights || [])].sort((a, b) => {
-    const ta = typeRank[String(a?.type)] ?? 3;
-    const tb = typeRank[String(b?.type)] ?? 3;
+    const ta = sortTier(a);
+    const tb = sortTier(b);
     if (ta !== tb) return ta - tb;
     const impactDiff =
       (Number(b?.impactScore) || 0) - (Number(a?.impactScore) || 0);
@@ -180,6 +193,59 @@ const sortInsightsForOverview = (insights: any[]): any[] => {
     return 0;
   });
 };
+
+function formatAiDashboardUsdCompact(n: number): string {
+  if (!Number.isFinite(Number(n))) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(n));
+}
+
+/**
+ * Production API (e.g. Render) may not deploy `completedSummaries` / rule-based retrospective rows yet.
+ * When the app already computed closed-job profit locally, append any missing cards so the UI matches
+ * a fully updated backend.
+ */
+function appendMissingClientRetrospectiveInsights(
+  insights: AiInsight[],
+  completedSummaries: Array<{
+    id: string;
+    title: string;
+    netProfit: number;
+    netProfitPct?: number | null;
+  }>
+): AiInsight[] {
+  if (!Array.isArray(completedSummaries) || completedSummaries.length === 0) {
+    return insights;
+  }
+  const seen = new Set((insights ?? []).map((i) => String(i.id)));
+  const extra: AiInsight[] = [];
+  for (const c of completedSummaries) {
+    if (c?.id == null || String(c.id).trim() === "") continue;
+    const rid = `completed-retrospective-${c.id}`;
+    if (seen.has(rid)) continue;
+    const title = String(c.title || "Job").trim() || "Job";
+    const net = Number(c.netProfit ?? 0);
+    const pctRaw = c.netProfitPct;
+    const pctStr =
+      pctRaw != null && Number.isFinite(Number(pctRaw))
+        ? `${Number(pctRaw).toFixed(1)}%`
+        : "—";
+    extra.push({
+      id: rid,
+      type: "info",
+      title: `${title}: realized net profit`,
+      body: `This job is closed. Realized net profit was about ${formatAiDashboardUsdCompact(net)} (${pctStr} of contract). Use this for historical margin review — not as an open pipeline action item.`,
+      projectId: String(c.id),
+      impactScore: 5,
+      retrospective: true,
+    });
+    seen.add(rid);
+  }
+  return [...(insights ?? []), ...extra];
+}
 
 /** One subtle operational line per dashboard project card */
 const getDashboardProjectOperationalSignal = (project: {
@@ -541,24 +607,179 @@ function isProjectEligibleForAiDashboardInsights(
   return AI_DASHBOARD_PROJECT_STATUSES.has(status);
 }
 
-/** Lowercased titles for completed jobs — used to drop orphan AI rows that name a closed job. */
-function completedProjectTitlesLower(
-  activeProjects: any[],
-  estimates: any[]
-): string[] {
-  const all = [...activeProjects, ...estimates];
-  return all
-    .filter((p) => {
-      const s = normalizePortfolioStatus(p?.status);
-      return s === "completed" || s === "complete";
-    })
-    .map((p) => String(p?.title || p?.name || "").toLowerCase().trim())
-    .filter((t) => t.length >= 4);
+/** Prefer the most advanced row when the same id appears in activeProjects + estimates (stale estimate copy). */
+const STATUS_RANK_FOR_AI_DEDUPE: Record<string, number> = {
+  draft: 1,
+  estimate: 2,
+  bid_submitted: 3,
+  submitted: 3,
+  won: 4,
+  in_progress: 5,
+  active: 5,
+  completed: 6,
+  complete: 6,
+  closed: 6,
+  done: 6,
+  finished: 6,
+  lost: 6,
+  cancelled: 6,
+  canceled: 6,
+};
+
+function dedupeProjectsByBestStatus(projects: any[]): any[] {
+  const m = new Map<string, any>();
+  for (const p of projects) {
+    if (p?.id == null || String(p.id).trim() === "") continue;
+    const id = String(p.id);
+    const prev = m.get(id);
+    if (!prev) {
+      m.set(id, p);
+      continue;
+    }
+    const ra = STATUS_RANK_FOR_AI_DEDUPE[normalizePortfolioStatus(p.status)] ?? 0;
+    const rb = STATUS_RANK_FOR_AI_DEDUPE[normalizePortfolioStatus(prev.status)] ?? 0;
+    if (ra > rb) m.set(id, p);
+  }
+  return [...m.values()];
 }
 
+/**
+ * Jobs that should not get "active pipeline" AI (align with ProjectListContext terminal statuses).
+ * Includes unified timeline progress (same signal as Projects list "Completed" when won + 100%).
+ */
+function isProjectClosedForDashboardAi(
+  p: any,
+  timelineProgressMap?: Record<string, number>
+): boolean {
+  const s = normalizePortfolioStatus(p?.status);
+  if (
+    s === "completed" ||
+    s === "complete" ||
+    s === "closed" ||
+    s === "done" ||
+    s === "finished" ||
+    s === "lost" ||
+    s === "cancelled" ||
+    s === "canceled"
+  ) {
+    return true;
+  }
+  const prog = Math.max(
+    Number(p?.overallProgressPct ?? 0),
+    Number(p?.progress ?? 0),
+    Number(p?.projectData?.overallProgressPct ?? 0)
+  );
+  if (Number.isFinite(prog) && prog >= 99) return true;
+
+  if (timelineProgressMap != null) {
+    const pid = String(p?.id ?? "");
+    const unified = deriveUnifiedProgressPct(p, pid, timelineProgressMap);
+    if (Number.isFinite(unified) && unified >= 99) return true;
+    // Mirror projects.tsx slugForUi: active-like jobs become "Completed" in UI at 99.5%+ schedule
+    const statusSlug = String(p?.status || "draft")
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    const activeLike =
+      statusSlug === "won" ||
+      statusSlug === "in_progress" ||
+      statusSlug === "in-progress" ||
+      statusSlug === "active";
+    if (activeLike && Number.isFinite(unified) && unified >= 99.5) return true;
+  }
+  return false;
+}
+
+/** Ids that are closed in *any* row — blocks AI rows when a duplicate estimate copy is still open. */
+function completedProjectIdsSet(
+  activeProjects: any[],
+  estimates: any[],
+  timelineProgress: Record<string, number>
+): Set<string> {
+  const ids = new Set<string>();
+  for (const p of [...activeProjects, ...estimates]) {
+    if (
+      isProjectClosedForDashboardAi(p, timelineProgress) &&
+      p?.id != null &&
+      String(p.id).trim() !== ""
+    ) {
+      ids.add(String(p.id));
+    }
+  }
+  return ids;
+}
+
+/**
+ * Closed job ids for AI filtering: stored terminal status OR timeline shows job essentially done
+ * (fixes status stuck on in_progress while milestones are 100%).
+ */
+function buildDashboardClosedProjectIdSet(
+  activeProjects: any[],
+  estimates: any[],
+  timelineProgress: Record<string, number>
+): Set<string> {
+  const ids = completedProjectIdsSet(activeProjects, estimates, timelineProgress);
+  const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+  for (const p of merged) {
+    const pid = String(p.id ?? "");
+    if (!pid) continue;
+    const pct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+    if (Number.isFinite(pct) && pct >= 99) ids.add(pid);
+  }
+  return ids;
+}
+
+/** Titles for jobs considered closed (same ids as buildDashboardClosedProjectIdSet). */
+function completedProjectTitlesForAiFilter(
+  activeProjects: any[],
+  estimates: any[],
+  timelineProgress: Record<string, number>
+): string[] {
+  const closedIds = buildDashboardClosedProjectIdSet(activeProjects, estimates, timelineProgress);
+  const titles: string[] = [];
+  for (const p of [...activeProjects, ...estimates]) {
+    if (!closedIds.has(String(p.id ?? ""))) continue;
+    const t = String(p?.title || p?.name || "").toLowerCase().trim();
+    if (t.length >= 4) titles.push(t);
+  }
+  return [...new Set(titles)];
+}
+
+function normalizeInsightProjectId(insight: {
+  projectId?: unknown;
+  project_id?: unknown;
+}): string {
+  const raw = insight.projectId ?? (insight as { project_id?: unknown }).project_id;
+  if (raw == null) return "";
+  return String(raw).trim();
+}
+
+/**
+ * True if insight text likely refers to a completed job — matches full title, title without "project",
+ * or first two significant words (e.g. "silver leaf" vs "silver leaf project").
+ */
 function aiTextReferencesCompletedJob(text: string, completedTitles: string[]): boolean {
   const hay = text.toLowerCase();
-  return completedTitles.some((title) => hay.includes(title));
+  const hayCompact = hay.replace(/\s+/g, "");
+  return completedTitles.some((rawTitle) => {
+    const t = rawTitle.trim();
+    if (t.length < 3) return false;
+    if (hay.includes(t)) return true;
+    const noProject = t.replace(/\s+project\s*$/i, "").trim();
+    if (noProject.length >= 3 && hay.includes(noProject)) return true;
+    const words = t
+      .split(/\s+/)
+      .map((w) => w.replace(/[^a-z0-9]/gi, ""))
+      .filter((w) => w.length > 2);
+    if (words.length >= 2) {
+      const pair = `${words[0]} ${words[1]}`;
+      if (hay.includes(pair)) return true;
+      const pairCompact = pair.replace(/\s+/g, "");
+      if (pairCompact.length >= 6 && hayCompact.includes(pairCompact)) return true;
+    }
+    const titleCompact = t.replace(/\s+/g, "");
+    if (titleCompact.length >= 6 && hayCompact.includes(titleCompact)) return true;
+    return false;
+  });
 }
 
 /** Stable id for persisting dismissals (API id, or project + label fallback). */
@@ -2431,24 +2652,66 @@ const DashboardScreen: React.FC = () => {
     }, [loadTimelineProgress])
   );
 
-  // Compute projects hash for change detection
+  // Compute projects hash for change detection (dedupe + timeline progress so insights refresh when schedule moves)
   const computeProjectsHash = useCallback(() => {
-    const allProjects = [...activeProjects, ...estimates]
+    const deduped = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+    const allProjects = deduped
       .filter(isProjectEligibleForAiDashboardInsights)
-      .map(p => ({
-        id: String(p.id),
-        status: p.status,
-        bidPrice: p.bidPrice || 0,
-        estimatedCost: p.estimatedCost || 0,
-        actualCost: p.actualCost || 0,
-        margin: p.margin || 0,
-        updatedAt: p.updatedAt,
-      }));
-    
-    // Simple hash: sort by id and stringify
-    const sorted = allProjects.sort((a, b) => a.id.localeCompare(b.id));
+      .map((p) => {
+        const pid = String(p.id ?? "");
+        const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+        const expensesList: any[] = p.projectData?.expenses || p.expenses || [];
+        const expensesTotal = expensesList.reduce(
+          (sum: number, e: any) => sum + Number(e.amount || 0),
+          0
+        );
+        const actualCost = Number(
+          p.actualCost || p.projectData?.totalSpent || p.totalSpent || expensesTotal || 0
+        );
+        return {
+          id: pid,
+          status: p.status,
+          bidPrice: p.bidPrice || 0,
+          estimatedCost: p.estimatedCost || 0,
+          actualCost,
+          progressPct,
+          margin: p.margin || 0,
+          updatedAt: p.updatedAt,
+        };
+      });
+
+    const sorted = [...allProjects].sort((a, b) => a.id.localeCompare(b.id));
     return JSON.stringify(sorted);
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, timelineProgress]);
+
+  /**
+   * Pipeline hash excludes completed-only rows, so retrospective payload changes were invisible to the
+   * debouncer — add closed-job fingerprint so completedSummaries / Silver Leaf updates trigger refresh.
+   */
+  const computeClosedJobsAiHash = useCallback(() => {
+    const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+    const closedIds = buildDashboardClosedProjectIdSet(
+      activeProjects,
+      estimates,
+      timelineProgress
+    );
+    const rows = merged
+      .filter((p) => closedIds.has(String(p.id ?? "")))
+      .map((p) => {
+        const id = String(p.id ?? "");
+        return {
+          id,
+          pct: Math.round(deriveUnifiedProgressPct(p, id, timelineProgress) * 10) / 10,
+          net: Math.round((getCompletedProjectProfit(p) || 0) * 100) / 100,
+        };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return JSON.stringify(rows);
+  }, [activeProjects, estimates, timelineProgress]);
+
+  const computeAiRefreshHash = useCallback(() => {
+    return `${computeProjectsHash()}|closed:${computeClosedJobsAiHash()}`;
+  }, [computeProjectsHash, computeClosedJobsAiHash]);
 
   // Fetch AI insights function (reusable for manual refresh)
   const fetchAiData = useCallback(async (forceRefresh = false) => {
@@ -2466,17 +2729,21 @@ const DashboardScreen: React.FC = () => {
       const authState = clerkAuthService.getAuthState();
       const userId = authState.user?.id || authState.user?.email || 'unknown';
 
-      // Active / submitted / estimates only — completed jobs excluded from AI context
-      const allProjects = [...activeProjects, ...estimates]
+      // Dedupe ids (prefer won/active over stale estimate row), then active/submitted/estimates only — completed excluded
+      const allProjects = dedupeProjectsByBestStatus([...activeProjects, ...estimates])
         .filter(isProjectEligibleForAiDashboardInsights)
         .map((p) => {
           const bidPrice = Number(p.bidPrice || 0);
           const estimatedCost = Number(p.estimatedCost || 0);
+          const pid = String(p.id ?? "");
 
           // Compute actualCost from expenses if not directly available
           const expensesList: any[] = p.projectData?.expenses || p.expenses || [];
           const expensesTotal = expensesList.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
           const actualCost = Number(p.actualCost || p.projectData?.totalSpent || p.totalSpent || expensesTotal || 0);
+
+          // Same progress signal as project overview / timeline (not raw p.progress alone)
+          const progressUnified = deriveUnifiedProgressPct(p, pid, timelineProgress);
 
           // Compute margin % from financials (don't trust a stored 0 when we can calculate it)
           const computedMarginPct = bidPrice > 0 && estimatedCost > 0
@@ -2484,7 +2751,7 @@ const DashboardScreen: React.FC = () => {
             : Number(p.margin || 0);
 
           return {
-            id: String(p.id),
+            id: pid,
             userId: userId,
             name: p.title,
             title: p.title,
@@ -2500,8 +2767,8 @@ const DashboardScreen: React.FC = () => {
             projectType: p.projectType,
             startDate: p.startDate,
             endDate: p.endDate,
-            progress: p.progress || 0,
-            overallProgressPct: p.overallProgressPct || p.progress || 0,
+            progress: progressUnified,
+            overallProgressPct: progressUnified,
             createdAt: p.createdAt,
             updatedAt: p.updatedAt,
             lineItems: p.estimateData?.materialLineItems || p.projectData?.buckets || [],
@@ -2516,9 +2783,28 @@ const DashboardScreen: React.FC = () => {
           };
         });
 
+      const mergedForClosed = dedupeProjectsByBestStatus([
+        ...activeProjects,
+        ...estimates,
+      ]);
+      const closedIdsForPayload = buildDashboardClosedProjectIdSet(
+        activeProjects,
+        estimates,
+        timelineProgress
+      );
+      const completedSummaries = mergedForClosed
+        .filter((p) => closedIdsForPayload.has(String(p.id ?? "")))
+        .map((p) => ({
+          id: String(p.id),
+          title: String(p.title || p.name || "Job"),
+          contractValue: getProjectRevenue(p),
+          netProfit: getCompletedProjectProfit(p),
+          netProfitPct: getCompletedProjectMarginPercent(p),
+        }));
+
       const response = await apiService.post<AiDashboardResponse>(
         "/api/ai/dashboard-insights",
-        { userId, projects: allProjects, forceRefresh },
+        { userId, projects: allProjects, completedSummaries, forceRefresh },
         {
           // This endpoint supports optional auth and can use userId from body.
           // Force-empty Authorization to avoid stale/expired token failures.
@@ -2535,44 +2821,76 @@ const DashboardScreen: React.FC = () => {
         });
       }
 
-      const currentProjects = [...activeProjects, ...estimates].filter(
-        isProjectEligibleForAiDashboardInsights
-      );
+      const currentProjects = dedupeProjectsByBestStatus([
+        ...activeProjects,
+        ...estimates,
+      ]).filter(isProjectEligibleForAiDashboardInsights);
       const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
-      const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+      const closedIds = buildDashboardClosedProjectIdSet(
+        activeProjects,
+        estimates,
+        timelineProgress
+      );
+      const closedTitles = completedProjectTitlesForAiFilter(
+        activeProjects,
+        estimates,
+        timelineProgress
+      );
 
-      // Filter out insights/steps for completed or ineligible projects; drop orphans that name a completed job
+      // Pipeline-only ids for operational insights; closed jobs only keep retrospective rows
       const filteredData = {
         ...response.data,
         insights: (response.data.insights || []).filter((insight: any) => {
-          if (insight.projectId) {
-            return currentProjectIds.has(String(insight.projectId));
-          }
+          const pid = normalizeInsightProjectId(insight);
           const blob = `${insight.title || ""} ${insight.body || ""}`;
-          if (aiTextReferencesCompletedJob(blob, completedTitles)) return false;
+          const retrospective =
+            insight.retrospective === true ||
+            String(insight.id || "").startsWith("completed-retrospective-");
+          if (pid && closedIds.has(pid)) {
+            return retrospective;
+          }
+          if (aiTextReferencesCompletedJob(blob, closedTitles) && !retrospective) {
+            return false;
+          }
+          if (pid) {
+            return currentProjectIds.has(pid);
+          }
           return true;
         }),
         nextSteps: (response.data.nextSteps || []).filter((step: any) => {
-          if (step.projectId) {
-            return currentProjectIds.has(String(step.projectId));
+          const pid = normalizeInsightProjectId(step);
+          const stepBlob = `${step.label || ""} ${step.chip || ""}`;
+          if (stepBlob.toLowerCase().includes("josh")) return false;
+          if (pid && closedIds.has(pid)) return false;
+          if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
+          if (pid) {
+            return currentProjectIds.has(pid);
           }
-          const stepText = String(step.label || "");
-          if (stepText.toLowerCase().includes("josh")) return false;
-          if (aiTextReferencesCompletedJob(stepText, completedTitles)) return false;
           return true;
         }),
       };
       
+      const mergedInsights = appendMissingClientRetrospectiveInsights(
+        filteredData.insights,
+        completedSummaries
+      );
+      const filteredDataWithRetrospectives = {
+        ...filteredData,
+        insights: mergedInsights,
+      };
+
       if (__DEV__) {
-        console.log('📊 After filtering:', {
+        console.log("📊 After filtering:", {
           originalInsights: response.data?.insights?.length || 0,
           filteredInsights: filteredData.insights.length,
+          afterClientRetrospectives: mergedInsights.length,
+          completedSummariesSent: completedSummaries.length,
           originalNextSteps: response.data?.nextSteps?.length || 0,
           filteredNextSteps: filteredData.nextSteps.length,
         });
       }
-      
-      setAiData(filteredData);
+
+      setAiData(filteredDataWithRetrospectives);
     } catch (err: any) {
       // Check for route not found first
       const isRouteNotFound = 
@@ -2634,7 +2952,7 @@ const DashboardScreen: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [aiPmMode, activeProjects, estimates]);
+  }, [aiPmMode, activeProjects, estimates, timelineProgress]);
 
   // Debounced effect: only fetch when projects actually change (after 10 second debounce)
   useEffect(() => {
@@ -2648,9 +2966,9 @@ const DashboardScreen: React.FC = () => {
       return;
     }
 
-    // Compute current projects hash
-    const currentHash = computeProjectsHash();
-    
+    // Pipeline + closed-job fingerprint (completed jobs were missing from pipeline-only hash)
+    const currentHash = computeAiRefreshHash();
+
     // If hash hasn't changed, don't refetch
     if (currentHash === lastProjectsHashRef.current && aiData !== null) {
       return;
@@ -2672,16 +2990,15 @@ const DashboardScreen: React.FC = () => {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [aiPmMode, activeProjects, estimates, computeProjectsHash, fetchAiData, aiData]);
+  }, [aiPmMode, activeProjects, estimates, computeAiRefreshHash, fetchAiData, aiData]);
 
   // Initial fetch when AI PM mode is toggled ON (no debounce)
   useEffect(() => {
     if (aiPmMode && !aiData && !aiLoading) {
-      const currentHash = computeProjectsHash();
-      lastProjectsHashRef.current = currentHash;
+      lastProjectsHashRef.current = computeAiRefreshHash();
       fetchAiData(false);
     }
-  }, [aiPmMode]); // Only depend on aiPmMode for initial fetch
+  }, [aiPmMode, aiData, aiLoading, computeAiRefreshHash, fetchAiData]);
 
   // Periodic refresh: every 5 minutes, but only refresh rule-based checks
   // (AI layer is cached, so we don't need to call OpenAI every 5 min)
@@ -2707,42 +3024,74 @@ const DashboardScreen: React.FC = () => {
   const filteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
 
-    const currentProjects = [...activeProjects, ...estimates].filter(
-      isProjectEligibleForAiDashboardInsights
-    );
+    const currentProjects = dedupeProjectsByBestStatus([
+      ...activeProjects,
+      ...estimates,
+    ]).filter(isProjectEligibleForAiDashboardInsights);
     const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
-    const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+    const closedIds = buildDashboardClosedProjectIdSet(
+      activeProjects,
+      estimates,
+      timelineProgress
+    );
+    const closedTitles = completedProjectTitlesForAiFilter(
+      activeProjects,
+      estimates,
+      timelineProgress
+    );
 
     return aiData.insights.filter((insight) => {
-      if (insight.projectId) {
-        return currentProjectIds.has(String(insight.projectId));
-      }
+      const pid = normalizeInsightProjectId(insight);
       const blob = `${insight.title || ""} ${insight.body || ""}`;
-      if (aiTextReferencesCompletedJob(blob, completedTitles)) return false;
+      const retrospective =
+        insight.retrospective === true ||
+        String(insight.id || "").startsWith("completed-retrospective-");
+      if (pid && closedIds.has(pid)) {
+        return retrospective;
+      }
+      if (aiTextReferencesCompletedJob(blob, closedTitles) && !retrospective) {
+        return false;
+      }
+      if (pid) {
+        return currentProjectIds.has(pid);
+      }
       return true;
     });
-  }, [aiData?.insights, activeProjects, estimates]);
+  }, [aiData?.insights, activeProjects, estimates, timelineProgress]);
 
   const filteredNextSteps = useMemo(() => {
     if (!aiData?.nextSteps) return [];
 
-    const currentProjects = [...activeProjects, ...estimates].filter(
-      isProjectEligibleForAiDashboardInsights
-    );
+    const currentProjects = dedupeProjectsByBestStatus([
+      ...activeProjects,
+      ...estimates,
+    ]).filter(isProjectEligibleForAiDashboardInsights);
     const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
-    const completedTitles = completedProjectTitlesLower(activeProjects, estimates);
+    const closedIds = buildDashboardClosedProjectIdSet(
+      activeProjects,
+      estimates,
+      timelineProgress
+    );
+    const closedTitles = completedProjectTitlesForAiFilter(
+      activeProjects,
+      estimates,
+      timelineProgress
+    );
 
     return aiData.nextSteps.filter((step) => {
       const stepText = String(step.label || "").toLowerCase();
       if (stepText.includes("josh")) return false;
 
-      if (step.projectId) {
-        return currentProjectIds.has(String(step.projectId));
+      const pid = normalizeInsightProjectId(step);
+      const stepBlob = `${step.label || ""} ${step.chip || ""}`;
+      if (pid && closedIds.has(pid)) return false;
+      if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
+      if (pid) {
+        return currentProjectIds.has(pid);
       }
-      if (aiTextReferencesCompletedJob(stepText, completedTitles)) return false;
       return true;
     });
-  }, [aiData?.nextSteps, activeProjects, estimates]);
+  }, [aiData?.nextSteps, activeProjects, estimates, timelineProgress]);
 
   // Transform projects data - only show submitted and above (hide draft/estimate)
   const projects = useMemo(() => {
@@ -2822,16 +3171,28 @@ const DashboardScreen: React.FC = () => {
 
     const projectTypeStats =
       computeProfitabilityByProjectType(deduplicatedProjects);
-    
-    const avgMargin =
-      projects.length > 0
-        ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
-        : 0;
+
+    /** Simple mean of realized net profit % (net ÷ contract) per completed job — same $ basis as pipeline completed profit. */
+    const completedNetProfitMargins: number[] = [];
+    for (const p of deduplicatedProjects) {
+      const status = (p?.status || "").toString().toLowerCase();
+      if (status !== "completed") continue;
+      const m = getCompletedProjectMarginPercent(p);
+      if (m !== null && Number.isFinite(m)) completedNetProfitMargins.push(m);
+    }
+    const avgCompletedNetProfitPct =
+      completedNetProfitMargins.length > 0
+        ? completedNetProfitMargins.reduce((s, x) => s + x, 0) /
+          completedNetProfitMargins.length
+        : null;
 
     const result = {
       totalBids: formatMoneyCompact(totalBids),
       activeProjects: formatMoneyCompact(activeProjectsValue),
-      avgMargin: `${avgMargin.toFixed(1)}%`,
+      avgMargin:
+        avgCompletedNetProfitPct !== null
+          ? `${avgCompletedNetProfitPct.toFixed(1)}%`
+          : "—",
       completedProfit: formatMoneyUSD(pipelineTotals.completedProfit),
       rawCompletedProfit: pipelineTotals.completedProfit,
       projectTypeStats,
@@ -2841,7 +3202,7 @@ const DashboardScreen: React.FC = () => {
     };
     
     return result;
-  }, [activeProjects, estimates, projects]);
+  }, [activeProjects, estimates]);
 
   const handleProjectPress = useCallback(
     (project: any) => {
@@ -3242,7 +3603,7 @@ const EnhancedMetricCard = ({
               <Ionicons
                 name={trendDirection === "up" ? "trending-up" : "trending-down"}
                 size={14}
-                color={gradient || label === "Avg Margin" ? "#020617" : "#22d3ee"}
+                color={gradient || label === "Avg Net Profit" ? "#020617" : "#22d3ee"}
                   />
                 </View>
           </View>
@@ -3252,13 +3613,13 @@ const EnhancedMetricCard = ({
             minimumFontScale={0.55}
             style={[
               styles.metricValue,
-              (gradient || label === "Avg Margin") && { color: "#020617" },
+              (gradient || label === "Avg Net Profit") && { color: "#020617" },
               { width: "100%" },
             ]}
           >
             {value}
           </Text>
-          <Text style={[styles.metricLabel, (gradient || label === "Avg Margin") && { color: "rgba(2,6,23,0.75)" }]}>
+          <Text style={[styles.metricLabel, (gradient || label === "Avg Net Profit") && { color: "rgba(2,6,23,0.75)" }]}>
             {label}
           </Text>
 
@@ -3288,7 +3649,7 @@ const EnhancedMetricCard = ({
           <Text
             style={[
               styles.metricContext,
-              (gradient || label === "Avg Margin") && styles.metricContextOnLight,
+              (gradient || label === "Avg Net Profit") && styles.metricContextOnLight,
             ]}
           >
             {context}
@@ -3595,12 +3956,12 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             context="3 jobs flagged for review"
           />
           <EnhancedMetricCard
-            label="Avg Margin"
+            label="Avg Net Profit"
             value={metrics.avgMargin}
-            timeframe="This Month"
-            trend="-1.2%"
+            timeframe="Completed jobs"
+            trend="—"
             trendDirection="down"
-            context="Slightly below your 35% target"
+            context="Net profit ÷ contract on closed work (realized)"
           />
         </ScrollView>
                   </View>
@@ -4047,9 +4408,8 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
                 value={avgProjectValue}
               />
               <AnalyticsMetric
-                label="Avg Margin"
+                label="Avg Net Profit"
                 value={metrics.avgMargin}
-                extra="+0.0%"
               />
             </View>
           </View>
@@ -4093,7 +4453,7 @@ const AnalyticsMetric = ({
       "Total Bids": { icon: "cash-outline", color: "#3b82f6", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
       "Active Projects": { icon: "folder-outline", color: "#22c55e", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
       "Avg Project Value": { icon: "trending-up-outline", color: "#22d3ee", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
-      "Avg Margin": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
+      "Avg Net Profit": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
     };
     const config = baseConfigs[label] || { icon: "stats-chart-outline", color: "#FFFFFF", darkBg: Colors.surface2, lightBg: "#E2E8F0" };
     return {
@@ -4221,10 +4581,17 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     );
   }, [projects]);
 
-  const avgMargin =
-    projects.length > 0
-      ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
-      : 0;
+  const avgMargin = useMemo(() => {
+    const pcts: number[] = [];
+    for (const row of projects) {
+      if (row.status !== "Completed") continue;
+      const raw = row.rawProject;
+      if (!raw) continue;
+      const m = getCompletedProjectMarginPercent(raw);
+      if (m !== null && Number.isFinite(m)) pcts.push(m);
+    }
+    return pcts.length > 0 ? pcts.reduce((a, b) => a + b, 0) / pcts.length : 0;
+  }, [projects]);
 
   const projectNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -4371,7 +4738,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                   {urgentProjects.length > 0
                     ? `${urgentProjects.length} active job${urgentProjects.length > 1 ? "s" : ""} need timeline attention`
                     : avgMargin > 80
-                      ? `Portfolio margin averaging ${avgMargin.toFixed(1)}%`
+                      ? `Completed jobs averaging ${avgMargin.toFixed(1)}% net profit`
                       : "No major portfolio flags"}
                 </Text>
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>

@@ -77,9 +77,9 @@ export function computeBudgetProfitMixSegments(params: {
   return { segments, contractValue: cv };
 }
 
-/** ~10% smaller than v1 for card breathing room */
-const SIZE = 208;
-const STROKE = 23;
+/** Donut geometry — wider ring + larger center type */
+const SIZE = 228;
+const STROKE = 28;
 const R = SIZE / 2 - STROKE / 2 - 3;
 
 type Props = {
@@ -150,7 +150,7 @@ export default function BudgetProfitMixDonut({
           y,
           pctStr,
           show: seg.sweepDeg >= MIN_SWEEP_DEG,
-          fontSize: seg.sweepDeg < 14 ? 9 : seg.sweepDeg < 28 ? 10 : 11,
+          fontSize: seg.sweepDeg < 14 ? 11 : seg.sweepDeg < 28 ? 12 : 13,
         };
       });
   }, [segments]);
@@ -253,58 +253,61 @@ const styles = StyleSheet.create({
     height: SIZE,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+    marginBottom: 18,
   },
   centerOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 22,
+    paddingHorizontal: 18,
   },
   centerLabel: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 1.1,
-    marginBottom: 3,
+    letterSpacing: 1.6,
+    marginBottom: 6,
+    textAlign: "center",
   },
   centerValue: {
-    fontSize: 26,
+    fontSize: 40,
     fontWeight: "800",
-    fontVariant: ["tabular-nums"],
-    letterSpacing: -0.5,
+    lineHeight: 44,
+    textAlign: "center",
   },
   legend: {
     width: "100%",
-    marginTop: 13,
-    paddingHorizontal: 4,
-    gap: 10,
+    marginTop: 4,
+    gap: 14,
   },
   legendRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    width: "100%",
   },
   legendDot: {
-    width: 11,
-    height: 11,
-    borderRadius: 999,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginRight: 12,
+    flexShrink: 0,
   },
   legendTextCol: {
     flex: 1,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
+    gap: 12,
   },
   legendLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "500",
     flex: 1,
-    letterSpacing: 0.15,
   },
   legendValue: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
+    textAlign: "right",
     fontVariant: ["tabular-nums"],
-    letterSpacing: -0.2,
   },
 });

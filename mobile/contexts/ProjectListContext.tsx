@@ -621,7 +621,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       status === 'in_progress' ||
       status === 'in-progress' ||
       status === 'active' ||
-      status === 'completed'
+      status === 'completed' ||
+      status === 'complete'
     );
   });
   const wonProjects = projects.filter(p => {

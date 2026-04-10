@@ -9,6 +9,7 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +17,10 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from '../components/KeyboardNumericDoneAccessory';
 
 const Colors = {
   bg: '#0d2745',
@@ -88,6 +93,7 @@ export default function ManualLaborEntryScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={['#0b1c38', '#1B365D', '#43cea2']} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
+          <KeyboardNumericDoneAccessory darkMode surfaceColor={Colors.bg} />
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <View style={styles.header}>
               <TouchableOpacity
@@ -119,6 +125,9 @@ export default function ManualLaborEntryScreen() {
                     placeholder="e.g., Framing Crew, Tile Installer"
                     placeholderTextColor="rgba(255, 255, 255, 0.5)"
                     autoCapitalize="words"
+                    returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
                   />
                 </View>
 
@@ -180,6 +189,7 @@ export default function ManualLaborEntryScreen() {
                           setUnits(cleanText);
                         }}
                         keyboardType="decimal-pad"
+                        inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                         placeholder="1"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
                       />
@@ -194,6 +204,7 @@ export default function ManualLaborEntryScreen() {
                           setRate(cleanText);
                         }}
                         keyboardType="decimal-pad"
+                        inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                         placeholder="0.00"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
                       />

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Alert,
   Image,
@@ -28,6 +29,10 @@ import { useProjectData } from "@/contexts/ProjectDataContext";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from '@/components/KeyboardNumericDoneAccessory';
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -67,6 +72,31 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [showOCRModal, setShowOCRModal] = useState(false);
+  /** Hide Cancel/Save while amount keypad is open so buttons don't stack on the keyboard. */
+  const [hideFooterForNumeric, setHideFooterForNumeric] = useState(false);
+  const numericBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onAmountFieldFocus = useCallback(() => {
+    if (numericBlurTimerRef.current) {
+      clearTimeout(numericBlurTimerRef.current);
+      numericBlurTimerRef.current = null;
+    }
+    setHideFooterForNumeric(true);
+  }, []);
+
+  const onAmountFieldBlur = useCallback(() => {
+    if (numericBlurTimerRef.current) clearTimeout(numericBlurTimerRef.current);
+    numericBlurTimerRef.current = setTimeout(() => {
+      setHideFooterForNumeric(false);
+      numericBlurTimerRef.current = null;
+    }, 120);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (numericBlurTimerRef.current) clearTimeout(numericBlurTimerRef.current);
+    };
+  }, []);
 
   const numericAmount = parseFloat(amount.replace(/,/g, "") || "0");
 
@@ -282,6 +312,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={Colors.bg} />
 
       <View style={styles.container}>
         <KeyboardAvoidingView
@@ -337,7 +368,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
-                    returnKeyType="next"
+                    returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
                   />
                 </View>
               </View>
@@ -364,7 +397,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       if (selectedPreset) setSelectedPreset(null);
                     }}
                     keyboardType="decimal-pad"
+                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                     returnKeyType="done"
+                    onFocus={onAmountFieldFocus}
+                    onBlur={onAmountFieldBlur}
                   />
                 </View>
 
@@ -412,7 +448,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={scope}
                     onChangeText={setScope}
-                    returnKeyType="next"
+                    returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
                   />
                 </View>
               </View>
@@ -455,6 +493,8 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     value={poNumber}
                     onChangeText={setPoNumber}
                     returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
                   />
                 </View>
               </View>
@@ -539,7 +579,8 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               </View>
             </Modal>
 
-            {/* BOTTOM ACTION BAR */}
+            {/* BOTTOM ACTION BAR — hidden while decimal-pad (amount) is focused */}
+            {!hideFooterForNumeric && (
             <View style={styles.bottomBar}>
               <Pressable
                 style={({ pressed }) => [
@@ -568,6 +609,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 </LinearGradient>
               </Pressable>
             </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </View>

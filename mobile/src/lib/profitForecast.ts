@@ -51,9 +51,9 @@ export interface ProfitForecastOutput {
   forecastMethod: ForecastMethod;
   /** Schedule % passed in (timeline). */
   scheduleProgressPct: number;
-  /** (Actual + committed POs) / planned cost budget × 100 */
+  /** (Actual + committed POs) / planned cost budget × 100, clamped 0–100 for UI */
   costBudgetUsedPct: number;
-  /** max(schedule, costBudgetUsed) — used for run-rate completion so cost pace vs timeline both matter */
+  /** Effective completion % used for run-rate (schedule vs damped burn) */
   blendedProgressPct: number;
   /** Echo of optional input when provided */
   contractCollectedPct?: number;
@@ -117,13 +117,14 @@ export function computeElapsedCalendarPct(
 }
 
 /**
- * Forecast logic — trend-based run-rate with **blended completion** + optional **calendar** stress.
+ * Forecast logic — run-rate with damped burn vs schedule, optional **blended calendar stress**.
  *
- * - **Blended** uses max(schedule %, cost-budget-used %) for pace vs schedule and cost.
- * - **Calendar** extrapolation: `actual / (elapsedTimePct/100)` — if you’ve spent most of the
- *   budget early in the project window, this can exceed the planned cap and **pull margin down**
- *   (we do **not** cap at budget when calendar EAC is higher — that was hiding real overrun risk).
- * - **Cap at planned budget** still applies when nothing suggests overrun (preserves Contract & Cost alignment).
+ * - **rawCostBudgetUsedPct** can exceed 100% when over budget (internal sensitivity).
+ * - **costBudgetUsedPct** returned to UI stays clamped 0–100 for pills/labels.
+ * - **Blended completion** uses max(schedule, min(rawBurn, schedule+25)) to avoid absurd run-rates.
+ * - **Calendar EAC** uses actual+committed; stress is **blended** in only when calendar signal
+ *   and strain gates pass (elapsed, behind schedule vs calendar, or overburn vs progress).
+ * - **Cap at planned budget** when still within budget and blend suggests overrun (hybrid).
  *
  * **Collections:** passed through for UI only; accrual margin is cost vs contract.
  */
@@ -132,13 +133,9 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
   const adjustedBudget = safeNum(input.adjustedBudget);
   const actualExpenses = safeNum(input.actualExpenses);
   const committedPOs = safeNum(input.committedPOs);
-  const scheduleProgressPct = clamp(safeNum(input.progressPct), 0, 100);
   const actualPlusCommitted = actualExpenses + committedPOs;
-  const costBudgetUsedPct =
-    adjustedBudget > 0 ? Math.min(100, (actualPlusCommitted / adjustedBudget) * 100) : 0;
-  /** Completion % for run-rate: both timeline and cost burn vs cap matter */
-  const blendedProgressPct = Math.max(scheduleProgressPct, costBudgetUsedPct);
-  const progressRatio = blendedProgressPct > 0 ? blendedProgressPct / 100 : 0;
+
+  const scheduleProgressPct = clamp(safeNum(input.progressPct), 0, 100);
 
   const collectedInput = input.contractCollectedPct;
   const contractCollectedPct =
@@ -152,57 +149,122 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
       ? clamp(safeNum(elapsedInput), 0, 100)
       : undefined;
 
-  /** Implied EAC if spend continued at average $/calendar-elapsed through the full duration. */
+  /**
+   * Keep the raw burn % for forecasting.
+   * Do NOT cap at 100 internally or we lose sensitivity once a job is over budget.
+   */
+  const rawCostBudgetUsedPct =
+    adjustedBudget > 0 ? (actualPlusCommitted / adjustedBudget) * 100 : 0;
+
+  /**
+   * Keep existing output field name, but return a clamped display-friendly version.
+   * Internally we use rawCostBudgetUsedPct.
+   */
+  const costBudgetUsedPct = clamp(rawCostBudgetUsedPct, 0, 100);
+
+  /**
+   * Base completion for run-rate.
+   * Use the stronger of schedule progress or budget-burn progress,
+   * but do not let burn progress run infinitely ahead and distort forecast.
+   */
+  const effectiveBurnPct = Math.min(rawCostBudgetUsedPct, scheduleProgressPct + 25);
+  const blendedProgressPct = clamp(
+    Math.max(scheduleProgressPct, effectiveBurnPct),
+    0,
+    100
+  );
+  const progressRatio = blendedProgressPct > 0 ? blendedProgressPct / 100 : 0;
+
+  /**
+   * Calendar-based extrapolation:
+   * Use actual + committed so the risk model reflects real obligations, not just booked actuals.
+   */
   let eacCalendar: number | null = null;
-  if (elapsedTimePct != null && elapsedTimePct >= 2 && actualExpenses > 0) {
-    const elapsedRatio = Math.max(elapsedTimePct / 100, 0.02);
-    eacCalendar = actualExpenses / elapsedRatio;
+  if (elapsedTimePct != null && elapsedTimePct >= 5 && actualPlusCommitted > 0) {
+    const elapsedRatio = Math.max(elapsedTimePct / 100, 0.05);
+    eacCalendar = actualPlusCommitted / elapsedRatio;
   }
 
-  /** Job “done” follows timeline / explicit flag only — not cost-budget % (avoid treating schedule 100% + low cost as finished). */
+  /**
+   * Completion logic:
+   * Only explicit completion flag or schedule progress ~100%.
+   * Do not infer "done" from cost burn.
+   */
   const isCompleted = input.isCompleted === true || scheduleProgressPct >= 99.5;
-  let forecastFinalCost = adjustedBudget;
+
+  let forecastFinalCost = adjustedBudget > 0 ? adjustedBudget : actualPlusCommitted;
   let forecastMethod: ForecastMethod = 'budget-fallback';
 
-  if (actualExpenses > 0 || committedPOs > 0) {
+  if (actualPlusCommitted > 0) {
     if (isCompleted) {
-      forecastFinalCost = actualExpenses;
+      forecastFinalCost = actualPlusCommitted;
       forecastMethod = 'completed';
-    } else if (progressRatio > 0.01 && actualExpenses > 0) {
-      // Run-rate: actual / blended completion → implied total at completion
-      const cpiForecast = actualExpenses / progressRatio;
-      forecastFinalCost = Math.max(actualPlusCommitted, cpiForecast);
+    } else if (progressRatio > 0.03) {
+      const runRateForecast = actualPlusCommitted / progressRatio;
+      forecastFinalCost = Math.max(actualPlusCommitted, runRateForecast);
       forecastMethod = 'run-rate';
 
-      const withinCostBudget = actualPlusCommitted <= adjustedBudget;
-      if (withinCostBudget && adjustedBudget > 0 && forecastFinalCost > adjustedBudget) {
+      const withinPlannedBudget = actualPlusCommitted <= adjustedBudget;
+      if (withinPlannedBudget && adjustedBudget > 0 && forecastFinalCost > adjustedBudget) {
         forecastFinalCost = adjustedBudget;
         forecastMethod = 'hybrid';
       }
 
-      if (eacCalendar != null && eacCalendar > forecastFinalCost) {
-        forecastFinalCost = eacCalendar;
-        forecastMethod = 'calendar-run-rate';
+      const hasEnoughCalendarSignal = elapsedTimePct != null && elapsedTimePct >= 12;
+      const isBehindScheduleVsCalendar =
+        elapsedTimePct != null && elapsedTimePct > scheduleProgressPct + 10;
+      const isOverburningVsProgress = rawCostBudgetUsedPct > scheduleProgressPct + 10;
+
+      const shouldApplyCalendarStress =
+        eacCalendar != null &&
+        hasEnoughCalendarSignal &&
+        (isBehindScheduleVsCalendar || isOverburningVsProgress);
+
+      if (shouldApplyCalendarStress && eacCalendar > forecastFinalCost) {
+        const severeStress = isBehindScheduleVsCalendar && isOverburningVsProgress;
+        const calendarWeight = severeStress ? 0.75 : 0.45;
+
+        const stressedForecast =
+          forecastFinalCost + (eacCalendar - forecastFinalCost) * calendarWeight;
+
+        if (stressedForecast > forecastFinalCost) {
+          forecastFinalCost = stressedForecast;
+          forecastMethod = 'calendar-run-rate';
+        }
       }
     } else {
       forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
       forecastMethod = 'budget-fallback';
-      if (eacCalendar != null && eacCalendar > forecastFinalCost) {
-        forecastFinalCost = eacCalendar;
+
+      const earlyCalendarStress =
+        eacCalendar != null &&
+        elapsedTimePct != null &&
+        elapsedTimePct >= 15 &&
+        rawCostBudgetUsedPct > Math.max(20, scheduleProgressPct + 15);
+
+      if (earlyCalendarStress && eacCalendar > forecastFinalCost) {
+        forecastFinalCost =
+          forecastFinalCost + (eacCalendar - forecastFinalCost) * 0.35;
         forecastMethod = 'calendar-run-rate';
       }
     }
   }
 
+  forecastFinalCost = Math.max(forecastFinalCost, actualPlusCommitted, 0);
+
   const projectedProfit = contractValue - forecastFinalCost;
+
   const spendToDateMarginPct =
     contractValue > 0 ? ((contractValue - actualExpenses) / contractValue) * 100 : 0;
+
   const projectedMarginPct =
     contractValue > 0 ? (projectedProfit / contractValue) * 100 : 0;
-  // Use estimatedCostBaseline when provided; otherwise fall back to adjustedBudget for backward compat
-  const costForVariance = (input.estimatedCostBaseline != null && input.estimatedCostBaseline > 0)
-    ? input.estimatedCostBaseline
-    : adjustedBudget;
+
+  const costForVariance =
+    input.estimatedCostBaseline != null && input.estimatedCostBaseline > 0
+      ? input.estimatedCostBaseline
+      : adjustedBudget;
+
   const estimatedProfit = contractValue - costForVariance;
   const profitVarianceVsEstimate = projectedProfit - estimatedProfit;
   const status = getProfitStatus(projectedMarginPct);

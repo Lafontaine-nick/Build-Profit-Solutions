@@ -12,6 +12,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import { classifyExpensePriceReasonableness } from "@/utils/expensePriceReasonableness";
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from "@/components/KeyboardNumericDoneAccessory";
 
 type Props = {
   visible: boolean;
@@ -404,8 +408,11 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   // Format category name for display
   const displayCategoryName = categoryName.replace('/', ' & ');
 
+  const accessorySurface = darkMode ? "#000000" : Colors.bg;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent>
+      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={accessorySurface} />
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -640,6 +647,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           value={sqftInput}
                           onChangeText={onSqftChange}
                           keyboardType="numeric"
+                          inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                           returnKeyType="next"
                           onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                           blurOnSubmit={false}
@@ -680,6 +688,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           value={ratePerSqftInput}
                           onChangeText={onRatePerSqftChange}
                           keyboardType="numeric"
+                          inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                           returnKeyType="next"
                           onSubmitEditing={() => descriptionRef.current?.focus()}
                           blurOnSubmit={false}
@@ -757,6 +766,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       }
                     }}
                     keyboardType="numeric"
+                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                     returnKeyType="next"
                     onSubmitEditing={() => descriptionRef.current?.focus()}
                     blurOnSubmit={false}

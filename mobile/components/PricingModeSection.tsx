@@ -1,5 +1,9 @@
 import React, { useCallback } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from "@/components/KeyboardNumericDoneAccessory";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
@@ -72,6 +76,7 @@ export default function PricingModeSection({
 
   return (
     <>
+      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={Colors.bg} />
       <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -191,6 +196,7 @@ export default function PricingModeSection({
                     value={sqftInput}
                     onChangeText={onSqftInputChange}
                     keyboardType="numeric"
+                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                     returnKeyType="next"
                     onSubmitEditing={onSqftSubmitEditing}
                     blurOnSubmit={false}
@@ -229,6 +235,7 @@ export default function PricingModeSection({
                     value={ratePerSqftInput}
                     onChangeText={onRatePerSqftInputChange}
                     keyboardType="numeric"
+                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                     returnKeyType="next"
                     onSubmitEditing={onRateSubmitEditing}
                     blurOnSubmit={false}
@@ -295,6 +302,7 @@ export default function PricingModeSection({
               value={amount}
               onChangeText={onFlatAmountChange}
               keyboardType="numeric"
+              inputAccessoryViewID={numericKeyboardDoneAccessoryId}
               returnKeyType="next"
               onSubmitEditing={onFlatAmountSubmitEditing}
               blurOnSubmit={false}

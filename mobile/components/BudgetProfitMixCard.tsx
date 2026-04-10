@@ -139,7 +139,7 @@ export default function BudgetProfitMixCard({
                 adjustsFontSizeToFit
                 minimumFontScale={0.82}
               >
-                Budget {costBudgetUsedPctDisplay.toFixed(1)}%
+                Budget spent {costBudgetUsedPctDisplay.toFixed(1)}%
               </Text>
             </Pressable>
             <Pressable
@@ -207,22 +207,19 @@ export default function BudgetProfitMixCard({
         </View>
         <View style={styles.budgetProfitMixFooterBlock}>
           <Text style={[styles.budgetProfitMixFooterCaption, { color: pageInstructional }]}>
-            Projected margin is accrual (contract value minus expected final job cost, not cash timing). We take the
-            highest of: timeline ({profitForecast.scheduleProgressPct.toFixed(0)}%), cost-budget use (
-            {profitForecast.costBudgetUsedPct.toFixed(1)}%)
-            {profitForecast.elapsedTimePct != null
-              ? `, and calendar elapsed (${profitForecast.elapsedTimePct.toFixed(0)}% through start→end)`
-              : ''}
-            . If spend is heavy early vs calendar time, calendar extrapolation can raise expected final cost and pull
-            margin down even while you’re still under the cap on paper. Same planned cost cap as Contract & Cost when
-            no path shows overrun.
+            Projected margin estimates the profit percentage we expect at job completion based on current costs,
+            committed costs, and project progress.
           </Text>
-          {profitForecast.contractCollectedPct != null && profitForecast.contractCollectedPct >= 0 ? (
-            <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-              Milestones show ~{profitForecast.contractCollectedPct.toFixed(0)}% of contract collected; that does not
-              change this margin calculation.
-            </Text>
-          ) : null}
+          <Text
+            style={[
+              styles.budgetProfitMixFooterDisclaimer,
+              styles.budgetProfitMixFooterItalic,
+              { color: pageInstructional },
+            ]}
+          >
+            Estimate only. Actual final margin may change as costs, commitments, change orders, and project progress
+            are updated.
+          </Text>
           {showNegativeMarginNote ? (
             <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
               Negative margin here means expected final cost still exceeds contract value on current figures.
@@ -330,6 +327,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center',
     paddingHorizontal: 8,
+  },
+  budgetProfitMixFooterItalic: {
+    fontStyle: 'italic',
   },
   totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
 });

@@ -28,7 +28,14 @@ const AI_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
  * Compute a compact hash of the AI input snapshot
  * Only includes fields that should trigger AI refresh when changed
  */
-function computeAiSnapshotHash(summary, projectsForModel, baseInsights, baseNextSteps, materialStats) {
+function computeAiSnapshotHash(
+  summary,
+  projectsForModel,
+  baseInsights,
+  baseNextSteps,
+  materialStats,
+  completedSummariesCompact
+) {
   // Create compact AI summary (only what AI needs, not full project objects)
   const aiSummary = {
     projectCount: summary.projectCount,
@@ -68,6 +75,12 @@ function computeAiSnapshotHash(summary, projectsForModel, baseInsights, baseNext
         lineItemName: m.lineItemName,
         changePct30d: m.changePct30d,
       })),
+    completedSnapshots:
+      Array.isArray(completedSummariesCompact) && completedSummariesCompact.length > 0
+        ? [...completedSummariesCompact].sort((a, b) =>
+            String(a.id).localeCompare(String(b.id))
+          )
+        : [],
   };
 
   const snapshotString = JSON.stringify(aiSummary);
@@ -134,6 +147,45 @@ const normalizeName = (name) => {
   if (!name) return '';
   return String(name).toLowerCase().trim();
 };
+
+/** Same-id rows from mobile (estimate + active) — keep the more advanced status. */
+function mergeDuplicateProjectsByIdPreferStatus(projectsRaw) {
+  const rank = (s) => {
+    const x = String(s || '')
+      .toLowerCase()
+      .trim()
+      .replace(/-/g, '_');
+    const order = [
+      'draft',
+      'estimate',
+      'bid_submitted',
+      'submitted',
+      'won',
+      'in_progress',
+      'active',
+      'completed',
+      'complete',
+      'done',
+      'finished',
+      'closed',
+      'lost',
+    ];
+    const i = order.indexOf(x);
+    return i >= 0 ? i : -1;
+  };
+  const m = new Map();
+  for (const p of projectsRaw) {
+    const id = String(p.id ?? '');
+    if (!id) continue;
+    const cur = m.get(id);
+    if (!cur) {
+      m.set(id, p);
+      continue;
+    }
+    if (rank(p.status) > rank(cur.status)) m.set(id, p);
+  }
+  return [...m.values()];
+}
 
 /**
  * Get material stats for a specific user's projects
@@ -209,12 +261,26 @@ async function getMaterialStatsForUser(userId, projectsForModel) {
  * @param {Array|null} projectsFromRequest - Projects from mobile app (optional)
  * @param {boolean} forceRefresh - Force refresh AI insights (bypass cache)
  */
-async function buildAiDashboardForUser(userId, projectsFromRequest = null, forceRefresh = false) {
+function formatUsdCompact(n) {
+  if (!Number.isFinite(Number(n))) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number(n));
+}
+
+async function buildAiDashboardForUser(
+  userId,
+  projectsFromRequest = null,
+  forceRefresh = false,
+  completedSummariesFromRequest = null
+) {
   // 1) Load project data - prefer projects from request, fallback to storage
   let projectsRaw = [];
   if (projectsFromRequest && Array.isArray(projectsFromRequest) && projectsFromRequest.length > 0) {
-    // Use projects sent from mobile app
-    projectsRaw = projectsFromRequest;
+    // Use projects sent from mobile app (dedupe stale duplicate ids)
+    projectsRaw = mergeDuplicateProjectsByIdPreferStatus(projectsFromRequest);
   } else {
     // Fallback to loading from storage
     projectsRaw = loadProjects();
@@ -343,6 +409,19 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
   const baseNextSteps = [];
 
   for (const p of projectsForModel) {
+    const statusNorm = String(p.status || '')
+      .toLowerCase()
+      .trim()
+      .replace(/-/g, '_');
+    const isClosedJob =
+      statusNorm === 'completed' ||
+      statusNorm === 'complete' ||
+      statusNorm === 'closed' ||
+      statusNorm === 'done' ||
+      statusNorm === 'finished' ||
+      statusNorm === 'lost' ||
+      (typeof p.progressPct === 'number' && p.progressPct >= 99);
+
     // 1) Low margin
     if (p.marginPct > 0 && p.marginPct < 25) {
       baseInsights.push({
@@ -401,9 +480,9 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
       });
     }
 
-    // 4) Permit fee risk – bigger jobs
+    // 4) Permit fee risk – bigger jobs (not for closed jobs — estimate snapshot may be stale)
     const isBigJob = p.bidPrice >= 50000 || p.projectType === 'Commercial';
-    if (isBigJob && !p.hasPermitLineItem && !p.hasPermitFeesFlag) {
+    if (!isClosedJob && isBigJob && !p.hasPermitLineItem && !p.hasPermitFeesFlag) {
       baseInsights.push({
         id: `permit-risk-${p.id}`,
         type: 'alert',
@@ -423,7 +502,7 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
     }
 
     // 5) High-value estimate still at 0% progress
-    if (p.status === 'estimate' && p.bidPrice >= 20000 && p.progressPct === 0) {
+    if (statusNorm === 'estimate' && p.bidPrice >= 20000 && p.progressPct === 0) {
       baseInsights.push({
         id: `high-opportunity-${p.id}`,
         type: 'opportunity',
@@ -488,6 +567,38 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
     }
   }
 
+  // ---------- Completed jobs: retrospective only (no operational tone) ---------- //
+  const completedSummariesCompact = [];
+  if (Array.isArray(completedSummariesFromRequest)) {
+    for (const c of completedSummariesFromRequest) {
+      if (!c || c.id == null || String(c.id).trim() === '') continue;
+      const id = String(c.id);
+      const title = String(c.title || 'Job').trim() || 'Job';
+      const net = Number(c.netProfit ?? 0);
+      const pctRaw = c.netProfitPct;
+      const pctStr =
+        pctRaw != null && Number.isFinite(Number(pctRaw))
+          ? `${Number(pctRaw).toFixed(1)}%`
+          : '—';
+      completedSummariesCompact.push({
+        id,
+        netProfit: net,
+        netProfitPct: pctRaw != null && Number.isFinite(Number(pctRaw)) ? Number(pctRaw) : null,
+      });
+      baseInsights.push({
+        id: `completed-retrospective-${id}`,
+        type: 'info',
+        title: `${title}: realized net profit`,
+        body: `This job is closed. Realized net profit was about ${formatUsdCompact(net)} (${pctStr} of contract). Use this for historical margin review — not as an open pipeline action item.`,
+        projectId: id,
+        impactScore: 5,
+        retrospective: true,
+      });
+    }
+  }
+
+  const closedProjectIdsForAiGuard = new Set(completedSummariesCompact.map((c) => c.id));
+
   // ---------- Record rule-based timestamp (always fresh) ---------- //
   const ruleBasedUpdatedAt = new Date().toISOString();
 
@@ -514,7 +625,8 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
     projectsForModel,
     baseInsights,
     baseNextSteps,
-    materialStats
+    materialStats,
+    completedSummariesCompact
   );
 
   // Check cache first (unless force refresh)
@@ -584,6 +696,9 @@ async function buildAiDashboardForUser(userId, projectsFromRequest = null, force
       baseNextSteps,
       materials: materialStats
         .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5),
+      closedProjectIds: [...closedProjectIdsForAiGuard],
+      instruction:
+        'closedProjectIds are finished jobs. NEVER generate operational insights for those ids (no permits, progress, follow-ups, securing bids, or budget variance as if work is ongoing). Retrospective baseInsights for those ids are already provided.',
     };
 
     console.log('[AI Dashboard] Calling OpenAI with:', {
@@ -631,6 +746,7 @@ If everything looks good, generate positive insights like:
 
 Rules:
 - ONLY talk about data from the payload.
+- If "closedProjectIds" is non-empty: do NOT attach insights or nextSteps to those projectIds unless purely portfolio-level. Closed jobs already have retrospective lines in baseInsights — do not duplicate or contradict with active-job language.
 - Keep language simple and contractor-friendly.
 - "type" for insights:
    - "alert" for risk/overrun/serious issues
@@ -695,7 +811,19 @@ Return ONLY JSON in this shape:
 
     aiInsights = Array.isArray(parsed.insights) ? parsed.insights : [];
     aiNextSteps = Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [];
-    
+
+    // Drop operational GPT lines that target closed job ids (hallucinated or ignored instructions)
+    aiInsights = aiInsights.filter((ins) => {
+      const pid = ins.projectId != null ? String(ins.projectId).trim() : '';
+      if (pid && closedProjectIdsForAiGuard.has(pid)) return false;
+      return true;
+    });
+    aiNextSteps = aiNextSteps.filter((st) => {
+      const pid = st.projectId != null ? String(st.projectId).trim() : '';
+      if (pid && closedProjectIdsForAiGuard.has(pid)) return false;
+      return true;
+    });
+
     console.log('[AI Dashboard] AI returned:', {
       insightsCount: aiInsights.length,
       nextStepsCount: aiNextSteps.length,

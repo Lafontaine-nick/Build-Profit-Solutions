@@ -7,6 +7,8 @@ export interface AiInsight {
   body: string;
   projectId?: string | null;
   impactScore: number; // 1–10
+  /** When true, insight is a closed-job summary (net profit) — not operational pipeline advice */
+  retrospective?: boolean;
 }
 
 export interface AiNextStep {

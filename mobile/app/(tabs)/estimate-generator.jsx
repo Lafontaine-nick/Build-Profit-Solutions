@@ -42,6 +42,10 @@ import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from '../../components/KeyboardNumericDoneAccessory';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import ContractSettingsCompact from '../../components/ContractSettingsCompact';
 import BottomToast from '../../components/BottomToast';
@@ -1482,9 +1486,46 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
+  /** Hide Cancel/Save while any field has the keyboard up (text or numeric). */
+  const [hideNumericFooter, setHideNumericFooter] = useState(false);
+  const lineItemKeyboardBlurTimerRef = React.useRef(null);
+
+  const onLineItemKeyboardFocus = React.useCallback(() => {
+    if (lineItemKeyboardBlurTimerRef.current) {
+      clearTimeout(lineItemKeyboardBlurTimerRef.current);
+      lineItemKeyboardBlurTimerRef.current = null;
+    }
+    setHideNumericFooter(true);
+  }, []);
+
+  const onLineItemKeyboardBlur = React.useCallback(() => {
+    if (lineItemKeyboardBlurTimerRef.current) clearTimeout(lineItemKeyboardBlurTimerRef.current);
+    lineItemKeyboardBlurTimerRef.current = setTimeout(() => {
+      setHideNumericFooter(false);
+      lineItemKeyboardBlurTimerRef.current = null;
+    }, 200);
+  }, []);
 
   const isLabor = title.includes('Labor');
   const isMaterial = title.includes('Material');
+
+  useEffect(() => {
+    if (!visible) {
+      setHideNumericFooter(false);
+      if (lineItemKeyboardBlurTimerRef.current) {
+        clearTimeout(lineItemKeyboardBlurTimerRef.current);
+        lineItemKeyboardBlurTimerRef.current = null;
+      }
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    return () => {
+      if (lineItemKeyboardBlurTimerRef.current) {
+        clearTimeout(lineItemKeyboardBlurTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (item) {
@@ -1558,14 +1599,15 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       onSave(data);
     }
   };
-  
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={(isMaterial || isLabor) ? "fullScreen" : "overFullScreen"}
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
     >
+      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={Colors.bg} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         enabled={Platform.OS === 'ios'}
@@ -1626,8 +1668,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
               {/* Content */}
               <ScrollView
                 style={{ flex: 1 }}
-                keyboardShouldPersistTaps="always"
-                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="none"
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingHorizontal: 20,
@@ -1656,7 +1698,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
-                          returnKeyType="next"
+                          returnKeyType="done"
+                          onSubmitEditing={() => Keyboard.dismiss()}
+                          blurOnSubmit
+                          onFocus={onLineItemKeyboardFocus}
+                          onBlur={onLineItemKeyboardBlur}
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
                         />
@@ -1794,9 +1840,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={setHours}
                             keyboardType="numeric"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1818,9 +1867,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(rate)}
                             onChangeText={setRate}
                             keyboardType="numeric"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1866,7 +1918,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
-                            returnKeyType="next"
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                            blurOnSubmit
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1889,7 +1945,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                             value={vendor}
                             onChangeText={setVendor}
-                            returnKeyType="next"
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                            blurOnSubmit
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1974,10 +2034,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setUnitPriceText(cleanText);
                               setUnitPrice(parseFloat(cleanText) || 0);
                             }}
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -2009,9 +2072,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   setQuantity(parseFloat(cleanText) || 0);
                                 }}
                                 keyboardType="numeric"
+                                inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                                 returnKeyType="next"
                                 onSubmitEditing={() => Keyboard.dismiss()}
                                 blurOnSubmit={true}
+                                onFocus={onLineItemKeyboardFocus}
+                                onBlur={onLineItemKeyboardBlur}
                                 selectionColor="#22c55e"
                                 underlineColorAndroid="transparent"
                               />
@@ -2040,9 +2106,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   setUnitPrice(parseFloat(cleanText) || 0);
                                 }}
                                 keyboardType="numeric"
+                                inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                                 returnKeyType="done"
                                 onSubmitEditing={() => Keyboard.dismiss()}
                                 blurOnSubmit={true}
+                                onFocus={onLineItemKeyboardFocus}
+                                onBlur={onLineItemKeyboardBlur}
                                 selectionColor="#22c55e"
                                 underlineColorAndroid="transparent"
                               />
@@ -2091,6 +2160,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 )}
               </ScrollView>
 
+              {!hideNumericFooter && (
               <View
                 style={[
                   modalStyles.materialFooterFlow,
@@ -2127,6 +2197,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   </LinearGradient>
                 </Pressable>
               </View>
+              )}
             </View>
         ) : (
           <>
@@ -2239,9 +2310,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={(text) => setHours(text)}
                             keyboardType="numeric"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
                           />
@@ -2253,9 +2327,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(rate)}
                             onChangeText={(text) => setRate(text)}
                             keyboardType="numeric"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
                           />
@@ -2279,9 +2356,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setQuantity(parseFloat(cleanText) || 0);
                             }}
                             keyboardType="numeric"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
+                            onFocus={onLineItemKeyboardFocus}
+                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                           />
                         </View>
@@ -2291,6 +2371,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             style={modalStyles.input}
                             value={unit}
                             onChangeText={setUnit}
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                            blurOnSubmit
                             placeholder="lot, sq ft, etc"
                             placeholderTextColor={Colors.sub}
                           />
@@ -2307,9 +2390,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             setUnitPrice(parseFloat(cleanText) || 0);
                           }}
                           keyboardType="numeric"
+                          inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
+                          onFocus={onLineItemKeyboardFocus}
+                          onBlur={onLineItemKeyboardBlur}
                           placeholderTextColor={Colors.sub}
                         />
                       </View>
@@ -2321,6 +2407,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   )}
                 </ScrollView>
                 
+                {!hideNumericFooter && (
                 <View style={modalStyles.footer}>
                   <TouchableOpacity onPress={onClose} style={modalStyles.cancelBtn}>
                     <Text style={modalStyles.cancelBtnText}>Cancel</Text>
@@ -2329,6 +2416,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     <Text style={modalStyles.saveBtnText}>Save</Text>
                   </TouchableOpacity>
                 </View>
+                )}
               </View>
             </View>
           </>
@@ -11843,7 +11931,8 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
+                  inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -16389,9 +16478,18 @@ export default function EstimateGeneratorScreen() {
       ? Math.round(Dimensions.get('window').height * 0.24) + 28
       : null;
 
+  const lineItemModalOpen = materialModal.visible || laborModal.visible;
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
+      {/* Same Done accessory as Step 5 direct-cost fields; hidden while Add Material/Labor modal is open (modal mounts its own). */}
+      {!lineItemModalOpen && (
+        <KeyboardNumericDoneAccessory
+          darkMode={darkMode}
+          surfaceColor={darkMode ? '#000000' : Colors.bg}
+        />
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
