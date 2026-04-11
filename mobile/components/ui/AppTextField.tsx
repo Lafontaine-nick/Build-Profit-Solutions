@@ -10,6 +10,9 @@ import {
   ViewStyle,
   TextStyle,
 } from 'react-native';
+import { iosAccessoryId } from '@/constants/keyboard';
+
+export type AppTextFieldFocusMode = 'none' | 'text' | 'number';
 
 type Props = TextInputProps & {
   label?: string;
@@ -21,6 +24,11 @@ type Props = TextInputProps & {
   labelStyle?: StyleProp<TextStyle>;
   placeholderTextColor?: string;
   wrapperStyle?: StyleProp<ViewStyle>;
+  /**
+   * When set, `inputAccessoryViewID` is not used (floating-Done pattern for numeric fields).
+   * Notifies parent of keyboard mode from `keyboardType` on focus/blur.
+   */
+  onFocusMode?: (mode: AppTextFieldFocusMode) => void;
 };
 
 export default function AppTextField({
@@ -33,8 +41,26 @@ export default function AppTextField({
   style,
   placeholderTextColor = 'rgba(255,255,255,0.34)',
   wrapperStyle,
+  onFocusMode,
+  onFocus,
+  onBlur,
+  keyboardType,
+  textContentType,
+  inputAccessoryViewID: _inputAccessoryViewIDFromProps,
   ...props
 }: Props) {
+  const isNumericKeyboard =
+    keyboardType === 'phone-pad' ||
+    keyboardType === 'number-pad' ||
+    keyboardType === 'decimal-pad';
+
+  const inputAccessoryViewID = onFocusMode ? undefined : iosAccessoryId(accessoryID);
+
+  // Never let spread props override keyboard / accessory (ZIP vs Phone bugs when keys leak into `props`).
+  const spreadProps = { ...props } as Record<string, unknown>;
+  delete spreadProps.keyboardType;
+  delete spreadProps.textContentType;
+
   return (
     <View style={[styles.wrapper, wrapperStyle]}>
       {!!label && (
@@ -48,7 +74,7 @@ export default function AppTextField({
         {!!leftIcon && <View style={styles.leftIcon}>{leftIcon}</View>}
 
         <TextInput
-          {...props}
+          {...(spreadProps as TextInputProps)}
           style={[
             styles.input,
             leftIcon ? { paddingLeft: 8 } : null,
@@ -57,9 +83,19 @@ export default function AppTextField({
           placeholderTextColor={placeholderTextColor}
           selectionColor="#2EE6A6"
           cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
-          inputAccessoryViewID={Platform.OS === 'ios' ? accessoryID : undefined}
           autoCapitalize={props.autoCapitalize ?? 'sentences'}
           autoCorrect={props.autoCorrect ?? false}
+          onFocus={(e) => {
+            onFocusMode?.(isNumericKeyboard ? 'number' : 'text');
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            onFocusMode?.('none');
+            onBlur?.(e);
+          }}
+          textContentType={textContentType}
+          inputAccessoryViewID={inputAccessoryViewID}
+          keyboardType={keyboardType}
         />
       </View>
     </View>

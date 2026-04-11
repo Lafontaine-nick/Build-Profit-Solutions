@@ -39,7 +39,8 @@ import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
 import EditPurchaseOrderModal from './EditPurchaseOrderModal';
-import PricingModeSection, { PricingMode, sanitizeOneDecimalField } from './PricingModeSection';
+import PricingModeSection, { PricingMode } from './PricingModeSection';
+import { centsDigitsToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -228,11 +229,11 @@ export default function BudgetTab({
   const budgetScrollViewRef = useRef<ScrollView>(null);
 
   const onChangeOrderSqftChange = useCallback((text: string) => {
-    setChangeOrderSqftInput(sanitizeOneDecimalField(text));
+    setChangeOrderSqftInput(text);
   }, []);
 
   const onChangeOrderRateChange = useCallback((text: string) => {
-    setChangeOrderRateInput(sanitizeOneDecimalField(text));
+    setChangeOrderRateInput(text);
   }, []);
 
   useEffect(() => {
@@ -249,8 +250,8 @@ export default function BudgetTab({
 
   useEffect(() => {
     if (!showChangeOrderModal || changeOrderPricingMode !== 'sqft') return;
-    const sq = parseFloat(changeOrderSqftInput.replace(/[^0-9.]/g, '')) || 0;
-    const rate = parseFloat(changeOrderRateInput.replace(/[^0-9.]/g, '')) || 0;
+    const sq = parseInt(digitsOnly(changeOrderSqftInput), 10) || 0;
+    const rate = centsDigitsToNumber(changeOrderRateInput);
     const total = sq > 0 && rate > 0 ? (sq * rate).toFixed(2) : '';
     if (changeOrderIsEditingRef.current) {
       setEditingChangeOrder((prev: any) =>

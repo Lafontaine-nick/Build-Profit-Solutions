@@ -13,9 +13,11 @@ import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import { classifyExpensePriceReasonableness } from "@/utils/expensePriceReasonableness";
 import {
-  KeyboardNumericDoneAccessory,
-  numericKeyboardDoneAccessoryId,
-} from "@/components/KeyboardNumericDoneAccessory";
+  centsDigitsToNumber,
+  clampCentsDigitsInput,
+  digitsOnly,
+  dollarsToCentsDigits,
+} from "@/src/lib/keyboardMoney";
 
 type Props = {
   visible: boolean;
@@ -102,13 +104,13 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     }
   }, [visible]);
 
-  // Per-sq-ft: keep Amount in sync (total = sq ft × $/sq ft), like Estimates
+  // Per-sq-ft: keep Amount in sync (total = sq ft × $/sq ft). Amount state = cent digit string (number-pad).
   useEffect(() => {
     if (!supportsPerSqftPricing || pricingMode !== "sqft") return;
-    const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-    const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+    const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+    const rate = centsDigitsToNumber(ratePerSqftInput);
     if (sq > 0 && rate > 0) {
-      setAmount((sq * rate).toFixed(2));
+      setAmount(dollarsToCentsDigits(sq * rate));
     } else {
       setAmount("");
     }
@@ -116,8 +118,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
   // High / outlier vs total project budget (not fixed dollar cutoffs on large bids)
   useEffect(() => {
-    if (amount && !isNaN(parseFloat(amount))) {
-      const amountNum = parseFloat(amount);
+    const amountNum = centsDigitsToNumber(amount);
+    if (amountNum > 0) {
       setPriceReasonableness(
         classifyExpensePriceReasonableness(amountNum, referenceBudgetUsd)
       );
@@ -240,7 +242,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
           setVendor(receiptData.vendor);
         }
         if (receiptData.amount) {
-          setAmount(receiptData.amount.toString());
+          setAmount(dollarsToCentsDigits(receiptData.amount));
         }
         if (receiptData.date) {
           // Date is already set to today by default, but we could parse receipt date if needed
@@ -306,8 +308,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     }
 
     if (supportsPerSqftPricing && pricingMode === "sqft") {
-      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+      const rate = centsDigitsToNumber(ratePerSqftInput);
       if (sq <= 0 || rate <= 0) {
         Alert.alert(
           "Square feet & rate required",
@@ -317,7 +319,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       }
     }
 
-    const amountNum = parseFloat(amount);
+    const amountNum = centsDigitsToNumber(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount");
       return;
@@ -325,8 +327,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
     let descriptionOut = description.trim();
     if (supportsPerSqftPricing && pricingMode === "sqft") {
-      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+      const rate = centsDigitsToNumber(ratePerSqftInput);
       if (sq > 0 && rate > 0) {
         const line = `📐 ${sq.toLocaleString()} sq ft × $${rate.toFixed(2)}/sq ft`;
         descriptionOut = descriptionOut ? `${descriptionOut}\n${line}` : line;
@@ -384,23 +386,11 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   };
 
   const onSqftChange = useCallback((text: string) => {
-    const cleaned = text.replace(/[^0-9.]/g, "");
-    const parts = cleaned.split(".");
-    if (parts.length > 2) {
-      setSqftInput(parts[0] + "." + parts.slice(1).join(""));
-    } else {
-      setSqftInput(cleaned);
-    }
+    setSqftInput(digitsOnly(text));
   }, []);
 
   const onRatePerSqftChange = useCallback((text: string) => {
-    const cleaned = text.replace(/[^0-9.]/g, "");
-    const parts = cleaned.split(".");
-    if (parts.length > 2) {
-      setRatePerSqftInput(parts[0] + "." + parts.slice(1).join(""));
-    } else {
-      setRatePerSqftInput(cleaned);
-    }
+    setRatePerSqftInput(clampCentsDigitsInput(text));
   }, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -408,11 +398,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   // Format category name for display
   const displayCategoryName = categoryName.replace('/', ' & ');
 
-  const accessorySurface = darkMode ? "#000000" : Colors.bg;
-
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent>
-      <KeyboardNumericDoneAccessory darkMode={darkMode} surfaceColor={accessorySurface} />
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -646,9 +633,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           }
                           value={sqftInput}
                           onChangeText={onSqftChange}
-                          keyboardType="numeric"
-                          inputAccessoryViewID={numericKeyboardDoneAccessoryId}
-                          returnKeyType="next"
+                          keyboardType="number-pad"
+                          returnKeyType="done"
                           onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                           blurOnSubmit={false}
                         />
@@ -681,15 +667,14 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                               color: Colors.text,
                             },
                           ]}
-                          placeholder="0.00"
+                          placeholder="0"
                           placeholderTextColor={
                             darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
                           }
                           value={ratePerSqftInput}
                           onChangeText={onRatePerSqftChange}
-                          keyboardType="numeric"
-                          inputAccessoryViewID={numericKeyboardDoneAccessoryId}
-                          returnKeyType="next"
+                          keyboardType="number-pad"
+                          returnKeyType="done"
                           onSubmitEditing={() => descriptionRef.current?.focus()}
                           blurOnSubmit={false}
                         />
@@ -716,11 +701,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     >
                       Total:{" "}
                       {(() => {
-                        const sq =
-                          parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-                        const rate =
-                          parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) ||
-                          0;
+                        const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+                        const rate = centsDigitsToNumber(ratePerSqftInput);
                         const t = sq * rate;
                         return formatMoneyFull(t, { decimals: 2 });
                       })()}
@@ -751,33 +733,23 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                         color: Colors.text,
                       },
                     ]}
-                    placeholder="0.00"
+                    placeholder="0"
                     placeholderTextColor={
                       darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
                     }
                     value={amount}
-                    onChangeText={(text) => {
-                      const cleaned = text.replace(/[^0-9.]/g, "");
-                      const parts = cleaned.split(".");
-                      if (parts.length > 2) {
-                        setAmount(parts[0] + "." + parts.slice(1).join(""));
-                      } else {
-                        setAmount(cleaned);
-                      }
-                    }}
-                    keyboardType="numeric"
-                    inputAccessoryViewID={numericKeyboardDoneAccessoryId}
-                    returnKeyType="next"
+                    onChangeText={(text) => setAmount(clampCentsDigitsInput(text))}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
                     onSubmitEditing={() => descriptionRef.current?.focus()}
                     blurOnSubmit={false}
                   />
                 </View>
               )}
 
-              {amount &&
-                !isNaN(parseFloat(amount)) &&
+              {centsDigitsToNumber(amount) > 0 &&
                 (!supportsPerSqftPricing || pricingMode !== "sqft") && (
-                <Text style={styles.hint}>{formatMoneyFull(parseFloat(amount), { decimals: 2 })}</Text>
+                <Text style={styles.hint}>{formatMoneyFull(centsDigitsToNumber(amount), { decimals: 2 })}</Text>
               )}
             </View>
 

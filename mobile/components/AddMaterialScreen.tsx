@@ -29,8 +29,11 @@ import { useProjectData } from "@/contexts/ProjectDataContext";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import {
+  centsDigitsToNumber,
+  clampCentsDigitsInput,
+  dollarsToCentsDigits,
+} from "@/src/lib/keyboardMoney";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -96,11 +99,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
     };
   }, []);
 
-  const numericAmount = parseFloat(amount.replace(/,/g, "") || "0");
+  const numericAmount = centsDigitsToNumber(amount);
 
   const handlePresetPress = (value: number) => {
     setSelectedPreset(value);
-    setAmount(value.toString());
+    setAmount(dollarsToCentsDigits(value));
   };
 
   // Request camera permission
@@ -214,7 +217,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           setVendor(receiptData.vendor);
         }
         if (receiptData.amount) {
-          setAmount(receiptData.amount.toString());
+          setAmount(dollarsToCentsDigits(receiptData.amount));
         }
         if (receiptData.items && receiptData.items.length > 0) {
           // Create description from receipt items
@@ -310,8 +313,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
 
       <View style={styles.container}>
         <KeyboardAvoidingView
@@ -367,7 +368,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -387,17 +387,14 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                   />
                   <TextInput
                     style={styles.input}
-                    placeholder="$ 0.00"
+                    placeholder="0"
                     placeholderTextColor={placeholderTint}
                     value={amount}
                     onChangeText={(text) => {
-                      // simple numeric filter
-                      const cleaned = text.replace(/[^0-9.]/g, "");
-                      setAmount(cleaned);
+                      setAmount(clampCentsDigitsInput(text));
                       if (selectedPreset) setSelectedPreset(null);
                     }}
-                    keyboardType="decimal-pad"
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                    keyboardType="number-pad"
                     returnKeyType="done"
                     onFocus={onAmountFieldFocus}
                     onBlur={onAmountFieldBlur}
@@ -448,7 +445,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={scope}
                     onChangeText={setScope}
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -472,7 +468,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={description}
                     onChangeText={setDescription}
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     multiline
                   />
                 </View>
@@ -494,7 +489,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={poNumber}
                     onChangeText={setPoNumber}
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit

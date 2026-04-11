@@ -4,7 +4,13 @@ import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import PricingModeSection, { PricingMode, sanitizeOneDecimalField } from "./PricingModeSection";
+import PricingModeSection, { PricingMode } from "./PricingModeSection";
+import {
+  centsDigitsToNumber,
+  clampCentsDigitsInput,
+  digitsOnly,
+  dollarsToCentsDigits,
+} from "@/src/lib/keyboardMoney";
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
@@ -49,7 +55,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
     if (visible && purchaseOrder) {
       setPONumber(purchaseOrder.poNumber);
       setVendor(purchaseOrder.vendor);
-      setAmount(String(purchaseOrder.amount));
+      setAmount(dollarsToCentsDigits(purchaseOrder.amount));
       setDescription(purchaseOrder.description || "");
       const od = parseISODateToLocal(purchaseOrder.orderDate);
       setOrderDate(od);
@@ -65,29 +71,29 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
 
   useEffect(() => {
     if (pricingMode !== "sqft") return;
-    const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-    const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+    const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+    const rate = centsDigitsToNumber(ratePerSqftInput);
     if (sq > 0 && rate > 0) {
-      setAmount((sq * rate).toFixed(2));
+      setAmount(dollarsToCentsDigits(sq * rate));
     } else {
       setAmount("");
     }
   }, [pricingMode, sqftInput, ratePerSqftInput]);
 
   const onSqftChange = useCallback((text: string) => {
-    setSqftInput(sanitizeOneDecimalField(text));
+    setSqftInput(digitsOnly(text));
   }, []);
 
   const onRatePerSqftChange = useCallback((text: string) => {
-    setRatePerSqftInput(sanitizeOneDecimalField(text));
+    setRatePerSqftInput(clampCentsDigitsInput(text));
   }, []);
 
   const handleSave = () => {
     if (!purchaseOrder) return;
 
     if (pricingMode === "sqft") {
-      const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-      const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+      const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+      const rate = centsDigitsToNumber(ratePerSqftInput);
       if (sq <= 0 || rate <= 0) {
         Alert.alert(
           "Square feet & rate required",
@@ -97,7 +103,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
       }
     }
 
-    const amountNum = parseFloat(amount);
+    const amountNum = centsDigitsToNumber(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount");
       return;

@@ -704,7 +704,7 @@ function SubcontractorSearchModal({
       <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
         <SafeAreaView edges={[]} style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
           <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} translucent={false} />
-          
+
           {/* Find Subcontractors View */}
           <Animated.View
             style={{

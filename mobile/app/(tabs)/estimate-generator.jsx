@@ -44,7 +44,14 @@ import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
+import {
+  centsDigitsToNumber,
+  clampCentsDigitsInput,
+  digitsOnly,
+  dollarsToCentsDigits,
+} from '@/src/lib/keyboardMoney';
+import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import ContractSettingsCompact from '../../components/ContractSettingsCompact';
 import BottomToast from '../../components/BottomToast';
@@ -738,6 +745,47 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.line,
     backgroundColor: Colors.bg,
+  },
+  /** Same shell as AddTransactionModal / PricingModeSection (Projects Budget) for numeric rows */
+  budgetAmountInputShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.surface2,
+  },
+  budgetDollarSign: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#22c55e',
+    marginLeft: 12,
+    marginRight: 4,
+  },
+  budgetNumericInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingLeft: 4,
+    color: Colors.text,
+  },
+  budgetFieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 10,
+  },
+  budgetSubFieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  budgetAmountHint: {
+    marginTop: 8,
+    fontSize: 13,
+    color: Colors.sub,
   },
 });
 
@@ -1485,55 +1533,32 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
-  /** Hide Cancel/Save while any field has the keyboard up (text or numeric). */
-  const [hideNumericFooter, setHideNumericFooter] = useState(false);
-  const lineItemKeyboardBlurTimerRef = React.useRef(null);
-
-  const onLineItemKeyboardFocus = React.useCallback(() => {
-    if (lineItemKeyboardBlurTimerRef.current) {
-      clearTimeout(lineItemKeyboardBlurTimerRef.current);
-      lineItemKeyboardBlurTimerRef.current = null;
-    }
-    setHideNumericFooter(true);
-  }, []);
-
-  const onLineItemKeyboardBlur = React.useCallback(() => {
-    if (lineItemKeyboardBlurTimerRef.current) clearTimeout(lineItemKeyboardBlurTimerRef.current);
-    lineItemKeyboardBlurTimerRef.current = setTimeout(() => {
-      setHideNumericFooter(false);
-      lineItemKeyboardBlurTimerRef.current = null;
-    }, 200);
-  }, []);
+  const materialSqftInputRef = React.useRef(null);
+  const materialRateInputRef = React.useRef(null);
+  const materialFlatAmountInputRef = React.useRef(null);
 
   const isLabor = title.includes('Labor');
   const isMaterial = title.includes('Material');
 
   useEffect(() => {
-    if (!visible) {
-      setHideNumericFooter(false);
-      if (lineItemKeyboardBlurTimerRef.current) {
-        clearTimeout(lineItemKeyboardBlurTimerRef.current);
-        lineItemKeyboardBlurTimerRef.current = null;
-      }
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    return () => {
-      if (lineItemKeyboardBlurTimerRef.current) {
-        clearTimeout(lineItemKeyboardBlurTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (item) {
       setName(item.name || '');
       setQuantity(item.quantity || 1);
-      setQuantityText(item.quantity?.toString() || '');
       setUnit(item.unit || 'lot');
       setUnitPrice(item.unitPrice || 0);
-      setUnitPriceText(item.unitPrice?.toString() || '');
+      if (isMaterial) {
+        setQuantityText(
+          item.quantity != null && item.quantity !== ''
+            ? digitsOnly(String(item.quantity))
+            : ''
+        );
+        setUnitPriceText(
+          item.unitPrice ? dollarsToCentsDigits(item.unitPrice) : ''
+        );
+      } else {
+        setQuantityText(item.quantity?.toString() || '');
+        setUnitPriceText(item.unitPrice?.toString() || '');
+      }
       setHours(item.hours || '');
       setRate(item.rate || '');
       setVendor(item.vendor || 'Home Depot');
@@ -1603,14 +1628,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="overFullScreen"
+      presentationStyle="fullScreen"
+      statusBarTranslucent
       onRequestClose={onClose}
     >
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        enabled={Platform.OS === 'ios'}
+        behavior={Platform.OS === 'android' ? 'padding' : undefined}
+        enabled={Platform.OS === 'android'}
         style={{ flex: 1, backgroundColor: Colors.bg }}
         keyboardVerticalOffset={0}
       >
@@ -1665,12 +1689,15 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 </View>
               </View>
               
-              {/* Content */}
+              {/* Content — keyboard insets on iOS (avoid stacking KeyboardAvoidingView + footer hide/show jank) */}
               <ScrollView
                 style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="none"
                 showsVerticalScrollIndicator={false}
+                automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+                automaticallyAdjustContentInsets={false}
+                contentInsetAdjustmentBehavior="never"
                 contentContainerStyle={{
                   paddingHorizontal: 20,
                   paddingTop: 4,
@@ -1701,8 +1728,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit
-                          onFocus={onLineItemKeyboardFocus}
-                          onBlur={onLineItemKeyboardBlur}
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
                         />
@@ -1840,12 +1865,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={setHours}
                             keyboardType="number-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1867,12 +1889,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(rate)}
                             onChangeText={setRate}
                             keyboardType="decimal-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1918,12 +1937,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -1946,12 +1962,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                             value={vendor}
                             onChangeText={setVendor}
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -2013,133 +2026,199 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </View>
                       </View>
 
-                      {mode === 'flat' ? (
+                      {/* Amount / sqft / rate: match Projects Budget AddTransactionModal + PricingModeSection (number-pad, cent digits, same chrome) */}
                       <View style={modalStyles.materialFieldGroup}>
-                        <Text style={modalStyles.materialLabel}>Amount *</Text>
-                        <View style={modalStyles.materialInputWrapper}>
-                          <Feather
-                            name="dollar-sign"
-                            size={16}
-                            color="#22c55e"
-                            style={modalStyles.materialInputIcon}
-                          />
-                          <TextInput
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 10,
+                          }}
+                        >
+                          <Text
                             style={[
-                              modalStyles.materialInput,
-                              { color: darkMode ? '#e9f1ff' : '#000000' },
+                              modalStyles.budgetFieldLabel,
+                              { marginBottom: 0, color: Colors.text },
                             ]}
-                            placeholder="$ 0.00"
-                            placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                            value={unitPriceText || (unitPrice > 0 ? unitPrice.toString() : '')}
-                            onChangeText={(text) => {
-                              const cleanText = text.replace(/[^0-9.]/g, '');
-                              setUnitPriceText(cleanText);
-                              setUnitPrice(parseFloat(cleanText) || 0);
-                            }}
-                            keyboardType="decimal-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
-                            returnKeyType="done"
-                            onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
-                            selectionColor="#22c55e"
-                            underlineColorAndroid="transparent"
-                          />
+                          >
+                            {mode === 'sqft' ? 'Total (calculated) *' : 'Amount *'}
+                          </Text>
                         </View>
-                      </View>
-                      ) : (
-                      <>
-                        <View style={{ flexDirection: 'row', gap: 12 }}>
-                          <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
-                            <Text style={modalStyles.materialLabel}>Square feet *</Text>
-                            <View style={modalStyles.materialInputWrapper}>
-                              <Feather
-                                name="maximize-2"
-                                size={16}
-                                color="#8DA0B8"
-                                style={modalStyles.materialInputIcon}
-                              />
+
+                        {mode === 'sqft' ? (
+                          <>
+                            <View style={{ flexDirection: 'row', gap: 12 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={[
+                                    modalStyles.budgetSubFieldLabel,
+                                    { color: Colors.text },
+                                  ]}
+                                >
+                                  Square feet *
+                                </Text>
+                                <View style={modalStyles.budgetAmountInputShell}>
+                                  <Feather
+                                    name="maximize-2"
+                                    size={16}
+                                    color="#8DA0B8"
+                                    style={{ marginLeft: 12, marginRight: 8 }}
+                                  />
+                                  <TextInput
+                                    ref={materialSqftInputRef}
+                                    style={[
+                                      modalStyles.budgetNumericInput,
+                                      {
+                                        backgroundColor: 'transparent',
+                                        borderWidth: 0,
+                                        color: Colors.text,
+                                      },
+                                    ]}
+                                    placeholder="0"
+                                    placeholderTextColor={
+                                      darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub
+                                    }
+                                    value={quantityText || ''}
+                                    onChangeText={(text) => {
+                                      const cleanText = digitsOnly(text);
+                                      setQuantityText(cleanText);
+                                      setQuantity(parseInt(cleanText, 10) || 0);
+                                    }}
+                                    keyboardType="number-pad"
+                                    keyboardAppearance={
+                                      darkMode ? 'dark' : 'light'
+                                    }
+                                    returnKeyType="done"
+                                    blurOnSubmit={false}
+                                    onSubmitEditing={() =>
+                                      materialRateInputRef.current?.focus?.()
+                                    }
+                                    selectionColor="#22c55e"
+                                    underlineColorAndroid="transparent"
+                                  />
+                                </View>
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={[
+                                    modalStyles.budgetSubFieldLabel,
+                                    { color: Colors.text },
+                                  ]}
+                                >
+                                  Rate ($/sq ft) *
+                                </Text>
+                                <View style={modalStyles.budgetAmountInputShell}>
+                                  <Text style={modalStyles.budgetDollarSign}>$</Text>
+                                  <TextInput
+                                    ref={materialRateInputRef}
+                                    style={[
+                                      modalStyles.budgetNumericInput,
+                                      {
+                                        backgroundColor: 'transparent',
+                                        borderWidth: 0,
+                                        color: Colors.text,
+                                      },
+                                    ]}
+                                    placeholder="0"
+                                    placeholderTextColor={
+                                      darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub
+                                    }
+                                    value={unitPriceText || ''}
+                                    onChangeText={(text) => {
+                                      const d = clampCentsDigitsInput(text);
+                                      setUnitPriceText(d);
+                                      setUnitPrice(centsDigitsToNumber(d));
+                                    }}
+                                    keyboardType="number-pad"
+                                    keyboardAppearance={
+                                      darkMode ? 'dark' : 'light'
+                                    }
+                                    returnKeyType="done"
+                                    blurOnSubmit={false}
+                                    onSubmitEditing={() => Keyboard.dismiss()}
+                                    selectionColor="#22c55e"
+                                    underlineColorAndroid="transparent"
+                                  />
+                                </View>
+                              </View>
+                            </View>
+                            <View
+                              style={{
+                                marginTop: 12,
+                                backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                                borderRadius: 12,
+                                padding: 16,
+                                borderWidth: 1,
+                                borderColor: 'rgba(45, 255, 196, 0.3)',
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: '#2DFFC4',
+                                  fontSize: 18,
+                                  fontWeight: '700',
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Total:{' '}
+                                {(() => {
+                                  const sq =
+                                    parseInt(digitsOnly(quantityText), 10) || 0;
+                                  const rate = centsDigitsToNumber(unitPriceText);
+                                  return formatMoneyFull(sq * rate, {
+                                    decimals: 2,
+                                  });
+                                })()}
+                              </Text>
+                            </View>
+                          </>
+                        ) : (
+                          <>
+                            <View style={modalStyles.budgetAmountInputShell}>
+                              <Text style={modalStyles.budgetDollarSign}>$</Text>
                               <TextInput
+                                ref={materialFlatAmountInputRef}
                                 style={[
-                                  modalStyles.materialInput,
-                                  { color: darkMode ? '#e9f1ff' : '#000000' },
+                                  modalStyles.budgetNumericInput,
+                                  {
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 0,
+                                    color: Colors.text,
+                                  },
                                 ]}
                                 placeholder="0"
-                                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                                value={quantityText || (quantity > 0 ? quantity.toString() : '')}
+                                placeholderTextColor={
+                                  darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub
+                                }
+                                value={unitPriceText || ''}
                                 onChangeText={(text) => {
-                                  const cleanText = text.replace(/[^0-9.]/g, '');
-                                  setQuantityText(cleanText);
-                                  setQuantity(parseFloat(cleanText) || 0);
+                                  const d = clampCentsDigitsInput(text);
+                                  setUnitPriceText(d);
+                                  setUnitPrice(centsDigitsToNumber(d));
                                 }}
                                 keyboardType="number-pad"
-                                inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
-                                returnKeyType="next"
-                                onSubmitEditing={() => Keyboard.dismiss()}
-                                blurOnSubmit={true}
-                                onFocus={onLineItemKeyboardFocus}
-                                onBlur={onLineItemKeyboardBlur}
-                                selectionColor="#22c55e"
-                                underlineColorAndroid="transparent"
-                              />
-                            </View>
-                          </View>
-                          <View style={[modalStyles.materialFieldGroup, { flex: 1 }]}>
-                            <Text style={modalStyles.materialLabel}>Rate ($/sq ft) *</Text>
-                            <View style={modalStyles.materialInputWrapper}>
-                              <Feather
-                                name="dollar-sign"
-                                size={16}
-                                color="#22c55e"
-                                style={modalStyles.materialInputIcon}
-                              />
-                              <TextInput
-                                style={[
-                                  modalStyles.materialInput,
-                                  { color: darkMode ? '#e9f1ff' : '#000000' },
-                                ]}
-                                placeholder="0.00"
-                                placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                                value={unitPriceText || (unitPrice > 0 ? unitPrice.toString() : '')}
-                                onChangeText={(text) => {
-                                  const cleanText = text.replace(/[^0-9.]/g, '');
-                                  setUnitPriceText(cleanText);
-                                  setUnitPrice(parseFloat(cleanText) || 0);
-                                }}
-                                keyboardType="decimal-pad"
-                                inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                                keyboardAppearance={
+                                  darkMode ? 'dark' : 'light'
+                                }
                                 returnKeyType="done"
+                                blurOnSubmit={false}
                                 onSubmitEditing={() => Keyboard.dismiss()}
-                                blurOnSubmit={true}
-                                onFocus={onLineItemKeyboardFocus}
-                                onBlur={onLineItemKeyboardBlur}
                                 selectionColor="#22c55e"
                                 underlineColorAndroid="transparent"
                               />
                             </View>
-                          </View>
-                        </View>
-                        <View style={[modalStyles.materialFieldGroup, { marginTop: 8 }]}>
-                          <View style={{
-                            backgroundColor: 'rgba(45, 255, 196, 0.1)',
-                            borderRadius: 12,
-                            padding: 16,
-                            borderWidth: 1,
-                            borderColor: 'rgba(45, 255, 196, 0.3)',
-                          }}>
-                            <Text style={{
-                              color: '#2DFFC4',
-                              fontSize: 18,
-                              fontWeight: '700',
-                              textAlign: 'center',
-                            }}>
-                              Total: ${((Number(quantity) || 0) * (Number(unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </Text>
-                          </View>
-                        </View>
-                      </>
-                      )}
+                            {centsDigitsToNumber(unitPriceText) > 0 && (
+                              <Text style={modalStyles.budgetAmountHint}>
+                                {formatMoneyFull(
+                                  centsDigitsToNumber(unitPriceText),
+                                  { decimals: 2 }
+                                )}
+                              </Text>
+                            )}
+                          </>
+                        )}
+                      </View>
 
                       {/* Category (Optional) */}
                       <View style={[modalStyles.materialFieldGroup, { marginTop: 18 }]}>
@@ -2162,7 +2241,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 )}
               </ScrollView>
 
-              {!hideNumericFooter && (
               <View
                 style={[
                   modalStyles.materialFooterFlow,
@@ -2199,7 +2277,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   </LinearGradient>
                 </Pressable>
               </View>
-              )}
             </View>
         ) : (
           <>
@@ -2232,7 +2309,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       style={modalStyles.input}
                       value={name}
                       onChangeText={setName}
-                      inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                       returnKeyType="done"
                       onSubmitEditing={() => Keyboard.dismiss()}
                       blurOnSubmit={true}
@@ -2313,12 +2389,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={(text) => setHours(text)}
                             keyboardType="number-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
                           />
@@ -2330,12 +2403,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(rate)}
                             onChangeText={(text) => setRate(text)}
                             keyboardType="decimal-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
                           />
@@ -2359,12 +2429,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setQuantity(parseFloat(cleanText) || 0);
                             }}
                             keyboardType="number-pad"
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            onFocus={onLineItemKeyboardFocus}
-                            onBlur={onLineItemKeyboardBlur}
                             placeholderTextColor={Colors.sub}
                           />
                         </View>
@@ -2374,7 +2441,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             style={modalStyles.input}
                             value={unit}
                             onChangeText={setUnit}
-                            inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.text}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit
@@ -2394,12 +2460,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             setUnitPrice(parseFloat(cleanText) || 0);
                           }}
                           keyboardType="decimal-pad"
-                          inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
-                          onFocus={onLineItemKeyboardFocus}
-                          onBlur={onLineItemKeyboardBlur}
                           placeholderTextColor={Colors.sub}
                         />
                       </View>
@@ -2411,7 +2474,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   )}
                 </ScrollView>
                 
-                {!hideNumericFooter && (
                 <View style={modalStyles.footer}>
                   <TouchableOpacity onPress={onClose} style={modalStyles.cancelBtn}>
                     <Text style={modalStyles.cancelBtnText}>Cancel</Text>
@@ -2420,7 +2482,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     <Text style={modalStyles.saveBtnText}>Save</Text>
                   </TouchableOpacity>
                 </View>
-                )}
               </View>
             </View>
           </>
@@ -3909,7 +3970,9 @@ export default function EstimateGeneratorScreen() {
       return `${limitedDigits.slice(0, 3)}-${limitedDigits.slice(3, 6)}-${limitedDigits.slice(6)}`;
     }
   };
-  
+
+  const formatZipInput = (text) => text.replace(/\D/g, '').slice(0, 10);
+
   // Debug useEffect to track state changes
   useEffect(() => {
     console.log('🔍 State update:', {
@@ -10061,7 +10124,6 @@ export default function EstimateGeneratorScreen() {
                 autoCapitalize="words"
                 editable={true}
                 selectTextOnFocus={false}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerName) }}
               />
 
@@ -10085,7 +10147,6 @@ export default function EstimateGeneratorScreen() {
                 autoCapitalize="none"
                 returnKeyType="done"
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerEmail) }}
               />
 
@@ -10094,7 +10155,7 @@ export default function EstimateGeneratorScreen() {
                 wrapperStyle={{ marginBottom: 16 }}
                 labelStyle={s.label}
                 shellStyle={estimateAccessoryShellStyle}
-                placeholder="555-123-4567"
+                placeholder="5551234567"
                 placeholderTextColor={estimateStepMutedInputColor}
                 value={localCustomerPhone}
                 onChangeText={(text) => {
@@ -10106,10 +10167,9 @@ export default function EstimateGeneratorScreen() {
                   Keyboard.dismiss();
                   setBid(prev => ({ ...prev, customerPhone: localCustomerPhone }));
                 }}
-                keyboardType="phone-pad"
+                keyboardType="number-pad"
                 returnKeyType="done"
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.number}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerPhone) }}
               />
 
@@ -10131,7 +10191,6 @@ export default function EstimateGeneratorScreen() {
                 }}
                 returnKeyType="done"
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerAddress) }}
               />
 
@@ -10154,7 +10213,6 @@ export default function EstimateGeneratorScreen() {
                   }}
                   returnKeyType="done"
                   blurOnSubmit={true}
-                  accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                   style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCity) }}
                 />
 
@@ -10178,7 +10236,6 @@ export default function EstimateGeneratorScreen() {
                   autoCapitalize="characters"
                   returnKeyType="done"
                   blurOnSubmit={true}
-                  accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                   style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerState) }}
                 />
               </View>
@@ -10192,8 +10249,9 @@ export default function EstimateGeneratorScreen() {
                 placeholderTextColor={estimateStepMutedInputColor}
                 value={localCustomerZip}
                 onChangeText={(text) => {
-                  setLocalCustomerZip(text);
-                  setBid(prev => ({ ...prev, customerZip: text }));
+                  const formatted = formatZipInput(text);
+                  setLocalCustomerZip(formatted);
+                  setBid(prev => ({ ...prev, customerZip: formatted }));
                 }}
                 onSubmitEditing={() => {
                   Keyboard.dismiss();
@@ -10202,7 +10260,6 @@ export default function EstimateGeneratorScreen() {
                 keyboardType="number-pad"
                 returnKeyType="done"
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.number}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerZip) }}
               />
 
@@ -10226,7 +10283,6 @@ export default function EstimateGeneratorScreen() {
                 returnKeyType="done"
                 blurOnSubmit={true}
                 keyboardAppearance={darkMode ? 'dark' : 'light'}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCompany) }}
               />
 
@@ -10250,7 +10306,6 @@ export default function EstimateGeneratorScreen() {
                 numberOfLines={4}
                 scrollEnabled={false}
                 keyboardAppearance={darkMode ? 'dark' : 'light'}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{
                   minHeight: 100,
                   textAlignVertical: 'top',
@@ -10293,7 +10348,6 @@ export default function EstimateGeneratorScreen() {
                 returnKeyType="done"
                 onSubmitEditing={() => Keyboard.dismiss()}
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.title || '') }}
               />
 
@@ -10327,7 +10381,6 @@ export default function EstimateGeneratorScreen() {
                 returnKeyType="done"
                 onSubmitEditing={() => Keyboard.dismiss()}
                 blurOnSubmit={true}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.number}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.sqft?.toString() || '') }}
               />
 
@@ -10601,7 +10654,7 @@ export default function EstimateGeneratorScreen() {
                                                 setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: num, qty: num, total: (it.unitPrice || it.cost || 0) * num } : it));
                                               }}
                                               keyboardType="number-pad"
-                                              inputAccessoryViewID={Platform.OS === 'ios' ? KEYBOARD_ACCESSORY_IDS.number : undefined}
+                                              inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                               returnKeyType="done"
                                               onSubmitEditing={() => Keyboard.dismiss()}
                                               blurOnSubmit={true}
@@ -10787,7 +10840,7 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="number-pad"
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -10942,7 +10995,7 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="number-pad"
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -11966,7 +12019,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -11992,7 +12045,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12018,7 +12071,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12044,7 +12097,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12077,7 +12130,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12103,7 +12156,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12129,7 +12182,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12155,7 +12208,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12254,7 +12307,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                   returnKeyType="done"
                   onSubmitEditing={() => {
                     Keyboard.dismiss();
@@ -13727,7 +13780,7 @@ export default function EstimateGeneratorScreen() {
                                     placeholder="Enter weeks (13-52)"
                                     placeholderTextColor={Colors.sub}
                                     keyboardType="number-pad"
-                                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                     style={{
                                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                       borderWidth: 1,
@@ -14728,7 +14781,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter milestones (9-20)"
                                       placeholderTextColor={Colors.sub}
                                       keyboardType="number-pad"
-                                      inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
                                         borderWidth: 1,
@@ -15432,7 +15485,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter weeks (13-52)"
                                       placeholderTextColor={Colors.sub}
                                       keyboardType="number-pad"
-                                      inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
+                                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                         borderWidth: 1,
@@ -16523,16 +16576,25 @@ export default function EstimateGeneratorScreen() {
       ? Math.round(Dimensions.get('window').height * 0.24) + 28
       : null;
 
-  const lineItemModalOpen = materialModal.visible || laborModal.visible;
-
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
-      {/* Done toolbar for text + number keyboards; hidden while Add Material/Labor modal is open (modal mounts its own pair). */}
-      {!lineItemModalOpen && (
+      {/* Step 1: Phone + ZIP; step 2+: text + number Done accessories for the main estimate flow. LineItemModal (Add Material/Labor) does not use InputAccessoryView — matches Projects AddTransactionModal (number-pad only). */}
+      {step === 1 ? (
+        <KeyboardDoneAccessory
+          nativeID={KEYBOARD_ACCESSORY_IDS.number}
+          backgroundColor={theme.bg}
+        />
+      ) : (
         <>
-          <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
-          <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
+          <KeyboardDoneAccessory
+            nativeID={KEYBOARD_ACCESSORY_IDS.text}
+            backgroundColor={theme.bg}
+          />
+          <KeyboardDoneAccessory
+            nativeID={KEYBOARD_ACCESSORY_IDS.number}
+            backgroundColor={theme.bg}
+          />
         </>
       )}
       <KeyboardAvoidingView
@@ -17518,6 +17580,7 @@ export default function EstimateGeneratorScreen() {
         onAction={handleEstimateAIAction}
         initialQuestion={estimateAiInitialQuestion}
       />
+
     </SafeAreaView>
   );
 }

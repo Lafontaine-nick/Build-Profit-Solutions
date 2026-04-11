@@ -1,10 +1,13 @@
 import React, { useCallback } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
-import KeyboardDoneAccessory from "@/components/ui/KeyboardDoneAccessory";
-import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import {
+  centsDigitsToNumber,
+  clampCentsDigitsInput,
+  digitsOnly,
+} from "@/src/lib/keyboardMoney";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
 
@@ -68,14 +71,12 @@ export default function PricingModeSection({
   const Colors = getColors(theme);
 
   const onFlatAmountChange = useCallback(
-    (text: string) => onAmountChange(sanitizeOneDecimalField(text)),
+    (text: string) => onAmountChange(clampCentsDigitsInput(text)),
     [onAmountChange]
   );
 
   return (
     <>
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.text} />
-      <KeyboardDoneAccessory nativeID={KEYBOARD_ACCESSORY_IDS.number} />
       <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -193,10 +194,9 @@ export default function PricingModeSection({
                     placeholder="0"
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={sqftInput}
-                    onChangeText={onSqftInputChange}
+                    onChangeText={(t) => onSqftInputChange(digitsOnly(t))}
                     keyboardType="number-pad"
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
-                    returnKeyType="next"
+                    returnKeyType="done"
                     onSubmitEditing={onSqftSubmitEditing}
                     blurOnSubmit={false}
                   />
@@ -229,13 +229,12 @@ export default function PricingModeSection({
                         color: Colors.text,
                       },
                     ]}
-                    placeholder="0.00"
+                    placeholder="0"
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={ratePerSqftInput}
-                    onChangeText={onRatePerSqftInputChange}
-                    keyboardType="decimal-pad"
-                    inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
-                    returnKeyType="next"
+                    onChangeText={(t) => onRatePerSqftInputChange(clampCentsDigitsInput(t))}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
                     onSubmitEditing={onRateSubmitEditing}
                     blurOnSubmit={false}
                   />
@@ -262,8 +261,8 @@ export default function PricingModeSection({
               >
                 Total:{" "}
                 {(() => {
-                  const sq = parseFloat(sqftInput.replace(/[^0-9.]/g, "")) || 0;
-                  const rate = parseFloat(ratePerSqftInput.replace(/[^0-9.]/g, "")) || 0;
+                  const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
+                  const rate = centsDigitsToNumber(ratePerSqftInput);
                   const t = sq * rate;
                   return formatMoneyFull(t, { decimals: 2 });
                 })()}
@@ -296,25 +295,23 @@ export default function PricingModeSection({
                   color: Colors.text,
                 },
               ]}
-              placeholder="0.00"
+              placeholder="0"
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
               value={amount}
               onChangeText={onFlatAmountChange}
-              keyboardType="decimal-pad"
-              inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.number}
-              returnKeyType="next"
+              keyboardType="number-pad"
+              returnKeyType="done"
               onSubmitEditing={onFlatAmountSubmitEditing}
               blurOnSubmit={false}
             />
           </View>
         )}
 
-        {amount &&
-          !isNaN(parseFloat(amount)) &&
+        {centsDigitsToNumber(amount) > 0 &&
           pricingMode !== "sqft" &&
           flatReplacement == null && (
             <Text style={[styles.hint, { color: Colors.sub }]}>
-              {formatMoneyFull(parseFloat(amount), { decimals: 2 })}
+              {formatMoneyFull(centsDigitsToNumber(amount), { decimals: 2 })}
             </Text>
           )}
       </View>

@@ -11,22 +11,35 @@ import {
 
 type Props = {
   nativeID: string;
+  /**
+   * iOS paints `InputAccessoryView` as a full-width strip; `transparent` often reads as a harsh black
+   * block above the keyboard. Use a solid fill (match app bg or a system-like grey).
+   */
+  backgroundColor?: string;
 };
 
-/** iOS-only toolbar above the keyboard with a trailing Done button (dismisses keyboard). */
-export default function KeyboardDoneAccessory({ nativeID }: Props) {
+const DEFAULT_ACCESSORY_BG = '#3A3A3C';
+
+/**
+ * iOS-only toolbar above the keyboard with a trailing Done button.
+ * Pairs with `inputAccessoryViewID` on TextInputs (see KEYBOARD_ACCESSORY_IDS).
+ */
+export default function KeyboardDoneAccessory({
+  nativeID,
+  backgroundColor = DEFAULT_ACCESSORY_BG,
+}: Props) {
   if (Platform.OS !== 'ios') return null;
 
   return (
-    <InputAccessoryView nativeID={nativeID}>
-      <View style={styles.accessoryBar}>
+    <InputAccessoryView nativeID={nativeID} backgroundColor={backgroundColor}>
+      <View style={[styles.keyboardBar, { backgroundColor }]}>
         <View style={{ flex: 1 }} />
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => Keyboard.dismiss()}
-          style={styles.doneButton}
+          style={styles.keyboardDoneButton}
         >
-          <Text style={styles.doneButtonText}>Done</Text>
+          <Text style={styles.keyboardDoneText}>Done</Text>
         </TouchableOpacity>
       </View>
     </InputAccessoryView>
@@ -34,29 +47,27 @@ export default function KeyboardDoneAccessory({ nativeID }: Props) {
 }
 
 const styles = StyleSheet.create({
-  accessoryBar: {
-    minHeight: 50,
-    paddingHorizontal: 12,
+  keyboardBar: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    backgroundColor: '#111214',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.12)',
   },
-  doneButton: {
-    minHeight: 34,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+  keyboardDoneButton: {
+    minHeight: 38,
+    paddingHorizontal: 20,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(32, 32, 36, 0.96)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  doneButtonText: {
+  keyboardDoneText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
 });
