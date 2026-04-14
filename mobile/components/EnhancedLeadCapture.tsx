@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
+  TextInputProps,
   TouchableOpacity,
   ScrollView,
   Alert,
@@ -101,7 +102,8 @@ const EnhancedLeadCapture: React.FC = () => {
       | 'default'
       | 'email-address'
       | 'phone-pad'
-      | 'numeric' = 'default'
+      | 'numeric' = 'default',
+    textInputExtras?: Pick<TextInputProps, 'textContentType' | 'autoComplete'>
   ) => (
     <View style={styles.inputContainer}>
       <View style={styles.inputLabel}>
@@ -128,6 +130,7 @@ const EnhancedLeadCapture: React.FC = () => {
         placeholder={placeholder}
         placeholderTextColor={textSecondaryColor}
         keyboardType={keyboardType}
+        {...textInputExtras}
       />
     </View>
   );
@@ -219,7 +222,8 @@ const EnhancedLeadCapture: React.FC = () => {
             text => setFormData({ ...formData, zipCode: text }),
             'Enter ZIP code',
             'location-on',
-            'numeric'
+            'phone-pad',
+            { textContentType: 'none', autoComplete: 'off' }
           )}
         </View>
 

@@ -1,4 +1,4 @@
-/** Helpers for `keyboardType="number-pad"` money fields (ZIP-style digits; last 2 digits = cents). */
+/** Helpers for `keyboardType="phone-pad"` money fields (ZIP-style digits; last 2 digits = cents). */
 
 const MAX_CENT_DIGITS = 12;
 

@@ -214,7 +214,7 @@ export default function LoginScreen() {
                         placeholder='Enter code'
                         placeholderTextColor='#FFFFFF'
                         autoCapitalize='none'
-                        keyboardType='number-pad'
+                        keyboardType='phone-pad'
                         value={code}
                         onChangeText={setCode}
                         editable={!pending}

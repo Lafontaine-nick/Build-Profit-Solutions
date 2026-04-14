@@ -960,7 +960,9 @@ export default function AttachSkuModal({
                     placeholder="ZIP (store pricing is ZIP-specific)"
                     value={zip}
                     onChangeText={setZip}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
+                    textContentType="none"
+                    autoComplete="off"
                     style={{
                       flex: 1,
                       fontSize: 15,

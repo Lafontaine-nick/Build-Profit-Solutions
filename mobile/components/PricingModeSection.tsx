@@ -195,7 +195,7 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={sqftInput}
                     onChangeText={(t) => onSqftInputChange(digitsOnly(t))}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     returnKeyType="done"
                     onSubmitEditing={onSqftSubmitEditing}
                     blurOnSubmit={false}
@@ -233,7 +233,7 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={ratePerSqftInput}
                     onChangeText={(t) => onRatePerSqftInputChange(clampCentsDigitsInput(t))}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     returnKeyType="done"
                     onSubmitEditing={onRateSubmitEditing}
                     blurOnSubmit={false}
@@ -299,7 +299,7 @@ export default function PricingModeSection({
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
               value={amount}
               onChangeText={onFlatAmountChange}
-              keyboardType="number-pad"
+              keyboardType="phone-pad"
               returnKeyType="done"
               onSubmitEditing={onFlatAmountSubmitEditing}
               blurOnSubmit={false}

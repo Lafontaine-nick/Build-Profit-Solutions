@@ -1504,7 +1504,7 @@ const AuthScreen: React.FC = () => {
                       style={styles.input}
                       placeholder="Enter 6-digit code"
                       placeholderTextColor={inputPlaceholderColor}
-                      keyboardType="number-pad"
+                      keyboardType="phone-pad"
                       value={verificationCode}
                       onChangeText={setVerificationCode}
                       editable={!loading}

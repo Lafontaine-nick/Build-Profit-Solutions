@@ -848,7 +848,9 @@ function SubcontractorSearchModal({
                 onChangeText={setZipCode}
                 placeholder="ZIP"
                 placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
-                keyboardType="numeric"
+                keyboardType="phone-pad"
+                textContentType="none"
+                autoComplete="off"
                 maxLength={5}
                 style={{
                   width: 86,
@@ -2096,7 +2098,7 @@ function SubcontractorSearchModal({
                       onChangeText={(text) => setRequestFormData({ ...requestFormData, budgetMax: text })}
                       placeholder="$50,000"
                       placeholderTextColor={subMeta2}
-                      keyboardType="number-pad"
+                      keyboardType="phone-pad"
                     />
                   </LinearGradient>
                 </View>

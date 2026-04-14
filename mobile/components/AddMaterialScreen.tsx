@@ -394,7 +394,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       setAmount(clampCentsDigitsInput(text));
                       if (selectedPreset) setSelectedPreset(null);
                     }}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     returnKeyType="done"
                     onFocus={onAmountFieldFocus}
                     onBlur={onAmountFieldBlur}

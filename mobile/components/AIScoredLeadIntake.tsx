@@ -547,7 +547,9 @@ const AIScoredLeadIntake: React.FC = () => {
                 onChangeText={text => updateFormData('zipCode', text)}
                 placeholder='Enter ZIP code'
                 placeholderTextColor={textSecondaryColor}
-                keyboardType='numeric'
+                keyboardType='phone-pad'
+                textContentType='none'
+                autoComplete='off'
                 maxLength={5}
               />
             </View>

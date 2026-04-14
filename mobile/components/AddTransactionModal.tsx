@@ -104,7 +104,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     }
   }, [visible]);
 
-  // Per-sq-ft: keep Amount in sync (total = sq ft × $/sq ft). Amount state = cent digit string (number-pad).
+  // Per-sq-ft: keep Amount in sync (total = sq ft × $/sq ft). Amount state = cent digit string (phone-pad).
   useEffect(() => {
     if (!supportsPerSqftPricing || pricingMode !== "sqft") return;
     const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
@@ -633,7 +633,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           }
                           value={sqftInput}
                           onChangeText={onSqftChange}
-                          keyboardType="number-pad"
+                          keyboardType="phone-pad"
                           returnKeyType="done"
                           onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                           blurOnSubmit={false}
@@ -673,7 +673,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           }
                           value={ratePerSqftInput}
                           onChangeText={onRatePerSqftChange}
-                          keyboardType="number-pad"
+                          keyboardType="phone-pad"
                           returnKeyType="done"
                           onSubmitEditing={() => descriptionRef.current?.focus()}
                           blurOnSubmit={false}
@@ -739,7 +739,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     }
                     value={amount}
                     onChangeText={(text) => setAmount(clampCentsDigitsInput(text))}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     returnKeyType="done"
                     onSubmitEditing={() => descriptionRef.current?.focus()}
                     blurOnSubmit={false}

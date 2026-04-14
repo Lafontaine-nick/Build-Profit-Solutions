@@ -43,7 +43,12 @@ import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
+import {
+  KeyboardNumericDoneAccessory,
+  numericKeyboardDoneAccessoryId,
+} from '@/components/KeyboardNumericDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
+import KeyboardDoneBar from '@/components/KeyboardDoneBar';
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
 import {
   centsDigitsToNumber,
@@ -1638,6 +1643,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         style={{ flex: 1, backgroundColor: Colors.bg }}
         keyboardVerticalOffset={0}
       >
+        {Platform.OS === 'ios' && (
+          <KeyboardNumericDoneAccessory
+            darkMode={darkMode}
+            surfaceColor={Colors.bg}
+          />
+        )}
         {(isMaterial || isLabor) ? (
           <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
               {/* Header */}
@@ -1864,7 +1875,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={String(hours)}
                             onChangeText={setHours}
-                            keyboardType="number-pad"
+                            keyboardType="phone-pad"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -1889,6 +1901,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(rate)}
                             onChangeText={setRate}
                             keyboardType="decimal-pad"
+                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -2026,7 +2039,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </View>
                       </View>
 
-                      {/* Amount / sqft / rate: match Projects Budget AddTransactionModal + PricingModeSection (number-pad, cent digits, same chrome) */}
+                      {/* Amount / sqft / rate: match Projects Budget AddTransactionModal + PricingModeSection (phone-pad, cent digits, same chrome) */}
                       <View style={modalStyles.materialFieldGroup}>
                         <View
                           style={{
@@ -2085,7 +2098,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setQuantityText(cleanText);
                                       setQuantity(parseInt(cleanText, 10) || 0);
                                     }}
-                                    keyboardType="number-pad"
+                                    keyboardType="phone-pad"
+                                    inputAccessoryViewID={
+                                      numericKeyboardDoneAccessoryId
+                                    }
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
@@ -2130,7 +2146,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setUnitPriceText(d);
                                       setUnitPrice(centsDigitsToNumber(d));
                                     }}
-                                    keyboardType="number-pad"
+                                    keyboardType="phone-pad"
+                                    inputAccessoryViewID={
+                                      numericKeyboardDoneAccessoryId
+                                    }
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
@@ -2197,7 +2216,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   setUnitPriceText(d);
                                   setUnitPrice(centsDigitsToNumber(d));
                                 }}
-                                keyboardType="number-pad"
+                                keyboardType="phone-pad"
+                                inputAccessoryViewID={
+                                  numericKeyboardDoneAccessoryId
+                                }
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
@@ -2388,7 +2410,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             style={modalStyles.input}
                             value={String(hours)}
                             onChangeText={(text) => setHours(text)}
-                            keyboardType="number-pad"
+                            keyboardType="phone-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -2428,7 +2450,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setQuantityText(cleanText);
                               setQuantity(parseFloat(cleanText) || 0);
                             }}
-                            keyboardType="number-pad"
+                            keyboardType="phone-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -3953,22 +3975,13 @@ export default function EstimateGeneratorScreen() {
     };
   }, []);
 
-  // Format phone number with dashes (XXX-XXX-XXXX)
+  /** Step 1 phone display — (555) 123-4567 */
   const formatPhoneNumber = (text) => {
-    // Remove all non-digit characters
-    const digits = text.replace(/\D/g, '');
-    
-    // Limit to 10 digits
-    const limitedDigits = digits.slice(0, 10);
-    
-    // Format with dashes
-    if (limitedDigits.length <= 3) {
-      return limitedDigits;
-    } else if (limitedDigits.length <= 6) {
-      return `${limitedDigits.slice(0, 3)}-${limitedDigits.slice(3)}`;
-    } else {
-      return `${limitedDigits.slice(0, 3)}-${limitedDigits.slice(3, 6)}-${limitedDigits.slice(6)}`;
-    }
+    const d = String(text).replace(/\D/g, '').slice(0, 10);
+    if (d.length === 0) return '';
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   };
 
   const formatZipInput = (text) => text.replace(/\D/g, '').slice(0, 10);
@@ -4060,7 +4073,9 @@ export default function EstimateGeneratorScreen() {
     if (isLoaded && bid.id) {
       setLocalCustomerName(bid.customerName || '');
       setLocalCustomerEmail(bid.customerEmail || '');
-      setLocalCustomerPhone(bid.customerPhone || '');
+      setLocalCustomerPhone(
+        bid.customerPhone ? formatPhoneNumber(String(bid.customerPhone)) : ''
+      );
       setLocalCustomerAddress(bid.customerAddress || '');
       setLocalCustomerCity(bid.customerCity || '');
       setLocalCustomerState(bid.customerState || '');
@@ -6976,7 +6991,9 @@ export default function EstimateGeneratorScreen() {
       setBid(next);
       setLocalCustomerName(next.customerName || '');
       setLocalCustomerEmail(next.customerEmail || '');
-      setLocalCustomerPhone(next.customerPhone || '');
+      setLocalCustomerPhone(
+        next.customerPhone ? formatPhoneNumber(String(next.customerPhone)) : ''
+      );
       setLocalCustomerAddress(next.customerAddress || '');
       setLocalCustomerCity(next.customerCity || '');
       setLocalCustomerState(next.customerState || '');
@@ -10155,8 +10172,9 @@ export default function EstimateGeneratorScreen() {
                 wrapperStyle={{ marginBottom: 16 }}
                 labelStyle={s.label}
                 shellStyle={estimateAccessoryShellStyle}
-                placeholder="5551234567"
+                placeholder="(555) 123-4567"
                 placeholderTextColor={estimateStepMutedInputColor}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.phoneDone}
                 value={localCustomerPhone}
                 onChangeText={(text) => {
                   const formatted = formatPhoneNumber(text);
@@ -10167,10 +10185,16 @@ export default function EstimateGeneratorScreen() {
                   Keyboard.dismiss();
                   setBid(prev => ({ ...prev, customerPhone: localCustomerPhone }));
                 }}
-                keyboardType="number-pad"
+                keyboardType="phone-pad"
+                textContentType="telephoneNumber"
                 returnKeyType="done"
                 blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerPhone) }}
+                style={{
+                  fontSize: 14,
+                  lineHeight: 20,
+                  paddingVertical: 12,
+                  color: getStepFieldTextColor(localCustomerPhone),
+                }}
               />
 
               <AppTextField
@@ -10247,6 +10271,7 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="12345"
                 placeholderTextColor={estimateStepMutedInputColor}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.numericDone}
                 value={localCustomerZip}
                 onChangeText={(text) => {
                   const formatted = formatZipInput(text);
@@ -10257,10 +10282,17 @@ export default function EstimateGeneratorScreen() {
                   Keyboard.dismiss();
                   setBid(prev => ({ ...prev, customerZip: localCustomerZip }));
                 }}
-                keyboardType="number-pad"
+                keyboardType="phone-pad"
+                textContentType="none"
+                autoComplete="off"
                 returnKeyType="done"
                 blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerZip) }}
+                style={{
+                  fontSize: 14,
+                  lineHeight: 20,
+                  paddingVertical: 12,
+                  color: getStepFieldTextColor(localCustomerZip),
+                }}
               />
 
               <AppTextField
@@ -10375,13 +10407,23 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="1250"
                 placeholderTextColor={estimateStepMutedInputColor}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.phoneDone}
                 value={bid.sqft?.toString() || ''}
                 onChangeText={(text) => updateBid('sqft', parseInt(text, 10) || 0)}
-                keyboardType="number-pad"
+                onSubmitEditing={() => {
+                  Keyboard.dismiss();
+                }}
+                keyboardType="phone-pad"
+                textContentType="none"
+                autoComplete="off"
                 returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
                 blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.sqft?.toString() || '') }}
+                style={{
+                  fontSize: 14,
+                  lineHeight: 20,
+                  paddingVertical: 12,
+                  color: getStepFieldTextColor(bid.sqft?.toString() || ''),
+                }}
               />
 
               <AppTextField
@@ -10653,7 +10695,7 @@ export default function EstimateGeneratorScreen() {
                                                 const num = parseInt(text) || 1;
                                                 setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: num, qty: num, total: (it.unitPrice || it.cost || 0) * num } : it));
                                               }}
-                                              keyboardType="number-pad"
+                                              keyboardType="phone-pad"
                                               inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                               returnKeyType="done"
                                               onSubmitEditing={() => Keyboard.dismiss()}
@@ -10839,7 +10881,7 @@ export default function EstimateGeneratorScreen() {
                     onChangeText={(text) => setCustomDepositModal({ ...customDepositModal, value: text })}
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -10994,7 +11036,7 @@ export default function EstimateGeneratorScreen() {
                     onChangeText={(text) => setCustomFinalModal({ ...customFinalModal, value: text })}
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
-                    keyboardType="number-pad"
+                    keyboardType="phone-pad"
                     inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -11736,6 +11778,15 @@ export default function EstimateGeneratorScreen() {
           marginBottom: 5,
         };
         const step5FieldWrapStyle = { marginBottom: 12 };
+        /** iOS: avoid phone-style pad + wrong accessory; Android: disable autofill picking another keyboard. */
+        const step5DecimalInputProps =
+          Platform.OS === 'ios'
+            ? {
+                autoComplete: 'off',
+                textContentType: 'none',
+                keyboardAppearance: darkMode ? 'dark' : 'light',
+              }
+            : { autoComplete: 'off' };
 
         return (
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -12003,6 +12054,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Equipment Rental</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12019,7 +12071,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12029,6 +12081,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Plans</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12045,7 +12098,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12055,6 +12108,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Permits</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12071,7 +12125,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12081,6 +12135,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Other direct costs</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12097,7 +12152,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12114,6 +12169,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Insurance Overhead</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12130,7 +12186,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12140,6 +12196,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Equipment Maintenance</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12156,7 +12213,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12166,6 +12223,7 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Facilities</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12182,7 +12240,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12192,6 +12250,7 @@ export default function EstimateGeneratorScreen() {
               <View style={{ ...step5FieldWrapStyle, marginBottom: 14 }}>
                 <Text style={step5FieldLabelStyle}>Other Overhead</Text>
                 <TextInput
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12208,7 +12267,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
@@ -12280,6 +12339,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <TextInput
                   ref={markupInputRef}
+                  {...step5DecimalInputProps}
                   style={[s.input, { color: getStepFieldTextColor(markupPctText) }]}
                   placeholder="20"
                   placeholderTextColor={estimateStepMutedInputColor}
@@ -12307,7 +12367,7 @@ export default function EstimateGeneratorScreen() {
                     }
                   }}
                   keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
                   returnKeyType="done"
                   onSubmitEditing={() => {
                     Keyboard.dismiss();
@@ -13779,7 +13839,7 @@ export default function EstimateGeneratorScreen() {
                                     }}
                                     placeholder="Enter weeks (13-52)"
                                     placeholderTextColor={Colors.sub}
-                                    keyboardType="number-pad"
+                                    keyboardType="phone-pad"
                                     inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                     style={{
                                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -14780,7 +14840,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                       placeholder="Enter milestones (9-20)"
                                       placeholderTextColor={Colors.sub}
-                                      keyboardType="number-pad"
+                                      keyboardType="phone-pad"
                                       inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
@@ -15484,7 +15544,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                       placeholder="Enter weeks (13-52)"
                                       placeholderTextColor={Colors.sub}
-                                      keyboardType="number-pad"
+                                      keyboardType="phone-pad"
                                       inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -16579,22 +16639,32 @@ export default function EstimateGeneratorScreen() {
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
-      {/* Step 1: Phone + ZIP; step 2+: text + number Done accessories for the main estimate flow. LineItemModal (Add Material/Labor) does not use InputAccessoryView — matches Projects AddTransactionModal (number-pad only). */}
-      {step === 1 ? (
-        <KeyboardDoneAccessory
-          nativeID={KEYBOARD_ACCESSORY_IDS.number}
-          backgroundColor={theme.bg}
-        />
-      ) : (
+      {/* Step 1–2: `KeyboardDoneBar` (green Done) — phone-done for Step 1 Phone + Step 2 Square Footage; numeric-done Step 1 ZIP only. */}
+      {(step === 1 || step === 2) && Platform.OS === 'ios' ? (
+        <KeyboardDoneBar inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.phoneDone} />
+      ) : null}
+      {step === 1 && Platform.OS === 'ios' ? (
+        <KeyboardDoneBar inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.numericDone} />
+      ) : null}
+      {step === 1 ? null : (
         <>
           <KeyboardDoneAccessory
             nativeID={KEYBOARD_ACCESSORY_IDS.text}
             backgroundColor={theme.bg}
           />
-          <KeyboardDoneAccessory
-            nativeID={KEYBOARD_ACCESSORY_IDS.number}
-            backgroundColor={theme.bg}
-          />
+          {step !== 5 && (
+            <KeyboardDoneAccessory
+              nativeID={KEYBOARD_ACCESSORY_IDS.number}
+              backgroundColor={theme.bg}
+            />
+          )}
+          {step === 5 && Platform.OS === 'ios' && (
+            <KeyboardNumericDoneAccessory
+              darkMode={darkMode}
+              surfaceColor={theme.bg}
+              nativeID={KEYBOARD_ACCESSORY_IDS.step5Numeric}
+            />
+          )}
         </>
       )}
       <KeyboardAvoidingView

@@ -292,7 +292,7 @@ export default function ForgotPasswordScreen() {
                       style={styles.input}
                       placeholder="Enter 6-digit code"
                       placeholderTextColor="#A0A7B5"
-                      keyboardType="number-pad"
+                      keyboardType="phone-pad"
                       value={code}
                       onChangeText={setCode}
                       editable={!loading}

@@ -24,6 +24,11 @@ type Props = {
    * “black” than your app — using the same hex removes the visible bar.
    */
   surfaceColor?: string;
+  /**
+   * iOS `InputAccessoryView` id; must match `inputAccessoryViewID` on paired `TextInput`s.
+   * Defaults to shared manual-entry / modal numeric id.
+   */
+  nativeID?: string;
 };
 
 const defaultSurface = (darkMode: boolean) =>
@@ -33,14 +38,18 @@ const defaultSurface = (darkMode: boolean) =>
  * iOS-only pill "Done" above decimal/number pads. Letter fields should omit `inputAccessoryViewID`
  * and use `returnKeyType="done"` so the system return key dismisses the keyboard.
  */
-export function KeyboardNumericDoneAccessory({ darkMode, surfaceColor }: Props) {
+export function KeyboardNumericDoneAccessory({
+  darkMode,
+  surfaceColor,
+  nativeID = NUMERIC_KEYBOARD_DONE_ACCESSORY_NATIVE_ID,
+}: Props) {
   if (Platform.OS !== 'ios') return null;
 
   const fill = surfaceColor ?? defaultSurface(darkMode);
 
   return (
     <InputAccessoryView
-      nativeID={NUMERIC_KEYBOARD_DONE_ACCESSORY_NATIVE_ID}
+      nativeID={nativeID}
       backgroundColor={fill}
       style={[styles.accessoryRoot, { backgroundColor: fill }]}
     >

@@ -9,6 +9,7 @@ import {
   StyleProp,
   ViewStyle,
   TextStyle,
+  RefObject,
 } from 'react-native';
 import { iosAccessoryId } from '@/constants/keyboard';
 
@@ -29,6 +30,8 @@ type Props = TextInputProps & {
    * Notifies parent of keyboard mode from `keyboardType` on focus/blur.
    */
   onFocusMode?: (mode: AppTextFieldFocusMode) => void;
+  /** Ref to the inner `TextInput` (e.g. custom keypad + blur from parent). */
+  textInputRef?: RefObject<TextInput | null>;
 };
 
 export default function AppTextField({
@@ -42,6 +45,7 @@ export default function AppTextField({
   placeholderTextColor = 'rgba(255,255,255,0.34)',
   wrapperStyle,
   onFocusMode,
+  textInputRef,
   onFocus,
   onBlur,
   keyboardType,
@@ -51,7 +55,6 @@ export default function AppTextField({
 }: Props) {
   const isNumericKeyboard =
     keyboardType === 'phone-pad' ||
-    keyboardType === 'number-pad' ||
     keyboardType === 'decimal-pad';
 
   const inputAccessoryViewID = onFocusMode ? undefined : iosAccessoryId(accessoryID);
@@ -74,6 +77,7 @@ export default function AppTextField({
         {!!leftIcon && <View style={styles.leftIcon}>{leftIcon}</View>}
 
         <TextInput
+          ref={textInputRef}
           {...(spreadProps as TextInputProps)}
           style={[
             styles.input,
