@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 type Transaction = {
   id: string;
@@ -145,12 +146,12 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
           </View>
 
           {/* Form */}
-          <ScrollView 
+          <ScrollView
             ref={scrollViewRef}
             style={styles.form}
             contentContainerStyle={{ paddingBottom: 100 }}
-            showsVerticalScrollIndicator={false} 
-            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             <View style={styles.field}>
               <Text style={styles.label}>{vendorLabel}</Text>

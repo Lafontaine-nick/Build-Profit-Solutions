@@ -33,6 +33,7 @@ import { normalizeTrade } from '../lib/trades';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
 
@@ -788,7 +789,7 @@ function SubcontractorSearchModal({
               paddingBottom: 40,
             }}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
           {/* Trade Selector */}
           <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 14 }}>
@@ -1249,10 +1250,10 @@ function SubcontractorSearchModal({
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{ flex: 1 }}
           >
-            <ScrollView 
-              showsVerticalScrollIndicator={false} 
-              keyboardShouldPersistTaps="handled" 
+            <ScrollView
+              showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 40 }}
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               {/* Header — respects status bar / notch */}
               <View style={{

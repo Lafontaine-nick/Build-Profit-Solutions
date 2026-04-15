@@ -21,6 +21,7 @@ import {
   KeyboardNumericDoneAccessory,
   numericKeyboardDoneAccessoryId,
 } from '../components/KeyboardNumericDoneAccessory';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 const Colors = {
   bg: '#0d2745',
@@ -112,7 +113,11 @@ export default function ManualLaborEntryScreen() {
             </View>
 
             <View style={styles.contentCard}>
-              <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+                {...KEYBOARD_SCROLL_DEFAULTS}
+              >
                 <View style={styles.sectionCard}>
                   <View style={styles.sectionHeader}>
                     <MaterialIcons name="engineering" size={22} color="#43cea2" />

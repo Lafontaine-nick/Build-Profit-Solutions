@@ -14,6 +14,7 @@ import { useProjectList } from "../contexts/ProjectListContext";
 import type { Milestone } from "../src/types/timeline";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 /** Supporting text on Timeline — neutral grey / soft white (not full white; keeps hierarchy). */
 function timelineMuted(dark: boolean) {
@@ -1023,15 +1024,15 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         !darkMode && { backgroundColor: Colors.bg },
       ]}
     >
-      <ScrollView 
-        style={styles.scrollContent} 
+      <ScrollView
+        style={styles.scrollContent}
         showsVerticalScrollIndicator={true}
         contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 16 }}
         nestedScrollEnabled={true}
         scrollEnabled={true}
         bounces={true}
         alwaysBounceVertical={false}
-        keyboardShouldPersistTaps="handled"
+        {...KEYBOARD_SCROLL_DEFAULTS}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

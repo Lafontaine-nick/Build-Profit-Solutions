@@ -19,6 +19,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Try to import Clerk hooks
 let useUser: any = null;
@@ -230,7 +231,7 @@ export default function ProfileSetupScreen() {
             <ScrollView
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               {/* Header */}
               <View style={styles.headerContainer}>

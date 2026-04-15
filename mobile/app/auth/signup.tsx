@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
@@ -61,10 +62,7 @@ export default function SignupScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
+          <ScrollView contentContainerStyle={styles.scrollContent} {...KEYBOARD_SCROLL_DEFAULTS}>
             <View style={styles.card}>
               <Text style={styles.title}>Create Account</Text>
               <View style={styles.inputGroup}>

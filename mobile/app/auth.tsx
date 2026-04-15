@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
@@ -1175,8 +1176,8 @@ const AuthScreen: React.FC = () => {
         >
           <ScrollView
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             {/* Top header – styled like the Dashboard title area */}
             <View style={[styles.headerRow, styles.wideContainer]}>

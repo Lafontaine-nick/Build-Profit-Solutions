@@ -1,5 +1,5 @@
 // ============================================================
-// BUILD PROFIT SOLUTIONS — KeyboardDoneBar Component
+// BUILD PROFIT SOLUTIONS - KeyboardDoneBar Component
 // ============================================================
 // Place this file at: components/KeyboardDoneBar.js
 // ============================================================
@@ -13,7 +13,15 @@ import {
   Keyboard,
   Platform,
   StyleSheet,
+  useColorScheme,
 } from 'react-native';
+
+/**
+ * iOS: `InputAccessoryView` with `transparent` often paints as a solid black bar above the keyboard.
+ * Use a solid system-like fill so the strip matches the keyboard chrome (see KeyboardDoneAccessory).
+ */
+const accessoryBarBackground = (scheme) =>
+  scheme === 'dark' ? '#2C2C2E' : '#D1D1D6';
 
 const KeyboardDoneBar = ({
   inputAccessoryViewID = 'keyboard-done',
@@ -22,17 +30,17 @@ const KeyboardDoneBar = ({
 }) => {
   if (Platform.OS !== 'ios') return null;
 
+  const colorScheme = useColorScheme();
+  const barBg = accessoryBarBackground(colorScheme);
+
   const handleDone = () => {
     if (onDone) onDone();
     else Keyboard.dismiss();
   };
 
   return (
-    <InputAccessoryView
-      nativeID={inputAccessoryViewID}
-      backgroundColor="transparent"
-    >
-      <View style={styles.container}>
+    <InputAccessoryView nativeID={inputAccessoryViewID} backgroundColor={barBg}>
+      <View style={[styles.container, { backgroundColor: barBg }]}>
         <View style={styles.spacer} />
         <TouchableOpacity
           onPress={handleDone}
@@ -52,7 +60,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    backgroundColor: 'transparent',
     paddingHorizontal: 12,
     paddingTop: 4,
     paddingBottom: 6,

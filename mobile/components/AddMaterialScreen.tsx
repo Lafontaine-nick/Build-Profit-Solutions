@@ -34,6 +34,8 @@ import {
   clampCentsDigitsInput,
   dollarsToCentsDigits,
 } from "@/src/lib/keyboardMoney";
+import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -310,6 +312,8 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
     }
   };
 
+  const bpsKeyboardAccessory = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
@@ -350,7 +354,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               {/* Vendor */}
               <View style={styles.fieldGroup}>
@@ -395,6 +399,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       if (selectedPreset) setSelectedPreset(null);
                     }}
                     keyboardType="phone-pad"
+                    inputAccessoryViewID={bpsKeyboardAccessory}
+                    textContentType="none"
+                    autoComplete="off"
                     returnKeyType="done"
                     onFocus={onAmountFieldFocus}
                     onBlur={onAmountFieldBlur}
@@ -576,7 +583,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               </View>
             </Modal>
 
-            {/* BOTTOM ACTION BAR — hidden while decimal-pad (amount) is focused */}
+            {/* BOTTOM ACTION BAR — hidden while phone-pad (amount) is focused */}
             {!hideFooterForNumeric && (
             <View style={styles.bottomBar}>
               <Pressable

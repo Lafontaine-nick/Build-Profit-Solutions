@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Conditionally import Clerk - only if configured
 let useSignIn: any = null;
@@ -156,10 +157,7 @@ export default function LoginScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
+          <ScrollView contentContainerStyle={styles.scrollContent} {...KEYBOARD_SCROLL_DEFAULTS}>
             <View style={styles.wideContainer}>
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}

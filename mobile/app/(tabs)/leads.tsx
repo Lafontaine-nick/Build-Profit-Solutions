@@ -25,6 +25,7 @@ import { Pressable } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Mock data with different lead sources
 const mockLeads: Lead[] = [
@@ -3472,9 +3473,9 @@ export default function LeadsScreen() {
         <ScrollView
           style={styles.mainScroll}
           contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
+          {...KEYBOARD_SCROLL_DEFAULTS}
         >
           {/* Header */}
           <View style={[styles.headerRow, styles.wideContainer, { paddingTop: Math.max(insets.top, 0) + 20 }]}>

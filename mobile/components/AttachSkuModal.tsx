@@ -61,6 +61,8 @@ import * as Haptics from 'expo-haptics';
 import { saveMaterial, removeSavedMaterial, isMaterialSaved } from '../services/savedMaterialsService';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
 
 /** Backend (esp. older production) may still return placehold.co "fake" thumbnails — never show those as product photos. */
 function isPlaceholderImageUrl(u: string | null | undefined): boolean {
@@ -637,12 +639,15 @@ export default function AttachSkuModal({
   }
 
   console.log('🔍 AttachSkuModal render - visible:', visible);
-  
+
+  /** iOS: same pattern as Estimates step 1–2 main screen (`View` + scroll insets). Android: `KeyboardAvoidingView`. */
+  const SkuModalRoot = Platform.OS === 'ios' ? View : KeyboardAvoidingView;
+
   // Early return if not visible (but Modal handles this, so we keep it for debugging)
   if (!visible) {
     console.log('🔍 Modal not visible, but still rendering Modal component');
   }
-  
+
   return (
     <Modal 
       visible={visible} 
@@ -652,10 +657,11 @@ export default function AttachSkuModal({
       statusBarTranslucent={false}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
-      <KeyboardAvoidingView 
-        style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }} 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      <SkuModalRoot
+        style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
+        {...(Platform.OS === 'android'
+          ? { behavior: 'height' as const, keyboardVerticalOffset: 20 }
+          : {})}
       >
         <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
           {/* Header */}
@@ -769,14 +775,17 @@ export default function AttachSkuModal({
             </View>
           </View>
 
-          <ScrollView 
+          <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ 
+            contentContainerStyle={{
               flexGrow: 1,
               paddingBottom: 28,
               paddingHorizontal: 20,
             }}
-            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
           <View style={{ 
             paddingTop: 18,
@@ -897,7 +906,10 @@ export default function AttachSkuModal({
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                     returnKeyType="search"
                     onSubmitEditing={search}
-                    selectionColor="#22c55e"
+                    keyboardAppearance={darkMode ? 'dark' : 'light'}
+                    autoCorrect={false}
+                    selectionColor="#2EE6A6"
+                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                     underlineColorAndroid="transparent"
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -963,6 +975,10 @@ export default function AttachSkuModal({
                     keyboardType="phone-pad"
                     textContentType="none"
                     autoComplete="off"
+                    keyboardAppearance={darkMode ? 'dark' : 'light'}
+                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
+                    selectionColor="#2EE6A6"
+                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                     style={{
                       flex: 1,
                       fontSize: 15,
@@ -971,7 +987,6 @@ export default function AttachSkuModal({
                     }}
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
                     returnKeyType="done"
-                    selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -1332,7 +1347,7 @@ export default function AttachSkuModal({
           </View>
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </SkuModalRoot>
     </Modal>
   );
 }

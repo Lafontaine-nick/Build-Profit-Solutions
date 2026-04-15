@@ -9,7 +9,9 @@ import React, { useEffect, useState } from 'react';
 import * as Font from 'expo-font';
 import { useFonts as useMontserrat, Montserrat_700Bold } from '@expo-google-fonts/montserrat';
 import { useFonts as useSaira, Saira_400Regular } from '@expo-google-fonts/saira';
-import { View, Text } from 'react-native';
+import { View, Text, Platform } from 'react-native';
+import KeyboardDoneBar from '../components/KeyboardDoneBar';
+import { KEYBOARD_ACCESSORY_IDS } from '../constants/keyboard';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import ErrorBoundary from '../components/ErrorBoundary';
 import notificationService from '../services/notificationService';
@@ -37,6 +39,9 @@ function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
   return (
     <View style={{ flex: 1, backgroundColor: darkMode ? '#0b1c38' : '#f5f7fa' }}>
       <StatusBar style={darkMode ? 'light' : 'dark'} />
+      {Platform.OS === 'ios' ? (
+        <KeyboardDoneBar inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone} />
+      ) : null}
       {children}
     </View>
   );

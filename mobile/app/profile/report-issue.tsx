@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clerkAuthService } from '@/services/clerkAuth';
 import Constants from 'expo-constants';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Try to import Clerk hooks
 let useUser: any = null;
@@ -243,7 +244,7 @@ export default function ReportIssueScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
               showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps='handled'
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}

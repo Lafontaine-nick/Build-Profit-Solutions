@@ -34,6 +34,7 @@ import { Switch, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
@@ -3996,7 +3997,6 @@ const AIAssistantModal: React.FC<Props> = ({
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         enabled={true}
-        keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg })]}>
           <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -4089,8 +4089,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 showsVerticalScrollIndicator={true}
               scrollEnabled={true}
                 nestedScrollEnabled={false}
-              keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
+              {...KEYBOARD_SCROLL_DEFAULTS}
                 removeClippedSubviews={false}
                 bounces={Platform.OS === 'ios'}
                 alwaysBounceVertical={false}

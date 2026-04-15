@@ -41,6 +41,7 @@ import AddPurchaseOrderModal from './AddPurchaseOrderModal';
 import EditPurchaseOrderModal from './EditPurchaseOrderModal';
 import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { centsDigitsToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -1425,10 +1426,10 @@ export default function BudgetTab({
             </View>
           </View>
           
-          <ScrollView 
-            style={styles.modalForm} 
-            showsVerticalScrollIndicator={false} 
-            keyboardShouldPersistTaps="handled"
+          <ScrollView
+            style={styles.modalForm}
+            showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             {/* Total Spent Card */}
             <View style={styles.summaryCard}>

@@ -22,6 +22,7 @@ import {
   Animated,
   AppState,
   BackHandler,
+  InputAccessoryView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -43,13 +44,10 @@ import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
-import {
-  KeyboardNumericDoneAccessory,
-  numericKeyboardDoneAccessoryId,
-} from '@/components/KeyboardNumericDoneAccessory';
+import { KeyboardNumericDoneAccessory } from '@/components/KeyboardNumericDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
-import KeyboardDoneBar from '@/components/KeyboardDoneBar';
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
@@ -72,6 +70,7 @@ import {
   saveFirstEstimateWalkthroughProgress,
 } from '../../lib/firstEstimateWalkthroughStorage';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
+import { useKeyboard } from '@/services/MobileOptimization';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
 import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
@@ -964,7 +963,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
             <ScrollView
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={scrollViewContentStyle}
             >
@@ -1323,7 +1322,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <ScrollView
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={scrollViewContentStyle}
             >
@@ -1533,17 +1532,27 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [unitPrice, setUnitPrice] = useState(item?.unitPrice || 0);
   const [unitPriceText, setUnitPriceText] = useState(item?.unitPrice?.toString() || '');
   const [hours, setHours] = useState(item?.hours || '');
-  const [rate, setRate] = useState(item?.rate || '');
-  const [vendor, setVendor] = useState(item?.vendor || 'Home Depot');
+  /** Labor rate only — cent-digit string (same entry style as Step 1 phone / Step 2 sqft / material $ fields). */
+  const [laborRateDigits, setLaborRateDigits] = useState('');
+  const [vendor, setVendor] = useState(item?.vendor ?? '');
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
   const materialSqftInputRef = React.useRef(null);
   const materialRateInputRef = React.useRef(null);
   const materialFlatAmountInputRef = React.useRef(null);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+  const keyboardHeightRef = useRef(0);
+  keyboardHeightRef.current = keyboardHeight;
+  const [materialVendorFocused, setMaterialVendorFocused] = useState(false);
+  const lineItemModalScrollRef = useRef(null);
+  const lineItemModalScrollYRef = useRef(0);
+  const materialVendorBlockRef = useRef(null);
 
   const isLabor = title.includes('Labor');
   const isMaterial = title.includes('Material');
+  /** Global `bps-keyboard-done` bar (mounted in root `_layout.tsx`). */
+  const bpsKeyboardAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone);
 
   useEffect(() => {
     if (item) {
@@ -1565,8 +1574,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         setUnitPriceText(item.unitPrice?.toString() || '');
       }
       setHours(item.hours || '');
-      setRate(item.rate || '');
-      setVendor(item.vendor || 'Home Depot');
+      if (isLabor) {
+        setLaborRateDigits(
+          item.rate != null && item.rate !== ''
+            ? dollarsToCentsDigits(Number(item.rate))
+            : ''
+        );
+      } else {
+        setLaborRateDigits('');
+      }
+      setVendor(item.vendor ?? '');
       setCategory(item.category || 'General');
       if (isMaterial) {
         setMode(item.mode === 'sqft' ? 'sqft' : 'flat');
@@ -1584,8 +1601,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setUnitPrice(0);
       setUnitPriceText('');
       setHours('');
-      setRate('');
-      setVendor('Home Depot');
+      setLaborRateDigits('');
+      setVendor('');
       setCategory('General');
       setMode(isMaterial ? 'flat' : laborMode || 'hourly');
       setLaborType('inhouse');
@@ -1596,14 +1613,19 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   }, [item, isMaterial, laborMode, visible]);
   
   const handleSave = () => {
+    if (isMaterial && !String(vendor || '').trim()) {
+      Alert.alert('Vendor required', 'Please enter a vendor or supplier.');
+      return;
+    }
+    const laborRateNum = isLabor ? centsDigitsToNumber(laborRateDigits) || 0 : 0;
     const data = {
       name,
       ...(isLabor ? {
         mode: mode,
         laborType: laborType,
         hours: Number(hours) || 0,
-        rate: Number(rate) || 0,
-        total: (Number(hours) || 0) * (Number(rate) || 0)
+        rate: laborRateNum,
+        total: (Number(hours) || 0) * laborRateNum
       } : {
         ...(isMaterial && { mode: mode === 'sqft' ? 'sqft' : 'flat' }),
         quantity: isMaterial
@@ -1629,6 +1651,41 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     }
   };
 
+  /** Same pattern as estimate steps 1–2: one nudge so Vendor / Supplier clears the keyboard. */
+  const nudgeLineItemMaterialVendorAboveKeyboard = useCallback(() => {
+    if (!visible || !isMaterial) return;
+    const kb = Math.max(keyboardHeightRef.current || 0, Platform.OS === 'ios' ? 290 : 260);
+    const marginAboveKeyboard = Platform.OS === 'ios' ? 88 : 72;
+    materialVendorBlockRef.current?.measureInWindow((_x, y, _w, h) => {
+      const winH = Dimensions.get('window').height;
+      const keyboardTopY = winH - kb;
+      const clearLineY = keyboardTopY - marginAboveKeyboard;
+      const fieldBottomY = y + h;
+      const overflow = fieldBottomY - clearLineY;
+      if (overflow > 2 && lineItemModalScrollRef.current) {
+        const nextY = lineItemModalScrollYRef.current + overflow;
+        lineItemModalScrollRef.current.scrollTo({ y: nextY, animated: true });
+      }
+    });
+  }, [visible, isMaterial]);
+
+  useEffect(() => {
+    if (!visible || !isMaterial || !materialVendorFocused) return;
+    const id = setTimeout(() => nudgeLineItemMaterialVendorAboveKeyboard(), 220);
+    return () => clearTimeout(id);
+  }, [visible, isMaterial, materialVendorFocused, nudgeLineItemMaterialVendorAboveKeyboard]);
+
+  useEffect(() => {
+    if (!visible) setMaterialVendorFocused(false);
+  }, [visible]);
+
+  const lineItemMaterialVendorKeyboardBoost =
+    visible && isMaterial && isKeyboardVisible && materialVendorFocused
+      ? Platform.OS === 'ios'
+        ? 160
+        : 120
+      : 0;
+
   return (
     <Modal
       visible={visible}
@@ -1643,12 +1700,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         style={{ flex: 1, backgroundColor: Colors.bg }}
         keyboardVerticalOffset={0}
       >
-        {Platform.OS === 'ios' && (
-          <KeyboardNumericDoneAccessory
-            darkMode={darkMode}
-            surfaceColor={Colors.bg}
-          />
-        )}
         {(isMaterial || isLabor) ? (
           <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
               {/* Header */}
@@ -1702,9 +1753,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
               
               {/* Content — keyboard insets on iOS (avoid stacking KeyboardAvoidingView + footer hide/show jank) */}
               <ScrollView
+                ref={lineItemModalScrollRef}
+                onScroll={(e) => {
+                  lineItemModalScrollYRef.current = e.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
                 style={{ flex: 1 }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="none"
+                {...KEYBOARD_SCROLL_DEFAULTS}
                 showsVerticalScrollIndicator={false}
                 automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
                 automaticallyAdjustContentInsets={false}
@@ -1712,7 +1767,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 contentContainerStyle={{
                   paddingHorizontal: 20,
                   paddingTop: 4,
-                  paddingBottom: 24,
+                  paddingBottom: 24 + lineItemMaterialVendorKeyboardBoost,
                 }}
               >
                 {isLabor ? (
@@ -1741,6 +1796,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           blurOnSubmit
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
+                          inputAccessoryViewID={bpsKeyboardAccessoryId}
                         />
                       </View>
                     </View>
@@ -1876,12 +1932,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={setHours}
                             keyboardType="phone-pad"
-                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+                            textContentType="none"
+                            autoComplete="off"
                             returnKeyType="next"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -1898,15 +1956,17 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             style={modalStyles.materialInput}
                             placeholder="$ 0.00"
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                            value={String(rate)}
-                            onChangeText={setRate}
-                            keyboardType="decimal-pad"
-                            inputAccessoryViewID={numericKeyboardDoneAccessoryId}
+                            value={laborRateDigits}
+                            onChangeText={(text) => setLaborRateDigits(clampCentsDigitsInput(text))}
+                            keyboardType="phone-pad"
+                            textContentType="none"
+                            autoComplete="off"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -1927,7 +1987,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           fontWeight: '700',
                           textAlign: 'center',
                         }}>
-                          Total: ${((Number(hours) || 0) * (Number(rate) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          Total: ${((Number(hours) || 0) * (centsDigitsToNumber(laborRateDigits) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                       </View>
                     </View>
@@ -1955,32 +2015,38 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
 
-                      {/* Vendor */}
-                      <View style={modalStyles.materialFieldGroup}>
-                        <Text style={modalStyles.materialLabel}>Vendor / Supplier *</Text>
-                        <View style={modalStyles.materialInputWrapper}>
-                          <Feather
-                            name="store"
-                            size={16}
-                            color="#8DA0B8"
-                            style={modalStyles.materialInputIcon}
-                          />
-                          <TextInput
-                            style={modalStyles.materialInput}
-                            placeholder="e.g., Home Depot, ABC Contractors"
-                            placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
-                            value={vendor}
-                            onChangeText={setVendor}
-                            returnKeyType="done"
-                            onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit
-                            selectionColor="#22c55e"
-                            underlineColorAndroid="transparent"
-                          />
+                      {/* Vendor — same scroll nudge + extra bottom pad as estimate step 1–2 text fields */}
+                      <View ref={materialVendorBlockRef} collapsable={false}>
+                        <View style={modalStyles.materialFieldGroup}>
+                          <Text style={modalStyles.materialLabel}>Vendor / Supplier *</Text>
+                          <View style={modalStyles.materialInputWrapper}>
+                            <Feather
+                              name="store"
+                              size={16}
+                              color="#8DA0B8"
+                              style={modalStyles.materialInputIcon}
+                            />
+                            <TextInput
+                              style={modalStyles.materialInput}
+                              placeholder="Home Depot"
+                              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+                              value={vendor}
+                              onChangeText={setVendor}
+                              onFocus={() => setMaterialVendorFocused(true)}
+                              onBlur={() => setMaterialVendorFocused(false)}
+                              returnKeyType="done"
+                              onSubmitEditing={() => Keyboard.dismiss()}
+                              blurOnSubmit
+                              selectionColor="#22c55e"
+                              underlineColorAndroid="transparent"
+                              inputAccessoryViewID={bpsKeyboardAccessoryId}
+                            />
+                          </View>
                         </View>
                       </View>
 
@@ -2099,9 +2165,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setQuantity(parseInt(cleanText, 10) || 0);
                                     }}
                                     keyboardType="phone-pad"
-                                    inputAccessoryViewID={
-                                      numericKeyboardDoneAccessoryId
-                                    }
+                                    textContentType="none"
+                                    autoComplete="off"
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
@@ -2112,6 +2177,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     }
                                     selectionColor="#22c55e"
                                     underlineColorAndroid="transparent"
+                                    inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
                                 </View>
                               </View>
@@ -2125,7 +2191,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   Rate ($/sq ft) *
                                 </Text>
                                 <View style={modalStyles.budgetAmountInputShell}>
-                                  <Text style={modalStyles.budgetDollarSign}>$</Text>
+                                  <Feather
+                                    name="dollar-sign"
+                                    size={16}
+                                    color="#22c55e"
+                                    style={{ marginLeft: 12, marginRight: 8 }}
+                                  />
                                   <TextInput
                                     ref={materialRateInputRef}
                                     style={[
@@ -2147,9 +2218,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setUnitPrice(centsDigitsToNumber(d));
                                     }}
                                     keyboardType="phone-pad"
-                                    inputAccessoryViewID={
-                                      numericKeyboardDoneAccessoryId
-                                    }
+                                    textContentType="none"
+                                    autoComplete="off"
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
@@ -2158,6 +2228,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     onSubmitEditing={() => Keyboard.dismiss()}
                                     selectionColor="#22c55e"
                                     underlineColorAndroid="transparent"
+                                    inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
                                 </View>
                               </View>
@@ -2217,9 +2288,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   setUnitPrice(centsDigitsToNumber(d));
                                 }}
                                 keyboardType="phone-pad"
-                                inputAccessoryViewID={
-                                  numericKeyboardDoneAccessoryId
-                                }
+                                textContentType="none"
+                                autoComplete="off"
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
@@ -2228,6 +2298,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 onSubmitEditing={() => Keyboard.dismiss()}
                                 selectionColor="#22c55e"
                                 underlineColorAndroid="transparent"
+                                inputAccessoryViewID={bpsKeyboardAccessoryId}
                               />
                             </View>
                             {centsDigitsToNumber(unitPriceText) > 0 && (
@@ -2316,8 +2387,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 </View>
                 
                 <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
+                  {...KEYBOARD_SCROLL_DEFAULTS}
                   contentInsetAdjustmentBehavior="automatic"
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={{
@@ -2336,6 +2406,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       blurOnSubmit={true}
                       placeholder="Enter item name"
                       placeholderTextColor={Colors.sub}
+                      inputAccessoryViewID={bpsKeyboardAccessoryId}
                     />
                   </View>
                   
@@ -2411,30 +2482,36 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={(text) => setHours(text)}
                             keyboardType="phone-pad"
+                            textContentType="none"
+                            autoComplete="off"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                         <View style={[modalStyles.inputGroup, { flex: 1, marginLeft: 12 }]}>
                           <Text style={modalStyles.label}>{mode === 'sqft' ? 'Rate ($/sq ft)' : 'Rate ($/hr)'}</Text>
                           <TextInput
                             style={modalStyles.input}
-                            value={String(rate)}
-                            onChangeText={(text) => setRate(text)}
-                            keyboardType="decimal-pad"
+                            value={laborRateDigits}
+                            onChangeText={(text) => setLaborRateDigits(clampCentsDigitsInput(text))}
+                            keyboardType="phone-pad"
+                            textContentType="none"
+                            autoComplete="off"
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
                       <View style={modalStyles.totalBox}>
-                        <Text style={modalStyles.totalLabel}>Total: ${((Number(hours) || 0) * (Number(rate) || 0)).toLocaleString()}</Text>
+                        <Text style={modalStyles.totalLabel}>Total: ${((Number(hours) || 0) * (centsDigitsToNumber(laborRateDigits) || 0)).toLocaleString()}</Text>
                       </View>
                     </>
                   ) : (
@@ -2455,6 +2532,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                         <View style={[modalStyles.inputGroup, { flex: 1, marginLeft: 12 }]}>
@@ -2468,6 +2546,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit
                             placeholder="lot, sq ft, etc"
                             placeholderTextColor={Colors.sub}
+                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -2481,11 +2560,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             setUnitPriceText(cleanText);
                             setUnitPrice(parseFloat(cleanText) || 0);
                           }}
-                          keyboardType="decimal-pad"
+                          keyboardType="phone-pad"
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
                           placeholderTextColor={Colors.sub}
+                          inputAccessoryViewID={bpsKeyboardAccessoryId}
                         />
                       </View>
                       
@@ -3871,6 +3951,9 @@ export default function EstimateGeneratorScreen() {
   useRequireAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+  const keyboardHeightRef = useRef(0);
+  keyboardHeightRef.current = keyboardHeight;
   const { theme } = useTheme();
   const darkMode = theme.bg === '#000000';
   const { t } = useTranslation();
@@ -3954,26 +4037,90 @@ export default function EstimateGeneratorScreen() {
   const [localCustomerState, setLocalCustomerState] = useState('');
   const [localCustomerZip, setLocalCustomerZip] = useState('');
   const [localCustomerCompany, setLocalCustomerCompany] = useState('');
+  const [customerNameFocused, setCustomerNameFocused] = useState(false);
+  const [customerPhoneFocused, setCustomerPhoneFocused] = useState(false);
+  const [customerCompanyFocused, setCustomerCompanyFocused] = useState(false);
+  const [customerNotesFocused, setCustomerNotesFocused] = useState(false);
+  const [projectTitleFocused, setProjectTitleFocused] = useState(false);
+  const [projectDescriptionFocused, setProjectDescriptionFocused] = useState(false);
+  /** Step 5 fields — same scroll nudge / keyboard padding as steps 1–2. */
+  const [equipmentRentalFocused, setEquipmentRentalFocused] = useState(false);
+  const [markupPctFocused, setMarkupPctFocused] = useState(false);
   const customerDebounceRefs = useRef({});
   const mainScrollRef = useRef(null);
-  const keyboardDidShowSub = useRef(null);
-  // iOS-grade: scroll when keyboard is shown (not a fixed delay)
-  const scrollToShowFields = useCallback(() => {
-    keyboardDidShowSub.current?.remove();
-    keyboardDidShowSub.current = Keyboard.addListener('keyboardDidShow', () => {
-      requestAnimationFrame(() => {
-        mainScrollRef.current?.scrollToEnd({ animated: true });
-      });
-      keyboardDidShowSub.current?.remove();
-      keyboardDidShowSub.current = null;
+  const mainScrollYRef = useRef(0);
+  const customerNameBlockRef = useRef(null);
+  const customerPhoneBlockRef = useRef(null);
+  const customerCompanyBlockRef = useRef(null);
+  const customerNotesBlockRef = useRef(null);
+  const projectTitleBlockRef = useRef(null);
+  const projectDescriptionBlockRef = useRef(null);
+  const equipmentRentalBlockRef = useRef(null);
+  const markupPctBlockRef = useRef(null);
+
+  /** Steps 1–2: scroll by measured overflow so the field clears the keyboard with margin (`forStep` must match current `step`). */
+  const nudgeEstimateStepFieldAboveKeyboard = useCallback((blockRef, forStep) => {
+    if (step !== forStep) return;
+    const kb = Math.max(keyboardHeightRef.current || 0, Platform.OS === 'ios' ? 290 : 260);
+    const marginAboveKeyboard = Platform.OS === 'ios' ? 88 : 72;
+    blockRef.current?.measureInWindow((_x, y, _w, h) => {
+      const winH = Dimensions.get('window').height;
+      const keyboardTopY = winH - kb;
+      const clearLineY = keyboardTopY - marginAboveKeyboard;
+      const fieldBottomY = y + h;
+      const overflow = fieldBottomY - clearLineY;
+      if (overflow > 2 && mainScrollRef.current) {
+        const nextY = mainScrollYRef.current + overflow;
+        mainScrollRef.current.scrollTo({ y: nextY, animated: true });
+      }
     });
-  }, []);
+  }, [step]);
+
+  /** One nudge after keyboard/layout settle — multiple immediate + delayed + keyboardDidShow runs caused triple scroll “drops”. */
   useEffect(() => {
-    return () => {
-      keyboardDidShowSub.current?.remove();
-      keyboardDidShowSub.current = null;
-    };
-  }, []);
+    if (step === 1) {
+      if (
+        !customerNameFocused &&
+        !customerPhoneFocused &&
+        !customerNotesFocused &&
+        !customerCompanyFocused
+      ) {
+        return;
+      }
+      const targetRef = customerNotesFocused
+        ? customerNotesBlockRef
+        : customerCompanyFocused
+          ? customerCompanyBlockRef
+          : customerPhoneFocused
+            ? customerPhoneBlockRef
+            : customerNameBlockRef;
+      const id = setTimeout(() => nudgeEstimateStepFieldAboveKeyboard(targetRef, 1), 220);
+      return () => clearTimeout(id);
+    }
+    if (step === 2) {
+      if (!projectTitleFocused && !projectDescriptionFocused) return;
+      const targetRef = projectDescriptionFocused ? projectDescriptionBlockRef : projectTitleBlockRef;
+      const id = setTimeout(() => nudgeEstimateStepFieldAboveKeyboard(targetRef, 2), 220);
+      return () => clearTimeout(id);
+    }
+    if (step === 5) {
+      if (!equipmentRentalFocused && !markupPctFocused) return;
+      const targetRef = equipmentRentalFocused ? equipmentRentalBlockRef : markupPctBlockRef;
+      const id = setTimeout(() => nudgeEstimateStepFieldAboveKeyboard(targetRef, 5), 220);
+      return () => clearTimeout(id);
+    }
+  }, [
+    step,
+    customerNameFocused,
+    customerPhoneFocused,
+    customerNotesFocused,
+    customerCompanyFocused,
+    projectTitleFocused,
+    projectDescriptionFocused,
+    equipmentRentalFocused,
+    markupPctFocused,
+    nudgeEstimateStepFieldAboveKeyboard,
+  ]);
 
   /** Step 1 phone display — (555) 123-4567 */
   const formatPhoneNumber = (text) => {
@@ -4564,6 +4711,9 @@ export default function EstimateGeneratorScreen() {
   
   // Local state for markup percentage input to prevent glitching while typing
   const [markupPctText, setMarkupPctText] = useState('');
+  /** Step 5 Equipment Rental — local string while typing so `updateBid` every keystroke does not remount the screen / break the numeric keyboard. */
+  const [equipmentRentalText, setEquipmentRentalText] = useState('');
+  const equipmentRentalInputFocusedRef = useRef(false);
   const markupInputRef = useRef(null);
   const isMarkupFocused = useRef(false);
   const { addEstimate, convertBidToProject, updateProject, activeProjects, estimates, deleteProject } = useProjectList();
@@ -4742,6 +4892,25 @@ export default function EstimateGeneratorScreen() {
       setMarkupPctText(markupValue);
     }
   }, [bid.markupPct]);
+
+  // Sync equipment rental field from bid when not typing (same pattern as markup %)
+  useEffect(() => {
+    if (!equipmentRentalInputFocusedRef.current) {
+      const eq = bid.equipment;
+      if (eq == null || eq === '' || Number(eq) === 0) {
+        setEquipmentRentalText('');
+      } else {
+        setEquipmentRentalText(String(eq));
+      }
+    }
+  }, [bid.equipment, bid.id]);
+
+  useEffect(() => {
+    if (step !== 5) {
+      equipmentRentalInputFocusedRef.current = false;
+      setEquipmentRentalFocused(false);
+    }
+  }, [step]);
 
   // Clean up duplicate "Untitled Bid" entries - keep only the most recent one
   useEffect(() => {
@@ -10115,34 +10284,38 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
 
-              <AppTextField
-                label="Customer Name"
-                required
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={estimateAccessoryShellStyle}
-                placeholder="Enter customer name"
-                placeholderTextColor={estimateStepMutedInputColor}
-                value={localCustomerName}
-                onChangeText={(text) => {
-                  setLocalCustomerName(text);
-                  if (customerDebounceRefs.current.customerName) {
-                    clearTimeout(customerDebounceRefs.current.customerName);
-                  }
-                  setBid(prev => ({ ...prev, customerName: text }));
-                }}
-                returnKeyType="done"
-                onSubmitEditing={() => {
-                  Keyboard.dismiss();
-                  setBid(prev => ({ ...prev, customerName: localCustomerName }));
-                }}
-                blurOnSubmit={true}
-                autoCorrect={false}
-                autoCapitalize="words"
-                editable={true}
-                selectTextOnFocus={false}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerName) }}
-              />
+              <View ref={customerNameBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Customer Name"
+                  required
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={estimateAccessoryShellStyle}
+                  placeholder="Enter customer name"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={localCustomerName}
+                  onChangeText={(text) => {
+                    setLocalCustomerName(text);
+                    if (customerDebounceRefs.current.customerName) {
+                      clearTimeout(customerDebounceRefs.current.customerName);
+                    }
+                    setBid(prev => ({ ...prev, customerName: text }));
+                  }}
+                  onFocus={() => setCustomerNameFocused(true)}
+                  onBlur={() => setCustomerNameFocused(false)}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerName: localCustomerName }));
+                  }}
+                  blurOnSubmit={true}
+                  autoCorrect={false}
+                  autoCapitalize="words"
+                  editable={true}
+                  selectTextOnFocus={false}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerName) }}
+                />
+              </View>
 
               <AppTextField
                 label="Email"
@@ -10167,35 +10340,40 @@ export default function EstimateGeneratorScreen() {
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerEmail) }}
               />
 
-              <AppTextField
-                label="Phone"
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={estimateAccessoryShellStyle}
-                placeholder="(555) 123-4567"
-                placeholderTextColor={estimateStepMutedInputColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.phoneDone}
-                value={localCustomerPhone}
-                onChangeText={(text) => {
-                  const formatted = formatPhoneNumber(text);
-                  setLocalCustomerPhone(formatted);
-                  setBid(prev => ({ ...prev, customerPhone: formatted }));
-                }}
-                onSubmitEditing={() => {
-                  Keyboard.dismiss();
-                  setBid(prev => ({ ...prev, customerPhone: localCustomerPhone }));
-                }}
-                keyboardType="phone-pad"
-                textContentType="telephoneNumber"
-                returnKeyType="done"
-                blurOnSubmit={true}
-                style={{
-                  fontSize: 14,
-                  lineHeight: 20,
-                  paddingVertical: 12,
-                  color: getStepFieldTextColor(localCustomerPhone),
-                }}
-              />
+              <View ref={customerPhoneBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Phone"
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={estimateAccessoryShellStyle}
+                  placeholder="(555) 123-4567"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
+                  value={localCustomerPhone}
+                  onChangeText={(text) => {
+                    const formatted = formatPhoneNumber(text);
+                    setLocalCustomerPhone(formatted);
+                    setBid(prev => ({ ...prev, customerPhone: formatted }));
+                  }}
+                  onFocus={() => setCustomerPhoneFocused(true)}
+                  onBlur={() => setCustomerPhoneFocused(false)}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerPhone: localCustomerPhone }));
+                  }}
+                  keyboardType="phone-pad"
+                  textContentType="none"
+                  autoComplete="off"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  style={{
+                    fontSize: 14,
+                    lineHeight: 20,
+                    paddingVertical: 12,
+                    color: getStepFieldTextColor(localCustomerPhone),
+                  }}
+                />
+              </View>
 
               <AppTextField
                 label="Address"
@@ -10271,7 +10449,7 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="12345"
                 placeholderTextColor={estimateStepMutedInputColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.numericDone}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerZip}
                 onChangeText={(text) => {
                   const formatted = formatZipInput(text);
@@ -10295,57 +10473,63 @@ export default function EstimateGeneratorScreen() {
                 }}
               />
 
-              <AppTextField
-                label="Company (Optional)"
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={estimateAccessoryShellStyle}
-                placeholder="Company name"
-                placeholderTextColor={estimateStepMutedInputColor}
-                value={localCustomerCompany}
-                onChangeText={(text) => {
-                  setLocalCustomerCompany(text);
-                  setBid(prev => ({ ...prev, customerCompany: text }));
-                }}
-                onFocus={() => step === 1 && scrollToShowFields()}
-                onSubmitEditing={() => {
-                  Keyboard.dismiss();
-                  setBid(prev => ({ ...prev, customerCompany: localCustomerCompany }));
-                }}
-                returnKeyType="done"
-                blurOnSubmit={true}
-                keyboardAppearance={darkMode ? 'dark' : 'light'}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCompany) }}
-              />
+              <View ref={customerCompanyBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Company (Optional)"
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={estimateAccessoryShellStyle}
+                  placeholder="Company name"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={localCustomerCompany}
+                  onChangeText={(text) => {
+                    setLocalCustomerCompany(text);
+                    setBid(prev => ({ ...prev, customerCompany: text }));
+                  }}
+                  onFocus={() => setCustomerCompanyFocused(true)}
+                  onBlur={() => setCustomerCompanyFocused(false)}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    setBid(prev => ({ ...prev, customerCompany: localCustomerCompany }));
+                  }}
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  keyboardAppearance={darkMode ? 'dark' : 'light'}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCompany) }}
+                />
+              </View>
 
-              <AppTextField
-                key="customerNotes"
-                label="Notes"
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 100 }]}
-                placeholder="Additional notes about the customer..."
-                placeholderTextColor={estimateStepMutedInputColor}
-                value={bid.customerNotes || ''}
-                onChangeText={(text) => {
-                  setBid(prev => ({ ...prev, customerNotes: text }));
-                }}
-                onFocus={() => step === 1 && scrollToShowFields()}
-                returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
-                blurOnSubmit={true}
-                multiline
-                numberOfLines={4}
-                scrollEnabled={false}
-                keyboardAppearance={darkMode ? 'dark' : 'light'}
-                style={{
-                  minHeight: 100,
-                  textAlignVertical: 'top',
-                  paddingTop: 14,
-                  fontSize: 14,
-                  color: getStepFieldTextColor(bid.customerNotes || ''),
-                }}
-              />
+              <View ref={customerNotesBlockRef} collapsable={false}>
+                <AppTextField
+                  key="customerNotes"
+                  label="Notes"
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 100 }]}
+                  placeholder="Additional notes about the customer..."
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={bid.customerNotes || ''}
+                  onChangeText={(text) => {
+                    setBid(prev => ({ ...prev, customerNotes: text }));
+                  }}
+                  onFocus={() => setCustomerNotesFocused(true)}
+                  onBlur={() => setCustomerNotesFocused(false)}
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                  multiline
+                  numberOfLines={4}
+                  scrollEnabled={false}
+                  keyboardAppearance={darkMode ? 'dark' : 'light'}
+                  style={{
+                    minHeight: 100,
+                    textAlignVertical: 'top',
+                    paddingTop: 14,
+                    fontSize: 14,
+                    color: getStepFieldTextColor(bid.customerNotes || ''),
+                  }}
+                />
+              </View>
             </GlassBorderCard>
             </FirstEstimateWalkthroughHighlight>
           </View>
@@ -10367,21 +10551,25 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
               
-              <AppTextField
-                label="Project Title"
-                required
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={estimateAccessoryShellStyle}
-                placeholder="e.g., Kitchen Renovation"
-                placeholderTextColor={estimateStepMutedInputColor}
-                value={bid.title || ''}
-                onChangeText={(text) => updateBid('title', text)}
-                returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
-                blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.title || '') }}
-              />
+              <View ref={projectTitleBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Project Title"
+                  required
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={estimateAccessoryShellStyle}
+                  placeholder="e.g., Kitchen Renovation"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={bid.title || ''}
+                  onChangeText={(text) => updateBid('title', text)}
+                  onFocus={() => setProjectTitleFocused(true)}
+                  onBlur={() => setProjectTitleFocused(false)}
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.title || '') }}
+                />
+              </View>
 
               <View style={s.inputGroup}>
                 <Text style={s.label}>Project Type</Text>
@@ -10407,7 +10595,7 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="1250"
                 placeholderTextColor={estimateStepMutedInputColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.phoneDone}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={bid.sqft?.toString() || ''}
                 onChangeText={(text) => updateBid('sqft', parseInt(text, 10) || 0)}
                 onSubmitEditing={() => {
@@ -10426,29 +10614,34 @@ export default function EstimateGeneratorScreen() {
                 }}
               />
 
-              <AppTextField
-                label="Project Description"
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 120 }]}
-                placeholder="Describe the project scope, requirements, and special considerations..."
-                placeholderTextColor={estimateStepMutedInputColor}
-                value={bid.scopeDescription || ''}
-                onChangeText={(text) => updateBid('scopeDescription', text)}
-                returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
-                blurOnSubmit={true}
-                multiline
-                numberOfLines={6}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.text}
-                style={{
-                  minHeight: 120,
-                  textAlignVertical: 'top',
-                  paddingTop: 14,
-                  fontSize: 14,
-                  color: getStepFieldTextColor(bid.scopeDescription || ''),
-                }}
-              />
+              <View ref={projectDescriptionBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Project Description"
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 120 }]}
+                  placeholder="Describe the project scope, requirements, and special considerations..."
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={bid.scopeDescription || ''}
+                  onChangeText={(text) => updateBid('scopeDescription', text)}
+                  onFocus={() => setProjectDescriptionFocused(true)}
+                  onBlur={() => setProjectDescriptionFocused(false)}
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  blurOnSubmit={true}
+                  multiline
+                  numberOfLines={6}
+                  scrollEnabled={false}
+                  keyboardAppearance={darkMode ? 'dark' : 'light'}
+                  style={{
+                    minHeight: 120,
+                    textAlignVertical: 'top',
+                    paddingTop: 14,
+                    fontSize: 14,
+                    color: getStepFieldTextColor(bid.scopeDescription || ''),
+                  }}
+                />
+              </View>
               
               <View style={s.inputGroup}>
                 <Text style={s.label}>Start Date</Text>
@@ -10696,7 +10889,9 @@ export default function EstimateGeneratorScreen() {
                                                 setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: num, qty: num, total: (it.unitPrice || it.cost || 0) * num } : it));
                                               }}
                                               keyboardType="phone-pad"
-                                              inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                                              textContentType="none"
+                                              autoComplete="off"
+                                              inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
                                               returnKeyType="done"
                                               onSubmitEditing={() => Keyboard.dismiss()}
                                               blurOnSubmit={true}
@@ -10882,7 +11077,7 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="phone-pad"
-                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -11037,7 +11232,7 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="phone-pad"
-                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -12051,18 +12246,33 @@ export default function EstimateGeneratorScreen() {
                 </Text>
               </View>
 
-              <View style={step5FieldWrapStyle}>
+              <View ref={equipmentRentalBlockRef} style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Equipment Rental</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
-                  style={[s.input, { color: getStepFieldTextColor(bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : '') }]}
+                  autoCorrect={false}
+                  spellCheck={false}
+                  style={[s.input, { color: getStepFieldTextColor(equipmentRentalText) }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.equipment && bid.equipment !== 0 ? bid.equipment.toString() : ''}
+                  value={equipmentRentalText}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                  onFocus={() => {
+                    equipmentRentalInputFocusedRef.current = true;
+                    setEquipmentRentalFocused(true);
+                  }}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
+                    setEquipmentRentalText(cleaned);
+                  }}
+                  onBlur={() => {
+                    equipmentRentalInputFocusedRef.current = false;
+                    setEquipmentRentalFocused(false);
+                    const cleaned = equipmentRentalText.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('equipment', 0);
+                      setEquipmentRentalText('');
                     } else {
                       const num = parseFloat(cleaned);
                       if (!isNaN(num)) {
@@ -12070,22 +12280,21 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Plans</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12097,11 +12306,6 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
@@ -12281,7 +12485,7 @@ export default function EstimateGeneratorScreen() {
                 </Text>
               </View>
 
-              <View style={{ marginBottom: 4 }}>
+              <View ref={markupPctBlockRef} style={{ marginBottom: 4 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text style={step5FieldLabelStyle}>Markup %</Text>
                   <TouchableOpacity
@@ -12346,6 +12550,7 @@ export default function EstimateGeneratorScreen() {
                   value={markupPctText}
                   onFocus={() => {
                     isMarkupFocused.current = true;
+                    setMarkupPctFocused(true);
                   }}
                   onChangeText={(text) => {
                     // Only update local state while typing - no re-renders of parent
@@ -12354,6 +12559,7 @@ export default function EstimateGeneratorScreen() {
                   }}
                   onBlur={() => {
                     isMarkupFocused.current = false;
+                    setMarkupPctFocused(false);
                     // Only update bid state when done typing
                     const cleaned = markupPctText.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12373,6 +12579,7 @@ export default function EstimateGeneratorScreen() {
                     Keyboard.dismiss();
                     // Also apply the value on submit
                     isMarkupFocused.current = false;
+                    setMarkupPctFocused(false);
                     const cleaned = markupPctText.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('markupPct', 0);
@@ -13840,7 +14047,7 @@ export default function EstimateGeneratorScreen() {
                                     placeholder="Enter weeks (13-52)"
                                     placeholderTextColor={Colors.sub}
                                     keyboardType="phone-pad"
-                                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                                     style={{
                                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                       borderWidth: 1,
@@ -14841,7 +15048,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter milestones (9-20)"
                                       placeholderTextColor={Colors.sub}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
                                         borderWidth: 1,
@@ -15545,7 +15752,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter weeks (13-52)"
                                       placeholderTextColor={Colors.sub}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.number)}
+                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                                       style={{
                                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                         borderWidth: 1,
@@ -16636,17 +16843,69 @@ export default function EstimateGeneratorScreen() {
       ? Math.round(Dimensions.get('window').height * 0.24) + 28
       : null;
 
+  /** Extra bottom padding when the keyboard is open on steps 1–2 (and Step 5 equipment / markup) so the ScrollView can scroll fields fully above the keyboard. */
+  const estimateStep12KeyboardBoost =
+    isKeyboardVisible &&
+    (step === 1 ||
+      step === 2 ||
+      (step === 5 && (equipmentRentalFocused || markupPctFocused)))
+      ? Platform.OS === 'ios'
+        ? 88 +
+          (step === 1 &&
+          (customerNameFocused ||
+            customerPhoneFocused ||
+            customerNotesFocused ||
+            customerCompanyFocused)
+            ? 160
+            : step === 2 &&
+                (projectTitleFocused || projectDescriptionFocused)
+              ? 160
+              : step === 5 && (equipmentRentalFocused || markupPctFocused)
+                ? 160
+                : 0)
+        : 72 +
+          (step === 1 &&
+          (customerNameFocused ||
+            customerPhoneFocused ||
+            customerNotesFocused ||
+            customerCompanyFocused)
+            ? 120
+            : step === 2 &&
+                (projectTitleFocused || projectDescriptionFocused)
+              ? 120
+              : step === 5 && (equipmentRentalFocused || markupPctFocused)
+                ? 120
+                : 0)
+      : 0;
+
+  const estimatesScrollContentPadBottom =
+    (walkthroughScrollPadBottom != null
+      ? walkthroughScrollPadBottom
+      : step === 1 ||
+          step === 2 ||
+          (step === 5 && (equipmentRentalFocused || markupPctFocused))
+        ? 104
+        : 60) + estimateStep12KeyboardBoost;
+
+  /** Underlying step screens still mount `number` accessory TextInputs; without clearing their IDs, iOS can show the grey pill while a line-item modal field is focused. */
+  const lineItemModalOpen = materialModal.visible || laborModal.visible;
+
+  /** iOS: `KeyboardAvoidingView` + `automaticallyAdjustKeyboardInsets` stacks and hides fields or leaves a huge gap. Use ScrollView keyboard insets only so each focused field stays just above the keyboard. Android: keep avoiding view. */
+  const EstimatesMainKeyboardWrapper = Platform.OS === 'ios' ? View : KeyboardAvoidingView;
+  const estimatesMainKeyboardWrapperProps =
+    Platform.OS === 'ios'
+      ? { style: { flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg } }
+      : {
+          behavior: 'height',
+          style: { flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg },
+          keyboardVerticalOffset: 20,
+        };
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
-      {/* Step 1–2: `KeyboardDoneBar` (green Done) — phone-done for Step 1 Phone + Step 2 Square Footage; numeric-done Step 1 ZIP only. */}
-      {(step === 1 || step === 2) && Platform.OS === 'ios' ? (
-        <KeyboardDoneBar inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.phoneDone} />
-      ) : null}
-      {step === 1 && Platform.OS === 'ios' ? (
-        <KeyboardDoneBar inputAccessoryViewID={KEYBOARD_ACCESSORY_IDS.numericDone} />
-      ) : null}
-      {step === 1 ? null : (
+      {/* Grey text/number Done strips: hidden on steps 1–2 (same as step 1 — dismiss via scroll / tap outside). */}
+      {step === 1 || step === 2 || materialModal.visible || laborModal.visible ? null : (
         <>
           <KeyboardDoneAccessory
             nativeID={KEYBOARD_ACCESSORY_IDS.text}
@@ -16659,34 +16918,36 @@ export default function EstimateGeneratorScreen() {
             />
           )}
           {step === 5 && Platform.OS === 'ios' && (
-            <KeyboardNumericDoneAccessory
-              darkMode={darkMode}
-              surfaceColor={theme.bg}
-              nativeID={KEYBOARD_ACCESSORY_IDS.step5Numeric}
-            />
+            <>
+              <KeyboardNumericDoneAccessory
+                darkMode={darkMode}
+                surfaceColor={theme.bg}
+                nativeID={KEYBOARD_ACCESSORY_IDS.step5Numeric}
+              />
+              <InputAccessoryView
+                nativeID={KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain}
+                backgroundColor="transparent"
+              >
+                <View style={{ height: 0, width: '100%' }} collapsable={false} />
+              </InputAccessoryView>
+            </>
           )}
         </>
       )}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -320 : 20}
-      >
+      <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
         <ScrollView
           ref={mainScrollRef}
+          onScroll={(e) => {
+            mainScrollYRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             paddingHorizontal: 20,
             paddingTop: 32,
-            paddingBottom:
-              walkthroughScrollPadBottom != null
-                ? walkthroughScrollPadBottom
-                : step === 1
-                  ? 80
-                  : 60,
+            paddingBottom: estimatesScrollContentPadBottom,
           }}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          {...KEYBOARD_SCROLL_DEFAULTS}
           automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           automaticallyAdjustContentInsets={false}
           contentInsetAdjustmentBehavior="never"
@@ -17283,7 +17544,7 @@ export default function EstimateGeneratorScreen() {
           </>
         )}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </EstimatesMainKeyboardWrapper>
 
       {shouldShowFirstEstimateWalkthrough &&
       firstEstimateWtProgressHydrated &&
@@ -17461,7 +17722,7 @@ export default function EstimateGeneratorScreen() {
             <ScrollView
               contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 }}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
             {/* Header */}
             <View style={{ marginTop: 32, marginBottom: 18, marginHorizontal: -20, paddingHorizontal: 8 }}>

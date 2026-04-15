@@ -30,6 +30,7 @@ import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Text as SvgText }
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
@@ -2694,7 +2695,7 @@ export default function ProfileScreen() {
                 style={{ flex: 1, width: '100%' }}
                 contentContainerStyle={{ paddingBottom: 100, paddingTop: 20, paddingHorizontal: 20, flexGrow: 1 }}
                 showsVerticalScrollIndicator={true}
-                keyboardShouldPersistTaps="handled"
+                {...KEYBOARD_SCROLL_DEFAULTS}
               >
               {/* Profile Information Fields */}
               <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
@@ -2969,8 +2970,8 @@ export default function ProfileScreen() {
           >
             <ScrollView
               contentContainerStyle={styles.passwordModalScrollContent}
-              keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               {/* Password change card - matching language & edit profile modal */}
               <View style={[styles.passwordModalCard, { 

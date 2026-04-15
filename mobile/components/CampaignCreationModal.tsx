@@ -22,6 +22,7 @@ import { ServiceAreaSelector } from './ServiceAreaSelector';
 import { PricingCalculator } from './PricingCalculator';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 const IG_GRADIENT = `
 <svg width="18" height="18" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
@@ -1006,11 +1007,11 @@ export default function CampaignCreationModal({
           {renderProgressIndicator()}
 
           {/* Content */}
-          <ScrollView 
-            style={styles.content} 
+          <ScrollView
+            style={styles.content}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
-            keyboardShouldPersistTaps="handled"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             {renderStepContent()}
             

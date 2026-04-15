@@ -38,6 +38,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
 import { ScreenLayout, getTabScrollContentBottomInset } from "@/constants/ScreenLayout";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import {
   formatMoneyUSD,
@@ -4278,7 +4279,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     showsVerticalScrollIndicator
                     style={styles.allProjectsListScroll}
                     contentContainerStyle={styles.allProjectsListScrollContent}
-                    keyboardShouldPersistTaps="handled"
+                    {...KEYBOARD_SCROLL_DEFAULTS}
                   >
                     {projects.map((project) => (
                       <ProjectSummaryCard key={project.id} project={project} />

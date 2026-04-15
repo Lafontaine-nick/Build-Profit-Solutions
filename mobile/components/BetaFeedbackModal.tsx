@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { apiService } from '@/services/api';
 import { AnalyticsEvent, trackProductEvent } from '@/lib/analytics/productAnalytics';
 import { featureAreaFromRoute } from '@/lib/betaFeedback/featureAreaFromRoute';
@@ -325,8 +326,8 @@ export default function BetaFeedbackModal({ visible, onClose, preset }: Props) {
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             <View style={styles.grabSpacer} />
             <Text style={styles.title}>Beta feedback</Text>

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Lead } from '../types';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 interface SearchSuggestionsProps {
   leads: Lead[];
@@ -247,7 +248,7 @@ export default function SearchSuggestions({
             renderItem={renderSuggestion}
             style={styles.suggestionsList}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           />
         </Animated.View>
       )}

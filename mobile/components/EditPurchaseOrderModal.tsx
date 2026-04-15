@@ -14,6 +14,7 @@ import {
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 function parseISODateToLocal(iso: string | undefined): Date {
   if (!iso) return new Date();
@@ -176,11 +177,11 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           </View>
 
           {/* Form */}
-          <ScrollView 
+          <ScrollView
             ref={scrollViewRef}
-            style={styles.form} 
-            showsVerticalScrollIndicator={false} 
-            keyboardShouldPersistTaps="handled"
+            style={styles.form}
+            showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Vendor / Supplier *</Text>

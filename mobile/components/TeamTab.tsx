@@ -22,6 +22,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 
 const Colors = {
@@ -438,7 +439,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
           style={styles.addMemberScroll}
           contentContainerStyle={[styles.addMemberScrollContent, { paddingBottom: 150 }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          {...KEYBOARD_SCROLL_DEFAULTS}
         >
           <View style={styles.addMemberForm}>
             <View style={styles.addMemberField}>
@@ -762,7 +763,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
           style={styles.addMemberScroll}
           contentContainerStyle={styles.addMemberScrollContent}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          {...KEYBOARD_SCROLL_DEFAULTS}
         >
           <View style={styles.addMemberForm}>
             <View style={styles.addMemberField}>

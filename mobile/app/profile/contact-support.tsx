@@ -19,6 +19,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 export default function ContactSupportScreen() {
   const router = useRouter();
@@ -176,7 +177,7 @@ export default function ContactSupportScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
               showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps='handled'
+              {...KEYBOARD_SCROLL_DEFAULTS}
             >
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}

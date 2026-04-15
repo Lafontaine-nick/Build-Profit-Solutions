@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
 import { MaterialIcons } from '@expo/vector-icons';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import Constants from 'expo-constants';
 
 // Conditionally import Clerk - only if configured
@@ -231,8 +232,8 @@ export default function ForgotPasswordScreen() {
         >
           <ScrollView
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
             <View style={styles.card}>
               {/* Back button */}

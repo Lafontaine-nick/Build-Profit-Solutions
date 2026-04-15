@@ -33,6 +33,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectList } from '../../../contexts/ProjectListContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 interface LeadDetailModalProps {
   visible: boolean;
@@ -657,11 +658,11 @@ export default function LeadDetailModal({
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
-            <ScrollView 
+            <ScrollView
               ref={scrollViewRef}
-              style={styles.content} 
+              style={styles.content}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
               contentContainerStyle={[
                 styles.scrollContent,
                 { paddingTop: Math.max(insets.top, 0) + 20, paddingHorizontal: 20, paddingBottom: insets.bottom + 100 }

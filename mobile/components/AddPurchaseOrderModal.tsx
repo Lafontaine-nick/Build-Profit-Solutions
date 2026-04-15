@@ -13,6 +13,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
+import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 type Props = {
   visible: boolean;
@@ -201,11 +202,11 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
         </View>
 
         {/* Form */}
-        <ScrollView 
+        <ScrollView
           ref={scrollViewRef}
-          style={styles.form} 
-          showsVerticalScrollIndicator={false} 
-          keyboardShouldPersistTaps="handled"
+          style={styles.form}
+          showsVerticalScrollIndicator={false}
+          {...KEYBOARD_SCROLL_DEFAULTS}
         >
           {/* Total Amount Card */}
           <View style={styles.summaryCard}>
