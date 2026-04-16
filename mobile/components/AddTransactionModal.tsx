@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, InputAccessoryView } from "react-native";
 import { Feather } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import {
   digitsOnly,
   dollarsToCentsDigits,
 } from "@/src/lib/keyboardMoney";
+import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 
 type Props = {
   visible: boolean;
@@ -395,11 +396,22 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
   const scrollViewRef = useRef<ScrollView>(null);
 
+  /** iOS: block global green `bpsKeyboardDone` on this modal (vendor + phone-pad amount/rate/sqft). */
+  const projectExpensePlainAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain);
+
   // Format category name for display
   const displayCategoryName = categoryName.replace('/', ' & ');
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView
+          nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
+          backgroundColor="transparent"
+        >
+          <View style={{ height: 0, width: '100%' }} collapsable={false} />
+        </InputAccessoryView>
+      )}
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -478,6 +490,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 value={vendor}
                 onChangeText={setVendor}
                 autoCapitalize="words"
+                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 returnKeyType="next"
                 onSubmitEditing={() => {
                   if (supportsPerSqftPricing && pricingMode === "sqft") {
@@ -634,6 +647,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           value={sqftInput}
                           onChangeText={onSqftChange}
                           keyboardType="phone-pad"
+                          inputAccessoryViewID={projectExpensePlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                           blurOnSubmit={false}
@@ -674,6 +688,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           value={ratePerSqftInput}
                           onChangeText={onRatePerSqftChange}
                           keyboardType="phone-pad"
+                          inputAccessoryViewID={projectExpensePlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => descriptionRef.current?.focus()}
                           blurOnSubmit={false}
@@ -740,6 +755,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     value={amount}
                     onChangeText={(text) => setAmount(clampCentsDigitsInput(text))}
                     keyboardType="phone-pad"
+                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => descriptionRef.current?.focus()}
                     blurOnSubmit={false}
@@ -962,6 +978,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={scope}
                 onChangeText={setScope}
+                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 returnKeyType="next"
                 autoCapitalize="words"
               />
@@ -986,6 +1003,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={description}
                 onChangeText={setDescription}
+                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 multiline
                 numberOfLines={2}
                 textAlignVertical="top"
@@ -1017,6 +1035,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={po}
                 onChangeText={setPo}
+                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 autoCapitalize="characters"
                 returnKeyType="done"
                 onSubmitEditing={() => {

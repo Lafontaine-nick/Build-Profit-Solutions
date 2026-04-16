@@ -13,6 +13,17 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * Mounted once in `app/_layout.tsx` (`ThemeAwareLayout`). Point every numeric `TextInput` here.
    */
   bpsKeyboardDone: 'bps-keyboard-done',
+  /**
+   * SKU Search Query (`AttachSkuModal`) — empty accessory so the field does not pick up the green
+   * `bpsKeyboardDone` strip (matches Estimates Customer Name: default keyboard, no app Done bar).
+   * Pair with a zero-height `InputAccessoryView` mounted in the modal.
+   */
+  skuSearchQueryPlain: 'bps-sku-search-query-plain-keyboard-accessory',
+  /**
+   * Projects Budget → Add transaction modal (`AddTransactionModal`) and add-materials screen:
+   * empty accessory so vendor + phone-pad amount/rate/sqft do not pick up the global green `bpsKeyboardDone` bar.
+   */
+  projectAddExpensePlain: 'bps-project-add-expense-plain-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

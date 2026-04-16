@@ -44,7 +44,6 @@ import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
-import { KeyboardNumericDoneAccessory } from '@/components/KeyboardNumericDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
@@ -1959,12 +1958,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={laborRateDigits}
                             onChangeText={(text) => setLaborRateDigits(clampCentsDigitsInput(text))}
                             keyboardType="phone-pad"
+                            keyboardAppearance={darkMode ? 'dark' : 'light'}
                             textContentType="none"
                             autoComplete="off"
+                            autoCorrect={false}
+                            spellCheck={false}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            selectionColor="#22c55e"
+                            selectionColor="#2EE6A6"
+                            cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                             underlineColorAndroid="transparent"
                             inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
@@ -2165,17 +2168,20 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setQuantity(parseInt(cleanText, 10) || 0);
                                     }}
                                     keyboardType="phone-pad"
-                                    textContentType="none"
-                                    autoComplete="off"
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
+                                    textContentType="none"
+                                    autoComplete="off"
+                                    autoCorrect={false}
+                                    spellCheck={false}
                                     returnKeyType="done"
                                     blurOnSubmit={false}
                                     onSubmitEditing={() =>
                                       materialRateInputRef.current?.focus?.()
                                     }
-                                    selectionColor="#22c55e"
+                                    selectionColor="#2EE6A6"
+                                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                                     underlineColorAndroid="transparent"
                                     inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
@@ -2218,15 +2224,18 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                       setUnitPrice(centsDigitsToNumber(d));
                                     }}
                                     keyboardType="phone-pad"
-                                    textContentType="none"
-                                    autoComplete="off"
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
+                                    textContentType="none"
+                                    autoComplete="off"
+                                    autoCorrect={false}
+                                    spellCheck={false}
                                     returnKeyType="done"
                                     blurOnSubmit={false}
                                     onSubmitEditing={() => Keyboard.dismiss()}
-                                    selectionColor="#22c55e"
+                                    selectionColor="#2EE6A6"
+                                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                                     underlineColorAndroid="transparent"
                                     inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
@@ -2288,15 +2297,18 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                   setUnitPrice(centsDigitsToNumber(d));
                                 }}
                                 keyboardType="phone-pad"
-                                textContentType="none"
-                                autoComplete="off"
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
+                                textContentType="none"
+                                autoComplete="off"
+                                autoCorrect={false}
+                                spellCheck={false}
                                 returnKeyType="done"
                                 blurOnSubmit={false}
                                 onSubmitEditing={() => Keyboard.dismiss()}
-                                selectionColor="#22c55e"
+                                selectionColor="#2EE6A6"
+                                cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                                 underlineColorAndroid="transparent"
                                 inputAccessoryViewID={bpsKeyboardAccessoryId}
                               />
@@ -4042,6 +4054,7 @@ export default function EstimateGeneratorScreen() {
   const [customerCompanyFocused, setCustomerCompanyFocused] = useState(false);
   const [customerNotesFocused, setCustomerNotesFocused] = useState(false);
   const [projectTitleFocused, setProjectTitleFocused] = useState(false);
+  const [projectSqftFocused, setProjectSqftFocused] = useState(false);
   const [projectDescriptionFocused, setProjectDescriptionFocused] = useState(false);
   /** Step 5 fields — same scroll nudge / keyboard padding as steps 1–2. */
   const [equipmentRentalFocused, setEquipmentRentalFocused] = useState(false);
@@ -4054,6 +4067,7 @@ export default function EstimateGeneratorScreen() {
   const customerCompanyBlockRef = useRef(null);
   const customerNotesBlockRef = useRef(null);
   const projectTitleBlockRef = useRef(null);
+  const projectSqftBlockRef = useRef(null);
   const projectDescriptionBlockRef = useRef(null);
   const equipmentRentalBlockRef = useRef(null);
   const markupPctBlockRef = useRef(null);
@@ -4098,8 +4112,12 @@ export default function EstimateGeneratorScreen() {
       return () => clearTimeout(id);
     }
     if (step === 2) {
-      if (!projectTitleFocused && !projectDescriptionFocused) return;
-      const targetRef = projectDescriptionFocused ? projectDescriptionBlockRef : projectTitleBlockRef;
+      if (!projectTitleFocused && !projectDescriptionFocused && !projectSqftFocused) return;
+      const targetRef = projectDescriptionFocused
+        ? projectDescriptionBlockRef
+        : projectTitleFocused
+          ? projectTitleBlockRef
+          : projectSqftBlockRef;
       const id = setTimeout(() => nudgeEstimateStepFieldAboveKeyboard(targetRef, 2), 220);
       return () => clearTimeout(id);
     }
@@ -4116,6 +4134,7 @@ export default function EstimateGeneratorScreen() {
     customerNotesFocused,
     customerCompanyFocused,
     projectTitleFocused,
+    projectSqftFocused,
     projectDescriptionFocused,
     equipmentRentalFocused,
     markupPctFocused,
@@ -4910,6 +4929,10 @@ export default function EstimateGeneratorScreen() {
       equipmentRentalInputFocusedRef.current = false;
       setEquipmentRentalFocused(false);
     }
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 2) setProjectSqftFocused(false);
   }, [step]);
 
   // Clean up duplicate "Untitled Bid" entries - keep only the most recent one
@@ -5831,8 +5854,18 @@ export default function EstimateGeneratorScreen() {
                             isCreatingNewBidRef.current;
 
             if (!isFromLeadReload && isNewBid && !hasRealEstimateContent) {
+              const live = bidRef.current;
+              const liveHasCustomer =
+                !!(live &&
+                  (String(live.customerName || '').trim() ||
+                    String(live.customerEmail || '').trim() ||
+                    String(live.customerPhone || '').trim() ||
+                    String(live.customerAddress || '').trim()));
               console.log('🆕 Blank new bid in reloadBid — clearing stray customer fields');
-              if (parsed.customerName || parsed.customerEmail || parsed.customerPhone) {
+              if (
+                !liveHasCustomer &&
+                (parsed.customerName || parsed.customerEmail || parsed.customerPhone)
+              ) {
                 parsed.customerName = '';
                 parsed.customerEmail = '';
                 parsed.customerPhone = '';
@@ -5863,33 +5896,52 @@ export default function EstimateGeneratorScreen() {
                 zip: parsed.customerZip || '(empty)'
               });
               setBid(parsed);
-            } else if (!isNewBid && parsed.customerName && !bid.customerName && parsed.customerName !== bid.customerName) {
-              // Only reload if bid has no customer name and parsed has one (from external source)
-              // Don't reload if user is currently typing or if it's a new bid
-              // CRITICAL: Don't restore old customer data for new bids
-              console.log(`✅ Customer info found in storage, reloading bid:`, {
-                name: parsed.customerName,
-                email: parsed.customerEmail,
-                phone: parsed.customerPhone
-              });
-              setBid(parsed);
+            } else {
+              const liveBid = bidRef.current;
+              const liveName = String(liveBid?.customerName || '').trim();
+              const parsedName = String(parsed.customerName || '').trim();
+              if (
+                !isNewBid &&
+                parsedName &&
+                !liveName &&
+                parsedName !== liveName
+              ) {
+                // Only reload if in-memory bid has no customer name and storage has one (e.g. external save).
+                // Use bidRef — `bid` in this callback is stale (deps omit bid) and caused false reloads / reverts.
+                console.log(`✅ Customer info found in storage, reloading bid:`, {
+                  name: parsed.customerName,
+                  email: parsed.customerEmail,
+                  phone: parsed.customerPhone
+                });
+                setBid(parsed);
+              }
             }
             
             if (!isFromLeadReload && isNewBid && !hasRealEstimateContent && (parsed.customerName || parsed.customerEmail || parsed.customerPhone)) {
-              console.log('🧹 Clearing customer data from blank new bid in storage');
-              parsed.customerName = '';
-              parsed.customerEmail = '';
-              parsed.customerPhone = '';
-              parsed.customerAddress = '';
-              parsed.customerCity = '';
-              parsed.customerState = '';
-              parsed.customerZip = '';
-              parsed.customerCompany = '';
-              parsed.customerNotes = '';
-              parsed.clientName = '';
-              parsed.clientEmail = '';
-              await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
-              setBid(parsed);
+              const live = bidRef.current;
+              const keepCustomer =
+                !!(live &&
+                  (String(live.customerName || '').trim() ||
+                    String(live.customerEmail || '').trim() ||
+                    String(live.customerPhone || '').trim()));
+              if (keepCustomer) {
+                console.log('🧹 Skipping blank-new-bid customer wipe — user already has customer data in session');
+              } else {
+                console.log('🧹 Clearing customer data from blank new bid in storage');
+                parsed.customerName = '';
+                parsed.customerEmail = '';
+                parsed.customerPhone = '';
+                parsed.customerAddress = '';
+                parsed.customerCity = '';
+                parsed.customerState = '';
+                parsed.customerZip = '';
+                parsed.customerCompany = '';
+                parsed.customerNotes = '';
+                parsed.clientName = '';
+                parsed.clientEmail = '';
+                await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(parsed));
+                setBid(parsed);
+              }
             }
             
             // CRITICAL: Check if this bid matches a saved project/estimate and sync if updated
@@ -5912,9 +5964,12 @@ export default function EstimateGeneratorScreen() {
                     projectId: matchingProject.id,
                   });
                   
-                  // Update bid with latest estimate data
+                  // Merge: storage + in-memory bid so open edits (customer, title, …) are not reverted.
+                  const live = bidRef.current || {};
                   const updatedBid = {
                     ...parsed,
+                    ...live,
+                    id: parsed.id,
                     laborLineItems: projectEstimate.laborLineItems || parsed.laborLineItems,
                   };
                   setBid(updatedBid);
@@ -9819,6 +9874,14 @@ export default function EstimateGeneratorScreen() {
     ? { backgroundColor: '#0B0B0D', borderColor: 'rgba(255,255,255,0.10)', borderRadius: 18 }
     : { backgroundColor: Colors.surface2, borderColor: Colors.line, borderRadius: 12 };
 
+  /**
+   * Estimates steps 1–7 — keyboard/accessory contract is frozen unless product asks.
+   * Summary: step 1–2 AppTextField patterns (phone/ZIP/sqft → phone-pad + bpsKeyboardDone);
+   * step 3 cart qty → phone-pad + bpsKeyboardDone (cleared when material/labor modal open);
+   * step 5 decimals → decimal-pad + step5EquipmentPlain only; step 7 custom counts → phone-pad + step5EquipmentPlain.
+   * iOS root mounts: grey `number` Done only on steps 3–4; empty `step5EquipmentPlain` on steps 5–8 (search `KeyboardDoneAccessory` / `step5EquipmentPlain` near the main `return`).
+   * Full table: `.cursor/rules/estimate-generator-keyboards-stable.mdc`
+   */
   // Render step content
   const renderStepContent = () => {
     switch (step) {
@@ -10324,6 +10387,7 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="customer@example.com"
                 placeholderTextColor={estimateStepMutedInputColor}
+                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerEmail}
                 onChangeText={(text) => {
                   setLocalCustomerEmail(text);
@@ -10333,8 +10397,11 @@ export default function EstimateGeneratorScreen() {
                   Keyboard.dismiss();
                   setBid(prev => ({ ...prev, customerEmail: localCustomerEmail }));
                 }}
-                keyboardType="email-address"
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
                 autoCapitalize="none"
+                selectTextOnFocus={false}
                 returnKeyType="done"
                 blurOnSubmit={true}
                 style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerEmail) }}
@@ -10588,31 +10655,45 @@ export default function EstimateGeneratorScreen() {
                 </View>
               </View>
               
-              <AppTextField
-                label="Square Footage"
-                wrapperStyle={{ marginBottom: 16 }}
-                labelStyle={s.label}
-                shellStyle={estimateAccessoryShellStyle}
-                placeholder="1250"
-                placeholderTextColor={estimateStepMutedInputColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
-                value={bid.sqft?.toString() || ''}
-                onChangeText={(text) => updateBid('sqft', parseInt(text, 10) || 0)}
-                onSubmitEditing={() => {
-                  Keyboard.dismiss();
-                }}
-                keyboardType="phone-pad"
-                textContentType="none"
-                autoComplete="off"
-                returnKeyType="done"
-                blurOnSubmit={true}
-                style={{
-                  fontSize: 14,
-                  lineHeight: 20,
-                  paddingVertical: 12,
-                  color: getStepFieldTextColor(bid.sqft?.toString() || ''),
-                }}
-              />
+              <View ref={projectSqftBlockRef} collapsable={false}>
+                <AppTextField
+                  label="Square Footage"
+                  wrapperStyle={{ marginBottom: 16 }}
+                  labelStyle={s.label}
+                  shellStyle={estimateAccessoryShellStyle}
+                  placeholder="1250"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
+                  value={bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''}
+                  onChangeText={(text) => {
+                    const digits = String(text).replace(/\D/g, '').slice(0, 9);
+                    if (digits === '') {
+                      updateBid('sqft', 0);
+                      return;
+                    }
+                    const n = parseInt(digits, 10);
+                    if (!isNaN(n)) updateBid('sqft', n);
+                  }}
+                  onFocus={() => setProjectSqftFocused(true)}
+                  onBlur={() => setProjectSqftFocused(false)}
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                  }}
+                  keyboardType="phone-pad"
+                  textContentType="none"
+                  autoComplete="off"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  style={{
+                    fontSize: 14,
+                    lineHeight: 20,
+                    paddingVertical: 12,
+                    color: getStepFieldTextColor(
+                      bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''
+                    ),
+                  }}
+                />
+              </View>
 
               <View ref={projectDescriptionBlockRef} collapsable={false}>
                 <AppTextField
@@ -11973,7 +12054,12 @@ export default function EstimateGeneratorScreen() {
           marginBottom: 5,
         };
         const step5FieldWrapStyle = { marginBottom: 12 };
-        /** iOS: avoid phone-style pad + wrong accessory; Android: disable autofill picking another keyboard. */
+        /**
+         * Step 5 decimal fields: pair with `keyboardType="decimal-pad"` and
+         * `inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}` only.
+         * Do not switch these inputs to `step5Numeric` or ad-hoc Done bars — see `.cursor/rules/estimate-generator-keyboards-stable.mdc`.
+         * iOS: avoid phone-style pad + wrong accessory; Android: disable autofill picking another keyboard.
+         */
         const step5DecimalInputProps =
           Platform.OS === 'ios'
             ? {
@@ -12312,11 +12398,15 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Permits</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12328,22 +12418,21 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Other direct costs</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12355,11 +12444,6 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
@@ -12373,11 +12457,15 @@ export default function EstimateGeneratorScreen() {
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Insurance Overhead</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12389,22 +12477,21 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Equipment Maintenance</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12416,22 +12503,21 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Facilities</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12443,22 +12529,21 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
               <View style={{ ...step5FieldWrapStyle, marginBottom: 14 }}>
                 <Text style={step5FieldLabelStyle}>Other Overhead</Text>
                 <TextInput
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = text.replace(/[^0-9.]/g, '');
                     if (cleaned === '' || cleaned === '.') {
@@ -12470,11 +12555,6 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  blurOnSubmit={true}
                 />
               </View>
 
@@ -12543,11 +12623,15 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <TextInput
                   ref={markupInputRef}
+                  keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
                   style={[s.input, { color: getStepFieldTextColor(markupPctText) }]}
                   placeholder="20"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={markupPctText}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onFocus={() => {
                     isMarkupFocused.current = true;
                     setMarkupPctFocused(true);
@@ -12572,26 +12656,6 @@ export default function EstimateGeneratorScreen() {
                       }
                     }
                   }}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5Numeric)}
-                  returnKeyType="done"
-                  onSubmitEditing={() => {
-                    Keyboard.dismiss();
-                    // Also apply the value on submit
-                    isMarkupFocused.current = false;
-                    setMarkupPctFocused(false);
-                    const cleaned = markupPctText.replace(/[^0-9.]/g, '');
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('markupPct', 0);
-                      setMarkupPctText('0');
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('markupPct', num);
-                      }
-                    }
-                  }}
-                  blurOnSubmit={true}
                 />
 
                 {contextualMessage && (
@@ -13897,7 +13961,7 @@ export default function EstimateGeneratorScreen() {
                                   }}
                                 >
                                   <Text style={{ 
-                                    color: isSelected ? '#2DFFC4' : Colors.text, 
+                                    color: isSelected ? '#2DFFC4' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                     fontSize: 13, 
                                     fontWeight: isSelected ? '700' : '600',
                                     textAlign: 'center',
@@ -14000,7 +14064,7 @@ export default function EstimateGeneratorScreen() {
                             
                             {/* Custom Weeks Input */}
                             <View style={{ marginTop: 8 }}>
-                              <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6 }}>Custom (13+ weeks)</Text>
+                              <Text style={{ color: estimateStepMutedInputColor, fontSize: 11, marginBottom: 6 }}>Custom (13+ weeks)</Text>
                               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                 <View style={{ flex: 1 }}>
                                   <TextInput
@@ -14045,9 +14109,9 @@ export default function EstimateGeneratorScreen() {
                                       }
                                     }}
                                     placeholder="Enter weeks (13-52)"
-                                    placeholderTextColor={Colors.sub}
+                                    placeholderTextColor={estimateStepMutedInputColor}
                                     keyboardType="phone-pad"
-                                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
+                                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                     style={{
                                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                       borderWidth: 1,
@@ -14371,7 +14435,7 @@ export default function EstimateGeneratorScreen() {
                                   }}
                                 >
                                   <Text style={{ 
-                                    color: isSelected ? '#2DFFC4' : Colors.text, 
+                                    color: isSelected ? '#2DFFC4' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                     fontSize: 13, 
                                     fontWeight: isSelected ? '700' : '600',
                                     textAlign: 'center',
@@ -14877,7 +14941,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                     >
                                       <Text style={{ 
-                                        color: isSelected ? '#38d39f' : Colors.text, 
+                                        color: isSelected ? '#38d39f' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                         fontSize: 13, 
                                         fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
@@ -14987,7 +15051,7 @@ export default function EstimateGeneratorScreen() {
                               
                               {/* Custom Milestones Input */}
                               <View style={{ marginTop: 10 }}>
-                                <Text style={[step7FieldLabel, { marginBottom: 6 }]}>Custom (9+ milestones)</Text>
+                                <Text style={[step7FieldLabel, { marginBottom: 6, color: estimateStepMutedInputColor }]}>Custom (9+ milestones)</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                   <View style={{ flex: 1 }}>
                                     <TextInput
@@ -15046,9 +15110,9 @@ export default function EstimateGeneratorScreen() {
                                         }
                                       }}
                                       placeholder="Enter milestones (9-20)"
-                                      placeholderTextColor={Colors.sub}
+                                      placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
+                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                       style={{
                                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
                                         borderWidth: 1,
@@ -15605,7 +15669,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                     >
                                       <Text style={{ 
-                                        color: isSelected ? '#38d39f' : Colors.text, 
+                                        color: isSelected ? '#38d39f' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                         fontSize: 13, 
                                         fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
@@ -15706,7 +15770,7 @@ export default function EstimateGeneratorScreen() {
                               
                               {/* Custom Weeks Input */}
                               <View style={{ marginTop: 10 }}>
-                                <Text style={[step7FieldLabel, { marginBottom: 6 }]}>Custom (13+ weeks)</Text>
+                                <Text style={[step7FieldLabel, { marginBottom: 6, color: estimateStepMutedInputColor }]}>Custom (13+ weeks)</Text>
                                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                                   <View style={{ flex: 1 }}>
                                     <TextInput
@@ -15750,9 +15814,9 @@ export default function EstimateGeneratorScreen() {
                                         }
                                       }}
                                       placeholder="Enter weeks (13-52)"
-                                      placeholderTextColor={Colors.sub}
+                                      placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
+                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                       style={{
                                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                         borderWidth: 1,
@@ -16858,7 +16922,7 @@ export default function EstimateGeneratorScreen() {
             customerCompanyFocused)
             ? 160
             : step === 2 &&
-                (projectTitleFocused || projectDescriptionFocused)
+                (projectTitleFocused || projectSqftFocused || projectDescriptionFocused)
               ? 160
               : step === 5 && (equipmentRentalFocused || markupPctFocused)
                 ? 160
@@ -16871,7 +16935,7 @@ export default function EstimateGeneratorScreen() {
             customerCompanyFocused)
             ? 120
             : step === 2 &&
-                (projectTitleFocused || projectDescriptionFocused)
+                (projectTitleFocused || projectSqftFocused || projectDescriptionFocused)
               ? 120
               : step === 5 && (equipmentRentalFocused || markupPctFocused)
                 ? 120
@@ -16904,33 +16968,28 @@ export default function EstimateGeneratorScreen() {
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
+      {/* Estimates steps 1–7 keyboard mounts: keep in sync with `renderStepContent` + `.cursor/rules/estimate-generator-keyboards-stable.mdc`. */}
       {/* Grey text/number Done strips: hidden on steps 1–2 (same as step 1 — dismiss via scroll / tap outside). */}
       {step === 1 || step === 2 || materialModal.visible || laborModal.visible ? null : (
         <>
-          <KeyboardDoneAccessory
-            nativeID={KEYBOARD_ACCESSORY_IDS.text}
-            backgroundColor={theme.bg}
-          />
-          {step !== 5 && (
+          {/*
+            Grey Done strip: only mount for steps 3–4 cart qty fields (`KEYBOARD_ACCESSORY_IDS.number`).
+            Do NOT mount on 5–8 — those steps use `step5EquipmentPlain` (empty) or no accessory; an extra
+            `number` InputAccessoryView here caused iOS to show the old grey Done on payment/decimals.
+          */}
+          {(step === 3 || step === 4) && (
             <KeyboardDoneAccessory
               nativeID={KEYBOARD_ACCESSORY_IDS.number}
               backgroundColor={theme.bg}
             />
           )}
-          {step === 5 && Platform.OS === 'ios' && (
-            <>
-              <KeyboardNumericDoneAccessory
-                darkMode={darkMode}
-                surfaceColor={theme.bg}
-                nativeID={KEYBOARD_ACCESSORY_IDS.step5Numeric}
-              />
-              <InputAccessoryView
-                nativeID={KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain}
-                backgroundColor="transparent"
-              >
-                <View style={{ height: 0, width: '100%' }} collapsable={false} />
-              </InputAccessoryView>
-            </>
+          {step >= 5 && step <= 8 && Platform.OS === 'ios' && (
+            <InputAccessoryView
+              nativeID={KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain}
+              backgroundColor="transparent"
+            >
+              <View style={{ height: 0, width: '100%' }} collapsable={false} />
+            </InputAccessoryView>
           )}
         </>
       )}

@@ -45,6 +45,7 @@ import {
   Image,
   StatusBar,
   StyleSheet,
+  InputAccessoryView,
 } from "react-native";
 
 /** Get API base URL dynamically (recomputes each time to ensure fresh detection) */
@@ -62,7 +63,11 @@ import { saveMaterial, removeSavedMaterial, isMaterialSaved } from '../services/
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
+import {
+  skuSearchQueryTextKeyboard,
+  textInputPhonePadDoneAccessory,
+} from '@/constants/inputKeyboardPresets';
+import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
 
 /** Backend (esp. older production) may still return placehold.co "fake" thumbnails — never show those as product photos. */
 function isPlaceholderImageUrl(u: string | null | undefined): boolean {
@@ -657,6 +662,15 @@ export default function AttachSkuModal({
       statusBarTranslucent={false}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
+      {/* Empty accessory: Search Query must not use global green Done (`bpsKeyboardDone`) — matches Customer Name. */}
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView
+          nativeID={KEYBOARD_ACCESSORY_IDS.skuSearchQueryPlain}
+          backgroundColor="transparent"
+        >
+          <View style={{ height: 0, width: '100%' }} collapsable={false} />
+        </InputAccessoryView>
+      )}
       <SkuModalRoot
         style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
         {...(Platform.OS === 'android'
@@ -894,6 +908,7 @@ export default function AttachSkuModal({
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
+                    {...skuSearchQueryTextKeyboard}
                     placeholder={isRentalMode ? 'Search rentals (e.g., excavator, generator, ladder)' : 'Search (e.g., lumber, concrete, 2x4, PEX)'}
                     value={q}
                     onChangeText={setQ}
@@ -904,10 +919,8 @@ export default function AttachSkuModal({
                       fontWeight: '500',
                     }}
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
-                    returnKeyType="search"
                     onSubmitEditing={search}
                     keyboardAppearance={darkMode ? 'dark' : 'light'}
-                    autoCorrect={false}
                     selectionColor="#2EE6A6"
                     cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                     underlineColorAndroid="transparent"
@@ -969,14 +982,11 @@ export default function AttachSkuModal({
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
+                    {...textInputPhonePadDoneAccessory}
                     placeholder="ZIP (store pricing is ZIP-specific)"
                     value={zip}
                     onChangeText={setZip}
-                    keyboardType="phone-pad"
-                    textContentType="none"
-                    autoComplete="off"
                     keyboardAppearance={darkMode ? 'dark' : 'light'}
-                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
                     selectionColor="#2EE6A6"
                     cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
                     style={{
@@ -986,7 +996,6 @@ export default function AttachSkuModal({
                       fontWeight: '500',
                     }}
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
-                    returnKeyType="done"
                     underlineColorAndroid="transparent"
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
