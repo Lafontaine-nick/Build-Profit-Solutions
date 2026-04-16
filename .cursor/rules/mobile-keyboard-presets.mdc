@@ -1,0 +1,24 @@
+---
+description: Mobile keyboards — use shared presets; do not revert unrelated fields when editing one input
+globs: mobile/**/*
+alwaysApply: false
+---
+
+# Mobile keyboard configuration
+
+## Estimates (`estimate-generator.jsx`)
+
+- **Full step 1–7 keyboard contract** (step 8 accessories included in the same doc): see **`estimate-generator-keyboards-stable.mdc`** (same folder). Follow it before changing any `TextInput` / `AppTextField` keyboard or accessory on that screen.
+- Step 1–2: **edit only the field the user asked about**; do not refactor neighbors to shared presets unless asked.
+
+## SKU Search modal (`AttachSkuModal.tsx`)
+
+- Use spreads from `mobile/constants/inputKeyboardPresets.ts` (`textInputPhonePadDoneAccessory`, `skuSearchQueryTextKeyboard`) for the ZIP and Search `TextInput`s. Adjust behavior in that file when the task is about those fields.
+
+## Shared IDs
+
+- Accessory native IDs live in `mobile/constants/keyboard.ts` (`KEYBOARD_ACCESSORY_IDS`, `iosAccessoryId`).
+
+## Intent
+
+Avoid drive-by keyboard changes: fixing one input must not rewrite unrelated fields the user already approved.
