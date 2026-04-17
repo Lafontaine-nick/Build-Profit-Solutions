@@ -98,7 +98,9 @@ export default function ContractSettingsCompact({
         style={[styles.changeBtn, { borderColor: accent }]}
         onPress={() => setOpen(true)}
       >
-        <Text style={[styles.changeBtnText, { color: accent }]}>Change settings</Text>
+        <Text style={[styles.changeBtnText, { color: darkMode ? accent : "#000000" }]}>
+          Change settings
+        </Text>
       </Pressable>
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
@@ -142,7 +144,12 @@ export default function ContractSettingsCompact({
 
               {draftState === "other" && (
                 <View style={styles.warningBox}>
-                  <Text style={styles.warningText}>
+                  <Text
+                    style={[
+                      styles.warningText,
+                      { color: darkMode ? "rgba(250, 250, 250, 0.92)" : "#000000" },
+                    ]}
+                  >
                     Generic draft: confirm jurisdiction-specific requirements before client use.
                   </Text>
                 </View>
@@ -211,7 +218,6 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   warningText: {
-    color: "rgba(250, 250, 250, 0.92)",
     fontSize: 12,
     lineHeight: 18,
   },

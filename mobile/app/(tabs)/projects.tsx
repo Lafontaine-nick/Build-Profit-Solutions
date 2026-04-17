@@ -272,7 +272,7 @@ const getStatusTheme = (darkMode: boolean) => ({
   Draft: { 
     bg: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)', 
     border: darkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.25)', 
-    color: darkMode ? '#f1f5f9' : '#64748b' 
+    color: darkMode ? '#f1f5f9' : '#475569' 
   },
 });
 
@@ -1134,7 +1134,7 @@ export default function ProjectsScreen() {
           title={t('projects.allProjects')}
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
           titleColor={darkMode ? '#F5F7FA' : Colors.text}
-          subtitleColor={darkMode ? 'rgba(255,255,255,0.62)' : '#64748b'}
+          subtitleColor={darkMode ? 'rgba(255,255,255,0.62)' : '#475569'}
           titleStyle={styles.budgetPageTitleFont}
           subtitleStyle={styles.budgetPageSubtitleFont}
           right={
@@ -1218,7 +1218,8 @@ export default function ProjectsScreen() {
             }}
           >
             <View style={{
-              backgroundColor: darkMode ? Colors.card : Colors.cardDark,
+              /* Light: match page bg; dark: unchanged */
+              backgroundColor: darkMode ? Colors.card : Colors.bg,
               borderRadius: 18,
               padding: 12,
             }}>
@@ -1233,7 +1234,7 @@ export default function ProjectsScreen() {
               
               {projects.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Ionicons name="folder-outline" size={48} color={darkMode ? 'rgba(255,255,255,0.82)' : '#64748b'} />
+                  <Ionicons name="folder-outline" size={48} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
                   <Text style={styles.emptyStateText}>
                     {activeTab === 'submitted'
                       ? 'No submitted bids yet'
@@ -1353,7 +1354,7 @@ export default function ProjectsScreen() {
                       <Ionicons
                         name="location-outline"
                         size={14}
-                        color={darkMode ? 'rgba(255,255,255,0.82)' : '#64748b'}
+                        color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'}
                       />
                       <Text style={styles.projectLocationText}>
                         {formatLocationDisplay(project.location)}
@@ -1363,7 +1364,7 @@ export default function ProjectsScreen() {
                       <View style={styles.projectClientRow}>
                         {(project.rawProject?.client || project.rawProject?.estimateData?.customerName) && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="person-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#64748b'} />
+                            <Ionicons name="person-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
                             <Text style={styles.projectClientText}>
                               {formatClientNameDisplay(
                                 project.rawProject?.client || project.rawProject?.estimateData?.customerName
@@ -1373,7 +1374,7 @@ export default function ProjectsScreen() {
                         )}
                         {(project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail) && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="mail-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#64748b'} />
+                            <Ionicons name="mail-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
                             <Text style={styles.projectClientText}>
                               {project.rawProject?.clientEmail || project.rawProject?.estimateData?.customerEmail}
                             </Text>
@@ -1381,7 +1382,7 @@ export default function ProjectsScreen() {
                         )}
                         {(project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone) && (
                           <View style={styles.projectClientItem}>
-                            <Ionicons name="call-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#64748b'} />
+                            <Ionicons name="call-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.82)' : '#475569'} />
                             <Text style={styles.projectClientText}>
                               {project.rawProject?.clientPhone || project.rawProject?.estimateData?.customerPhone}
                             </Text>
@@ -1391,7 +1392,7 @@ export default function ProjectsScreen() {
                     )}
                     {project.status === 'Submitted' && (
                       <View style={styles.waitingClientRow}>
-                        <Ionicons name="time-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.77)' : '#64748b'} />
+                        <Ionicons name="time-outline" size={12} color={darkMode ? 'rgba(255,255,255,0.77)' : '#475569'} />
                         <Text style={styles.waitingClientText}>
                           Waiting for client decision
                         </Text>
@@ -1669,7 +1670,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
-    color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b',
+    color: darkMode ? 'rgba(255,255,255,0.62)' : '#475569',
   },
   projectCard: {
     marginTop: 8,
@@ -1742,7 +1743,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
-    color: darkMode ? 'rgba(255,255,255,0.88)' : '#64748b',
+    color: darkMode ? 'rgba(255,255,255,0.88)' : '#475569',
   },
   projectFinancialBlock: {
     marginBottom: 12,
@@ -1781,7 +1782,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     lineHeight: 16,
     fontWeight: '500',
     letterSpacing: 0.15,
-    color: darkMode ? 'rgba(255,255,255,0.56)' : '#94a3b8',
+    color: darkMode ? 'rgba(255,255,255,0.56)' : '#64748b',
   },
   projectMetaSection: {
     gap: 6,
@@ -1799,7 +1800,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   projectClientText: {
     fontSize: 11,
-    color: darkMode ? 'rgba(255,255,255,0.87)' : '#64748b',
+    color: darkMode ? 'rgba(255,255,255,0.87)' : '#475569',
     maxWidth: 200,
   },
   waitingClientRow: {
@@ -1811,7 +1812,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   waitingClientText: {
     fontSize: 12,
     fontStyle: 'italic',
-    color: darkMode ? 'rgba(255,255,255,0.83)' : '#64748b',
+    color: darkMode ? 'rgba(255,255,255,0.83)' : '#475569',
   },
   statusPillBase: {
     paddingHorizontal: 12,
@@ -1917,7 +1918,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   emptyStateSubtext: {
     fontSize: 13,
-    color: darkMode ? 'rgba(255,255,255,0.87)' : '#64748b',
+    color: darkMode ? 'rgba(255,255,255,0.87)' : '#475569',
     marginTop: 6,
     textAlign: 'center',
     paddingHorizontal: 28,
@@ -1946,7 +1947,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     width: '100%',
     height: '100%',
     borderRadius: 999,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },

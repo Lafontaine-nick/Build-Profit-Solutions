@@ -550,7 +550,7 @@ export default function SubscriptionPlansModal({
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   handleClose();
                 }}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
@@ -596,7 +596,7 @@ export default function SubscriptionPlansModal({
             style={[
               styles.billingInner,
               {
-                backgroundColor: theme.cardDark,
+                backgroundColor: darkMode ? theme.cardDark : Colors.bg,
                 borderColor: theme.border,
               },
             ]}

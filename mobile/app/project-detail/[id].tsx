@@ -3308,7 +3308,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
   },
   overviewHeroCard: {
     paddingVertical: 18,
@@ -3326,7 +3326,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
   },
   overviewHeroMetricsGrid: {
     flexDirection: "row",
@@ -3344,7 +3344,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
     letterSpacing: 0.8,
-    color: darkMode ? "rgba(255,255,255,0.50)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.50)" : "#475569",
     textTransform: "uppercase",
   },
   /** Legacy single value style — dates / misc */
@@ -3416,7 +3416,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 15,
     fontWeight: "700",
     letterSpacing: 0.45,
-    color: darkMode ? "rgba(255,255,255,0.50)" : "#94a3b8",
+    color: darkMode ? "rgba(255,255,255,0.50)" : "#64748b",
     textTransform: "uppercase",
   },
   overviewHeroFooterLabelCentered: {
@@ -3456,7 +3456,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
-    color: darkMode ? "rgba(255,255,255,0.58)" : "#8891a0",
+    color: darkMode ? "rgba(255,255,255,0.58)" : "#64748b",
     fontWeight: "500",
   },
   overviewFhSlimBody: {
@@ -3464,7 +3464,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.58)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.58)" : "#475569",
   },
   overviewFhStatusPill: {
     paddingHorizontal: 10,
@@ -3516,7 +3516,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   overviewMetaLine: {
     fontSize: 12,
     lineHeight: 17,
-    color: darkMode ? "rgba(255,255,255,0.85)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.85)" : "#475569",
     fontWeight: "500",
   },
   overviewMetricsBlock: {
@@ -3557,7 +3557,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   overviewHelperMuted: {
     fontSize: 11,
     lineHeight: 15,
-    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
+    color: darkMode ? "rgba(255,255,255,0.77)" : "#64748b",
     marginTop: 3,
     fontWeight: "400",
   },
@@ -3632,7 +3632,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 19,
-    backgroundColor: darkMode ? '#000000' : Colors.card,
+    backgroundColor: darkMode ? '#000000' : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -4114,7 +4114,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: darkMode ? "#020617" : "#FFFFFF",
+    backgroundColor: darkMode ? "#020617" : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
   },

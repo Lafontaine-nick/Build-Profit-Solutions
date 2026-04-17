@@ -18,10 +18,10 @@ import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 
 /** Supporting text on Timeline — neutral grey / soft white (not full white; keeps hierarchy). */
 function timelineMuted(dark: boolean) {
-  return dark ? "rgba(255,255,255,0.86)" : "#8891a0";
+  return dark ? "rgba(255,255,255,0.86)" : "#475569";
 }
 function timelineCaption(dark: boolean) {
-  return dark ? "rgba(255,255,255,0.70)" : "#8891a0";
+  return dark ? "rgba(255,255,255,0.70)" : "#64748b";
 }
 
 /* -------------------- helpers -------------------- */

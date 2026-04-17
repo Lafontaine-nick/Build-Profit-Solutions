@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   FlatList,
   StyleSheet,
   Modal,
@@ -22,6 +23,9 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useChat, Conversation } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+
+/** Same green→cyan as Bid Summary / leads section frames — brighter than soft rgba borders. */
+const MESSAGE_BRAND_GRADIENT = ['#2DFFC4', '#00A6FF'] as const;
 
 interface MessagesInboxProps {
   visible: boolean;
@@ -57,9 +61,14 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
     []
   );
   const conversationBackground = 'rgba(24, 28, 36, 0.96)';
-  const conversationBorder = 'rgba(148, 163, 184, 0.14)';
+  /** Brighter teal frame so cards read clearly on dark (was very faint gray). */
+  const conversationBorder = 'rgba(45, 255, 196, 0.42)';
   const unreadBorder = '#0a0f14';
   const unreadBackground = '#14B8A6';
+
+  /** Light mode only — conversation list on pale bg */
+  const lightConversationSurface = Colors.card;
+  const lightConversationBorder = 'rgba(13, 148, 136, 0.28)';
   
   // Sample conversations for preview (remove when real data is available)
   const sampleConversations = useMemo((): Conversation[] => {
@@ -278,10 +287,16 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
       >
         <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
           {/* Header with Back Arrow */}
-          <View style={[styles.headerContainer, { paddingTop: Math.max(insets.top, 16) + 12 }]}>
+          <View
+            style={[
+              styles.headerContainer,
+              { paddingTop: Math.max(insets.top, 16) + 12 },
+              !darkMode && { borderBottomColor: Colors.line },
+            ]}
+          >
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={[...MESSAGE_BRAND_GRADIENT]}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
@@ -346,11 +361,15 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
               >
                 {chatMessages.length === 0 ? (
                   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100 }}>
-                    <MaterialIcons name="chat-bubble-outline" size={64} color="rgba(255, 255, 255, 0.2)" />
+                    <MaterialIcons
+                      name="chat-bubble-outline"
+                      size={64}
+                      color={darkMode ? 'rgba(255, 255, 255, 0.2)' : Colors.sub}
+                    />
                     <Text
                       style={[
-                        { color: '#a7bed9', fontSize: 16, marginTop: 16, textAlign: 'center' },
-                        lightSub,
+                        { fontSize: 16, marginTop: 16, textAlign: 'center' },
+                        darkMode ? { color: '#a7bed9' } : lightSub,
                       ]}
                     >
                       No messages yet.{'\n'}Start the conversation!
@@ -429,12 +448,13 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                     paddingBottom: Math.max(insets.bottom, 14),
                     backgroundColor: darkMode ? '#000000' : Colors.bg,
                   },
+                  !darkMode && { borderTopColor: Colors.line },
                 ]}
               >
                 <View style={styles.chatInputRow}>
                   <View style={styles.chatInputFlex}>
                     <LinearGradient
-                      colors={['rgba(45, 255, 196, 0.45)', 'rgba(0, 166, 255, 0.4)']}
+                      colors={[...MESSAGE_BRAND_GRADIENT]}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.chatInputGradient}
@@ -463,37 +483,42 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                   </View>
 
                   <Animated.View style={{ transform: [{ scale: sendButtonScale }] }}>
-                    <LinearGradient
-                      colors={['rgba(45, 255, 196, 0.55)', 'rgba(0, 166, 255, 0.5)']}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.chatSendGradient}
-                    >
-                      <TouchableOpacity
+                    {/*
+                      Never put opacity on the fill — gradient bleeds through if the fill is translucent.
+                      Dark: black + white icon. Light: white fill + dark icon (see chatSendInnerLight).
+                    */}
+                    <View style={styles.chatSendWrap}>
+                      <LinearGradient
+                        pointerEvents="none"
+                        colors={[...MESSAGE_BRAND_GRADIENT]}
+                        start={{ x: 0.05, y: 0.15 }}
+                        end={{ x: 0.95, y: 0.85 }}
+                        style={styles.chatSendGradientBg}
+                      />
+                      <Pressable
                         onPress={handleSendMessage}
                         disabled={!messageText.trim()}
-                        activeOpacity={0.7}
+                        android_ripple={
+                          messageText.trim()
+                            ? {
+                                color: darkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.12)',
+                                foreground: true,
+                              }
+                            : undefined
+                        }
                         style={[
-                          styles.chatSendInner,
-                          { backgroundColor: darkMode ? '#0a0d12' : Colors.surface2 },
-                          !messageText.trim() && styles.chatSendInnerDisabled,
+                          styles.chatSendInnerBlack,
+                          !darkMode && styles.chatSendInnerLight,
+                          Platform.OS === 'android' && styles.chatSendInnerBlackAndroid,
                         ]}
                       >
                         <Ionicons
                           name="send"
                           size={17}
-                          color={
-                            messageText.trim()
-                              ? darkMode
-                                ? '#5EEAD4'
-                                : '#0f766e'
-                              : darkMode
-                                ? '#64748B'
-                                : Colors.sub
-                          }
+                          color={darkMode ? '#FFFFFF' : Colors.text}
                         />
-                      </TouchableOpacity>
-                    </LinearGradient>
+                      </Pressable>
+                    </View>
                   </Animated.View>
                 </View>
               </View>
@@ -503,8 +528,18 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
               {/* Conversations List */}
               {conversations.length === 0 ? (
           <View style={styles.emptyState}>
-            <View style={styles.emptyIconContainer}>
-              <MaterialIcons name="message" size={58} color="#a7bed9" style={{ opacity: 0.7 }} />
+            <View
+              style={[
+                styles.emptyIconContainer,
+                !darkMode && { backgroundColor: Colors.iconBg },
+              ]}
+            >
+              <MaterialIcons
+                name="message"
+                size={58}
+                color={darkMode ? '#a7bed9' : Colors.sub}
+                style={{ opacity: darkMode ? 0.7 : 1 }}
+              />
             </View>
             <Text style={[styles.emptyTitle, lightText]}>No Conversations Yet</Text>
             <Text style={[styles.emptySubtitle, lightSub]}>
@@ -538,15 +573,36 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                   <TouchableOpacity
                     style={[
                       styles.conversationCard,
-                      { backgroundColor: conversationBackground, borderColor: conversationBorder },
-                      hasUnread && styles.conversationCardUnread,
+                      darkMode
+                        ? {
+                            backgroundColor: conversationBackground,
+                            borderColor: conversationBorder,
+                          }
+                        : {
+                            backgroundColor: lightConversationSurface,
+                            borderColor: lightConversationBorder,
+                          },
+                      hasUnread && darkMode && styles.conversationCardUnread,
+                      hasUnread && !darkMode && styles.conversationCardUnreadLight,
                     ]}
                     onPress={() => handleConversationPress(item.id)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.avatarContainer}>
-                      <View style={styles.avatar}>
-                        <MaterialIcons name="person" size={26} color="rgba(94, 234, 212, 0.75)" />
+                      <View
+                        style={[
+                          styles.avatar,
+                          !darkMode && {
+                            backgroundColor: Colors.iconBg,
+                            borderColor: 'rgba(13, 148, 136, 0.35)',
+                          },
+                        ]}
+                      >
+                        <MaterialIcons
+                          name="person"
+                          size={26}
+                          color={darkMode ? 'rgba(94, 234, 212, 0.75)' : Colors.sub}
+                        />
                       </View>
                       {hasUnread && (
                         <View
@@ -715,11 +771,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(45, 255, 196, 0.42)',
   },
   conversationCardUnread: {
     backgroundColor: 'rgba(20, 184, 166, 0.09)',
-    borderColor: 'rgba(45, 212, 191, 0.28)',
+    borderColor: 'rgba(45, 255, 196, 0.58)',
+  },
+  conversationCardUnreadLight: {
+    backgroundColor: 'rgba(16, 185, 129, 0.07)',
+    borderColor: 'rgba(13, 148, 136, 0.42)',
   },
   avatarContainer: {
     position: 'relative',
@@ -731,7 +791,7 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     backgroundColor: 'rgba(30, 41, 59, 0.9)',
     borderWidth: 1,
-    borderColor: 'rgba(94, 234, 212, 0.22)',
+    borderColor: 'rgba(45, 255, 196, 0.48)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -928,22 +988,35 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     lineHeight: 20,
   },
-  chatSendGradient: {
+  chatSendWrap: {
     width: 46,
     height: 46,
-    borderRadius: 23,
-    padding: 1,
-    overflow: 'hidden',
+    position: 'relative',
   },
-  chatSendInner: {
-    width: '100%',
-    height: '100%',
+  chatSendGradientBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 23,
+    zIndex: 0,
+  },
+  /** Inset 1px so gradient only shows as ring; solid black must stay full opacity (no parent opacity). */
+  chatSendInnerBlack: {
+    position: 'absolute',
+    left: 1,
+    top: 1,
+    width: 44,
+    height: 44,
     borderRadius: 22,
+    backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 2,
+    overflow: 'hidden',
   },
-  chatSendInnerDisabled: {
-    opacity: 0.55,
+  chatSendInnerLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  chatSendInnerBlackAndroid: {
+    elevation: 6,
   },
   deleteButton: {
     backgroundColor: '#FF4444',

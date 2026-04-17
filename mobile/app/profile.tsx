@@ -3648,13 +3648,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 19,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },
   contentCard: {
     borderRadius: 23,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     overflow: 'visible',
   },
   content: {

@@ -4233,7 +4233,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               }}
             >
               <View style={{
-                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
+                /* Light: match page bg (#E8EDF5); dark: unchanged black card */
+                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
                 borderRadius: 18,
                 padding: 12,
               }}>
@@ -4387,7 +4388,8 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           }}
         >
           <View style={{
-            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,
+            /* Light: match page bg; dark: unchanged */
+            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
             borderRadius: 18,
             padding: 14,
           }}>
@@ -4984,7 +4986,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.bg === "#000000" ? Colors.card : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -5136,7 +5138,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "#64748b",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "#475569",
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -5727,7 +5729,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.62)",
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
     marginBottom: 6,
   },
   /** Budget rowValueIntelHero */

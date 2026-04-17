@@ -708,12 +708,16 @@ export default function AttachSkuModal({
                     width: '100%',
                     height: '100%',
                     borderRadius: 19,
-                    backgroundColor: '#000000',
+                    backgroundColor: darkMode ? '#000000' : Colors.bg,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                  <MaterialIcons
+                    name="arrow-back"
+                    size={24}
+                    color={darkMode ? '#FFFFFF' : Colors.text}
+                  />
                 </TouchableOpacity>
               </LinearGradient>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -733,7 +737,7 @@ export default function AttachSkuModal({
                     width: '100%',
                     height: '100%',
                     borderRadius: 19,
-                    backgroundColor: '#000000',
+                    backgroundColor: darkMode ? '#000000' : Colors.bg,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}>
@@ -898,7 +902,7 @@ export default function AttachSkuModal({
                   flexDirection: 'row',
                   alignItems: 'center',
                   paddingHorizontal: 16,
-                  backgroundColor: darkMode ? '#000000' : '#FFFFFF',
+                  backgroundColor: darkMode ? '#000000' : Colors.surface2,
                   paddingVertical: 12,
                 }}>
                   <Feather
@@ -972,7 +976,7 @@ export default function AttachSkuModal({
                   flexDirection: 'row',
                   alignItems: 'center',
                   paddingHorizontal: 16,
-                  backgroundColor: darkMode ? '#000000' : '#FFFFFF',
+                  backgroundColor: darkMode ? '#000000' : Colors.surface2,
                   paddingVertical: 12,
                 }}>
                   <Feather

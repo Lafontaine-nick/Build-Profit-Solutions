@@ -149,7 +149,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
-                  style={[styles.backBtn, !darkMode && { backgroundColor: '#FFFFFF' }]}
+                  style={[styles.backBtn, !darkMode && { backgroundColor: Colors.bg }]}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
@@ -164,7 +164,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.headerIconBorder}
                 >
-                  <View style={[styles.headerIconContainer, !darkMode && { backgroundColor: '#FFFFFF' }]}>
+                  <View style={[styles.headerIconContainer, !darkMode && { backgroundColor: Colors.bg }]}>
                     <Text style={{ fontSize: 24 }}>📋</Text>
                   </View>
                 </LinearGradient>

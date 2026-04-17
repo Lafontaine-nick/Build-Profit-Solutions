@@ -158,7 +158,7 @@ export default function GettingStartedScreen() {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     router.back();
                   }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}
+                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
@@ -185,7 +185,16 @@ export default function GettingStartedScreen() {
               end={{ x: 0.95, y: 0.85 }}
               style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
             >
-              <View style={[styles.contentCard, { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
+              <View
+                style={[
+                  styles.contentCard,
+                  {
+                    backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
+                    borderColor: Colors.line,
+                    borderWidth: 1,
+                  },
+                ]}
+              >
                 <View style={styles.scrollContent}>
                   {/* Welcome Section */}
                   <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>

@@ -759,12 +759,16 @@ function SubcontractorSearchModal({
                       width: '100%',
                       height: '100%',
                       borderRadius: 19,
-                      backgroundColor: '#000000',
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
                       justifyContent: 'center',
                       alignItems: 'center',
                     }}
                   >
-                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                    <MaterialIcons
+                      name="arrow-back"
+                      size={24}
+                      color={darkMode ? '#FFFFFF' : Colors.text}
+                    />
                   </TouchableOpacity>
                 </LinearGradient>
               </View>
@@ -1284,7 +1288,7 @@ function SubcontractorSearchModal({
                         width: '100%',
                         height: '100%',
                         borderRadius: 19,
-                        backgroundColor: darkMode ? '#000000' : Colors.surface2,
+                        backgroundColor: darkMode ? '#000000' : Colors.bg,
                         justifyContent: 'center',
                         alignItems: 'center',
                       }}
@@ -1342,12 +1346,16 @@ function SubcontractorSearchModal({
                       width: '100%',
                       height: '100%',
                       borderRadius: 19,
-                      backgroundColor: '#000000',
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
                       justifyContent: 'center',
                       alignItems: 'center',
                     }}
                   >
-                    <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+                    <MaterialIcons
+                      name="arrow-back"
+                      size={24}
+                      color={darkMode ? '#FFFFFF' : Colors.text}
+                    />
                   </TouchableOpacity>
                 </LinearGradient>
               </View>

@@ -48,9 +48,9 @@ export default function BudgetProfitMixCard({
         text: '#1e293b',
       };
 
-  const pageSubtext = darkMode ? 'rgba(255,255,255,0.88)' : '#8891a0';
-  const pageCaption = darkMode ? 'rgba(255,255,255,0.78)' : '#8891a0';
-  const pageInstructional = darkMode ? 'rgba(255,255,255,0.56)' : '#94a3b8';
+  const pageSubtext = darkMode ? 'rgba(255,255,255,0.88)' : '#64748b';
+  const pageCaption = darkMode ? 'rgba(255,255,255,0.78)' : '#64748b';
+  const pageInstructional = darkMode ? 'rgba(255,255,255,0.56)' : '#64748b';
 
   const budgetMixChipSurface = useMemo(
     () => ({

@@ -4021,7 +4021,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       onClose();
                     }}
-                    style={[styles.backButton, light({ backgroundColor: "#FFFFFF" })]}
+                    style={[styles.backButton, light({ backgroundColor: ThemeColors.bg })]}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     activeOpacity={0.7}
                   >

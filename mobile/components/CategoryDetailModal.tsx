@@ -452,7 +452,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                 >
                   <TouchableOpacity
                     onPress={onClose}
-                    style={[styles.backButton, { backgroundColor: "#FFFFFF" }]}
+                    style={[styles.backButton, { backgroundColor: Colors.bg }]}
                   >
                     <MaterialIcons name="arrow-back" size={24} color="#000000" />
                   </TouchableOpacity>
@@ -481,7 +481,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.headerIconBorder}
                     >
-                      <View style={[styles.headerIconContainer, { backgroundColor: "#FFFFFF" }]}>
+                      <View style={[styles.headerIconContainer, { backgroundColor: Colors.bg }]}>
                         <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
                       </View>
                     </LinearGradient>

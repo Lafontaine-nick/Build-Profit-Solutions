@@ -139,14 +139,14 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               onPress={() => navigation?.goBack?.()}
               style={[
                 styles.headerIconButton,
-                !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line },
               ]}
             >
               <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
             </Pressable>
 
             <View style={styles.headerTitleRow}>
-              <View style={[styles.headerAvatar, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+              <View style={[styles.headerAvatar, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line }]}>
                 <MaterialCommunityIcons
                   name="bricks"
                   size={24}

@@ -87,10 +87,10 @@ import {
 } from '../utils/competitorIntelligence';
 import { LeadAnalyticsDashboard } from './LeadAnalyticsDashboard';
 
-/** Softer gradient frame in light mode so it doesn’t fight the cool gray page. */
+/** Same green→cyan border as Estimates Bid Summary (Total Bid / Cost Breakdown): `#2DFFC4` → `#00A6FF`. */
 const LEADS_SECTION_GRADIENT = {
-  dark: ['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)'] as const,
-  light: ['rgba(34, 197, 94, 0.26)', 'rgba(14, 165, 233, 0.22)'] as const,
+  dark: ['#2DFFC4', '#00A6FF'] as const,
+  light: ['#2DFFC4', '#00A6FF'] as const,
 };
 
 interface EnhancedLeadsPageProps {

@@ -538,7 +538,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 12,
   },
   cardInner: {
-    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
+    /* Light: match page bg (same as Performance Snapshot / All Projects); dark: unchanged */
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     borderRadius: 18,
     padding: 14,
     borderWidth: darkMode ? 0 : 1,
@@ -551,7 +552,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.62)",
+    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
     marginBottom: 8,
   },
   forecastTitleRow: {
@@ -582,7 +583,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#64748b",
+    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
   },
   projectTypeTitleRow: {
     marginBottom: 8,
@@ -805,7 +806,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.75,
     textTransform: "uppercase",
-    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.62)",
+    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
   },
   forecastValueSlot: {
     minHeight: 48,
@@ -836,14 +837,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 14,
     fontWeight: "500",
     letterSpacing: 0.12,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#94a3b8",
+    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
   },
   forecastSub: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
     letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#94a3b8",
+    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
   },
   infoRow: {
     flexDirection: "row",
@@ -862,7 +863,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 16,
     fontWeight: "500",
     letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#94a3b8",
+    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
     flex: 1,
   },
 });

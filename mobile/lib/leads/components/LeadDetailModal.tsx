@@ -686,7 +686,7 @@ export default function LeadDetailModal({
                           }} 
                           style={[
                             styles.backButton,
-                            !darkMode && { backgroundColor: '#FFFFFF' },
+                            !darkMode && { backgroundColor: Colors.bg },
                           ]}
                           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >

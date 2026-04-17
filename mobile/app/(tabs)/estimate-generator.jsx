@@ -400,7 +400,7 @@ const STEPS = [
 ];
 
 // ============ MODAL COMPONENTS ============
-const getModalStyles = (Colors: any) => StyleSheet.create({
+const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.overlay,
@@ -566,7 +566,7 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 19,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -586,7 +586,7 @@ const getModalStyles = (Colors: any) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 11,
-    backgroundColor: Colors.card,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -801,7 +801,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const modalStyles = useMemo(() => getModalStyles(Colors), [Colors]);
+  const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || '');
   const [amount, setAmount] = useState(item?.paymentAmount?.toString() || '');
@@ -1167,7 +1167,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const modalStyles = useMemo(() => getModalStyles(Colors), [Colors]);
+  const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
   const [description, setDescription] = useState(item?.description || '');
   const [amount, setAmount] = useState(item?.amount?.toString() || '');
   const [percentage, setPercentage] = useState(item?.percentage?.toString() || '');
@@ -1522,7 +1522,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
-  const modalStyles = useMemo(() => getModalStyles(Colors), [Colors]);
+  const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
   const prevVisibleRef = React.useRef(false);
   const [name, setName] = useState(item?.name || '');
   const [quantity, setQuantity] = useState(item?.quantity || 1);
@@ -1985,7 +1985,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         borderColor: 'rgba(45, 255, 196, 0.3)',
                       }}>
                         <Text style={{
-                          color: '#2DFFC4',
+                          color: darkMode ? '#2DFFC4' : Colors.text,
                           fontSize: 18,
                           fontWeight: '700',
                           textAlign: 'center',
@@ -2254,7 +2254,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             >
                               <Text
                                 style={{
-                                  color: '#2DFFC4',
+                                  color: darkMode ? '#2DFFC4' : Colors.text,
                                   fontSize: 18,
                                   fontWeight: '700',
                                   textAlign: 'center',
@@ -3994,7 +3994,7 @@ export default function EstimateGeneratorScreen() {
     };
   }, [theme]);
   
-  const modalStyles = useMemo(() => getModalStyles(Colors), [Colors]);
+  const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
   const s = useMemo(() => getStyles(Colors), [Colors]);
   
   const [step, setStep] = useState(0); // Start at step 0 (Bid Summary) - default first page
@@ -9870,6 +9870,16 @@ export default function EstimateGeneratorScreen() {
     String(value ?? '').trim() ? Colors.text : estimateStepMutedInputColor
   );
 
+  /** Steps 1–2 only: light mode empties lighter than Colors.sub; filled = Colors.text. Dark: same as getStepFieldTextColor. */
+  const estimateStep12EmptyLight = '#94a3b8';
+  const getStep12FieldTextColor = (value) =>
+    darkMode
+      ? getStepFieldTextColor(value)
+      : String(value ?? '').trim()
+        ? Colors.text
+        : estimateStep12EmptyLight;
+  const estimateStep12PlaceholderColor = darkMode ? estimateStepMutedInputColor : estimateStep12EmptyLight;
+
   const estimateAccessoryShellStyle = darkMode
     ? { backgroundColor: '#0B0B0D', borderColor: 'rgba(255,255,255,0.10)', borderRadius: 18 }
     : { backgroundColor: Colors.surface2, borderColor: Colors.line, borderRadius: 12 };
@@ -9911,7 +9921,8 @@ export default function EstimateGeneratorScreen() {
           <View style={[s.wideContainer, {
             paddingTop: 4,
             paddingBottom: 22,
-            backgroundColor: darkMode ? Colors.card : Colors.bg,
+            /* Light: match page bg (dashboard All Projects / Performance Snapshot); dark: unchanged */
+            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
             marginBottom: 16,
             marginTop: 0,
           }]}>
@@ -9927,11 +9938,11 @@ export default function EstimateGeneratorScreen() {
                 }}
               >
               <View style={{
-                backgroundColor: darkMode ? '#000000' : Colors.bg,
+                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
                 borderRadius: 18,
                 padding: 16,
-                borderWidth: darkMode ? 0 : 1,
-                borderColor: darkMode ? 'transparent' : Colors.line,
+                borderWidth: Colors.bg === '#000000' ? 0 : 1,
+                borderColor: Colors.bg === '#000000' ? 'transparent' : Colors.line,
               }}>
                 <View style={{
                   flexDirection: 'row',
@@ -10128,11 +10139,11 @@ export default function EstimateGeneratorScreen() {
                 }}
               >
                 <View style={{
-                  backgroundColor: darkMode ? '#000000' : Colors.bg,
+                  backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
                   borderRadius: 18,
                   padding: 18,
-                  borderWidth: darkMode ? 0 : 1,
-                  borderColor: darkMode ? 'transparent' : Colors.line,
+                  borderWidth: Colors.bg === '#000000' ? 0 : 1,
+                  borderColor: Colors.bg === '#000000' ? 'transparent' : Colors.line,
                 }}>
                   <View style={{ marginBottom: 14 }}>
                     <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
@@ -10224,7 +10235,7 @@ export default function EstimateGeneratorScreen() {
                 paddingTop: 20,
                 paddingBottom: 22,
                 marginBottom: 32,
-                backgroundColor: darkMode ? Colors.card : Colors.bg,
+                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
               }}>
                 <View style={{ marginBottom: 18 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
@@ -10355,7 +10366,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="Enter customer name"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={localCustomerName}
                   onChangeText={(text) => {
                     setLocalCustomerName(text);
@@ -10376,7 +10387,7 @@ export default function EstimateGeneratorScreen() {
                   autoCapitalize="words"
                   editable={true}
                   selectTextOnFocus={false}
-                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerName) }}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerName) }}
                 />
               </View>
 
@@ -10386,7 +10397,7 @@ export default function EstimateGeneratorScreen() {
                 labelStyle={s.label}
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="customer@example.com"
-                placeholderTextColor={estimateStepMutedInputColor}
+                placeholderTextColor={estimateStep12PlaceholderColor}
                 accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerEmail}
                 onChangeText={(text) => {
@@ -10404,7 +10415,7 @@ export default function EstimateGeneratorScreen() {
                 selectTextOnFocus={false}
                 returnKeyType="done"
                 blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerEmail) }}
+                style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerEmail) }}
               />
 
               <View ref={customerPhoneBlockRef} collapsable={false}>
@@ -10414,7 +10425,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="(555) 123-4567"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                   value={localCustomerPhone}
                   onChangeText={(text) => {
@@ -10437,7 +10448,7 @@ export default function EstimateGeneratorScreen() {
                     fontSize: 14,
                     lineHeight: 20,
                     paddingVertical: 12,
-                    color: getStepFieldTextColor(localCustomerPhone),
+                    color: getStep12FieldTextColor(localCustomerPhone),
                   }}
                 />
               </View>
@@ -10448,7 +10459,7 @@ export default function EstimateGeneratorScreen() {
                 labelStyle={s.label}
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="Street address"
-                placeholderTextColor={estimateStepMutedInputColor}
+                placeholderTextColor={estimateStep12PlaceholderColor}
                 value={localCustomerAddress}
                 onChangeText={(text) => {
                   setLocalCustomerAddress(text);
@@ -10460,7 +10471,7 @@ export default function EstimateGeneratorScreen() {
                 }}
                 returnKeyType="done"
                 blurOnSubmit={true}
-                style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerAddress) }}
+                style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerAddress) }}
               />
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -10470,7 +10481,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="City"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={localCustomerCity}
                   onChangeText={(text) => {
                     setLocalCustomerCity(text);
@@ -10482,7 +10493,7 @@ export default function EstimateGeneratorScreen() {
                   }}
                   returnKeyType="done"
                   blurOnSubmit={true}
-                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCity) }}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerCity) }}
                 />
 
                 <AppTextField
@@ -10491,7 +10502,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="State"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={localCustomerState}
                   onChangeText={(text) => {
                     setLocalCustomerState(text);
@@ -10505,7 +10516,7 @@ export default function EstimateGeneratorScreen() {
                   autoCapitalize="characters"
                   returnKeyType="done"
                   blurOnSubmit={true}
-                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerState) }}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerState) }}
                 />
               </View>
 
@@ -10515,7 +10526,7 @@ export default function EstimateGeneratorScreen() {
                 labelStyle={s.label}
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="12345"
-                placeholderTextColor={estimateStepMutedInputColor}
+                placeholderTextColor={estimateStep12PlaceholderColor}
                 accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerZip}
                 onChangeText={(text) => {
@@ -10536,7 +10547,7 @@ export default function EstimateGeneratorScreen() {
                   fontSize: 14,
                   lineHeight: 20,
                   paddingVertical: 12,
-                  color: getStepFieldTextColor(localCustomerZip),
+                  color: getStep12FieldTextColor(localCustomerZip),
                 }}
               />
 
@@ -10547,7 +10558,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="Company name"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={localCustomerCompany}
                   onChangeText={(text) => {
                     setLocalCustomerCompany(text);
@@ -10562,7 +10573,7 @@ export default function EstimateGeneratorScreen() {
                   returnKeyType="done"
                   blurOnSubmit={true}
                   keyboardAppearance={darkMode ? 'dark' : 'light'}
-                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(localCustomerCompany) }}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(localCustomerCompany) }}
                 />
               </View>
 
@@ -10574,7 +10585,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 100 }]}
                   placeholder="Additional notes about the customer..."
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={bid.customerNotes || ''}
                   onChangeText={(text) => {
                     setBid(prev => ({ ...prev, customerNotes: text }));
@@ -10593,7 +10604,7 @@ export default function EstimateGeneratorScreen() {
                     textAlignVertical: 'top',
                     paddingTop: 14,
                     fontSize: 14,
-                    color: getStepFieldTextColor(bid.customerNotes || ''),
+                    color: getStep12FieldTextColor(bid.customerNotes || ''),
                   }}
                 />
               </View>
@@ -10626,7 +10637,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="e.g., Kitchen Renovation"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={bid.title || ''}
                   onChangeText={(text) => updateBid('title', text)}
                   onFocus={() => setProjectTitleFocused(true)}
@@ -10634,7 +10645,7 @@ export default function EstimateGeneratorScreen() {
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                   blurOnSubmit={true}
-                  style={{ fontSize: 14, paddingVertical: 12, color: getStepFieldTextColor(bid.title || '') }}
+                  style={{ fontSize: 14, paddingVertical: 12, color: getStep12FieldTextColor(bid.title || '') }}
                 />
               </View>
 
@@ -10662,7 +10673,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="1250"
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                   value={bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''}
                   onChangeText={(text) => {
@@ -10688,7 +10699,7 @@ export default function EstimateGeneratorScreen() {
                     fontSize: 14,
                     lineHeight: 20,
                     paddingVertical: 12,
-                    color: getStepFieldTextColor(
+                    color: getStep12FieldTextColor(
                       bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''
                     ),
                   }}
@@ -10702,7 +10713,7 @@ export default function EstimateGeneratorScreen() {
                   labelStyle={s.label}
                   shellStyle={[estimateAccessoryShellStyle, { alignItems: 'flex-start', minHeight: 120 }]}
                   placeholder="Describe the project scope, requirements, and special considerations..."
-                  placeholderTextColor={estimateStepMutedInputColor}
+                  placeholderTextColor={estimateStep12PlaceholderColor}
                   value={bid.scopeDescription || ''}
                   onChangeText={(text) => updateBid('scopeDescription', text)}
                   onFocus={() => setProjectDescriptionFocused(true)}
@@ -10719,7 +10730,7 @@ export default function EstimateGeneratorScreen() {
                     textAlignVertical: 'top',
                     paddingTop: 14,
                     fontSize: 14,
-                    color: getStepFieldTextColor(bid.scopeDescription || ''),
+                    color: getStep12FieldTextColor(bid.scopeDescription || ''),
                   }}
                 />
               </View>
@@ -10730,7 +10741,7 @@ export default function EstimateGeneratorScreen() {
                   style={s.input}
                   onPress={() => setShowStartDateCalendar(!showStartDateCalendar)}
                 >
-                  <Text style={{ color: bid.startDate ? Colors.text : estimateStepMutedInputColor }}>
+                  <Text style={{ color: bid.startDate ? Colors.text : estimateStep12PlaceholderColor }}>
                     {bid.startDate ? new Date(bid.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select start date'}
                   </Text>
                 </TouchableOpacity>
@@ -10760,7 +10771,7 @@ export default function EstimateGeneratorScreen() {
                   style={s.input}
                   onPress={() => setShowEndDateCalendar(!showEndDateCalendar)}
                 >
-                  <Text style={{ color: bid.endDate ? Colors.text : estimateStepMutedInputColor }}>
+                  <Text style={{ color: bid.endDate ? Colors.text : estimateStep12PlaceholderColor }}>
                     {bid.endDate ? new Date(bid.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select end date'}
                   </Text>
                 </TouchableOpacity>
@@ -11088,7 +11099,7 @@ export default function EstimateGeneratorScreen() {
                                 <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                   Total Materials
                                 </Text>
-                                <Text style={{ color: '#2DFFC4', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                                <Text style={{ color: darkMode ? '#2DFFC4' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                   {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
                                 </Text>
                               </View>
@@ -11722,7 +11733,7 @@ export default function EstimateGeneratorScreen() {
                               <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                 Total Labor
                               </Text>
-                              <Text style={{ color: '#2DFFC4', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                              <Text style={{ color: darkMode ? '#2DFFC4' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                 {money(totalLabor)}
                               </Text>
                             </View>
@@ -12608,7 +12619,7 @@ export default function EstimateGeneratorScreen() {
                         color: contextualMessage?.type === 'low'
                           ? '#fca5a5'
                           : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
-                          ? '#99f6e4'
+                          ? (darkMode ? '#99f6e4' : '#000000')
                           : '#fde68a',
                         fontSize: 12,
                         fontWeight: '600',
@@ -17043,7 +17054,7 @@ export default function EstimateGeneratorScreen() {
             <TouchableOpacity
               activeOpacity={0.85}
               style={{
-                backgroundColor: darkMode ? '#000000' : '#FFFFFF',
+                backgroundColor: darkMode ? '#000000' : Colors.bg,
                 borderRadius: 22,
                 paddingHorizontal: 16,
                 paddingVertical: 10,
@@ -17771,7 +17782,7 @@ export default function EstimateGeneratorScreen() {
         animationType="slide"
         onRequestClose={() => setShowRecoveryModal(false)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }}>
+        <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: Colors.bg }}>
           <StatusBar barStyle={Colors.bg === '#000000' ? "light-content" : "dark-content"} />
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -17779,52 +17790,75 @@ export default function EstimateGeneratorScreen() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <ScrollView
-              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 }}
+              contentContainerStyle={{
+                paddingHorizontal: 20,
+                paddingTop: Math.max(insets.top, 0) + 10,
+                paddingBottom: 48,
+              }}
               showsVerticalScrollIndicator={false}
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
-            {/* Header */}
-            <View style={{ marginTop: 32, marginBottom: 18, marginHorizontal: -20, paddingHorizontal: 8 }}>
+            {/* Header — centered title; same top rhythm as scope modals (insets + 10) */}
+            <View style={{ marginBottom: 18, marginHorizontal: -20, paddingHorizontal: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 2,
-                    marginRight: 12,
-                    shadowColor: "#22c55e",
-                    shadowOpacity: 0.4,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 0 },
-                  }}
-                >
-                  <TouchableOpacity
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      setShowRecoveryModal(false);
-                    }}
+                <View style={{ width: 52, alignItems: 'flex-start' }}>
+                  <LinearGradient
+                    colors={['rgba(45, 255, 196, 0.8)', 'rgba(0, 166, 255, 0.8)']}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
                     style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 18,
-                      backgroundColor: '#000000',
-                      justifyContent: 'center',
-                      alignItems: 'center',
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      padding: 1,
                     }}
                   >
-                    <MaterialIcons name="arrow-back" size={20} color="#f9fafb" />
-                  </TouchableOpacity>
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#f9fafb', fontSize: 34, fontWeight: '900', letterSpacing: -0.3 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setShowRecoveryModal(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: 19,
+                        backgroundColor: darkMode ? '#000000' : Colors.bg,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <MaterialIcons
+                        name="arrow-back"
+                        size={24}
+                        color={darkMode ? '#FFFFFF' : Colors.text}
+                      />
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text
+                    style={{
+                      color: darkMode ? '#f9fafb' : '#000000',
+                      fontSize: 34,
+                      fontWeight: '900',
+                      letterSpacing: -0.3,
+                      textAlign: 'center',
+                    }}
+                  >
                     Restore
                   </Text>
-                  <Text style={{ color: '#FFFFFF', fontSize: 14, marginTop: 6 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? '#FFFFFF' : '#000000',
+                      fontSize: 14,
+                      marginTop: 6,
+                      textAlign: 'center',
+                    }}
+                  >
                     {savedEstimates.length} {savedEstimates.length === 1 ? 'saved bid' : 'saved bids'}
                   </Text>
                 </View>
+                <View style={{ width: 52 }} />
               </View>
             </View>
             
@@ -17846,20 +17880,47 @@ export default function EstimateGeneratorScreen() {
                 }}>
                   <Ionicons name="document-outline" size={40} color="#22c55e" />
                 </View>
-                <Text style={{ color: '#f9fafb', fontSize: 18, fontWeight: '700', marginBottom: 8, textAlign: 'center' }}>
+                <Text
+                  style={{
+                    color: darkMode ? '#f9fafb' : '#000000',
+                    fontSize: 18,
+                    fontWeight: '700',
+                    marginBottom: 8,
+                    textAlign: 'center',
+                  }}
+                >
                   No saved bids found
                 </Text>
-                <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center' }}>
+                <Text
+                  style={{
+                    color: darkMode ? '#FFFFFF' : '#000000',
+                    fontSize: 14,
+                    textAlign: 'center',
+                  }}
+                >
                   Save a bid to restore it later
                 </Text>
               </View>
             ) : (
               <View style={{ marginHorizontal: -20, paddingHorizontal: 8 }}>
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginBottom: 2 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? '#FFFFFF' : '#000000',
+                      fontSize: 20,
+                      fontWeight: '800',
+                      marginBottom: 2,
+                    }}
+                  >
                     Saved Bids
                   </Text>
-                  <Text style={{ marginTop: 2, fontSize: 13, color: '#FFFFFF' }}>
+                  <Text
+                    style={{
+                      marginTop: 2,
+                      fontSize: 13,
+                      color: darkMode ? '#FFFFFF' : '#000000',
+                    }}
+                  >
                     Tap to restore a saved bid
                   </Text>
                 </View>
@@ -17884,7 +17945,7 @@ export default function EstimateGeneratorScreen() {
                       style={{
                         borderRadius: 19,
                         padding: 16,
-                        backgroundColor: '#000000',
+                        backgroundColor: darkMode ? '#000000' : Colors.bg,
                       }}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -17895,18 +17956,35 @@ export default function EstimateGeneratorScreen() {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <View style={{ flex: 1, marginRight: 12 }}>
-                          <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>
+                          <Text
+                            style={{
+                              color: darkMode ? '#FFFFFF' : Colors.text,
+                              fontSize: 18,
+                              fontWeight: '700',
+                              marginBottom: 8,
+                            }}
+                          >
                             {item.title || 'Untitled Bid'}
                           </Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                            <Ionicons name="person-outline" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#FFFFFF', fontSize: 13 }}>
+                            <Ionicons
+                              name="person-outline"
+                              size={14}
+                              color={darkMode ? '#FFFFFF' : Colors.sub}
+                              style={{ marginRight: 6 }}
+                            />
+                            <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13 }}>
                               {item.customer || item.customerName || 'Unknown Customer'}
                             </Text>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="calendar-outline" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#FFFFFF', fontSize: 13 }}>
+                            <Ionicons
+                              name="calendar-outline"
+                              size={14}
+                              color={darkMode ? '#FFFFFF' : Colors.sub}
+                              style={{ marginRight: 6 }}
+                            />
+                            <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13 }}>
                               {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : (item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown date')}
                             </Text>
                           </View>

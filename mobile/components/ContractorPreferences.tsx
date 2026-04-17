@@ -21,6 +21,9 @@ import { useScoredLeads } from '../store/leads';
 import * as Haptics from 'expo-haptics';
 import { geocodeCity } from '../lib/geo';
 
+/** Same green→cyan frame as Estimates Bid Summary / leads sections (`#2DFFC4` → `#00A6FF`). */
+const SECTION_GRADIENT_BORDER_COLORS = ['#2DFFC4', '#00A6FF'] as const;
+
 interface ContractorPreferences {
   // Trade Types
   tradeTypes: {
@@ -826,7 +829,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
 
   const renderTradesTab = () => (
     <LinearGradient
-      colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
+      colors={[...SECTION_GRADIENT_BORDER_COLORS]}
       start={{ x: 0.05, y: 0.15 }}
       end={{ x: 0.95, y: 0.85 }}
       style={styles.tradesGradientBorder}
@@ -1439,7 +1442,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
       <View style={styles.headerContainer}>
         <View style={styles.backBtnWrapper}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={[...SECTION_GRADIENT_BORDER_COLORS]}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.backBtnBorder}
@@ -1560,7 +1563,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
+              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.matchQualityGradientBorder}
@@ -1623,7 +1626,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
+              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.impactGradientBorder}
@@ -1757,7 +1760,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           <View style={styles.deliverySection}>
             <View style={styles.wideContainer}>
               <LinearGradient
-                colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
+                colors={[...SECTION_GRADIENT_BORDER_COLORS]}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.availabilityGradientBorder}
@@ -1919,7 +1922,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           {/* AI Matching Rules - Collapsible */}
           <View style={styles.wideContainer}>
             <LinearGradient
-              colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
+              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.aiMatchingGradientBorder}

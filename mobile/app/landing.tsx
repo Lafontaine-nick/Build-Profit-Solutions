@@ -149,7 +149,7 @@ export default function LandingScreen() {
             end={{ x: 0.95, y: 0.9 }}
             style={styles.cardBorder}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
+            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line, borderWidth: 1 }]}>
               <View style={styles.cardHeaderRow}>
                 <View>
                   <Text style={styles.cardTitle}>{t('landing.getStarted')}</Text>
@@ -220,7 +220,7 @@ export default function LandingScreen() {
             end={{ x: 0.95, y: 0.9 }}
             style={[styles.cardBorder, { marginBottom: 0 }]}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
+            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line, borderWidth: 1 }]}>
               <View style={styles.cardHeaderRow}>
                 <View>
                   <Text style={styles.cardTitle}>{t('landing.whatBuildersSay')}</Text>
