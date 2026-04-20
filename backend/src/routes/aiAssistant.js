@@ -3,6 +3,30 @@ const router = express.Router();
 const axios = require('axios');
 const OpenAI = require('openai');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
+// Additive: persistent per-user memory. All calls are best-effort and wrapped
+// in try/catch so existing request logic is never blocked if this fails.
+let _userMemory = null;
+try {
+  // eslint-disable-next-line global-require
+  _userMemory = require('../services/userMemory');
+} catch (_err) {
+  _userMemory = null;
+}
+function _loadUserMemorySafe(req, opts) {
+  try {
+    if (!_userMemory) return { userId: null, memory: null };
+    const userId = _userMemory.resolveUserId(req, opts || {});
+    if (!userId) return { userId: null, memory: null };
+    return { userId, memory: _userMemory.loadUserMemory(userId) };
+  } catch (_err) {
+    return { userId: null, memory: null };
+  }
+}
+function _recordUserMemorySafe(args) {
+  try {
+    if (_userMemory && args?.userId) _userMemory.recordUserMemoryFromRequest(args);
+  } catch (_err) { /* ignore */ }
+}
 const {
   formatMarginReply,
   normalizeMoneyValue,
@@ -6638,6 +6662,8 @@ router.post('/stream', async (req, res) => {
 
     // Build a simplified system prompt for streaming (portfolio mode only)
     const streamBidMarginPct = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
+    // Additive: load persistent user memory for streaming path too.
+    const { userId: memoryUserIdStream, memory: userMemoryStream } = _loadUserMemorySafe(req, { sessionId, parsedContext });
     let streamSystemPrompt = buildSystemPrompt({
       projectName: parsedContext.currentProject || parsedContext.projectName,
       projectId: parsedContext.projectId,
@@ -6649,7 +6675,9 @@ router.post('/stream', async (req, res) => {
       bidMarginPct: typeof streamBidMarginPct === 'number' ? streamBidMarginPct : undefined,
       aiPmMode, pmAlerts: [],
       screen,
+      userMemory: userMemoryStream,
     });
+    _recordUserMemorySafe({ userId: memoryUserIdStream, message: normalizedMessage, parsedContext, session });
 
     if (isCommandCenter) {
       const projectStatusBlock = buildProjectStatusBlock(parsedContext);
@@ -8226,6 +8254,8 @@ router.post('/', async (req, res) => {
     const upcomingCalendarEvents = parsedContext.upcomingCalendarEvents || [];
     const bidMarginPctForPrompt = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? (projectId && allProjects?.length ? (() => { const p = allProjects.find(pr => String(pr?.id) === String(projectId)); return p?.bidMarginPct; })() : undefined);
     const aiScope = parsedContext.aiScope || (parsedContext.screen === 'Project Detail' || (parsedContext.screen === 'Estimate Generator' && projectId) ? 'project' : 'portfolio');
+    // Additive: load persistent user memory (safe — null when unavailable).
+    const { userId: memoryUserIdMain, memory: userMemoryMain } = _loadUserMemorySafe(req, { sessionId, parsedContext });
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
@@ -8240,7 +8270,10 @@ router.post('/', async (req, res) => {
       teamStats,
       calendarEvents,
       upcomingCalendarEvents,
+      userMemory: userMemoryMain,
     });
+    // Record observations after the prompt is built — never blocks the request.
+    _recordUserMemorySafe({ userId: memoryUserIdMain, message: normalizedMessage, parsedContext, session });
 
     // Additive: projects-list intelligence block (Global AI Assistant + Projects screen).
     const screenForIntelligence = (parsedContext?.screen || '').toLowerCase();
@@ -13173,6 +13206,127 @@ RULES:
         });
       }
 
+      // ── Multi-turn tool loop (ADDITIVE, gated, read-only follow-ups) ───
+      // When AI_MULTI_TURN_TOOLS=true, give the LLM one or two chances to
+      // request additional *read-only* lookups after it has seen the first
+      // tool results. Mutation tools (add_/create_/mark_/message_) are never
+      // executed in these extra rounds — only read-only helpers the existing
+      // codebase already exposes. If the flag is off (default), or the LLM
+      // returns only text, behavior is identical to before.
+      try {
+        const MULTI_TURN_ENABLED = String(process.env.AI_MULTI_TURN_TOOLS || '').toLowerCase() === 'true';
+        const MAX_EXTRA_ROUNDS = Number(process.env.AI_MULTI_TURN_MAX_ROUNDS || 2);
+        const READONLY_TOOL_ALLOWLIST = new Set([
+          'get_project_by_name',
+          'compare_projects',
+          'get_project_health',
+          'forecast_profit',
+        ]);
+
+        if (MULTI_TURN_ENABLED && toolCalls.length > 0) {
+          const readonlyFunctions = Array.isArray(functions)
+            ? functions.filter((f) => f?.function?.name && READONLY_TOOL_ALLOWLIST.has(f.function.name))
+            : [];
+
+          for (let round = 0; round < MAX_EXTRA_ROUNDS; round++) {
+            if (readonlyFunctions.length === 0) break;
+
+            // Nudge the model: "only chain if you really need more data"
+            const chainHint = {
+              role: 'system',
+              content: `You just received tool results. If those results fully answer the user, respond with FINAL TEXT — do not call any tools. Only call another tool if there is a clear, concrete read-only lookup you need to ground your answer (e.g., get_project_by_name to resolve an ambiguous name, compare_projects to get portfolio figures, get_project_health for focused drill-down, forecast_profit for projections). NEVER call mutation tools in follow-up rounds.`,
+            };
+            const roundMessages = [...messages, chainHint];
+
+            let roundCompletion;
+            try {
+              roundCompletion = await withTimeout(openai.chat.completions.create({
+                model: 'gpt-4o',
+                messages: roundMessages,
+                tools: readonlyFunctions,
+                tool_choice: 'auto',
+                temperature: 0.2,
+                max_tokens: 1200,
+              }), 25000, `multi_turn_round_${round + 1}`);
+            } catch (err) {
+              console.warn(`⚠️ multi-turn round ${round + 1} LLM call failed, stopping loop:`, err?.message);
+              break;
+            }
+
+            const extraToolCalls = roundCompletion?.choices?.[0]?.message?.tool_calls || [];
+            if (!extraToolCalls.length) {
+              // Model said "I'm done" — let the existing final LLM call produce
+              // the final summary exactly as today. Nothing more to do.
+              break;
+            }
+
+            // Record the assistant's tool-calling turn so tool_call_ids match up
+            const assistantMsg = roundCompletion.choices[0].message;
+            messages.push({
+              role: 'assistant',
+              content: assistantMsg.content || null,
+              tool_calls: assistantMsg.tool_calls,
+            });
+
+            // Execute each read-only tool using helpers already in this file.
+            for (const tc of extraToolCalls) {
+              const name = tc?.function?.name;
+              let args = {};
+              try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+
+              let toolResultPayload = { success: false, error: `Tool "${name}" is not available in follow-up rounds.` };
+              try {
+                if (!READONLY_TOOL_ALLOWLIST.has(name)) {
+                  toolResultPayload = { success: false, skipped: true, message: `Mutation tools are not allowed in follow-up rounds — call "${name}" in your initial turn instead.` };
+                } else if (name === 'get_project_by_name') {
+                  const match = resolveProjectByQuery(allProjects || [], args?.name || args?.query || '', {});
+                  toolResultPayload = match
+                    ? { success: true, project: { id: match.id, name: match.title || match.name, status: match.status || 'active' } }
+                    : { success: false, error: 'No matching project found.' };
+                } else if (name === 'compare_projects') {
+                  const compareOut = runCompareProjectsPipeline({ parsedContext, allProjects: allProjects || [], opts: args || {} });
+                  toolResultPayload = { success: true, ...(compareOut || {}) };
+                } else if (name === 'get_project_health') {
+                  const targetId = args?.projectId || projectId;
+                  const targetProject = (allProjects || []).find((p) => String(p?.id) === String(targetId));
+                  const snap = getProjectFinancialSnapshot({ parsedContext, project: targetProject || null });
+                  toolResultPayload = snap ? { success: true, health: snap } : { success: false, error: 'No snapshot available for that project.' };
+                } else if (name === 'forecast_profit') {
+                  const targetId = args?.projectId || projectId;
+                  const targetProject = (allProjects || []).find((p) => String(p?.id) === String(targetId));
+                  const snap = getProjectFinancialSnapshot({ parsedContext, project: targetProject || null });
+                  if (snap) {
+                    toolResultPayload = {
+                      success: true,
+                      projectedProfit: snap.projectedProfit ?? snap.projectedProfitDollars ?? null,
+                      projectedMarginPct: snap.projectedMarginPct ?? null,
+                      spendToDateMarginPct: snap.spendToDateMarginPct ?? null,
+                      summary: 'Forecast snapshot from latest project financials.',
+                    };
+                  } else {
+                    toolResultPayload = { success: false, error: 'Insufficient data to forecast profit.' };
+                  }
+                }
+              } catch (execErr) {
+                toolResultPayload = { success: false, error: execErr?.message || 'Follow-up tool execution failed.' };
+              }
+
+              messages.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                content: JSON.stringify(toolResultPayload),
+              });
+
+              console.log(`🔁 multi-turn round ${round + 1}: executed "${name}" → success=${toolResultPayload.success}`);
+            }
+            // Loop continues — model may request one more read-only lookup
+            // on the next iteration, up to MAX_EXTRA_ROUNDS.
+          }
+        }
+      } catch (multiTurnErr) {
+        console.warn('⚠️ multi-turn loop error (non-fatal):', multiTurnErr?.message);
+      }
+
       // Get final response from OpenAI after function execution
       // Add explicit instruction message to ensure AI reads function results correctly
       const functionResultsSummary = toolCalls.map((tc, idx) => {
@@ -13757,6 +13911,144 @@ router.post('/transcribe', async (req, res) => {
       error: 'Transcription failed',
       message: error.message || 'Failed to transcribe audio',
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/parse-receipt
+ * Additive: parse a receipt photo into structured expense fields using OpenAI Vision.
+ * Input:  { image: base64 string, mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }
+ * Output: { success, data: { vendor, amount, currency, date, category, tax, subtotal, lineItems: [...], confidence, rawText } }
+ * Does NOT create an expense — only returns parsed data so the existing
+ * add_material_expense / add_labor_expense flows can confirm + commit.
+ */
+router.post('/parse-receipt', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'Vision service unavailable',
+        message: 'OpenAI API key not configured',
+      });
+    }
+
+    const { image, mimeType = 'image/jpeg', projectHint = null } = req.body || {};
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'image (base64 string) is required' });
+    }
+
+    // Guard very large payloads. Express body limit is 25mb; images over 10mb are
+    // almost certainly un-downscaled camera originals and will slow vision calls.
+    const approxBytes = Math.floor((image.length * 3) / 4);
+    if (approxBytes > 10 * 1024 * 1024) {
+      return res.status(413).json({
+        error: 'Image too large',
+        message: 'Please downscale the receipt photo to under 10MB before sending.',
+      });
+    }
+
+    const safeMime = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic'].includes(String(mimeType).toLowerCase())
+      ? (String(mimeType).toLowerCase() === 'image/jpg' ? 'image/jpeg' : String(mimeType).toLowerCase())
+      : 'image/jpeg';
+
+    const dataUrl = `data:${safeMime};base64,${image}`;
+
+    const systemPrompt = `You extract structured expense data from a photo of a construction-related receipt or invoice. Return ONLY a valid JSON object — no prose, no markdown.
+
+Categories (choose the closest one):
+"Materials/Equipment" | "Labor" | "Permits" | "Plans" | "Rentals" | "Subcontractor" | "Fuel" | "Tools" | "Other"
+
+Rules:
+- "amount" is the GRAND TOTAL the customer paid (after tax, after discounts). Use null if unreadable.
+- "subtotal" is pre-tax if present; else null.
+- "tax" is the tax amount if shown; else null.
+- "date" must be YYYY-MM-DD. Use null if not clearly on the receipt.
+- "vendor" is the store / supplier name (e.g. "Home Depot", "Lowe's", "ABC Supply"). Use null if unclear.
+- "lineItems" should contain 1-6 of the most expensive items with { name, qty, unitPrice, total }. If a receipt is too dense, return an empty array.
+- "confidence" is 0-1 (how sure you are of the parsed data overall).
+- "rawText" is the approximate plain-text content of the receipt.
+- If this image is NOT a receipt/invoice, set success = false and explain in "reason".
+
+Schema:
+{
+  "success": true | false,
+  "reason": "string | null",
+  "vendor": "string | null",
+  "amount": number | null,
+  "currency": "string (default 'USD')",
+  "subtotal": number | null,
+  "tax": number | null,
+  "date": "YYYY-MM-DD | null",
+  "category": "string",
+  "lineItems": [{ "name": "string", "qty": number | null, "unitPrice": number | null, "total": number | null }],
+  "confidence": number,
+  "rawText": "string"
+}`;
+
+    const userTextParts = [
+      'Parse this receipt into the JSON schema.',
+    ];
+    if (projectHint && typeof projectHint === 'object') {
+      const name = projectHint.projectName || projectHint.currentProject || projectHint.title;
+      if (name) userTextParts.push(`Context: the contractor is currently working on project "${name}". Still only parse what the receipt actually shows.`);
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: 900,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userTextParts.join(' ') },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+    });
+
+    const raw = completion.choices?.[0]?.message?.content || '{}';
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseErr) {
+      console.error('❌ parse-receipt: invalid JSON from model', parseErr, raw?.slice(0, 200));
+      return res.status(502).json({
+        error: 'Invalid response from vision model',
+        message: 'The receipt could not be parsed reliably. Try a clearer photo.',
+      });
+    }
+
+    // Normalize / lightly sanitize — never invent numbers.
+    const clean = {
+      success: data.success !== false,
+      reason: data.reason || null,
+      vendor: data.vendor ? String(data.vendor).trim() : null,
+      amount: typeof data.amount === 'number' ? data.amount : (data.amount ? Number(data.amount) : null),
+      currency: data.currency || 'USD',
+      subtotal: typeof data.subtotal === 'number' ? data.subtotal : (data.subtotal ? Number(data.subtotal) : null),
+      tax: typeof data.tax === 'number' ? data.tax : (data.tax ? Number(data.tax) : null),
+      date: (typeof data.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.date)) ? data.date : null,
+      category: data.category ? String(data.category) : 'Materials/Equipment',
+      lineItems: Array.isArray(data.lineItems) ? data.lineItems.slice(0, 10).map((li) => ({
+        name: li?.name ? String(li.name) : 'Item',
+        qty: typeof li?.qty === 'number' ? li.qty : (li?.qty ? Number(li.qty) : null),
+        unitPrice: typeof li?.unitPrice === 'number' ? li.unitPrice : (li?.unitPrice ? Number(li.unitPrice) : null),
+        total: typeof li?.total === 'number' ? li.total : (li?.total ? Number(li.total) : null),
+      })) : [],
+      confidence: typeof data.confidence === 'number' ? Math.max(0, Math.min(1, data.confidence)) : 0.6,
+      rawText: typeof data.rawText === 'string' ? data.rawText.slice(0, 4000) : '',
+    };
+
+    return res.json({ success: true, data: clean });
+  } catch (err) {
+    console.error('❌ /parse-receipt error:', err);
+    return res.status(500).json({
+      error: 'Receipt parsing failed',
+      message: err.message || 'Unexpected error',
     });
   }
 });

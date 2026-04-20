@@ -188,6 +188,47 @@ function mergeDuplicateProjectsByIdPreferStatus(projectsRaw) {
 }
 
 /**
+ * Remove duplicate insights. Prefer matching on normalized title only: rule-based
+ * rows include projectId, but GPT often repeats the same title without projectId,
+ * so projectId+title keys miss those duplicates.
+ * Keeps first occurrence (rule-based before AI in the combined array).
+ */
+function dedupeInsightsByNormalizedTitle(insights) {
+  if (!Array.isArray(insights) || insights.length === 0) return insights;
+  const seen = new Set();
+  const out = [];
+  for (const ins of insights) {
+    const title =
+      ins.title != null ? String(ins.title).trim().toLowerCase() : '';
+    if (title) {
+      if (seen.has(title)) continue;
+      seen.add(title);
+    }
+    out.push(ins);
+  }
+  return out;
+}
+
+/**
+ * Same idea for next steps (follow-up vs AI duplicate without projectId).
+ */
+function dedupeNextStepsByNormalizedLabel(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return steps;
+  const seen = new Set();
+  const out = [];
+  for (const st of steps) {
+    const label =
+      st.label != null ? String(st.label).trim().toLowerCase() : '';
+    if (label) {
+      if (seen.has(label)) continue;
+      seen.add(label);
+    }
+    out.push(st);
+  }
+  return out;
+}
+
+/**
  * Get material stats for a specific user's projects
  */
 async function getMaterialStatsForUser(userId, projectsForModel) {
@@ -851,8 +892,14 @@ Return ONLY JSON in this shape:
 
   // ---------- Combine rule-based + AI insights ---------- //
 
-  const allInsights = [...baseInsights, ...aiInsights];
-  const allNextSteps = [...baseNextSteps, ...aiNextSteps];
+  const allInsights = dedupeInsightsByNormalizedTitle([
+    ...baseInsights,
+    ...aiInsights,
+  ]);
+  const allNextSteps = dedupeNextStepsByNormalizedLabel([
+    ...baseNextSteps,
+    ...aiNextSteps,
+  ]);
 
   console.log('[AI Dashboard] Final insights count:', {
     baseInsights: baseInsights.length,

@@ -28,6 +28,7 @@ import Constants from "expo-constants";
 import { Audio } from "expo-av";
 // Use legacy API for readAsStringAsync (deprecated in v19+ but still works)
 import * as FileSystemLegacy from "expo-file-system/legacy";
+import * as ImagePicker from "expo-image-picker";
 import SubcontractorSearchModal from "./SubcontractorSearchModal";
 import { useAIManagerMode } from "@/state/useAIManagerMode";
 import { Switch, ActivityIndicator } from "react-native";
@@ -241,6 +242,116 @@ async function fetchWithFallback(urls: string[], options: RequestInit, timeout =
   const allErrors = errors.map((e, i) => `  ${i + 1}. ${urls[i]}: ${e.message}`).join('\n');
   console.warn(`❌ All connection attempts failed:\n${allErrors}`);
   throw lastError || new Error('All connection attempts failed');
+}
+
+// ─── Streaming helpers (additive — existing POST path is the fallback) ────
+// Streaming is OPT-IN via EXPO_PUBLIC_AI_STREAMING. When true, conversational
+// messages will try the SSE /stream endpoint for instant token-by-token UX.
+// Action messages (log / add / create / mark / scan / etc.) ALWAYS go through
+// the non-streaming POST because /stream does not execute tool calls.
+const STREAMING_ENABLED = String(
+  process.env.EXPO_PUBLIC_AI_STREAMING ?? 'true'
+).toLowerCase() === 'true';
+
+/**
+ * Returns true only if the message looks like pure conversational Q&A.
+ * Any command-like intent falls back to the POST path so tool execution,
+ * selection cards, and action callbacks continue to work unchanged.
+ */
+function isStreamSafeMessage(raw: string): boolean {
+  if (!raw || typeof raw !== 'string') return false;
+  const msg = raw.trim().toLowerCase();
+  if (msg.length === 0 || msg.length > 400) return false;
+  const actionIntent = /\b(log|add|create|make|mark|record|scan|upload|invoice|send|approve|assign|schedule|book|pay|collect|generate|populate|build an?\s*estimate|run a scenario|what if|scenario|change order|purchase order|po\b)\b/;
+  if (actionIntent.test(msg)) return false;
+  return true;
+}
+
+type StreamEvent =
+  | { type: 'token'; content: string }
+  | { type: 'done'; suggestedFollowUps?: any; sessionId?: string }
+  | { type: 'error'; message?: string };
+
+/**
+ * POST to an SSE endpoint and emit parsed events as they arrive.
+ * Uses XMLHttpRequest so it works across React Native platforms without
+ * depending on streaming fetch implementation details.
+ */
+function streamSSE(opts: {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  onEvent: (ev: StreamEvent) => void;
+}): Promise<void> {
+  const { url, headers, body, timeoutMs, onEvent } = opts;
+  return new Promise((resolve, reject) => {
+    let processedIndex = 0;
+    let bufferConsumedToChar = 0;
+    let done = false;
+    let gotAnyToken = false;
+    const xhr = new XMLHttpRequest();
+
+    const handleBuffer = () => {
+      try {
+        const text = xhr.responseText || '';
+        if (text.length <= bufferConsumedToChar) return;
+        const chunk = text.slice(bufferConsumedToChar);
+        bufferConsumedToChar = text.length;
+        processedIndex += chunk.length;
+        // Split SSE events by blank lines
+        const events = (chunk).split(/\n\n/);
+        for (const ev of events) {
+          const line = ev.trim();
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed && parsed.type === 'token' && typeof parsed.content === 'string') {
+              gotAnyToken = true;
+              onEvent(parsed);
+            } else if (parsed && parsed.type === 'done') {
+              done = true;
+              onEvent(parsed);
+            } else if (parsed && parsed.type === 'error') {
+              onEvent(parsed);
+            }
+          } catch {
+            // ignore malformed fragments — a partial JSON chunk will be re-joined next tick
+          }
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    xhr.open('POST', url, true);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    xhr.timeout = timeoutMs;
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState >= 3) handleBuffer();
+      if (xhr.readyState === 4) {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          handleBuffer();
+          if (!gotAnyToken && !done) return reject(new Error('Stream produced no tokens'));
+          resolve();
+        } else {
+          reject(new Error(`Stream HTTP ${xhr.status}`));
+        }
+      }
+    };
+    xhr.ontimeout = () => reject(new Error('Stream request timed out'));
+    xhr.onerror = () => reject(new Error('Stream request failed'));
+
+    try {
+      xhr.send(body);
+    } catch (err) {
+      reject(err as Error);
+    }
+  });
 }
 
 function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 'project' | 'general' {
@@ -2249,6 +2360,158 @@ const AIAssistantModal: React.FC<Props> = ({
     }
   };
 
+  // ─── Receipt photo → parsed expense (additive, non-invasive) ─────────────
+  const captureAndParseReceipt = async (source: 'camera' | 'library') => {
+    try {
+      // Permissions
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Camera permission needed', 'Enable camera access in Settings to scan receipts.');
+          return;
+        }
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Photos permission needed', 'Enable photo access in Settings to upload receipts.');
+          return;
+        }
+      }
+
+      const pickerResult = source === 'camera'
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 0.6,
+            base64: true,
+            exif: false,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 0.6,
+            base64: true,
+            exif: false,
+          });
+
+      if (pickerResult.canceled || !pickerResult.assets?.length) return;
+
+      const asset = pickerResult.assets[0];
+      let base64 = asset.base64 || '';
+      if (!base64 && asset.uri) {
+        try {
+          base64 = await FileSystemLegacy.readAsStringAsync(asset.uri, { encoding: 'base64' });
+        } catch (_readErr) {
+          base64 = '';
+        }
+      }
+      if (!base64) {
+        Alert.alert('Could not read image', 'Please try again with a different photo.');
+        return;
+      }
+
+      // Determine mime — picker usually returns jpg from camera; fall back safely
+      const mimeType = asset.mimeType || (asset.uri?.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+
+      // Give the user quick feedback — insert a placeholder "scanning…" bubble
+      setLoading(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const scanningMsg = {
+        id: `${Date.now()}-receipt-scan`,
+        role: 'assistant' as const,
+        content: 'Scanning your receipt…',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, scanningMsg]);
+
+      // Build project hint so the model knows which project is active
+      let projectHint: any = null;
+      try {
+        const ctx = typeof context === 'string' ? JSON.parse(context) : (context || {});
+        projectHint = {
+          projectName: ctx?.currentProject || ctx?.projectName || null,
+          projectId: ctx?.projectId || null,
+        };
+      } catch (_e) { /* ignore */ }
+
+      const token = await getToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const AI_API_BASE = resolveAIBaseUrl();
+      const API_URL = `${AI_API_BASE}/api/ai-assistant/parse-receipt`;
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ image: base64, mimeType, projectHint }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody?.message || `Receipt parse failed (${res.status})`);
+      }
+      const payload = await res.json();
+      const data = payload?.data || {};
+
+      if (!data.success) {
+        setMessages((prev) => prev.map((m) => m.id === scanningMsg.id
+          ? { ...m, content: `I couldn't read that as a receipt. ${data.reason ? `Reason: ${data.reason}. ` : ''}Try a clearer, well-lit photo of the full receipt.` }
+          : m
+        ));
+        return;
+      }
+
+      // Build a short, contractor-friendly summary and then hand the numbers
+      // straight to the existing assistant so the standard expense-logging
+      // flow confirms + commits. We do NOT auto-commit — the user confirms.
+      const amountStr = typeof data.amount === 'number' ? `$${Number(data.amount).toLocaleString()}` : 'an unknown amount';
+      const vendorStr = data.vendor || 'Unknown vendor';
+      const dateStr = data.date || 'today';
+      const categoryStr = data.category || 'Materials/Equipment';
+      const topItems = Array.isArray(data.lineItems) && data.lineItems.length > 0
+        ? data.lineItems.slice(0, 3).map((li: any) => `• ${li.name || 'Item'}${li.total ? ` — $${Number(li.total).toLocaleString()}` : ''}`).join('\n')
+        : '';
+
+      const summary = `📷 Receipt parsed (confidence ${Math.round((data.confidence || 0) * 100)}%):\n\n` +
+        `• Vendor: ${vendorStr}\n` +
+        `• Total: ${amountStr}\n` +
+        `• Date: ${dateStr}\n` +
+        `• Category: ${categoryStr}` +
+        (topItems ? `\n\nTop items:\n${topItems}` : '') +
+        `\n\nWant me to log this as an expense?`;
+
+      setMessages((prev) => prev.map((m) => m.id === scanningMsg.id ? { ...m, content: summary } : m));
+
+      // Pre-fill the input with a ready-to-send expense command. The user can
+      // tap send (or edit first) — this keeps the existing add_material_expense
+      // / add_labor_expense flow in charge of the actual write.
+      const isLabor = String(categoryStr).toLowerCase() === 'labor';
+      const commandText = isLabor
+        ? `Log a labor expense${data.amount ? ` of $${data.amount}` : ''}${vendorStr && vendorStr !== 'Unknown vendor' ? ` for ${vendorStr}` : ''}${data.date ? ` on ${data.date}` : ''} — from receipt scan.`
+        : `Log a ${categoryStr.toLowerCase()} expense${data.amount ? ` of $${data.amount}` : ''}${vendorStr && vendorStr !== 'Unknown vendor' ? ` from ${vendorStr}` : ''}${data.date ? ` on ${data.date}` : ''} — from receipt scan.`;
+      setInput(commandText);
+    } catch (err: any) {
+      console.error('❌ Receipt scan error:', err);
+      Alert.alert('Receipt scan failed', err?.message || 'Please try again with a clearer photo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const promptReceiptSource = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Scan Receipt',
+      'Snap a receipt photo or pick one from your library. I\'ll parse vendor, amount, date and category and prep an expense for you to confirm.',
+      [
+        { text: 'Take Photo', onPress: () => captureAndParseReceipt('camera') },
+        { text: 'Choose from Library', onPress: () => captureAndParseReceipt('library') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
   const sendMessage = async (messageOverride?: string) => {
     const messageToSend = messageOverride || input.trim();
     if (!messageToSend || loading) return;
@@ -2772,6 +3035,77 @@ const AIAssistantModal: React.FC<Props> = ({
 
       if (contextToSend) {
         contextToSend = stampAiContextSnapshot(contextToSend) ?? contextToSend;
+      }
+
+      // ── Streaming fast-path (opt-in, auto-fallback) ────────────────────
+      // Only used for conversational Q&A. Action messages and any streaming
+      // error fall through to the existing POST path so tool calls, selection
+      // cards, and action handlers continue to work exactly as before.
+      if (STREAMING_ENABLED && isStreamSafeMessage(newMessage.content)) {
+        const streamPlaceholderId = `${Date.now()}-stream`;
+        const streamPlaceholder: Message = {
+          id: streamPlaceholderId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, streamPlaceholder]);
+        setIsTyping(false);
+
+        const streamBody = JSON.stringify({
+          message: newMessage.content,
+          context: contextToSend,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          user_settings: { ai_project_manager_mode: aiManagerEnabled },
+          sessionId,
+        });
+
+        let streamedReply = '';
+        let streamFollowUps: any = null;
+        let streamOk = false;
+        const streamUrl = (urlsToTry[0] || `${resolveAIBaseUrl()}/api/ai-assistant`).replace(/\/$/, '') + '/stream';
+
+        try {
+          await streamSSE({
+            url: streamUrl,
+            headers,
+            body: streamBody,
+            timeoutMs: AI_REQUEST_TIMEOUT_MS,
+            onEvent: (ev) => {
+              if (ev.type === 'token') {
+                streamedReply += ev.content;
+                setMessages((prev) => prev.map((m) => m.id === streamPlaceholderId ? { ...m, content: streamedReply } : m));
+              } else if (ev.type === 'done') {
+                streamFollowUps = ev.suggestedFollowUps || null;
+                streamOk = true;
+              } else if (ev.type === 'error') {
+                // Will be turned into a thrown error in the outer catch via resolve.
+                streamOk = false;
+              }
+            },
+          });
+
+          if (streamOk && streamedReply.trim().length > 0) {
+            // NOTE: /stream does not execute tool calls or selection cards, so
+            // we only surface the streamed text. Action flows (expenses, POs,
+            // scenarios) are routed to the POST path by isStreamSafeMessage().
+            void streamFollowUps;
+            setLoading(false);
+            // Haptic + scroll to mirror the regular path's UX.
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setTimeout(() => { flatListRef.current?.scrollToEnd({ animated: true }); }, 80);
+            return;
+          }
+
+          // Fell through — remove placeholder and fall back to POST path.
+          setMessages((prev) => prev.filter((m) => m.id !== streamPlaceholderId));
+          setIsTyping(true);
+        } catch (streamErr) {
+          console.warn('⚠️ Streaming failed, falling back to POST:', streamErr);
+          setMessages((prev) => prev.filter((m) => m.id !== streamPlaceholderId));
+          setIsTyping(true);
+          // fall through to normal POST below
+        }
       }
 
       const response = await fetchWithFallback(
@@ -4971,6 +5305,20 @@ const AIAssistantModal: React.FC<Props> = ({
                           }}
                       />
                     )}
+                    {/* Receipt scan button (camera → vision parse) */}
+                    <TouchableOpacity
+                      onPress={promptReceiptSource}
+                      disabled={loading || isRecording}
+                      style={styles.receiptButton}
+                      accessibilityLabel="Scan a receipt"
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="camera-outline"
+                        size={20}
+                        color={Colors.green}
+                      />
+                    </TouchableOpacity>
                     {/* Microphone button */}
                     <TouchableOpacity
                       onPress={isRecording ? stopRecording : startRecording}
@@ -5515,6 +5863,12 @@ const styles = StyleSheet.create({
   micButton: {
     padding: 10,
     marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptButton: {
+    padding: 10,
+    marginRight: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },

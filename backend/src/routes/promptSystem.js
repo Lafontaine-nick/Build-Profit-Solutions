@@ -3,7 +3,19 @@
 // Layer 1: BASE (global rules, extraction logic, safety)
 // Layer 2: DOMAIN INJECTION (expenses, POs, timeline, estimates, budget)
 // Layer 3: PERSONA OVERLAY (PM off = concise operator, PM on = proactive PM)
+// (Additive) Optional USER PROFILE block (persistent memory) — only injected
+// when userMemory is passed into buildSystemPrompt. Existing callers that do
+// not pass userMemory continue to get the exact same prompt they did before.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Lazy-required so buildSystemPrompt stays usable in isolation.
+let _buildUserMemoryPromptBlock = null;
+try {
+  // eslint-disable-next-line global-require
+  _buildUserMemoryPromptBlock = require('../services/userMemory').buildUserMemoryPromptBlock;
+} catch (_err) {
+  _buildUserMemoryPromptBlock = null;
+}
 
 /**
  * Build the system prompt dynamically based on context.
@@ -38,6 +50,7 @@ function buildSystemPrompt(opts = {}) {
     aiScope: aiScopeOpt = null,
     teamMembers = [], teamStats = { total: 0, active: 0, offDuty: 0 },
     calendarEvents = [], upcomingCalendarEvents = [],
+    userMemory = null,
   } = opts;
 
   const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((status || '').toLowerCase());
@@ -653,10 +666,24 @@ RULES:
 → Every number you cite must come from this list — never invent figures` : '';
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // (Additive) USER PROFILE — persistent memory across sessions
+  // Only appended if userMemory is passed and produces a non-empty block.
+  // ═══════════════════════════════════════════════════════════════════════════
+  let userProfileBlock = '';
+  try {
+    if (userMemory && typeof _buildUserMemoryPromptBlock === 'function') {
+      userProfileBlock = _buildUserMemoryPromptBlock(userMemory) || '';
+    }
+  } catch (_err) {
+    userProfileBlock = '';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // ASSEMBLE
   // ═══════════════════════════════════════════════════════════════════════════
   const sections = [
     base,
+    userProfileBlock,
     contractorPhrasingBlock,
     findSubBlock,
     judgmentPromptsBlock,

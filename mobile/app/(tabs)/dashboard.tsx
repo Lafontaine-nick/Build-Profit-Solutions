@@ -248,6 +248,40 @@ function appendMissingClientRetrospectiveInsights(
   return [...(insights ?? []), ...extra];
 }
 
+/**
+ * Same title often appears twice when rule-based + GPT both emit a card, or when
+ * one row has projectId and the other does not. Keeps first (prefer server order).
+ */
+function dedupeAiInsightsByNormalizedTitle(insights: AiInsight[]): AiInsight[] {
+  if (!insights?.length) return insights ?? [];
+  const seen = new Set<string>();
+  const out: AiInsight[] = [];
+  for (const ins of insights) {
+    const t = ins.title != null ? String(ins.title).trim().toLowerCase() : "";
+    if (t) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+    }
+    out.push(ins);
+  }
+  return out;
+}
+
+function dedupeAiNextStepsByNormalizedLabel(steps: AiNextStep[]): AiNextStep[] {
+  if (!steps?.length) return steps ?? [];
+  const seen = new Set<string>();
+  const out: AiNextStep[] = [];
+  for (const st of steps) {
+    const lb = st.label != null ? String(st.label).trim().toLowerCase() : "";
+    if (lb) {
+      if (seen.has(lb)) continue;
+      seen.add(lb);
+    }
+    out.push(st);
+  }
+  return out;
+}
+
 /** One subtle operational line per dashboard project card */
 const getDashboardProjectOperationalSignal = (project: {
   rawProject: any;
@@ -2871,13 +2905,19 @@ const DashboardScreen: React.FC = () => {
         }),
       };
       
-      const mergedInsights = appendMissingClientRetrospectiveInsights(
-        filteredData.insights,
-        completedSummaries
+      const mergedInsights = dedupeAiInsightsByNormalizedTitle(
+        appendMissingClientRetrospectiveInsights(
+          filteredData.insights,
+          completedSummaries
+        )
+      );
+      const dedupedNextSteps = dedupeAiNextStepsByNormalizedLabel(
+        filteredData.nextSteps
       );
       const filteredDataWithRetrospectives = {
         ...filteredData,
         insights: mergedInsights,
+        nextSteps: dedupedNextSteps,
       };
 
       if (__DEV__) {
@@ -3041,23 +3081,25 @@ const DashboardScreen: React.FC = () => {
       timelineProgress
     );
 
-    return aiData.insights.filter((insight) => {
-      const pid = normalizeInsightProjectId(insight);
-      const blob = `${insight.title || ""} ${insight.body || ""}`;
-      const retrospective =
-        insight.retrospective === true ||
-        String(insight.id || "").startsWith("completed-retrospective-");
-      if (pid && closedIds.has(pid)) {
-        return retrospective;
-      }
-      if (aiTextReferencesCompletedJob(blob, closedTitles) && !retrospective) {
-        return false;
-      }
-      if (pid) {
-        return currentProjectIds.has(pid);
-      }
-      return true;
-    });
+    return dedupeAiInsightsByNormalizedTitle(
+      aiData.insights.filter((insight) => {
+        const pid = normalizeInsightProjectId(insight);
+        const blob = `${insight.title || ""} ${insight.body || ""}`;
+        const retrospective =
+          insight.retrospective === true ||
+          String(insight.id || "").startsWith("completed-retrospective-");
+        if (pid && closedIds.has(pid)) {
+          return retrospective;
+        }
+        if (aiTextReferencesCompletedJob(blob, closedTitles) && !retrospective) {
+          return false;
+        }
+        if (pid) {
+          return currentProjectIds.has(pid);
+        }
+        return true;
+      })
+    );
   }, [aiData?.insights, activeProjects, estimates, timelineProgress]);
 
   const filteredNextSteps = useMemo(() => {
@@ -3079,19 +3121,21 @@ const DashboardScreen: React.FC = () => {
       timelineProgress
     );
 
-    return aiData.nextSteps.filter((step) => {
-      const stepText = String(step.label || "").toLowerCase();
-      if (stepText.includes("josh")) return false;
+    return dedupeAiNextStepsByNormalizedLabel(
+      aiData.nextSteps.filter((step) => {
+        const stepText = String(step.label || "").toLowerCase();
+        if (stepText.includes("josh")) return false;
 
-      const pid = normalizeInsightProjectId(step);
-      const stepBlob = `${step.label || ""} ${step.chip || ""}`;
-      if (pid && closedIds.has(pid)) return false;
-      if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
-      if (pid) {
-        return currentProjectIds.has(pid);
-      }
-      return true;
-    });
+        const pid = normalizeInsightProjectId(step);
+        const stepBlob = `${step.label || ""} ${step.chip || ""}`;
+        if (pid && closedIds.has(pid)) return false;
+        if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
+        if (pid) {
+          return currentProjectIds.has(pid);
+        }
+        return true;
+      })
+    );
   }, [aiData?.nextSteps, activeProjects, estimates, timelineProgress]);
 
   // Transform projects data - only show submitted and above (hide draft/estimate)
@@ -3813,12 +3857,18 @@ const InsightItem = ({
       <View style={[styles.insightIconCircle, { borderColor: colorMap[type] }]}>
         <Ionicons name={iconMap[type]} size={16} color={colorMap[type]} />
       </View>
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={styles.insightTitle}>{title}</Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+          <Text
+            style={[styles.insightTitle, { flex: 1, minWidth: 0 }]}
+            numberOfLines={4}
+          >
+            {title}
+          </Text>
           <Pressable
             onPress={() => setShowTooltip(!showTooltip)}
-            style={{ padding: 4 }}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            style={{ flexShrink: 0, padding: 4, marginTop: -2 }}
           >
             <Ionicons 
               name="information-circle-outline" 

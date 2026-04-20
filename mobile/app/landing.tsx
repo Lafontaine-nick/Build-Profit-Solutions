@@ -106,13 +106,12 @@ export default function LandingScreen() {
                     {/* Gloss highlight on the ring */}
                     <View pointerEvents="none" style={styles.logoGloss} />
             <Image
-                      source={require("../assets/images/bps-logo-white.png")}
-                      key={`logo-${darkMode ? 'dark' : 'light'}`}
-              style={[
-                styles.logoImage,
-                // Only apply black tint in light mode, no tint in dark mode (original white/blue)
-                !darkMode ? { tintColor: '#000000' } : undefined
-              ]}
+                      source={
+                        darkMode
+                          ? require("../assets/images/bps-logo-updated.png")
+                          : require("../assets/images/bps-logo-updated-light.png")
+                      }
+              style={styles.logoImage}
                       resizeMode="contain"
                     />
                   </View>
@@ -313,9 +312,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   logoOuter: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 116,
+    height: 116,
+    borderRadius: 58,
     padding: 3,
     justifyContent: "center",
     alignItems: "center",
@@ -324,14 +323,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: darkMode ? "#000000" : Colors.card,
+    backgroundColor: darkMode ? "#000000" : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
   },
   logoImage: {
-    width: 70,
-    height: 70,
+    width: 176,
+    height: 176,
   },
   logoGloss: {
     position: "absolute",
