@@ -104,6 +104,95 @@ const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
   },
 ];
 
+type ProjectLeakCard = {
+  id: string;
+  title: string;
+  body: string;
+  severity: 'high' | 'medium' | 'low';
+};
+
+const buildProjectLeakCards = ({
+  project,
+  metrics,
+  liveTimelineMilestones,
+}: {
+  project: any;
+  metrics: any;
+  liveTimelineMilestones: any[];
+}): ProjectLeakCard[] => {
+  const cards: ProjectLeakCard[] = [];
+  const status = String(project?.status || '').toLowerCase();
+  const isCompleted = status === 'completed' || status === 'done' || status === 'finished';
+  if (!metrics || isCompleted) return cards;
+
+  const budgetCap = Number(metrics?.costBudgetCap || 0);
+  const spentAndCommitted = Number(metrics?.totalSpent || 0) + Number(metrics?.committedPOsTotal || 0);
+  const progress = Number(metrics?.scheduleProgress || 0);
+  const expectedSpend = budgetCap > 0 ? budgetCap * (progress / 100) : 0;
+  const spendAheadBy = Math.max(0, spentAndCommitted - expectedSpend);
+  const pf = metrics?.profitForecast;
+  const projectedMargin = Number(pf?.projectedMarginPct || 0);
+  const originalMargin = Number(pf?.estimatedMarginPct || 0);
+  const marginDrop = originalMargin > 0 && projectedMargin > 0 ? (originalMargin - projectedMargin) : 0;
+  const expenses = Array.isArray(project?.expenses) ? project.expenses : Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : [];
+  const missingReceipts = expenses.filter((expense: any) => !expense?.receiptUri || !String(expense.receiptUri).trim()).length;
+  const overduePayments = (Array.isArray(liveTimelineMilestones) ? liveTimelineMilestones : []).filter((m: any) => {
+    const due = m?.date ? new Date(m.date) : null;
+    if (!due || Number.isNaN(due.getTime())) return false;
+    const name = String(m?.title || m?.name || '').toLowerCase();
+    const isPayment = name.includes('payment') || m?.type === 'payment';
+    const isCollected = m?.paid === true || m?.collected === true || m?.status === 'paid';
+    return isPayment && !isCollected && due.getTime() < Date.now();
+  });
+
+  if (progress > 0 && budgetCap > 0 && spendAheadBy > Math.max(1000, budgetCap * 0.08)) {
+    cards.push({
+      id: 'spend-ahead',
+      severity: spendAheadBy > budgetCap * 0.15 ? 'high' : 'medium',
+      title: 'Spend is ahead of progress',
+      body: `This job is ${Math.round((spentAndCommitted / budgetCap) * 100)}% spent at ${Math.round(progress)}% progress. Review labor, materials, or scope before margin slips further.`,
+    });
+  }
+
+  if (budgetCap > 0 && spentAndCommitted > budgetCap) {
+    cards.push({
+      id: 'over-budget',
+      severity: spentAndCommitted > budgetCap * 1.1 ? 'high' : 'medium',
+      title: 'Budget is already exceeded',
+      body: `Current cost exposure is about $${Math.round(spentAndCommitted - budgetCap).toLocaleString()} over the planned cost budget. Check the biggest overrun categories first.`,
+    });
+  }
+
+  if (marginDrop >= 5) {
+    cards.push({
+      id: 'margin-erosion',
+      severity: marginDrop >= 10 ? 'high' : 'medium',
+      title: 'Projected margin is eroding',
+      body: `Projected margin has moved from about ${originalMargin.toFixed(1)}% to ${projectedMargin.toFixed(1)}%. Tighten cost control or recover scope before the job closes out.`,
+    });
+  }
+
+  if (overduePayments.length > 0) {
+    cards.push({
+      id: 'collections',
+      severity: overduePayments.length > 1 ? 'high' : 'medium',
+      title: 'Collections need attention',
+      body: `${overduePayments.length} payment milestone${overduePayments.length > 1 ? 's are' : ' is'} overdue. Slow collections can squeeze cash even when the job still looks profitable.`,
+    });
+  }
+
+  if (missingReceipts >= 3) {
+    cards.push({
+      id: 'receipts',
+      severity: missingReceipts >= 6 ? 'medium' : 'low',
+      title: 'Cost backup is incomplete',
+      body: `${missingReceipts} expense${missingReceipts > 1 ? 's are' : ' is'} missing receipts. Missing backup makes profit tracking less trustworthy.`,
+    });
+  }
+
+  return cards.slice(0, 4);
+};
+
 // Circular Progress Component
 const CircularProgress = ({
   progress,
@@ -219,6 +308,8 @@ function ProjectDetailContent() {
   const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
 
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
+  /** When there are no leak cards, section starts collapsed; tap header to expand details. */
+  const [profitLeakEmptyExpanded, setProfitLeakEmptyExpanded] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [showActivationFlow, setShowActivationFlow] = useState(false);
   const [activationChecklist, setActivationChecklist] = useState({
@@ -380,6 +471,10 @@ function ProjectDetailContent() {
       }
     };
     loadTimeline();
+  }, [id]);
+
+  useEffect(() => {
+    setProfitLeakEmptyExpanded(false);
   }, [id]);
 
   // Re-load live timeline when AI assistant opens or tab changes (to catch recent completions)
@@ -1434,6 +1529,16 @@ function ProjectDetailContent() {
     };
   }, [safeProjectData, currentDate, liveTimelineMilestones]); // Include liveTimelineMilestones so Schedule matches Timeline tab
 
+  const projectLeakCards = useMemo(
+    () =>
+      buildProjectLeakCards({
+        project: safeProjectData,
+        metrics: overviewMetrics,
+        liveTimelineMilestones,
+      }),
+    [safeProjectData, overviewMetrics, liveTimelineMilestones]
+  );
+
   const renderTabContent = () => {
     try {
       console.log('🔍 Rendering tab:', activeTab);
@@ -1458,6 +1563,7 @@ function ProjectDetailContent() {
                   : pfStatus === 'At Risk'
                     ? '#F97316'
                     : '#EF4444';
+          const profitLeaksEmpty = projectLeakCards.length === 0;
           return (
             <View style={styles.wideContainer}>
               <LinearGradient
@@ -1601,6 +1707,107 @@ function ProjectDetailContent() {
                           </Text>
                         </View>
                       </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.innerCardContainer}>
+                    <View style={styles.innerCard}>
+                      <Pressable
+                        onPress={() => {
+                          if (!profitLeaksEmpty) return;
+                          void Haptics.selectionAsync();
+                          setProfitLeakEmptyExpanded((v) => !v);
+                        }}
+                        disabled={!profitLeaksEmpty}
+                        accessibilityRole={profitLeaksEmpty ? 'button' : undefined}
+                        accessibilityLabel={
+                          profitLeaksEmpty
+                            ? profitLeakEmptyExpanded
+                              ? 'Profit leaks: none. Collapse section.'
+                              : 'Profit leaks: none. Expand for details.'
+                            : undefined
+                        }
+                      >
+                        <View
+                          style={[
+                            styles.overviewCardHeaderRow,
+                            profitLeaksEmpty && !profitLeakEmptyExpanded && { marginBottom: 0 },
+                          ]}
+                        >
+                          <View style={styles.overviewCardHeaderTitleCluster}>
+                            <View style={styles.iconBadge}>
+                              <Feather name="alert-triangle" size={16} color="#22c55e" />
+                            </View>
+                            <View style={styles.overviewCardHeaderTitleWrap}>
+                              <Text style={styles.overviewSectionTitle} numberOfLines={1}>
+                                Profit Leak Detector
+                              </Text>
+                            </View>
+                          </View>
+                          {profitLeaksEmpty ? (
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: '600',
+                                  color: '#22c55e',
+                                }}
+                                numberOfLines={1}
+                              >
+                                No leaks
+                              </Text>
+                              <Feather
+                                name={profitLeakEmptyExpanded ? 'chevron-up' : 'chevron-down'}
+                                size={18}
+                                color={Colors.sub}
+                              />
+                            </View>
+                          ) : null}
+                        </View>
+                      </Pressable>
+
+                      {projectLeakCards.length > 0 ? (
+                        projectLeakCards.map((card, index) => {
+                          const accent =
+                            card.severity === 'high'
+                              ? '#f97316'
+                              : card.severity === 'medium'
+                                ? '#f59e0b'
+                                : '#22d3ee';
+                          return (
+                            <View
+                              key={card.id}
+                              style={[
+                                styles.projectLeakCard,
+                                index === projectLeakCards.length - 1 && { marginBottom: 0 },
+                              ]}
+                            >
+                              <View style={[styles.projectLeakAccent, { backgroundColor: accent }]} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.projectLeakTitle}>{card.title}</Text>
+                                <Text style={styles.projectLeakBody}>{card.body}</Text>
+                              </View>
+                            </View>
+                          );
+                        })
+                      ) : profitLeakEmptyExpanded ? (
+                        <View style={[styles.projectLeakCard, { marginBottom: 0 }]}>
+                          <View style={[styles.projectLeakAccent, { backgroundColor: '#22c55e' }]} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.projectLeakTitle}>No major profit leaks detected</Text>
+                            <Text style={styles.projectLeakBody}>
+                              This project looks stable right now. Keep costs, progress, and payment milestones updated so the app can flag issues early.
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
 
@@ -3767,6 +3974,33 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: darkMode ? 4 : 2,
+  },
+  projectLeakCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.line,
+  },
+  projectLeakAccent: {
+    width: 4,
+    borderRadius: 999,
+    alignSelf: 'stretch',
+  },
+  projectLeakTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  projectLeakBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: darkMode ? 'rgba(255,255,255,0.8)' : '#475569',
   },
   cardHeaderRow: {
     flexDirection: "row",

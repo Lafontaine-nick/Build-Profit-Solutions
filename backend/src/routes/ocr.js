@@ -1,7 +1,22 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
+const {
+  createOpenAiClient,
+  getAiModels,
+  getAiRuntimeSettings,
+  getOpenAiApiKey,
+  hasValidOpenAiKey,
+} = require('../config/aiConfig');
 const ENABLE_MOCK_OCR = process.env.ENABLE_MOCK_OCR === 'true';
+const aiModels = getAiModels();
+const aiRuntime = getAiRuntimeSettings();
+
+function getOcrClient() {
+  const apiKey = getOpenAiApiKey();
+  if (!hasValidOpenAiKey(apiKey)) return null;
+  return createOpenAiClient(apiKey);
+}
 
 // Configure multer for handling image uploads
 const upload = multer({
@@ -32,21 +47,12 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Check if OpenAI API key is configured
-    const hasOpenAIKey = process.env.OPENAI_API_KEY &&
-      process.env.OPENAI_API_KEY !== 'your_openai_api_key_here' &&
-      !process.env.OPENAI_API_KEY.includes('YOUR_OPE') &&
-      process.env.OPENAI_API_KEY.length > 20;
+    const client = getOcrClient();
 
-    if (hasOpenAIKey) {
+    if (client) {
       
       // Use OpenAI Vision API for real OCR
       try {
-        const openai = require('openai');
-        const client = new openai.OpenAI({
-          apiKey: process.env.OPENAI_API_KEY
-        });
-
         let imageData;
         if (req.file) {
           imageData = req.file.buffer.toString('base64');
@@ -55,7 +61,9 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
         }
 
         const response = await client.chat.completions.create({
-          model: "gpt-4o",
+          model: aiModels.ocr.receipt,
+          temperature: aiRuntime.ocr.receipt.temperature,
+          max_tokens: aiRuntime.ocr.receipt.maxTokens,
           messages: [
             {
               role: "user",
@@ -98,8 +106,7 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
                 }
               ]
             }
-          ],
-          max_tokens: 1000
+          ]
         });
 
         const content = response.choices[0].message.content;
@@ -204,23 +211,14 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
  */
 router.post('/receipt/openai', upload.single('image'), async (req, res) => {
   try {
-    const openai = require('openai');
-    
-    const hasOpenAIKey = process.env.OPENAI_API_KEY &&
-      process.env.OPENAI_API_KEY !== 'your_openai_api_key_here' &&
-      !process.env.OPENAI_API_KEY.includes('YOUR_OPE') &&
-      process.env.OPENAI_API_KEY.length > 20;
+    const client = getOcrClient();
 
-    if (!hasOpenAIKey) {
+    if (!client) {
       return res.status(503).json({
         success: false,
         error: 'OpenAI API key not configured'
       });
     }
-
-    const client = new openai.OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
 
     let imageData;
     if (req.file) {
@@ -235,7 +233,9 @@ router.post('/receipt/openai', upload.single('image'), async (req, res) => {
     }
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o",
+      model: aiModels.ocr.receipt,
+      temperature: aiRuntime.ocr.receipt.temperature,
+      max_tokens: aiRuntime.ocr.receipt.maxTokens,
       messages: [
         {
           role: "user",
@@ -277,9 +277,7 @@ router.post('/receipt/openai', upload.single('image'), async (req, res) => {
             }
           ]
         }
-      ],
-      max_tokens: 1000,
-      temperature: 0.1
+      ]
     });
 
     const content = response.choices[0].message.content;

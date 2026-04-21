@@ -28,7 +28,6 @@ import Constants from "expo-constants";
 import { Audio } from "expo-av";
 // Use legacy API for readAsStringAsync (deprecated in v19+ but still works)
 import * as FileSystemLegacy from "expo-file-system/legacy";
-import * as ImagePicker from "expo-image-picker";
 import SubcontractorSearchModal from "./SubcontractorSearchModal";
 import { useAIManagerMode } from "@/state/useAIManagerMode";
 import { Switch, ActivityIndicator } from "react-native";
@@ -2358,158 +2357,6 @@ const AIAssistantModal: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  // ─── Receipt photo → parsed expense (additive, non-invasive) ─────────────
-  const captureAndParseReceipt = async (source: 'camera' | 'library') => {
-    try {
-      // Permissions
-      if (source === 'camera') {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert('Camera permission needed', 'Enable camera access in Settings to scan receipts.');
-          return;
-        }
-      } else {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert('Photos permission needed', 'Enable photo access in Settings to upload receipts.');
-          return;
-        }
-      }
-
-      const pickerResult = source === 'camera'
-        ? await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: false,
-            quality: 0.6,
-            base64: true,
-            exif: false,
-          })
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: false,
-            quality: 0.6,
-            base64: true,
-            exif: false,
-          });
-
-      if (pickerResult.canceled || !pickerResult.assets?.length) return;
-
-      const asset = pickerResult.assets[0];
-      let base64 = asset.base64 || '';
-      if (!base64 && asset.uri) {
-        try {
-          base64 = await FileSystemLegacy.readAsStringAsync(asset.uri, { encoding: 'base64' });
-        } catch (_readErr) {
-          base64 = '';
-        }
-      }
-      if (!base64) {
-        Alert.alert('Could not read image', 'Please try again with a different photo.');
-        return;
-      }
-
-      // Determine mime — picker usually returns jpg from camera; fall back safely
-      const mimeType = asset.mimeType || (asset.uri?.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
-
-      // Give the user quick feedback — insert a placeholder "scanning…" bubble
-      setLoading(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      const scanningMsg = {
-        id: `${Date.now()}-receipt-scan`,
-        role: 'assistant' as const,
-        content: 'Scanning your receipt…',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, scanningMsg]);
-
-      // Build project hint so the model knows which project is active
-      let projectHint: any = null;
-      try {
-        const ctx = typeof context === 'string' ? JSON.parse(context) : (context || {});
-        projectHint = {
-          projectName: ctx?.currentProject || ctx?.projectName || null,
-          projectId: ctx?.projectId || null,
-        };
-      } catch (_e) { /* ignore */ }
-
-      const token = await getToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const AI_API_BASE = resolveAIBaseUrl();
-      const API_URL = `${AI_API_BASE}/api/ai-assistant/parse-receipt`;
-
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ image: base64, mimeType, projectHint }),
-      });
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody?.message || `Receipt parse failed (${res.status})`);
-      }
-      const payload = await res.json();
-      const data = payload?.data || {};
-
-      if (!data.success) {
-        setMessages((prev) => prev.map((m) => m.id === scanningMsg.id
-          ? { ...m, content: `I couldn't read that as a receipt. ${data.reason ? `Reason: ${data.reason}. ` : ''}Try a clearer, well-lit photo of the full receipt.` }
-          : m
-        ));
-        return;
-      }
-
-      // Build a short, contractor-friendly summary and then hand the numbers
-      // straight to the existing assistant so the standard expense-logging
-      // flow confirms + commits. We do NOT auto-commit — the user confirms.
-      const amountStr = typeof data.amount === 'number' ? `$${Number(data.amount).toLocaleString()}` : 'an unknown amount';
-      const vendorStr = data.vendor || 'Unknown vendor';
-      const dateStr = data.date || 'today';
-      const categoryStr = data.category || 'Materials/Equipment';
-      const topItems = Array.isArray(data.lineItems) && data.lineItems.length > 0
-        ? data.lineItems.slice(0, 3).map((li: any) => `• ${li.name || 'Item'}${li.total ? ` — $${Number(li.total).toLocaleString()}` : ''}`).join('\n')
-        : '';
-
-      const summary = `📷 Receipt parsed (confidence ${Math.round((data.confidence || 0) * 100)}%):\n\n` +
-        `• Vendor: ${vendorStr}\n` +
-        `• Total: ${amountStr}\n` +
-        `• Date: ${dateStr}\n` +
-        `• Category: ${categoryStr}` +
-        (topItems ? `\n\nTop items:\n${topItems}` : '') +
-        `\n\nWant me to log this as an expense?`;
-
-      setMessages((prev) => prev.map((m) => m.id === scanningMsg.id ? { ...m, content: summary } : m));
-
-      // Pre-fill the input with a ready-to-send expense command. The user can
-      // tap send (or edit first) — this keeps the existing add_material_expense
-      // / add_labor_expense flow in charge of the actual write.
-      const isLabor = String(categoryStr).toLowerCase() === 'labor';
-      const commandText = isLabor
-        ? `Log a labor expense${data.amount ? ` of $${data.amount}` : ''}${vendorStr && vendorStr !== 'Unknown vendor' ? ` for ${vendorStr}` : ''}${data.date ? ` on ${data.date}` : ''} — from receipt scan.`
-        : `Log a ${categoryStr.toLowerCase()} expense${data.amount ? ` of $${data.amount}` : ''}${vendorStr && vendorStr !== 'Unknown vendor' ? ` from ${vendorStr}` : ''}${data.date ? ` on ${data.date}` : ''} — from receipt scan.`;
-      setInput(commandText);
-    } catch (err: any) {
-      console.error('❌ Receipt scan error:', err);
-      Alert.alert('Receipt scan failed', err?.message || 'Please try again with a clearer photo.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const promptReceiptSource = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert(
-      'Scan Receipt',
-      'Snap a receipt photo or pick one from your library. I\'ll parse vendor, amount, date and category and prep an expense for you to confirm.',
-      [
-        { text: 'Take Photo', onPress: () => captureAndParseReceipt('camera') },
-        { text: 'Choose from Library', onPress: () => captureAndParseReceipt('library') },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
   };
 
   const sendMessage = async (messageOverride?: string) => {
@@ -5305,20 +5152,6 @@ const AIAssistantModal: React.FC<Props> = ({
                           }}
                       />
                     )}
-                    {/* Receipt scan button (camera → vision parse) */}
-                    <TouchableOpacity
-                      onPress={promptReceiptSource}
-                      disabled={loading || isRecording}
-                      style={styles.receiptButton}
-                      accessibilityLabel="Scan a receipt"
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="camera-outline"
-                        size={20}
-                        color={Colors.green}
-                      />
-                    </TouchableOpacity>
                     {/* Microphone button */}
                     <TouchableOpacity
                       onPress={isRecording ? stopRecording : startRecording}
@@ -5863,12 +5696,6 @@ const styles = StyleSheet.create({
   micButton: {
     padding: 10,
     marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  receiptButton: {
-    padding: 10,
-    marginRight: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },

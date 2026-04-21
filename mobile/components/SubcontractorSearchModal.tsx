@@ -25,7 +25,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { YelpResultsFooter, InlineAttribution } from '@/components/AttributionBadge';
+import { YelpResultsFooter } from '@/components/AttributionBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChat } from '../contexts/ChatContext';
 import { ChatModal } from './ChatModal';
@@ -34,164 +34,14 @@ import { clerkAuthService } from '@/services/clerkAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
-
-// Enhanced subcontractor data with campaign information
-const MOCK_SUBCONTRACTORS = [
-  {
-    id: '1',
-    name: 'Elite Plumbing Services',
-    trade: 'Plumbing',
-    rating: 4.9,
-    reviews: 156,
-    hourlyRate: { min: 85, max: 120 },
-    location: 'Las Vegas, NV',
-    distance: 3.2,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Emergency'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-  {
-    id: '2',
-    name: 'Apex Electrical Contractors',
-    trade: 'Electrical',
-    rating: 4.8,
-    reviews: 203,
-    hourlyRate: { min: 95, max: 140 },
-    location: 'Henderson, NV',
-    distance: 5.7,
-    licensed: true,
-    insured: true,
-    availability: 'Available in 3 days',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Industrial', 'Solar'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-  {
-    id: '3',
-    name: 'Desert Framing Crew',
-    trade: 'Framing',
-    rating: 4.7,
-    reviews: 89,
-    hourlyRate: { min: 65, max: 95 },
-    location: 'North Las Vegas, NV',
-    distance: 8.1,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Metal Framing'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-  {
-    id: '4',
-    name: 'Pro HVAC Solutions',
-    trade: 'HVAC',
-    rating: 4.9,
-    reviews: 134,
-    hourlyRate: { min: 100, max: 150 },
-    location: 'Las Vegas, NV',
-    distance: 4.5,
-    licensed: true,
-    insured: true,
-    availability: 'Available in 1 week',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Maintenance'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-  {
-    id: '5',
-    name: 'Precision Drywall & Finish',
-    trade: 'Drywall',
-    rating: 4.6,
-    reviews: 76,
-    hourlyRate: { min: 55, max: 85 },
-    location: 'Henderson, NV',
-    distance: 6.3,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Texture', 'Repair'],
-    // Source identification
-    source: 'app',
-    sourceLabel: 'App User',
-    sourceColor: '#10B981',
-  },
-  {
-    id: '6',
-    name: 'Mastercraft Painting',
-    trade: 'Painting',
-    rating: 4.8,
-    reviews: 112,
-    hourlyRate: { min: 45, max: 75 },
-    location: 'Las Vegas, NV',
-    distance: 2.8,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Interior', 'Exterior', 'Commercial'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-  {
-    id: '7',
-    name: 'Nevada Roofing Pros',
-    trade: 'Roofing',
-    rating: 4.9,
-    reviews: 198,
-    hourlyRate: { min: 75, max: 110 },
-    location: 'Las Vegas, NV',
-    distance: 5.1,
-    licensed: true,
-    insured: true,
-    availability: 'Available in 2 weeks',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Repair'],
-    // Source identification
-    source: 'app',
-    sourceLabel: 'App User',
-    sourceColor: '#10B981',
-  },
-  {
-    id: '8',
-    name: 'Flooring Masters LLC',
-    trade: 'Flooring',
-    rating: 4.7,
-    reviews: 94,
-    hourlyRate: { min: 60, max: 90 },
-    location: 'Henderson, NV',
-    distance: 7.2,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Hardwood', 'Tile', 'Laminate'],
-    // Source identification
-    source: 'yelp',
-    sourceLabel: 'Yelp Business',
-    sourceColor: '#FF1A1A',
-  },
-];
+/** Off by default — set `EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED=true` + `YELP_API_KEY` on backend when you enable Yelp. */
+function isYelpSubSearchEnabled(): boolean {
+  if (process.env.EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED === 'true') return true;
+  const extra = Constants.expoConfig?.extra as { yelpSubSearchEnabled?: boolean } | undefined;
+  return extra?.yelpSubSearchEnabled === true;
+}
 
 const TRADE_OPTIONS = [
   'All Trades',
@@ -205,6 +55,67 @@ const TRADE_OPTIONS = [
   'Flooring',
   'Concrete',
   'Landscaping',
+];
+
+/** Matches estimate-generator Step 4 `GlassBorderCard` / `GRAD` — green → cyan border */
+const ESTIMATE_STEP_GLASS_BORDER_GRAD = ['#2DFFC4', '#00A6FF'] as const;
+
+/**
+ * UI-only samples when Yelp is off and there are no campaign subs — not real Yelp listings.
+ * (Previously labeled "Yelp Business" without an API; restored as honest "Sample" rows.)
+ */
+const DEMO_SUBCONTRACTORS: any[] = [
+  {
+    id: 'demo-1',
+    name: 'Elite Plumbing Services',
+    trade: 'Plumbing',
+    rating: 4.9,
+    reviews: 156,
+    hourlyRate: { min: 85, max: 120 },
+    location: 'Las Vegas, NV',
+    distance: 3.2,
+    licensed: true,
+    insured: true,
+    availability: 'Available Now',
+    image: 'https://via.placeholder.com/80',
+    specialties: ['Residential', 'Commercial', 'Emergency'],
+    source: 'demo',
+    sourceLabel: 'Sample',
+  },
+  {
+    id: 'demo-2',
+    name: 'Apex Electrical Contractors',
+    trade: 'Electrical',
+    rating: 4.8,
+    reviews: 203,
+    hourlyRate: { min: 95, max: 140 },
+    location: 'Henderson, NV',
+    distance: 5.7,
+    licensed: true,
+    insured: true,
+    availability: 'Available in 3 days',
+    image: 'https://via.placeholder.com/80',
+    specialties: ['Residential', 'Industrial', 'Solar'],
+    source: 'demo',
+    sourceLabel: 'Sample',
+  },
+  {
+    id: 'demo-3',
+    name: 'Desert Framing Crew',
+    trade: 'Framing',
+    rating: 4.7,
+    reviews: 89,
+    hourlyRate: { min: 65, max: 95 },
+    location: 'North Las Vegas, NV',
+    distance: 8.1,
+    licensed: true,
+    insured: true,
+    availability: 'Available Now',
+    image: 'https://via.placeholder.com/80',
+    specialties: ['Residential', 'Commercial', 'Metal Framing'],
+    source: 'demo',
+    sourceLabel: 'Sample',
+  },
 ];
 
 interface SubcontractorSearchModalProps {
@@ -227,6 +138,7 @@ function SubcontractorSearchModal({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const yelpSubSearchEnabled = useMemo(() => isYelpSubSearchEnabled(), []);
   /** Shared UI tokens — Find Subcontractors + Contractor Profile polish */
   const subMeta = darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub;
   const subMeta2 = darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub;
@@ -235,6 +147,17 @@ function SubcontractorSearchModal({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+  };
+  /** Same border/fill as estimate Step 1 customer fields + main search inputs on this modal */
+  const requestFormInputShell = {
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: darkMode ? '#f8fafc' : Colors.text,
   };
   const { createConversation } = useChat();
   const router = useRouter();
@@ -357,8 +280,8 @@ function SubcontractorSearchModal({
   useEffect(() => {
     if (visible) {
       loadCampaigns();
-      // Use mock data (Yelp API costs $200/month - not using for now)
-      setYelpResults(MOCK_SUBCONTRACTORS);
+      // Real Yelp rows load when user taps Search (see fetchYelpSubcontractors).
+      setYelpResults([]);
       setSelectedTrade('All Trades');
       setSearchQuery('');
     }
@@ -426,11 +349,18 @@ function SubcontractorSearchModal({
     };
   };
 
-  // Fetch real subcontractors from Yelp API
+  // Fetch subcontractors via backend → Yelp Fusion (requires YELP_API_KEY on server)
   const fetchYelpSubcontractors = async () => {
+    if (!yelpSubSearchEnabled) return;
     try {
       setLoading(true);
-      
+      const zip = zipCode.replace(/\D/g, '');
+      if (zip.length < 5) {
+        Alert.alert('ZIP code', 'Enter a 5-digit ZIP so we can search near the job site.');
+        setLoading(false);
+        return;
+      }
+
       // Map trade to Yelp search term
       const tradeMap: { [key: string]: string } = {
         'All Trades': 'contractors',
@@ -445,30 +375,41 @@ function SubcontractorSearchModal({
         'Concrete': 'concrete contractor',
         'Landscaping': 'landscaper',
       };
-      
+
       const searchTerm = tradeMap[selectedTrade] || selectedTrade.toLowerCase();
-      
-      // Call Yelp API
-      const response = await fetch(
-        `${API_BASE_URL}/yelp/search?term=${encodeURIComponent(searchTerm)}&location=${zipCode}&categories=contractors&limit=20&sort_by=rating`
-      );
-      
+      const apiBase = resolveBackendRestApiBaseUrl();
+      const url = `${apiBase}/yelp/search?term=${encodeURIComponent(searchTerm)}&location=${encodeURIComponent(zip)}&categories=contractors&limit=20&sort_by=rating`;
+
+      const response = await fetch(url);
+
       if (!response.ok) {
-        throw new Error('Failed to fetch from Yelp API');
+        let detail = '';
+        try {
+          const errBody = await response.json();
+          detail = errBody?.error || errBody?.details || '';
+        } catch {
+          /* ignore */
+        }
+        throw new Error(detail || `Request failed (${response.status})`);
       }
-      
+
       const data = await response.json();
-      
-      // Convert Yelp businesses to subcontractor format
       const yelpSubcontractors = (data.businesses || []).map(convertYelpToSubcontractor);
-      
-      // Store Yelp results (filtering will happen in useEffect)
       setYelpResults(yelpSubcontractors);
-      setLoading(false);
-    } catch (error) {
+
+      if (data.metadata?.isMockData) {
+        console.warn('Yelp:', data.metadata?.message || 'Server returned mock businesses (set YELP_API_KEY on backend for live Yelp).');
+      }
+    } catch (error: any) {
       console.error('Error fetching Yelp subcontractors:', error);
-      // Fallback to mock data on error
-      setYelpResults(MOCK_SUBCONTRACTORS);
+      setYelpResults([]);
+      Alert.alert(
+        'Search unavailable',
+        typeof error?.message === 'string' && error.message
+          ? error.message
+          : 'Could not load businesses. Check your connection and that the backend has Yelp configured.',
+      );
+    } finally {
       setLoading(false);
     }
   };
@@ -478,10 +419,16 @@ function SubcontractorSearchModal({
 
   // Enhanced filtering with campaign data
   useEffect(() => {
-    // Combine Yelp results with campaigns
     const campaignSubcontractors = campaigns.map(convertCampaignToSubcontractor);
     let filtered = [...yelpResults, ...campaignSubcontractors];
-    
+
+    // When Yelp search is off and there is no network data, show labeled samples (not Yelp).
+    const noNetwork =
+      !yelpSubSearchEnabled && yelpResults.length === 0 && campaignSubcontractors.length === 0;
+    if (noNetwork) {
+      filtered = [...filtered, ...DEMO_SUBCONTRACTORS];
+    }
+
     // Filter by trade
     if (selectedTrade !== 'All Trades') {
       const canon = normalizeTrade(selectedTrade);
@@ -500,16 +447,19 @@ function SubcontractorSearchModal({
     }
     
     setResults(filtered);
-  }, [selectedTrade, searchQuery, campaigns, yelpResults]);
+  }, [selectedTrade, searchQuery, campaigns, yelpResults, yelpSubSearchEnabled]);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
+    if (yelpSubSearchEnabled) {
+      await fetchYelpSubcontractors();
+      return;
+    }
     setLoading(true);
-    
-    // Simulate search with mock data (Yelp API costs $200/month - not using for now)
-    setTimeout(() => {
-      // Filtering happens in useEffect based on selectedTrade and searchQuery
+    try {
+      await loadCampaigns();
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   const handleSelectSubcontractor = (sub: any) => {
@@ -625,7 +575,8 @@ function SubcontractorSearchModal({
       console.log('📋 budgetMin explicitly removed?', !('budgetMin' in cleanRequestData));
       console.log('📋 budgetMax in request?', 'budgetMax' in cleanRequestData, cleanRequestData.budgetMax);
 
-      const response = await fetch(`${API_BASE_URL}/project-leads`, {
+      const apiBase = resolveBackendRestApiBaseUrl();
+      const response = await fetch(`${apiBase}/project-leads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -905,7 +856,13 @@ function SubcontractorSearchModal({
                 }}
               >
                 <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 16, letterSpacing: 0.2 }}>
-                  {loading ? 'Searching...' : 'Search Subcontractors'}
+                  {loading
+                    ? yelpSubSearchEnabled
+                      ? 'Searching...'
+                      : 'Refreshing...'
+                    : yelpSubSearchEnabled
+                      ? 'Search Subcontractors'
+                      : 'Refresh list'}
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -942,7 +899,9 @@ function SubcontractorSearchModal({
             {loading && (
               <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#22c55e" />
-                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>Searching...</Text>
+                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>
+                  {yelpSubSearchEnabled ? 'Searching...' : 'Refreshing...'}
+                </Text>
               </View>
             )}
 
@@ -954,22 +913,27 @@ function SubcontractorSearchModal({
                 </Text>
                 
                 {results.map(sub => (
-                <View
+                <LinearGradient
                   key={sub.id}
-                  style={{
-                    borderRadius: 14,
-                    marginBottom: 10,
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(45, 255, 196, 0.18)' : Colors.line,
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
-                    overflow: 'hidden',
-                  }}
+                  colors={[...ESTIMATE_STEP_GLASS_BORDER_GRAD]}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={{ borderRadius: 14, padding: 1, marginBottom: 10 }}
                 >
+                  <View
+                    style={{
+                      borderRadius: 13,
+                      overflow: 'hidden',
+                      backgroundColor: darkMode ? Colors.card : Colors.bg,
+                      borderWidth: 1,
+                      borderColor: Colors.line,
+                    }}
+                  >
                   <TouchableOpacity
                     style={{
                       paddingHorizontal: 14,
                       paddingVertical: 12,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
+                      backgroundColor: 'transparent',
                     }}
                     onPress={() => {
                       setSelectedSubcontractor(sub);
@@ -993,30 +957,55 @@ function SubcontractorSearchModal({
                           gap: 4
                         }}>
                           <View style={{
-                            backgroundColor: sub.source === 'yelp'
-                              ? (darkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
-                              : (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2),
+                            backgroundColor:
+                              sub.source === 'yelp'
+                                ? (darkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
+                                : sub.source === 'demo'
+                                  ? (darkMode ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)')
+                                  : (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2),
                             paddingHorizontal: 7,
                             paddingVertical: 3,
                             borderRadius: 8,
                             flexDirection: 'row',
                             alignItems: 'center',
                             borderWidth: 1,
-                            borderColor: sub.source === 'yelp'
-                              ? 'rgba(248, 113, 113, 0.28)'
-                              : (darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line),
+                            borderColor:
+                              sub.source === 'yelp'
+                                ? 'rgba(248, 113, 113, 0.28)'
+                                : sub.source === 'demo'
+                                  ? 'rgba(245, 158, 11, 0.35)'
+                                  : (darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line),
                           }}>
-                            <MaterialIcons 
+                            <MaterialIcons
                               name={
                                 sub.source === 'campaign' ? 'campaign' :
                                 sub.source === 'yelp' ? 'business' :
+                                sub.source === 'demo' ? 'science' :
                                 sub.source === 'app' ? 'person' : 'apps'
-                              } 
-                              size={11} 
-                              color={sub.source === 'yelp' ? (darkMode ? '#fca5a5' : '#b91c1c') : (darkMode ? 'rgba(226,232,240,0.75)' : Colors.sub)} 
+                              }
+                              size={11}
+                              color={
+                                sub.source === 'yelp'
+                                  ? (darkMode ? '#fca5a5' : '#b91c1c')
+                                  : sub.source === 'demo'
+                                    ? (darkMode ? '#fbbf24' : '#b45309')
+                                    : (darkMode ? 'rgba(226,232,240,0.75)' : Colors.sub)
+                              }
                             />
-                            <Text style={{ color: sub.source === 'yelp' ? (darkMode ? '#fca5a5' : '#b91c1c') : (darkMode ? 'rgba(226,232,240,0.85)' : Colors.text), fontSize: 10, fontWeight: '600', marginLeft: 3 }}>
-                              {sub.sourceLabel || 'UNKNOWN'}
+                            <Text
+                              style={{
+                                color:
+                                  sub.source === 'yelp'
+                                    ? (darkMode ? '#fca5a5' : '#b91c1c')
+                                    : sub.source === 'demo'
+                                      ? (darkMode ? '#fcd34d' : '#b45309')
+                                      : (darkMode ? 'rgba(226,232,240,0.85)' : Colors.text),
+                                fontSize: 10,
+                                fontWeight: '600',
+                                marginLeft: 3,
+                              }}
+                            >
+                              {sub.sourceLabel || 'Network'}
                             </Text>
                           </View>
                           {sub.campaignVerified && (
@@ -1025,7 +1014,12 @@ function SubcontractorSearchModal({
                         </View>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                        <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>⭐ {sub.rating}</Text>
+                        <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>
+                          ⭐{' '}
+                          {typeof sub.rating === 'number' && !Number.isNaN(sub.rating)
+                            ? sub.rating.toFixed(1)
+                            : sub.rating}
+                        </Text>
                         <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1184,11 +1178,13 @@ function SubcontractorSearchModal({
                     )}
                   </View>
                   </TouchableOpacity>
-                </View>
+                  </View>
+                </LinearGradient>
                 ))}
                 
-                {/* Yelp Attribution Footer */}
-                <YelpResultsFooter style={{ marginTop: 16, marginBottom: 20 }} />
+                {yelpSubSearchEnabled && yelpResults.length > 0 ? (
+                  <YelpResultsFooter style={{ marginTop: 16, marginBottom: 20 }} />
+                ) : null}
               </View>
             )}
 
@@ -1396,7 +1392,12 @@ function SubcontractorSearchModal({
                     )}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ color: '#fbbf24', fontSize: 18, fontWeight: '700', marginRight: 8 }}>⭐ {selectedSubcontractor.rating}</Text>
+                    <Text style={{ color: '#fbbf24', fontSize: 18, fontWeight: '700', marginRight: 8 }}>
+                      ⭐{' '}
+                      {typeof selectedSubcontractor.rating === 'number' && !Number.isNaN(selectedSubcontractor.rating)
+                        ? selectedSubcontractor.rating.toFixed(1)
+                        : selectedSubcontractor.rating}
+                    </Text>
                     <Text style={{ color: subMeta, fontSize: 14 }}>({selectedSubcontractor.reviews} reviews)</Text>
                   </View>
                 </View>
@@ -2028,88 +2029,40 @@ function SubcontractorSearchModal({
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
                     Trade type *
                   </Text>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 14, padding: 1 }}
-                  >
-                    <TextInput
-                      style={{
-                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
-                        borderRadius: 13,
-                        paddingHorizontal: 16,
-                        paddingVertical: 14,
-                        minHeight: 52,
-                        fontSize: 16,
-                        color: darkMode ? '#f8fafc' : Colors.text,
-                        borderWidth: 0,
-                      }}
-                      value={requestFormData.trade || requestFormData.customTrade}
-                      onChangeText={(text) => setRequestFormData({ ...requestFormData, trade: '', customTrade: text })}
-                      placeholder="e.g. Plumbing, electrical, tile…"
-                      placeholderTextColor={subMeta2}
-                    />
-                  </LinearGradient>
+                  <TextInput
+                    style={{ ...requestFormInputShell, minHeight: 52 }}
+                    value={requestFormData.trade || requestFormData.customTrade}
+                    onChangeText={(text) => setRequestFormData({ ...requestFormData, trade: '', customTrade: text })}
+                    placeholder="e.g. Plumbing, electrical, tile…"
+                    placeholderTextColor={subMeta2}
+                  />
                 </View>
 
                 <View style={{ marginBottom: 18 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
                     Project name <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
                   </Text>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 14, padding: 1 }}
-                  >
-                    <TextInput
-                      style={{
-                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
-                        borderRadius: 13,
-                        paddingHorizontal: 16,
-                        paddingVertical: 14,
-                        minHeight: 52,
-                        fontSize: 16,
-                        color: darkMode ? '#f8fafc' : Colors.text,
-                        borderWidth: 0,
-                      }}
-                      value={requestFormData.projectName}
-                      onChangeText={(text) => setRequestFormData({ ...requestFormData, projectName: text })}
-                      placeholder="e.g. Kitchen remodel, office build"
-                      placeholderTextColor={subMeta2}
-                    />
-                  </LinearGradient>
+                  <TextInput
+                    style={{ ...requestFormInputShell, minHeight: 52 }}
+                    value={requestFormData.projectName}
+                    onChangeText={(text) => setRequestFormData({ ...requestFormData, projectName: text })}
+                    placeholder="e.g. Kitchen remodel, office build"
+                    placeholderTextColor={subMeta2}
+                  />
                 </View>
 
                 <View style={{ marginBottom: 18 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
                     Maximum budget *
                   </Text>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 14, padding: 1 }}
-                  >
-                    <TextInput
-                      style={{
-                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
-                        borderRadius: 13,
-                        paddingHorizontal: 16,
-                        paddingVertical: 14,
-                        minHeight: 52,
-                        fontSize: 16,
-                        color: darkMode ? '#f8fafc' : Colors.text,
-                        borderWidth: 0,
-                      }}
-                      value={requestFormData.budgetMax}
-                      onChangeText={(text) => setRequestFormData({ ...requestFormData, budgetMax: text })}
-                      placeholder="$50,000"
-                      placeholderTextColor={subMeta2}
-                      keyboardType="phone-pad"
-                    />
-                  </LinearGradient>
+                  <TextInput
+                    style={{ ...requestFormInputShell, minHeight: 52 }}
+                    value={requestFormData.budgetMax}
+                    onChangeText={(text) => setRequestFormData({ ...requestFormData, budgetMax: text })}
+                    placeholder="$50,000"
+                    placeholderTextColor={subMeta2}
+                    keyboardType="phone-pad"
+                  />
                 </View>
 
                 <View style={{ marginBottom: 18 }}>
@@ -2161,32 +2114,20 @@ function SubcontractorSearchModal({
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
                     Additional details <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
                   </Text>
-                  <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.85)", "rgba(0, 166, 255, 0.85)"]}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{ borderRadius: 14, padding: 1 }}
-                  >
-                    <TextInput
-                      style={{
-                        backgroundColor: darkMode ? '#070707' : Colors.surface2,
-                        borderRadius: 13,
-                        paddingHorizontal: 16,
-                        paddingVertical: 14,
-                        fontSize: 15,
-                        color: darkMode ? '#f8fafc' : Colors.text,
-                        borderWidth: 0,
-                        minHeight: 112,
-                        textAlignVertical: 'top',
-                      }}
-                      value={requestFormData.description}
-                      onChangeText={(text) => setRequestFormData({ ...requestFormData, description: text })}
-                      placeholder="Requirements, site access, materials, or other notes…"
-                      placeholderTextColor={subMeta2}
-                      multiline
-                      numberOfLines={4}
-                    />
-                  </LinearGradient>
+                  <TextInput
+                    style={{
+                      ...requestFormInputShell,
+                      fontSize: 15,
+                      minHeight: 112,
+                      textAlignVertical: 'top',
+                    }}
+                    value={requestFormData.description}
+                    onChangeText={(text) => setRequestFormData({ ...requestFormData, description: text })}
+                    placeholder="Requirements, site access, materials, or other notes…"
+                    placeholderTextColor={subMeta2}
+                    multiline
+                    numberOfLines={4}
+                  />
                 </View>
 
                 <View style={{ gap: 10 }}>

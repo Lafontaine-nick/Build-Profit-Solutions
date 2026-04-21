@@ -6,7 +6,9 @@ import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
+  decimalMoneyInputToNumber,
   digitsOnly,
+  sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
@@ -232,8 +234,8 @@ export default function PricingModeSection({
                     placeholder="0"
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={ratePerSqftInput}
-                    onChangeText={(t) => onRatePerSqftInputChange(clampCentsDigitsInput(t))}
-                    keyboardType="phone-pad"
+                    onChangeText={(t) => onRatePerSqftInputChange(sanitizeDecimalMoneyInput(t))}
+                    keyboardType="decimal-pad"
                     returnKeyType="done"
                     onSubmitEditing={onRateSubmitEditing}
                     blurOnSubmit={false}
@@ -262,7 +264,7 @@ export default function PricingModeSection({
                 Total:{" "}
                 {(() => {
                   const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-                  const rate = centsDigitsToNumber(ratePerSqftInput);
+                  const rate = decimalMoneyInputToNumber(ratePerSqftInput);
                   const t = sq * rate;
                   return formatMoneyFull(t, { decimals: 2 });
                 })()}

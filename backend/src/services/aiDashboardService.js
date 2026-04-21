@@ -1,20 +1,24 @@
-const OpenAI = require('openai');
 const { loadProjects } = require('./leadStorage');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
+const {
+  createOpenAiClient,
+  getAiModels,
+  getAiRuntimeSettings,
+  getOpenAiApiKey,
+  hasValidOpenAiKey,
+} = require('../config/aiConfig');
+const {
+  analyzePortfolioProject,
+  buildDailyCommandCenter,
+} = require('./aiAssistantCore');
 
-// Initialize OpenAI client - check for valid key (not placeholder)
-const openaiApiKey = process.env.OPENAI_API_KEY || '';
-const hasValidOpenAiKey = openaiApiKey && 
-  !openaiApiKey.includes('YOUR_OPE') && 
-  !openaiApiKey.includes('YOUR_OPENAI') &&
-  !openaiApiKey.includes('your_openai') &&
-  !openaiApiKey.includes('your_openai_api_key') &&
-  openaiApiKey.length > 20; // Basic validation
-
-const openai = hasValidOpenAiKey
-  ? new OpenAI({ apiKey: openaiApiKey })
+const aiModels = getAiModels();
+const aiRuntime = getAiRuntimeSettings();
+const openaiApiKey = getOpenAiApiKey();
+const openai = hasValidOpenAiKey(openaiApiKey)
+  ? createOpenAiClient(openaiApiKey)
   : null;
 
 // ---------- HASH-BASED CACHE FOR AI INSIGHTS ---------- //
@@ -226,6 +230,40 @@ function dedupeNextStepsByNormalizedLabel(steps) {
     out.push(st);
   }
   return out;
+}
+
+function leakToInsight(leak) {
+  const type =
+    leak?.severity === 'high'
+      ? 'alert'
+      : leak?.type === 'stale_high_value_estimate'
+      ? 'opportunity'
+      : leak?.type === 'missing_receipts'
+      ? 'info'
+      : 'alert';
+  const severityImpact = leak?.severity === 'high' ? 9 : leak?.severity === 'medium' ? 7 : 5;
+  return {
+    id: `leak-insight-${leak.id}`,
+    type,
+    title: leak.headline,
+    body: leak.body,
+    projectId: leak.projectId ?? null,
+    impactScore: severityImpact,
+    evidence: leak.evidence || [],
+    leakType: leak.type,
+  };
+}
+
+function leakToNextStep(leak) {
+  if (!leak?.recommendedAction?.label) return null;
+  return {
+    id: `leak-step-${leak.id}`,
+    label: leak.recommendedAction.label,
+    chip: leak.recommendedAction.chip || 'Today',
+    projectId: leak.projectId ?? null,
+    priority: leak.recommendedAction.priority || (leak.severity === 'high' ? 'high' : 'medium'),
+    leakType: leak.type,
+  };
 }
 
 /**
@@ -446,8 +484,37 @@ async function buildAiDashboardForUser(
 
   // ---------- RULE-BASED CHECKS (no AI, pure logic) ---------- //
 
+  const analyzedProjects = projectsForModel.map((project) =>
+    analyzePortfolioProject(project, {
+      compareItem: { margin: project.marginPct },
+    })
+  );
+  const dailyBrief = buildDailyCommandCenter(analyzedProjects);
   const baseInsights = [];
   const baseNextSteps = [];
+
+  for (const analyzed of analyzedProjects) {
+    const project = projectsForModel.find((item) => String(item.id) === String(analyzed.projectId)) || {};
+    const statusNorm = String(project.status || '')
+      .toLowerCase()
+      .trim()
+      .replace(/-/g, '_');
+    const isClosedJob =
+      statusNorm === 'completed' ||
+      statusNorm === 'complete' ||
+      statusNorm === 'closed' ||
+      statusNorm === 'done' ||
+      statusNorm === 'finished' ||
+      statusNorm === 'lost' ||
+      (typeof project.progressPct === 'number' && project.progressPct >= 99);
+
+    for (const leak of analyzed.profitLeaks || []) {
+      if (isClosedJob && leak.type !== 'stale_high_value_estimate') continue;
+      baseInsights.push(leakToInsight(leak));
+      const nextStep = leakToNextStep(leak);
+      if (nextStep && !isClosedJob) baseNextSteps.push(nextStep);
+    }
+  }
 
   for (const p of projectsForModel) {
     const statusNorm = String(p.status || '')
@@ -463,65 +530,7 @@ async function buildAiDashboardForUser(
       statusNorm === 'lost' ||
       (typeof p.progressPct === 'number' && p.progressPct >= 99);
 
-    // 1) Low margin
-    if (p.marginPct > 0 && p.marginPct < 25) {
-      baseInsights.push({
-        id: `low-margin-${p.id}`,
-        type: 'alert',
-        title: `Low margin on ${p.name}`,
-        body: `Margin on ${p.name} is only ${p.marginPct.toFixed(
-          1
-        )}%. Consider tightening scope or increasing price.`,
-        projectId: p.id,
-        impactScore: 9,
-      });
-
-      baseNextSteps.push({
-        id: `review-margin-${p.id}`,
-        label: `Review margin & scope for ${p.name}`,
-        chip: 'Prevent margin loss',
-        projectId: p.id,
-        priority: 'high',
-      });
-    }
-
-    // 2) Over budget
-    if (p.budgetVariance > 0 && p.actualCost > 0) {
-      baseInsights.push({
-        id: `over-budget-${p.id}`,
-        type: 'alert',
-        title: `${p.name} is over estimated cost`,
-        body: `${p.name} is over budget by $${p.budgetVariance.toFixed(
-          0
-        )}. Check materials and labor overruns.`,
-        projectId: p.id,
-        impactScore: 8,
-      });
-    }
-
-    // 3) Missing receipts
-    if (p.actualCost > 0 && p.receiptsCoveragePct < 80) {
-      baseInsights.push({
-        id: `missing-receipts-${p.id}`,
-        type: 'info',
-        title: `Missing receipts for ${p.name}`,
-        body: `Only ${p.receiptsCoveragePct.toFixed(
-          0
-        )}% of actual costs on ${p.name} have receipts attached.`,
-        projectId: p.id,
-        impactScore: 7,
-      });
-
-      baseNextSteps.push({
-        id: `upload-receipts-${p.id}`,
-        label: `Upload missing receipts for ${p.name}`,
-        chip: '5 min',
-        projectId: p.id,
-        priority: 'medium',
-      });
-    }
-
-    // 4) Permit fee risk – bigger jobs (not for closed jobs — estimate snapshot may be stale)
+    // Permit fee risk – bigger jobs (not for closed jobs — estimate snapshot may be stale)
     const isBigJob = p.bidPrice >= 50000 || p.projectType === 'Commercial';
     if (!isClosedJob && isBigJob && !p.hasPermitLineItem && !p.hasPermitFeesFlag) {
       baseInsights.push({
@@ -542,27 +551,6 @@ async function buildAiDashboardForUser(
       });
     }
 
-    // 5) High-value estimate still at 0% progress
-    if (statusNorm === 'estimate' && p.bidPrice >= 20000 && p.progressPct === 0) {
-      baseInsights.push({
-        id: `high-opportunity-${p.id}`,
-        type: 'opportunity',
-        title: `High-value estimate: ${p.name}`,
-        body: `${p.name} is a $${p.bidPrice.toLocaleString(
-          'en-US'
-        )} estimate with 0% progress. Follow up to move it forward.`,
-        projectId: p.id,
-        impactScore: 8,
-      });
-
-      baseNextSteps.push({
-        id: `follow-up-${p.id}`,
-        label: `Follow up with client on ${p.name}`,
-        chip: 'New revenue',
-        projectId: p.id,
-        priority: 'high',
-      });
-    }
   }
 
   // ---------- LIVE MATERIAL PRICING CHECKS ---------- //
@@ -652,6 +640,7 @@ async function buildAiDashboardForUser(
     return {
       insights: baseInsights,
       nextSteps: baseNextSteps,
+      dailyBrief,
       ruleBasedUpdatedAt,
       aiUpdatedAt: null,
       lastUpdated: ruleBasedUpdatedAt,
@@ -756,9 +745,9 @@ async function buildAiDashboardForUser(
 
     try {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
+        model: aiModels.dashboard.summary,
+        response_format: aiRuntime.dashboard.summary.responseFormat,
+        temperature: aiRuntime.dashboard.summary.temperature,
         messages: [
           {
             role: 'system',
@@ -837,6 +826,7 @@ Return ONLY JSON in this shape:
       return {
         insights: baseInsights,
         nextSteps: baseNextSteps,
+        dailyBrief,
         ruleBasedUpdatedAt,
         aiUpdatedAt: null,
         lastUpdated: ruleBasedUpdatedAt,
@@ -927,6 +917,7 @@ Return ONLY JSON in this shape:
   const result = {
     insights: allInsights,
     nextSteps: allNextSteps,
+    dailyBrief,
     ruleBasedUpdatedAt,
     aiUpdatedAt,
     lastUpdated: aiUpdatedAt || ruleBasedUpdatedAt,

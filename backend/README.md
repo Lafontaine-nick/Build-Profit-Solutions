@@ -160,6 +160,127 @@ Key environment variables:
 - `OPENAI_API_KEY`: OpenAI API key for AI scoring
 - `FRONTEND_URL`: Mobile app URL for CORS
 
+### AI Model Configuration
+
+Backend AI model selection is centralized in `src/config/aiConfig.js`.
+
+Default model slots:
+
+- `assistant.router`
+- `assistant.response`
+- `assistant.estimate`
+- `assistant.vision`
+- `assistant.transcription`
+- `dashboard.summary`
+- `ocr.receipt`
+- `leadScoring.scoring`
+- `leadScoring.insights`
+- `leadScoring.followUp`
+- `leadScoring.prioritize`
+
+Optional environment overrides:
+
+- `AI_PROVIDER`
+- `AI_MODEL_ASSISTANT_ROUTER`
+- `AI_MODEL_ASSISTANT_RESPONSE`
+- `AI_MODEL_ASSISTANT_ESTIMATE`
+- `AI_MODEL_ASSISTANT_VISION`
+- `AI_MODEL_ASSISTANT_TRANSCRIPTION`
+- `AI_MODEL_DASHBOARD_SUMMARY`
+- `AI_MODEL_OCR_RECEIPT`
+- `AI_MODEL_LEAD_SCORING`
+- `AI_MODEL_LEAD_INSIGHTS`
+- `AI_MODEL_LEAD_FOLLOW_UP`
+- `AI_MODEL_LEAD_PRIORITIZE`
+
+### AI Runtime Configuration
+
+Backend AI runtime settings are also centralized in `src/config/aiConfig.js`.
+
+Default runtime slots:
+
+- `assistant.router`
+- `assistant.stream`
+- `assistant.executor`
+- `assistant.estimate`
+- `assistant.followUp`
+- `assistant.final`
+- `assistant.vision`
+- `assistant.transcription`
+- `dashboard.summary`
+- `ocr.receipt`
+- `leadScoring.scoring`
+- `leadScoring.insights`
+- `leadScoring.followUp`
+- `leadScoring.prioritize`
+
+Optional runtime overrides:
+
+- `AI_TEMP_ASSISTANT_ROUTER`
+- `AI_MAX_TOKENS_ASSISTANT_ROUTER`
+- `AI_TEMP_ASSISTANT_STREAM`
+- `AI_MAX_TOKENS_ASSISTANT_STREAM`
+- `AI_TEMP_ASSISTANT_EXECUTOR`
+- `AI_MAX_TOKENS_ASSISTANT_EXECUTOR`
+- `AI_TEMP_ASSISTANT_ESTIMATE`
+- `AI_MAX_TOKENS_ASSISTANT_ESTIMATE`
+- `AI_TEMP_ASSISTANT_FOLLOW_UP`
+- `AI_MAX_TOKENS_ASSISTANT_FOLLOW_UP`
+- `AI_TEMP_ASSISTANT_FINAL`
+- `AI_MAX_TOKENS_ASSISTANT_FINAL`
+- `AI_TEMP_ASSISTANT_VISION`
+- `AI_MAX_TOKENS_ASSISTANT_VISION`
+- `AI_TRANSCRIPTION_LANGUAGE`
+- `AI_TRANSCRIPTION_RESPONSE_FORMAT`
+- `AI_TEMP_DASHBOARD_SUMMARY`
+- `AI_TEMP_OCR_RECEIPT`
+- `AI_MAX_TOKENS_OCR_RECEIPT`
+- `AI_TEMP_LEAD_SCORING`
+- `AI_MAX_TOKENS_LEAD_SCORING`
+- `AI_TEMP_LEAD_INSIGHTS`
+- `AI_MAX_TOKENS_LEAD_INSIGHTS`
+- `AI_TEMP_LEAD_FOLLOW_UP`
+- `AI_MAX_TOKENS_LEAD_FOLLOW_UP`
+- `AI_TEMP_LEAD_PRIORITIZE`
+- `AI_MAX_TOKENS_LEAD_PRIORITIZE`
+
+Recommended workflow after changing any AI model setting:
+
+```bash
+npm run test:ai
+npm run verify:ai
+```
+
+Opt-in live provider smoke check:
+
+```bash
+npm run verify:ai:live
+```
+
+This is intentionally separate from the deterministic test suite because it makes real provider calls.
+
+### AI Change Rollout Checklist
+
+Use this checklist when changing AI models or runtime settings:
+
+1. Update the relevant env vars or defaults in `src/config/aiConfig.js`.
+2. Run deterministic checks:
+   ```bash
+   npm run test:ai
+   npm run verify:ai
+   ```
+3. If you intentionally want a real-provider check, run:
+   ```bash
+   npm run verify:ai:live
+   ```
+4. Manually spot-check these user-facing flows:
+   - assistant routing for a portfolio question
+   - dashboard AI summary generation
+   - OCR receipt parsing
+   - lead scoring response
+5. Deploy to the next environment first, then verify logs and a few real requests.
+6. If behavior regresses, roll back by restoring the previous AI env vars and re-running the checks above.
+
 ## 📝 API Documentation
 
 ### Lead Object Structure

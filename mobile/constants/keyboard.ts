@@ -24,6 +24,11 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * empty accessory so vendor + phone-pad amount/rate/sqft do not pick up the global green `bpsKeyboardDone` bar.
    */
   projectAddExpensePlain: 'bps-project-add-expense-plain-keyboard-accessory',
+  /**
+   * Estimates line-item full-screen modal (`LineItemModal`) text fields:
+   * mount inside the modal itself so iOS does not fall back to the global green `bpsKeyboardDone` bar.
+   */
+  lineItemModalPlain: 'bps-line-item-modal-plain-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

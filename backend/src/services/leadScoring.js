@@ -1,18 +1,27 @@
-const OpenAI = require('openai');
+const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
 
 class LeadScoringService {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.openai = createOpenAiClient();
+    this.aiModels = getAiModels();
+    this.aiRuntime = getAiRuntimeSettings();
+  }
+
+  ensureClient() {
+    if (!this.openai) {
+      const openaiError = new Error('OPENAI_API_KEY not configured');
+      openaiError.name = 'OpenAIError';
+      throw openaiError;
+    }
   }
 
   async scoreLead(leadData) {
     try {
+      this.ensureClient();
       const prompt = this.buildScoringPrompt(leadData);
       
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: this.aiModels.leadScoring.scoring,
         messages: [
           {
             role: "system",
@@ -48,8 +57,8 @@ class LeadScoringService {
             content: prompt
           }
         ],
-        temperature: 0.3,
-        max_tokens: 1000
+        temperature: this.aiRuntime.leadScoring.scoring.temperature,
+        max_tokens: this.aiRuntime.leadScoring.scoring.maxTokens
       });
 
       const content = response.choices[0].message.content;
@@ -116,6 +125,7 @@ class LeadScoringService {
 
   async getLeadInsights(leadData) {
     try {
+      this.ensureClient();
       const prompt = `
         Analyze this construction lead and provide strategic insights:
         
@@ -139,7 +149,7 @@ class LeadScoringService {
       `;
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: this.aiModels.leadScoring.insights,
         messages: [
           {
             role: "system",
@@ -150,8 +160,8 @@ class LeadScoringService {
             content: prompt
           }
         ],
-        temperature: 0.4,
-        max_tokens: 800
+        temperature: this.aiRuntime.leadScoring.insights.temperature,
+        max_tokens: this.aiRuntime.leadScoring.insights.maxTokens
       });
 
       return JSON.parse(response.choices[0].message.content);
@@ -163,6 +173,7 @@ class LeadScoringService {
 
   async generateFollowUpMessage(leadData, followUpType) {
     try {
+      this.ensureClient();
       const prompt = `
         Generate a professional follow-up message for this construction lead:
         
@@ -184,7 +195,7 @@ class LeadScoringService {
       `;
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: this.aiModels.leadScoring.followUp,
         messages: [
           {
             role: "system",
@@ -195,8 +206,8 @@ class LeadScoringService {
             content: prompt
           }
         ],
-        temperature: 0.6,
-        max_tokens: 600
+        temperature: this.aiRuntime.leadScoring.followUp.temperature,
+        max_tokens: this.aiRuntime.leadScoring.followUp.maxTokens
       });
 
       return JSON.parse(response.choices[0].message.content);
@@ -208,6 +219,7 @@ class LeadScoringService {
 
   async prioritizeLeads(leads) {
     try {
+      this.ensureClient();
       const prompt = `
         Prioritize these construction leads based on potential value and urgency:
         
@@ -227,7 +239,7 @@ class LeadScoringService {
       `;
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: this.aiModels.leadScoring.prioritize,
         messages: [
           {
             role: "system",
@@ -238,8 +250,8 @@ class LeadScoringService {
             content: prompt
           }
         ],
-        temperature: 0.3,
-        max_tokens: 1000
+        temperature: this.aiRuntime.leadScoring.prioritize.temperature,
+        max_tokens: this.aiRuntime.leadScoring.prioritize.maxTokens
       });
 
       return JSON.parse(response.choices[0].message.content);

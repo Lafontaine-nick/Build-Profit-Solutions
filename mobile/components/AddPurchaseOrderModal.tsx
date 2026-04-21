@@ -7,8 +7,10 @@ import PricingModeSection, { PricingMode } from "./PricingModeSection";
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
+  decimalMoneyInputToNumber,
   digitsOnly,
   dollarsToCentsDigits,
+  sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from "../contexts/ThemeContext";
@@ -71,7 +73,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
   useEffect(() => {
     if (pricingMode !== "sqft") return;
     const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-    const rate = centsDigitsToNumber(ratePerSqftInput);
+    const rate = decimalMoneyInputToNumber(ratePerSqftInput);
     if (sq > 0 && rate > 0) {
       setAmount(dollarsToCentsDigits(sq * rate));
     } else {
@@ -84,7 +86,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
   }, []);
 
   const onRatePerSqftChange = useCallback((text: string) => {
-    setRatePerSqftInput(clampCentsDigitsInput(text));
+    setRatePerSqftInput(sanitizeDecimalMoneyInput(text));
   }, []);
 
   const handleSave = () => {
@@ -95,7 +97,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
 
     if (pricingMode === "sqft") {
       const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-      const rate = centsDigitsToNumber(ratePerSqftInput);
+      const rate = decimalMoneyInputToNumber(ratePerSqftInput);
       if (sq <= 0 || rate <= 0) {
         Alert.alert(
           "Square feet & rate required",

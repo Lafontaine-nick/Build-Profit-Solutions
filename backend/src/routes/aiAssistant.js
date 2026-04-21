@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const OpenAI = require('openai');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
+const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
 // in try/catch so existing request logic is never blocked if this fails.
 let _userMemory = null;
@@ -48,6 +48,8 @@ const {
   buildPaymentStatusReply,
   buildBudgetStatusReply,
   analyzePortfolioProject,
+  buildDailyCommandCenter,
+  buildProfitLeakPromptBlock,
   buildPortfolioComparisonReply,
   isPortfolioLosingMoneyQuery,
   isPortfolioOverBudgetListQuery,
@@ -115,10 +117,36 @@ function getDisplayMarginPct(project) {
   return Math.round(projectedMarginPct * 10) / 10;
 }
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function buildAssistantProfitLeakBlock({ parsedContext = {}, allProjects = [], projectId = null, isPortfolio = false } = {}) {
+  try {
+    if (isPortfolio) {
+      const compare = runCompareProjectsPipeline({
+        parsedContext,
+        allProjects: allProjects || [],
+        opts: { activeOnly: true },
+      });
+      if (compare?.success && compare?.dailyBrief) {
+        return buildProfitLeakPromptBlock(compare.dailyBrief);
+      }
+      return '';
+    }
+
+    const targetProject =
+      (Array.isArray(allProjects) ? allProjects : []).find((p) => String(p?.id) === String(projectId)) ||
+      null;
+    if (!targetProject) return '';
+    const analyzed = analyzePortfolioProject(targetProject, { parsedContext });
+    const dailyBrief = buildDailyCommandCenter([analyzed]);
+    return buildProfitLeakPromptBlock(dailyBrief);
+  } catch (_err) {
+    return '';
+  }
+}
+
+// Initialize AI client + centralized model config
+const openai = createOpenAiClient();
+const aiModels = getAiModels();
+const aiRuntime = getAiRuntimeSettings();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONVERSATION MEMORY — lightweight server-side session state
@@ -395,15 +423,15 @@ async function runRouter(message, history, ctxSummary) {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: aiModels.assistant.router,
+      response_format: aiRuntime.assistant.router.responseFormat,
       messages: [
         { role: 'system', content: routerSystem },
         ...recentHistory,
         { role: 'user', content: `${contextMessage}\nUser message: "${message}"` }
       ],
-      temperature: 0,
-      max_tokens: 350,
-      response_format: { type: 'json_object' }
+      temperature: aiRuntime.assistant.router.temperature,
+      max_tokens: aiRuntime.assistant.router.maxTokens
     });
     const raw = completion.choices[0].message.content || '{}';
     return JSON.parse(raw);
@@ -6664,6 +6692,12 @@ router.post('/stream', async (req, res) => {
     const streamBidMarginPct = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct;
     // Additive: load persistent user memory for streaming path too.
     const { userId: memoryUserIdStream, memory: userMemoryStream } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+    const streamProfitLeakBlock = buildAssistantProfitLeakBlock({
+      parsedContext,
+      allProjects,
+      projectId: parsedContext.projectId,
+      isPortfolio: isCommandCenter,
+    });
     let streamSystemPrompt = buildSystemPrompt({
       projectName: parsedContext.currentProject || parsedContext.projectName,
       projectId: parsedContext.projectId,
@@ -6676,6 +6710,7 @@ router.post('/stream', async (req, res) => {
       aiPmMode, pmAlerts: [],
       screen,
       userMemory: userMemoryStream,
+      profitLeakBlock: streamProfitLeakBlock,
     });
     _recordUserMemorySafe({ userId: memoryUserIdStream, message: normalizedMessage, parsedContext, session });
 
@@ -6722,10 +6757,10 @@ router.post('/stream', async (req, res) => {
 
     try {
       const stream = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: aiModels.assistant.response,
         messages,
-        temperature: 0.3,
-        max_tokens: 2000,
+        temperature: aiRuntime.assistant.stream.temperature,
+        max_tokens: aiRuntime.assistant.stream.maxTokens,
         stream: true,
       });
 
@@ -8254,8 +8289,15 @@ router.post('/', async (req, res) => {
     const upcomingCalendarEvents = parsedContext.upcomingCalendarEvents || [];
     const bidMarginPctForPrompt = parsedContext.bidMarginPct ?? parsedContext.projectInfo?.bidMarginPct ?? (projectId && allProjects?.length ? (() => { const p = allProjects.find(pr => String(pr?.id) === String(projectId)); return p?.bidMarginPct; })() : undefined);
     const aiScope = parsedContext.aiScope || (parsedContext.screen === 'Project Detail' || (parsedContext.screen === 'Estimate Generator' && projectId) ? 'project' : 'portfolio');
+    const screenForIntelligence = (parsedContext?.screen || '').toLowerCase();
     // Additive: load persistent user memory (safe — null when unavailable).
     const { userId: memoryUserIdMain, memory: userMemoryMain } = _loadUserMemorySafe(req, { sessionId, parsedContext });
+    const profitLeakBlockMain = buildAssistantProfitLeakBlock({
+      parsedContext,
+      allProjects,
+      projectId,
+      isPortfolio: screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab',
+    });
     let systemPrompt = buildSystemPrompt({
       projectName, projectId, status,
       bidTotal, estimatedCost, actualCost,
@@ -8271,12 +8313,12 @@ router.post('/', async (req, res) => {
       calendarEvents,
       upcomingCalendarEvents,
       userMemory: userMemoryMain,
+      profitLeakBlock: profitLeakBlockMain,
     });
     // Record observations after the prompt is built — never blocks the request.
     _recordUserMemorySafe({ userId: memoryUserIdMain, message: normalizedMessage, parsedContext, session });
 
     // Additive: projects-list intelligence block (Global AI Assistant + Projects screen).
-    const screenForIntelligence = (parsedContext?.screen || '').toLowerCase();
     if (screenForIntelligence === 'projects' || screenForIntelligence === 'ai assistant tab') {
       // Always inject project status block so AI knows active vs completed (users can delete/change status)
       const projectStatusBlock = buildProjectStatusBlock(parsedContext);
@@ -11198,12 +11240,12 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
     logPhase('executor_llm_start', { toolChoice: typeof finalToolChoice === 'string' ? finalToolChoice : finalToolChoice?.function?.name });
     let completion = await withTimeout(openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: aiModels.assistant.response,
       messages: messages,
       tools: functions,
       tool_choice: finalToolChoice,
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: aiRuntime.assistant.executor.temperature,
+      max_tokens: aiRuntime.assistant.executor.maxTokens,
     }), 30000, 'executor_llm');
     logPhase('executor_llm_done');
 
@@ -12904,11 +12946,11 @@ RULES:
 
             logPhase('estimate_llm_start');
             const estimateCompletion = await withTimeout(openai.chat.completions.create({
-              model: 'gpt-4o',
+              model: aiModels.assistant.estimate,
+              response_format: aiRuntime.assistant.estimate.responseFormat,
               messages: [{ role: 'user', content: estimatePrompt }],
-              temperature: 0.3,
-              max_tokens: 3000,
-              response_format: { type: 'json_object' },
+              temperature: aiRuntime.assistant.estimate.temperature,
+              max_tokens: aiRuntime.assistant.estimate.maxTokens,
             }), 30000, 'estimate_llm');
             logPhase('estimate_llm_done');
 
@@ -13241,12 +13283,12 @@ RULES:
             let roundCompletion;
             try {
               roundCompletion = await withTimeout(openai.chat.completions.create({
-                model: 'gpt-4o',
+                model: aiModels.assistant.response,
                 messages: roundMessages,
                 tools: readonlyFunctions,
                 tool_choice: 'auto',
-                temperature: 0.2,
-                max_tokens: 1200,
+                temperature: aiRuntime.assistant.followUp.temperature,
+                max_tokens: aiRuntime.assistant.followUp.maxTokens,
               }), 25000, `multi_turn_round_${round + 1}`);
             } catch (err) {
               console.warn(`⚠️ multi-turn round ${round + 1} LLM call failed, stopping loop:`, err?.message);
@@ -13431,10 +13473,10 @@ RULES:
       // tools list cuts thousands of prompt tokens and prevents OpenAI from hanging.
       logPhase('final_llm_start');
       completion = await withTimeout(openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: aiModels.assistant.response,
         messages: messages,
-        temperature: 0.3,
-        max_tokens: 2000,
+        temperature: aiRuntime.assistant.final.temperature,
+        max_tokens: aiRuntime.assistant.final.maxTokens,
       }), 30000, 'final_llm');
       logPhase('final_llm_done');
 
@@ -13859,9 +13901,9 @@ router.post('/transcribe', async (req, res) => {
       console.log('🎤 Sending to OpenAI Whisper API...');
       const transcription = await openai.audio.transcriptions.create({
         file: fs.createReadStream(tempFilePath),
-        model: 'whisper-1',
-        language: 'en', // Optional: specify language for better accuracy
-        response_format: 'text', // Get plain text response
+        model: aiModels.assistant.transcription,
+        language: aiRuntime.assistant.transcription.language,
+        response_format: aiRuntime.assistant.transcription.responseFormat,
       });
 
       console.log('✅ Transcription successful:', transcription);
@@ -13994,10 +14036,10 @@ Schema:
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-      max_tokens: 900,
+      model: aiModels.assistant.vision,
+      response_format: aiRuntime.assistant.vision.responseFormat,
+      temperature: aiRuntime.assistant.vision.temperature,
+      max_tokens: aiRuntime.assistant.vision.maxTokens,
       messages: [
         { role: 'system', content: systemPrompt },
         {

@@ -8,8 +8,10 @@ import PricingModeSection, { PricingMode } from "./PricingModeSection";
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
+  decimalMoneyInputToNumber,
   digitsOnly,
   dollarsToCentsDigits,
+  sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -73,7 +75,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
   useEffect(() => {
     if (pricingMode !== "sqft") return;
     const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-    const rate = centsDigitsToNumber(ratePerSqftInput);
+    const rate = decimalMoneyInputToNumber(ratePerSqftInput);
     if (sq > 0 && rate > 0) {
       setAmount(dollarsToCentsDigits(sq * rate));
     } else {
@@ -86,7 +88,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
   }, []);
 
   const onRatePerSqftChange = useCallback((text: string) => {
-    setRatePerSqftInput(clampCentsDigitsInput(text));
+    setRatePerSqftInput(sanitizeDecimalMoneyInput(text));
   }, []);
 
   const handleSave = () => {
@@ -94,7 +96,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
 
     if (pricingMode === "sqft") {
       const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-      const rate = centsDigitsToNumber(ratePerSqftInput);
+      const rate = decimalMoneyInputToNumber(ratePerSqftInput);
       if (sq <= 0 || rate <= 0) {
         Alert.alert(
           "Square feet & rate required",

@@ -51,6 +51,7 @@ function buildSystemPrompt(opts = {}) {
     teamMembers = [], teamStats = { total: 0, active: 0, offDuty: 0 },
     calendarEvents = [], upcomingCalendarEvents = [],
     userMemory = null,
+    profitLeakBlock = '',
   } = opts;
 
   const isEstimate = ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((status || '').toLowerCase());
@@ -684,6 +685,7 @@ RULES:
   const sections = [
     base,
     userProfileBlock,
+    profitLeakBlock,
     contractorPhrasingBlock,
     findSubBlock,
     judgmentPromptsBlock,

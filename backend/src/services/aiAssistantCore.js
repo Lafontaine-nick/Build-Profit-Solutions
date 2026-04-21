@@ -451,6 +451,280 @@ function buildBudgetStatusReply({ projectName = 'This project', budget = 0, spen
   return reply;
 }
 
+function createProfitLeak({
+  projectId = null,
+  projectTitle = 'Project',
+  type,
+  severity = 'medium',
+  impactEstimate = 0,
+  headline,
+  body,
+  evidence = [],
+  recommendedAction = null,
+}) {
+  return {
+    id: `${type}-${projectId || 'portfolio'}`,
+    type,
+    severity,
+    impactEstimate: Math.round(Number(impactEstimate || 0)),
+    headline,
+    body,
+    evidence: Array.isArray(evidence) ? evidence.filter(Boolean).slice(0, 3) : [],
+    recommendedAction,
+    projectId: projectId != null ? String(projectId) : null,
+    projectTitle,
+  };
+}
+
+function buildProjectProfitLeaks(project, snapshot = {}, opts = {}) {
+  const {
+    overdueItems = [],
+    overduePayments = [],
+    missingReceipts = 0,
+  } = opts;
+
+  const title = project?.title || project?.name || 'Untitled Project';
+  const projectId = project?.id != null ? String(project.id) : null;
+  const status = String(project?.status || '').toLowerCase();
+  const isEstimate =
+    status === 'estimate' ||
+    status === 'draft' ||
+    status === 'submitted' ||
+    status === 'bid_submitted';
+  const isCompleted =
+    status === 'completed' ||
+    status === 'done' ||
+    status === 'finished' ||
+    Number(snapshot.progress || 0) >= 100;
+
+  const leaks = [];
+  const revenue = Number(snapshot.revenue || 0);
+  const budget = Number(snapshot.estimatedCost || 0);
+  const spent = Number(snapshot.spent || 0);
+  const progress = Number(snapshot.progress || 0);
+  const expectedSpend = budget > 0 ? budget * (Math.max(0, Math.min(100, progress)) / 100) : 0;
+  const spendAheadBy = Math.max(0, spent - expectedSpend);
+  const projectedMarginPct = Number(snapshot.projectedMarginPct || 0);
+  const bidMarginPct = Number(snapshot.bidMarginPct || 0);
+  const marginDrop = bidMarginPct > 0 && projectedMarginPct > 0 ? (bidMarginPct - projectedMarginPct) : 0;
+  const overdueAmount = (Array.isArray(overduePayments) ? overduePayments : []).reduce(
+    (sum, item) => sum + normalizeMoneyValue(item?.amount ?? 0),
+    0
+  );
+  const overBudgetBy = Math.max(0, spent - budget);
+
+  if (!isCompleted && progress > 0 && budget > 0 && spendAheadBy > Math.max(1000, budget * 0.08)) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'spend_ahead_of_progress',
+      severity: spendAheadBy > budget * 0.15 ? 'high' : 'medium',
+      impactEstimate: spendAheadBy,
+      headline: `Spend is ahead of progress on ${title}`,
+      body: `${title} is ${Math.round((spent / budget) * 100)}% spent at ${Math.round(progress)}% progress. That usually means margin is leaking before the job is complete.`,
+      evidence: [
+        `Spent: $${Math.round(spent).toLocaleString()} of $${Math.round(budget).toLocaleString()} budget`,
+        `Progress: ${Math.round(progress)}%`,
+        `Spend ahead by about $${Math.round(spendAheadBy).toLocaleString()}`,
+      ],
+      recommendedAction: {
+        label: `Review cost burn on ${title}`,
+        chip: 'Protect margin',
+        priority: spendAheadBy > budget * 0.15 ? 'high' : 'medium',
+      },
+    }));
+  }
+
+  if (!isCompleted && budget > 0 && spent > budget) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'over_budget',
+      severity: overBudgetBy > budget * 0.1 ? 'high' : 'medium',
+      impactEstimate: overBudgetBy,
+      headline: `${title} is over budget`,
+      body: `${title} has already spent more than the current estimate allows. Without correction, projected profit will keep shrinking.`,
+      evidence: [
+        `Budget: $${Math.round(budget).toLocaleString()}`,
+        `Spent: $${Math.round(spent).toLocaleString()}`,
+        `Over by about $${Math.round(overBudgetBy).toLocaleString()}`,
+      ],
+      recommendedAction: {
+        label: `Inspect overruns on ${title}`,
+        chip: 'Urgent review',
+        priority: overBudgetBy > budget * 0.1 ? 'high' : 'medium',
+      },
+    }));
+  }
+
+  if (!isCompleted && bidMarginPct > 0 && projectedMarginPct > 0 && marginDrop >= 5) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'margin_erosion',
+      severity: marginDrop >= 10 ? 'high' : 'medium',
+      impactEstimate: revenue > 0 ? revenue * (marginDrop / 100) : 0,
+      headline: `Margin is eroding on ${title}`,
+      body: `${title} started around ${bidMarginPct.toFixed(1)}% margin and is now projecting closer to ${projectedMarginPct.toFixed(1)}%.`,
+      evidence: [
+        `Original margin: ${bidMarginPct.toFixed(1)}%`,
+        `Projected margin: ${projectedMarginPct.toFixed(1)}%`,
+        `Margin drop: ${marginDrop.toFixed(1)} pts`,
+      ],
+      recommendedAction: {
+        label: `Recover margin on ${title}`,
+        chip: 'High impact',
+        priority: marginDrop >= 10 ? 'high' : 'medium',
+      },
+    }));
+  }
+
+  if (!isCompleted && Array.isArray(overdueItems) && overdueItems.length > 0) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'overdue_collection',
+      severity: overdueAmount >= 5000 ? 'high' : 'medium',
+      impactEstimate: overdueAmount,
+      headline: `Collections are overdue on ${title}`,
+      body: `${title} has ${overdueItems.length} overdue payment${overdueItems.length > 1 ? 's' : ''}. Slow collections increase cash pressure even when the job is profitable on paper.`,
+      evidence: [
+        `${overdueItems.length} overdue payment${overdueItems.length > 1 ? 's' : ''}`,
+        overdueAmount > 0 ? `About $${Math.round(overdueAmount).toLocaleString()} is past due` : null,
+      ],
+      recommendedAction: {
+        label: `Follow up on payment for ${title}`,
+        chip: 'Improve cash flow',
+        priority: overdueAmount >= 5000 ? 'high' : 'medium',
+      },
+    }));
+  }
+
+  if (!isCompleted && missingReceipts >= 3) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'missing_receipts',
+      severity: missingReceipts >= 6 ? 'medium' : 'low',
+      impactEstimate: missingReceipts,
+      headline: `${title} has missing cost backup`,
+      body: `${title} is missing receipts on ${missingReceipts} expense${missingReceipts > 1 ? 's' : ''}. That makes job costing less trustworthy and can hide profit leaks.`,
+      evidence: [
+        `${missingReceipts} expenses missing receipts`,
+      ],
+      recommendedAction: {
+        label: `Upload receipts for ${title}`,
+        chip: '5 min',
+        priority: missingReceipts >= 6 ? 'medium' : 'low',
+      },
+    }));
+  }
+
+  if (isEstimate && revenue >= 20000 && progress === 0) {
+    leaks.push(createProfitLeak({
+      projectId,
+      projectTitle: title,
+      type: 'stale_high_value_estimate',
+      severity: revenue >= 50000 ? 'medium' : 'low',
+      impactEstimate: revenue,
+      headline: `High-value estimate is sitting idle: ${title}`,
+      body: `${title} is a high-value estimate with no progress yet. Unfollowed estimates are revenue leaks, not just pipeline noise.`,
+      evidence: [
+        `Estimate value: $${Math.round(revenue).toLocaleString()}`,
+        `Progress: 0%`,
+      ],
+      recommendedAction: {
+        label: `Follow up on ${title}`,
+        chip: 'New revenue',
+        priority: revenue >= 50000 ? 'high' : 'medium',
+      },
+    }));
+  }
+
+  return leaks.sort((a, b) => {
+    const sev = { high: 3, medium: 2, low: 1 };
+    const sevDiff = (sev[b.severity] || 0) - (sev[a.severity] || 0);
+    if (sevDiff !== 0) return sevDiff;
+    return Number(b.impactEstimate || 0) - Number(a.impactEstimate || 0);
+  });
+}
+
+function buildDailyCommandCenter(items = [], opts = {}) {
+  const upcomingScheduleItems = Array.isArray(opts.upcomingScheduleItems) ? opts.upcomingScheduleItems : [];
+  const safeItems = Array.isArray(items) ? items : [];
+  const leaks = safeItems.flatMap((item) => Array.isArray(item?.profitLeaks) ? item.profitLeaks : []);
+  const topProfitRisks = [...leaks]
+    .sort((a, b) => {
+      const sev = { high: 3, medium: 2, low: 1 };
+      const sevDiff = (sev[b.severity] || 0) - (sev[a.severity] || 0);
+      if (sevDiff !== 0) return sevDiff;
+      return Number(b.impactEstimate || 0) - Number(a.impactEstimate || 0);
+    })
+    .slice(0, 5);
+
+  const topActions = [];
+  const seenActionLabels = new Set();
+  for (const leak of topProfitRisks) {
+    const action = leak?.recommendedAction;
+    if (!action?.label) continue;
+    const key = String(action.label).trim().toLowerCase();
+    if (seenActionLabels.has(key)) continue;
+    seenActionLabels.add(key);
+    topActions.push({
+      id: `daily-action-${topActions.length + 1}`,
+      label: action.label,
+      chip: action.chip || 'Today',
+      projectId: leak.projectId || null,
+      priority: action.priority || (leak.severity === 'high' ? 'high' : 'medium'),
+    });
+  }
+
+  const allUpcomingPayments = safeItems
+    .flatMap((item) => (Array.isArray(item?.upcomingPayments) ? item.upcomingPayments.map((payment) => ({
+      ...payment,
+      projectId: item.projectId,
+      projectTitle: item.title,
+    })) : []))
+    .sort((a, b) => {
+      const da = a?.date ? new Date(a.date).getTime() : Number.MAX_SAFE_INTEGER;
+      const db = b?.date ? new Date(b.date).getTime() : Number.MAX_SAFE_INTEGER;
+      return da - db;
+    })
+    .slice(0, 5);
+
+  const activeItems = safeItems.filter((item) => !['completed', 'done', 'finished'].includes(String(item?.status || '').toLowerCase()));
+  const totalProjectedProfit = activeItems.reduce((sum, item) => sum + Number(item?.projectedProfit || 0), 0);
+  const averageMargin = activeItems.length > 0
+    ? activeItems.reduce((sum, item) => sum + Number(item?.margin || 0), 0) / activeItems.length
+    : 0;
+
+  return {
+    topProfitRisks,
+    topActions,
+    upcomingPayments: allUpcomingPayments,
+    upcomingScheduleItems: upcomingScheduleItems.slice(0, 5),
+    portfolioSummary: {
+      activeProjectCount: activeItems.length,
+      totalProjectCount: safeItems.length,
+      totalProjectedProfit: Math.round(totalProjectedProfit),
+      averageMargin: Math.round(averageMargin * 10) / 10,
+      highestRiskProject: topProfitRisks[0]?.projectTitle || null,
+    },
+  };
+}
+
+function buildProfitLeakPromptBlock({ topProfitRisks = [], topActions = [] } = {}) {
+  const risks = Array.isArray(topProfitRisks) ? topProfitRisks.slice(0, 5) : [];
+  const actions = Array.isArray(topActions) ? topActions.slice(0, 5) : [];
+  if (risks.length === 0 && actions.length === 0) return '';
+  const riskLines = risks.map((risk, index) => {
+    const impact = risk?.impactEstimate ? ` | impact≈$${Math.round(risk.impactEstimate).toLocaleString()}` : '';
+    return `${index + 1}. ${risk.headline}${impact}${risk.projectTitle ? ` | project=${risk.projectTitle}` : ''}`;
+  });
+  const actionLines = actions.map((action, index) => `${index + 1}. ${action.label}${action.chip ? ` | ${action.chip}` : ''}`);
+  return `\n\n📉 PROFIT LEAK SNAPSHOT (source of truth — use these before improvising)\n${riskLines.length ? riskLines.join('\n') : 'No major profit leaks detected right now.'}\n${actionLines.length ? `\nTOP ACTIONS:\n${actionLines.join('\n')}` : ''}\n→ When asked where profit is leaking, answer from this block first.\n→ Use direct answer -> evidence -> recommended action.`;
+}
+
 function analyzePortfolioProject(project, opts = {}) {
   const {
     parsedContext = {},
@@ -497,13 +771,15 @@ function analyzePortfolioProject(project, opts = {}) {
       : estimatedMarginPct;
   const expenses = project?.expenses || project?.projectData?.expenses || [];
   const missingReceipts = expenses.filter((expense) => !expense?.receiptUri || !String(expense.receiptUri).trim()).length;
-  const riskFlags = [];
-  if (overBudgetPct > 10) riskFlags.push('over_budget');
-  if (displayMargin > 0 && displayMargin < 10) riskFlags.push('low_margin');
-  if (overdueItems.length > 0) riskFlags.push('overdue_milestones');
-  if (progress > 0 && budget > 0 && (spent / budget * 100) > progress + 20) riskFlags.push('spend_ahead_of_progress');
-  if (estimatedMarginPct > 0 && projectedMarginPct > 0 && (estimatedMarginPct - projectedMarginPct) > 5) riskFlags.push('margin_erosion');
-  if (missingReceipts >= 3) riskFlags.push('missing_receipts');
+  const profitLeaks = buildProjectProfitLeaks(project, financials, {
+    overdueItems,
+    overduePayments: overdueItems.map((item) => ({ name: item.name || 'Payment', amount: normalizeMoneyValue(item.amount ?? 0), date: item.date || null })),
+    missingReceipts,
+  });
+  const riskFlags = [...new Set([
+    ...(displayMargin > 0 && displayMargin < 10 ? ['low_margin'] : []),
+    ...profitLeaks.map((leak) => leak.type === 'overdue_collection' ? 'overdue_milestones' : leak.type),
+  ])];
 
   const marginRounded = Math.round(displayMargin * 10) / 10;
   return {
@@ -529,6 +805,7 @@ function analyzePortfolioProject(project, opts = {}) {
     projectedMarginPct: Math.round(projectedMarginPct * 10) / 10,
     missingReceipts,
     riskFlags,
+    profitLeaks,
   };
 }
 
@@ -1309,6 +1586,7 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
     const totalBudget = analyzedFinal.reduce((s, x) => s + x.budget, 0);
     const totalProjectedProfit = analyzedFinal.reduce((s, x) => s + x.projectedProfit, 0);
     const avgMargin = analyzedFinal.length > 0 ? analyzedFinal.reduce((s, x) => s + x.margin, 0) / analyzedFinal.length : 0;
+    const dailyBrief = buildDailyCommandCenter(sorted);
 
     return {
       success: true,
@@ -1324,6 +1602,7 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
         totalProjectedProfit: Math.round(totalProjectedProfit),
         averageMargin: Math.round(avgMargin * 10) / 10,
       },
+      dailyBrief,
       message: sorted.length
         ? `Compared ${sorted.length} project(s): ${sorted.map((x) => x.title).join(', ')}. Portfolio totals: $${totalRevenue.toLocaleString()} revenue, $${totalSpent.toLocaleString()} spent, projected profit $${Math.round(totalProjectedProfit).toLocaleString()} (avg margin ${Math.round(avgMargin)}%). IMPORTANT — PAYMENT QUESTIONS (e.g. "when am I getting paid next", "payments", "next payment"): Always answer from the TIMELINE data (upcomingPayments and overduePayments per project). Format: "Your next payment is the [payment name] for the [project title] project, amounting to $[amount], due on [date]." If multiple upcoming payments across projects, list the soonest first, then others. Use the exact project title and payment name/amount/date from upcomingPayments. You may end with: "Want me to check on any other upcoming payments or project details?" If upcomingPayments is empty but unscheduledPayments has items, list those (name, amount) and say they can set dates in the Timeline. If both empty, say payments are set in the Timeline tab (Projects → [Project] → Timeline) and suggest opening that project's Timeline to sync. Never say "no upcoming payments" without that guidance. Each project also has marginLabel, profitLabel; for completed use "Margin"/"Net Profit", for active use "Current margin"/"Projected Profit".`
         : 'No projects matched the requested filters.',
@@ -1370,6 +1649,9 @@ module.exports = {
   collectPaymentBuckets,
   buildPaymentStatusReply,
   buildBudgetStatusReply,
+  buildProjectProfitLeaks,
+  buildDailyCommandCenter,
+  buildProfitLeakPromptBlock,
   analyzePortfolioProject,
   buildPortfolioComparisonReply,
   buildDataFreshnessFooter,

@@ -23,3 +23,23 @@ export function dollarsToCentsDigits(n: number): string {
 export function clampCentsDigitsInput(raw: string): string {
   return digitsOnly(raw).slice(0, MAX_CENT_DIGITS);
 }
+
+/** Decimal money input for `keyboardType="decimal-pad"` (e.g. 1.25 dollars). */
+export function sanitizeDecimalMoneyInput(raw: string): string {
+  const cleaned = String(raw || "").replace(/[^0-9.]/g, "");
+  if (!cleaned) return "";
+
+  const parts = cleaned.split(".");
+  const whole = (parts[0] || "").slice(0, MAX_CENT_DIGITS);
+  if (parts.length === 1) return whole;
+
+  const fraction = parts.slice(1).join("").slice(0, 2);
+  return `${whole || "0"}.${fraction}`;
+}
+
+export function decimalMoneyInputToNumber(raw: string): number {
+  const normalized = sanitizeDecimalMoneyInput(raw);
+  if (!normalized) return 0;
+  const parsed = parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}

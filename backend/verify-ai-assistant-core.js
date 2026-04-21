@@ -26,6 +26,15 @@ const {
   isCalendarEventCreateQuery,
   parseCalendarEventCreate,
 } = require('./src/services/aiAssistantCore');
+const {
+  deepClone,
+  assistantQueryProjects,
+  ambiguousProjects,
+  rankingProjects,
+  calendarProjects,
+  calendarStatusProjects,
+  calendarCreateProjects,
+} = require('./test-fixtures/aiEvalFixtures');
 
 if (!resolveProjectByQuery || !isCurrentProjectMatch || !getProjectFinancialSnapshot || !collectPaymentBuckets || !buildPaymentStatusReply || !buildMarginReplyForProject || !buildBudgetStatusReply || !analyzePortfolioProject || !buildPortfolioComparisonReply || !buildProjectedProfitReply || !computeMarginAtProgress || !buildMarginAtProgressReply || !isPortfolioLosingMoneyQuery || !sortCompareProjectsResults || !runCompareProjectsPipeline || !collectUpcomingCalendarEvents || !isCalendarEventCreateQuery || !parseCalendarEventCreate) {
   throw new Error('AI assistant test utilities are not available.');
@@ -53,34 +62,7 @@ assert.equal(byLowMargin[0].title, 'B', 'lowMargin sort should surface lowest ma
 const byOver = sortCompareProjectsResults(sortRows, 'overbudget');
 assert.equal(byOver[0].title, 'B', 'overbudget sort should surface highest overrun first');
 
-const projects = [
-  {
-    id: '1',
-    title: 'Jerry Remodel',
-    customerName: 'Jerry',
-    bidPrice: 100000,
-    estimatedCost: 80000,
-    actualCost: 30000,
-    progress: 40,
-    milestones: [
-      { title: 'Deposit', amount: 10000, dueDate: '2026-03-01', collected: true },
-      { title: 'Week 2 Payment', amount: 15000, dueDate: '2026-04-01' },
-      { title: 'Final Draw', amount: 25000 },
-    ],
-  },
-  {
-    id: '2',
-    title: 'Jason Kitchen Upgrade',
-    customerName: 'Jason',
-    bidPrice: 60000,
-    estimatedCost: 45000,
-    actualCost: 20000,
-    progress: 55,
-    milestones: [
-      { title: 'Progress Payment', amount: 12000, dueDate: '2026-03-20' },
-    ],
-  },
-];
+const projects = deepClone(assistantQueryProjects);
 
 const resolvedJerry = resolveProjectByQuery(projects, 'Jerry');
 assert.equal(resolvedJerry.project?.id, '1', 'Expected Jerry query to resolve Jerry Remodel');
@@ -88,11 +70,7 @@ assert.equal(resolvedJerry.project?.id, '1', 'Expected Jerry query to resolve Je
 const resolvedKitchen = resolveProjectByQuery(projects, 'kitchen upgrade');
 assert.equal(resolvedKitchen.project?.id, '2', 'Expected kitchen query to resolve Jason Kitchen Upgrade');
 
-const ambiguousProjects = [
-  { id: 'a', title: 'Oak Remodel' },
-  { id: 'b', title: 'Oak Kitchen Remodel' },
-];
-const ambiguousResult = resolveProjectByQuery(ambiguousProjects, 'oak');
+const ambiguousResult = resolveProjectByQuery(deepClone(ambiguousProjects), 'oak');
 assert.equal(ambiguousResult.project, null, 'Ambiguous project query should not auto-resolve');
 
 assert.equal(
@@ -145,11 +123,7 @@ const overdueReply = buildPaymentStatusReply({
 });
 assert.match(overdueReply, /overdue payments/i, 'Overdue payment reply should mention overdue payments');
 
-const portfolioProjects = [
-  { id: 'p1', title: 'Alpha', bidPrice: 100000, estimatedCost: 80000, actualCost: 50000, progress: 40 },
-  { id: 'p2', title: 'Beta', bidPrice: 90000, estimatedCost: 70000, actualCost: 79000, progress: 70 },
-  { id: 'p3', title: 'Gamma', bidPrice: 120000, estimatedCost: 95000, actualCost: 30000, progress: 20 },
-];
+const portfolioProjects = deepClone(rankingProjects);
 
 const analyzedPortfolio = portfolioProjects
   .map((project) => analyzePortfolioProject(project))
@@ -209,21 +183,23 @@ assert.match(marginAtProgressReply, /55,000/, 'Margin-at-progress reply should i
 
 const calEv = { date: '2026-03-15', title: 'Rough inspection', type: 'inspection' };
 const calNow = new Date('2026-03-10T12:00:00Z');
+const calFixtureProjects = deepClone(calendarProjects).map((project) => ({
+  ...project,
+  calendarEvents: [calEv],
+}));
 const calUpcoming = collectUpcomingCalendarEvents({
-  allProjects: [
-    { id: 'done', title: 'Old Job', status: 'completed', calendarEvents: [calEv] },
-    { id: 'active', title: 'Current Job', status: 'in_progress', calendarEvents: [calEv] },
-  ],
+  allProjects: calFixtureProjects,
   now: calNow,
 });
 assert.equal(calUpcoming.length, 1, 'Completed projects should not contribute calendar events');
 assert.equal(calUpcoming[0].projectId, 'active');
 
+const calStatusFixtureProjects = deepClone(calendarStatusProjects).map((project) => ({
+  ...project,
+  calendarEvents: [calEv],
+}));
 const calUpcoming2 = collectUpcomingCalendarEvents({
-  allProjects: [
-    { id: 'x', title: 'Via flag', isCompleted: true, status: 'won', calendarEvents: [calEv] },
-    { id: 'y', title: 'Still on', status: 'won', calendarEvents: [calEv] },
-  ],
+  allProjects: calStatusFixtureProjects,
   now: calNow,
 });
 assert.equal(calUpcoming2.length, 1);
@@ -233,10 +209,7 @@ assert.equal(isCalendarEventCreateQuery('Can we create an event?'), true, '"crea
 assert.equal(isCalendarEventCreateQuery('Please create an event for tomorrow'), true);
 assert.equal(isCalendarEventCreateQuery('What is on my calendar?'), false);
 
-const twoProjects = [
-  { id: 'n', title: 'Nicholas', name: 'Nicholas' },
-  { id: 'j', title: 'Jerry', name: 'Jerry' },
-];
+const twoProjects = deepClone(calendarCreateProjects);
 const p1 = parseCalendarEventCreate("Let's create an event for March 25", { allProjects: twoProjects, parsedContext: {}, history: [] });
 assert.equal(p1.needsMore, 'details', 'After date, ask event name/type before project');
 assert.ok(p1.event?.date, 'Should parse March 25 to ISO date');

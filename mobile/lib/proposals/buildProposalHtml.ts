@@ -372,8 +372,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         <div class="cover-main">
           <div class="cover-eyebrow">Client agreement</div>
           <div class="doc-type">${esc(docTitle)}</div>
-          <div class="cover-deck">Prepared for ${esc(sanitizedDoc.owner.legalName || "Client")}</div>
-          <div class="cover-project-line">${esc(sanitizedDoc.summary.projectName)}</div>
+          <!-- Client + project appear once in cover-story-grid (avoid repeating "Prepared for" / name / project) -->
 
           <div class="cover-story-grid">
             <div class="cover-story-block">
@@ -813,23 +812,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       letter-spacing: 0.06em;
       line-height: 1.04;
       color: ${brandDark};
-      margin-bottom: 10px;
-      max-width: 90%;
-    }
-    .cover-deck {
-      font-size: 10.2pt;
-      line-height: 1.35;
-      color: ${muted};
-      margin-bottom: 4px;
-      max-width: 92%;
-    }
-    .cover-project-line {
-      font-size: 16pt;
-      line-height: 1.2;
-      color: ${bodyText};
-      font-weight: 600;
       margin-bottom: 18px;
-      max-width: 92%;
+      max-width: 90%;
     }
     .cover-story-grid {
       display: grid;

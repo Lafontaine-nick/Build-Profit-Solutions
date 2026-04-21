@@ -40,7 +40,7 @@ import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
 import EditPurchaseOrderModal from './EditPurchaseOrderModal';
 import PricingModeSection, { PricingMode } from './PricingModeSection';
-import { centsDigitsToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
+import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 /**
@@ -252,7 +252,7 @@ export default function BudgetTab({
   useEffect(() => {
     if (!showChangeOrderModal || changeOrderPricingMode !== 'sqft') return;
     const sq = parseInt(digitsOnly(changeOrderSqftInput), 10) || 0;
-    const rate = centsDigitsToNumber(changeOrderRateInput);
+    const rate = decimalMoneyInputToNumber(changeOrderRateInput);
     const total = sq > 0 && rate > 0 ? (sq * rate).toFixed(2) : '';
     if (changeOrderIsEditingRef.current) {
       setEditingChangeOrder((prev: any) =>
@@ -1629,7 +1629,7 @@ export default function BudgetTab({
                 }
                 if (changeOrderPricingMode === 'sqft') {
                   const sq = parseFloat(changeOrderSqftInput.replace(/[^0-9.]/g, '')) || 0;
-                  const rate = parseFloat(changeOrderRateInput.replace(/[^0-9.]/g, '')) || 0;
+                  const rate = decimalMoneyInputToNumber(changeOrderRateInput);
                   if (sq <= 0 || rate <= 0) {
                     Alert.alert(
                       'Square feet & rate required',

@@ -50,8 +50,10 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
+  decimalMoneyInputToNumber,
   digitsOnly,
   dollarsToCentsDigits,
+  sanitizeDecimalMoneyInput,
 } from '@/src/lib/keyboardMoney';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import EmptyStateCard from '../../components/EmptyStateCard';
@@ -85,6 +87,10 @@ import api from '../../services/BackendAPI';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
+import {
+  allocateNextProposalNumber,
+  formatProposalIdForContract,
+} from '../../utils/proposalNumber';
 import { getTabScrollContentBottomInset } from '../../constants/ScreenLayout';
 import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid';
 
@@ -92,6 +98,7 @@ import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid'
 
 const BID_STORAGE_KEY = 'bps.currentBid.v2';
 const screenWidth = Dimensions.get('window').width;
+const CART_SCROLL_MAX_HEIGHT = 420;
 
 // ============ MATERIALS CATALOG DATA ============
 const VENDORS = [
@@ -101,11 +108,16 @@ const VENDORS = [
 ];
 
 const PROJECT_TYPES = [
-  { label: "Kitchen", value: "kitchen" },
-  { label: "Bathroom", value: "bathroom" },
+  { label: "Kitchen Remodel", value: "kitchen" },
+  { label: "Bathroom Remodel", value: "bathroom" },
   { label: "Room Add.", value: "room_addition" },
-  { label: "Home Add.", value: "home_addition" },
+  { label: "Whole Home Remodel", value: "home_addition" },
+  { label: "ADU", value: "adu" },
+  { label: "Garage Conversion", value: "garage_conversion" },
   { label: "New Build", value: "new_build" },
+  { label: "Roofing", value: "roofing" },
+  { label: "Deck & Patio", value: "deck_patio" },
+  { label: "Plumbing Service", value: "plumbing_service" },
   { label: "Landscaping", value: "landscaping" },
   { label: "Other", value: "other" },
 ];
@@ -115,7 +127,12 @@ const PROJECT_CATEGORY_SLUGS = {
   bathroom: 'bathroom-remodel',
   room_addition: 'addition',
   home_addition: 'home-renovation',
+  adu: 'adu',
+  garage_conversion: 'garage-conversion',
   new_build: 'new-build',
+  roofing: 'roofing',
+  deck_patio: 'deck-patio',
+  plumbing_service: 'plumbing-service',
   landscaping: 'landscaping',
   other: 'other',
 };
@@ -136,8 +153,13 @@ const SECTIONS = {
   kitchen: ["Framing", "Electrical", "Plumbing", "Cabinetry & Tops", "Flooring", "Drywall & Paint", "Appliances"],
   bathroom: ["Framing", "Electrical", "Plumbing", "Waterproof & Tile", "Drywall & Paint", "Fixtures"],
   room_addition: ["Sitework", "Framing", "Sheathing", "Roofing", "Windows & Doors", "Electrical", "Insulation", "Drywall & Paint"],
-  home_addition: ["Sitework", "Foundation", "Framing", "Sheathing", "Roofing", "MEP Rough", "Insulation", "Drywall & Paint", "Exterior"],
+  home_addition: ["Demolition", "Framing", "Electrical", "Plumbing", "Drywall & Paint", "Flooring", "Cabinetry & Tops", "Finishes"],
+  adu: ["Sitework", "Foundation", "Framing", "Roofing", "MEP Rough", "Insulation", "Drywall", "Finishes"],
+  garage_conversion: ["Demolition", "Framing", "Electrical", "Insulation", "Drywall & Paint", "Flooring", "Windows & Doors"],
   new_build: ["Sitework", "Foundation", "Framing", "Sheathing", "Roofing", "MEP Rough", "Insulation", "Drywall", "Finishes"],
+  roofing: ["Demolition", "Roof Deck", "Underlayment", "Roofing", "Flashing", "Gutters"],
+  deck_patio: ["Demolition", "Footings", "Framing", "Decking", "Railing", "Concrete & Pavers"],
+  plumbing_service: ["Diagnostics", "Plumbing", "Fixtures", "Water Heater", "Finish & Cleanup"],
   landscaping: ["Hardscape", "Softscape & Plants", "Irrigation", "Lighting"],
   other: ["Materials", "Equipment", "Permits", "Other"],
 };
@@ -166,6 +188,18 @@ const SECTION_ICONS = {
   "Softscape & Plants": "leaf-outline",
   "Irrigation": "water-outline",
   "Lighting": "bulb-outline",
+  "Demolition": "hammer-outline",
+  "Roof Deck": "grid-outline",
+  "Underlayment": "layers-outline",
+  "Flashing": "shield-checkmark-outline",
+  "Gutters": "rainy-outline",
+  "Footings": "albums-outline",
+  "Decking": "apps-outline",
+  "Concrete & Pavers": "square-outline",
+  "Concrete": "square-outline",
+  "Diagnostics": "search-outline",
+  "Water Heater": "thermometer-outline",
+  "Finish & Cleanup": "checkmark-done-outline",
   "Materials": "cube-outline",
   "Equipment": "construct-outline",
   "Permits": "document-text-outline",
@@ -1531,7 +1565,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [unitPrice, setUnitPrice] = useState(item?.unitPrice || 0);
   const [unitPriceText, setUnitPriceText] = useState(item?.unitPrice?.toString() || '');
   const [hours, setHours] = useState(item?.hours || '');
-  /** Labor rate only — cent-digit string (same entry style as Step 1 phone / Step 2 sqft / material $ fields). */
+  /** Labor rate input uses a decimal string such as "4.75". */
   const [laborRateDigits, setLaborRateDigits] = useState('');
   const [vendor, setVendor] = useState(item?.vendor ?? '');
   const [category, setCategory] = useState(item?.category || 'General');
@@ -1552,6 +1586,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const isMaterial = title.includes('Material');
   /** Global `bps-keyboard-done` bar (mounted in root `_layout.tsx`). */
   const bpsKeyboardAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone);
+  /** Modal-local empty accessory for text fields inside this full-screen modal. */
+  const lineItemModalPlainAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.lineItemModalPlain);
 
   useEffect(() => {
     if (item) {
@@ -1566,7 +1602,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
             : ''
         );
         setUnitPriceText(
-          item.unitPrice ? dollarsToCentsDigits(item.unitPrice) : ''
+          item.unitPrice != null && item.unitPrice !== ''
+            ? sanitizeDecimalMoneyInput(String(item.unitPrice))
+            : ''
         );
       } else {
         setQuantityText(item.quantity?.toString() || '');
@@ -1576,7 +1614,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       if (isLabor) {
         setLaborRateDigits(
           item.rate != null && item.rate !== ''
-            ? dollarsToCentsDigits(Number(item.rate))
+            ? sanitizeDecimalMoneyInput(String(Number(item.rate)))
             : ''
         );
       } else {
@@ -1616,7 +1654,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       Alert.alert('Vendor required', 'Please enter a vendor or supplier.');
       return;
     }
-    const laborRateNum = isLabor ? centsDigitsToNumber(laborRateDigits) || 0 : 0;
+    const laborRateNum = isLabor ? decimalMoneyInputToNumber(laborRateDigits) || 0 : 0;
     const data = {
       name,
       ...(isLabor ? {
@@ -1693,6 +1731,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       statusBarTranslucent
       onRequestClose={onClose}
     >
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView
+          nativeID={KEYBOARD_ACCESSORY_IDS.lineItemModalPlain}
+          backgroundColor="transparent"
+        >
+          <View style={{ height: 0, width: '100%' }} collapsable={false} />
+        </InputAccessoryView>
+      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
         enabled={Platform.OS === 'android'}
@@ -1790,12 +1836,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
+                          inputAccessoryViewID={lineItemModalPlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
-                          inputAccessoryViewID={bpsKeyboardAccessoryId}
                         />
                       </View>
                     </View>
@@ -1933,12 +1979,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             keyboardType="phone-pad"
                             textContentType="none"
                             autoComplete="off"
-                            returnKeyType="next"
-                            onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit={true}
+                            inputAccessoryViewID={lineItemModalPlainAccessoryId}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -1956,8 +1999,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholder="$ 0.00"
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={laborRateDigits}
-                            onChangeText={(text) => setLaborRateDigits(clampCentsDigitsInput(text))}
-                            keyboardType="phone-pad"
+                            onChangeText={(text) => setLaborRateDigits(sanitizeDecimalMoneyInput(text))}
+                            keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? 'dark' : 'light'}
                             textContentType="none"
                             autoComplete="off"
@@ -1990,7 +2033,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           fontWeight: '700',
                           textAlign: 'center',
                         }}>
-                          Total: ${((Number(hours) || 0) * (centsDigitsToNumber(laborRateDigits) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          Total: ${((Number(hours) || 0) * (decimalMoneyInputToNumber(laborRateDigits) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                       </View>
                     </View>
@@ -2047,7 +2090,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               blurOnSubmit
                               selectionColor="#22c55e"
                               underlineColorAndroid="transparent"
-                              inputAccessoryViewID={bpsKeyboardAccessoryId}
                             />
                           </View>
                         </View>
@@ -2219,11 +2261,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     }
                                     value={unitPriceText || ''}
                                     onChangeText={(text) => {
-                                      const d = clampCentsDigitsInput(text);
+                                      const d = sanitizeDecimalMoneyInput(text);
                                       setUnitPriceText(d);
-                                      setUnitPrice(centsDigitsToNumber(d));
+                                      setUnitPrice(decimalMoneyInputToNumber(d));
                                     }}
-                                    keyboardType="phone-pad"
+                                    keyboardType="decimal-pad"
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
@@ -2264,7 +2306,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 {(() => {
                                   const sq =
                                     parseInt(digitsOnly(quantityText), 10) || 0;
-                                  const rate = centsDigitsToNumber(unitPriceText);
+                                  const rate = decimalMoneyInputToNumber(unitPriceText);
                                   return formatMoneyFull(sq * rate, {
                                     decimals: 2,
                                   });
@@ -2292,11 +2334,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 }
                                 value={unitPriceText || ''}
                                 onChangeText={(text) => {
-                                  const d = clampCentsDigitsInput(text);
+                                  const d = sanitizeDecimalMoneyInput(text);
                                   setUnitPriceText(d);
-                                  setUnitPrice(centsDigitsToNumber(d));
+                                  setUnitPrice(decimalMoneyInputToNumber(d));
                                 }}
-                                keyboardType="phone-pad"
+                                keyboardType="decimal-pad"
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
@@ -2313,10 +2355,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 inputAccessoryViewID={bpsKeyboardAccessoryId}
                               />
                             </View>
-                            {centsDigitsToNumber(unitPriceText) > 0 && (
+                            {decimalMoneyInputToNumber(unitPriceText) > 0 && (
                               <Text style={modalStyles.budgetAmountHint}>
                                 {formatMoneyFull(
-                                  centsDigitsToNumber(unitPriceText),
+                                  decimalMoneyInputToNumber(unitPriceText),
                                   { decimals: 2 }
                                 )}
                               </Text>
@@ -2329,7 +2371,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       <View style={[modalStyles.materialFieldGroup, { marginTop: 18 }]}>
                         <Text style={modalStyles.materialLabel}>Category (Optional)</Text>
                         <View style={modalStyles.materialChipRow}>
-                          {['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'].map((c) => (
+                          {['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Windows', 'Exterior Siding', 'Doors', 'Cabinets', 'Lighting', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'].map((c) => (
                             <TouchableOpacity
                               key={c}
                               onPress={() => setCategory(c)}
@@ -2418,7 +2460,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       blurOnSubmit={true}
                       placeholder="Enter item name"
                       placeholderTextColor={Colors.sub}
-                      inputAccessoryViewID={bpsKeyboardAccessoryId}
                     />
                   </View>
                   
@@ -2509,8 +2550,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           <TextInput
                             style={modalStyles.input}
                             value={laborRateDigits}
-                            onChangeText={(text) => setLaborRateDigits(clampCentsDigitsInput(text))}
-                            keyboardType="phone-pad"
+                            onChangeText={(text) => setLaborRateDigits(sanitizeDecimalMoneyInput(text))}
+                            keyboardType="decimal-pad"
                             textContentType="none"
                             autoComplete="off"
                             returnKeyType="done"
@@ -2523,7 +2564,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </View>
                       </View>
                       <View style={modalStyles.totalBox}>
-                        <Text style={modalStyles.totalLabel}>Total: ${((Number(hours) || 0) * (centsDigitsToNumber(laborRateDigits) || 0)).toLocaleString()}</Text>
+                        <Text style={modalStyles.totalLabel}>Total: ${((Number(hours) || 0) * (decimalMoneyInputToNumber(laborRateDigits) || 0)).toLocaleString()}</Text>
                       </View>
                     </>
                   ) : (
@@ -2568,11 +2609,11 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           style={modalStyles.input}
                           value={unitPriceText || (unitPrice > 0 ? unitPrice.toString() : '')}
                           onChangeText={(text) => {
-                            const cleanText = text.replace(/[^0-9.]/g, '');
+                            const cleanText = sanitizeDecimalMoneyInput(text);
                             setUnitPriceText(cleanText);
-                            setUnitPrice(parseFloat(cleanText) || 0);
+                            setUnitPrice(decimalMoneyInputToNumber(cleanText));
                           }}
-                          keyboardType="phone-pad"
+                          keyboardType="decimal-pad"
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
@@ -2617,6 +2658,77 @@ function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
   const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
   const profit = (subtotal * (Number(bid.markupPct) || 0)) / 100;
   return subtotal + profit;
+}
+
+function hasMeaningfulEstimateDraft(bid, cart = []) {
+  if (!bid?.id) return false;
+  const title = String(bid.title || '').trim();
+  return (
+    (Array.isArray(cart) && cart.length > 0) ||
+    (Array.isArray(bid.laborLineItems) && bid.laborLineItems.length > 0) ||
+    (Array.isArray(bid.paymentMilestones) && bid.paymentMilestones.length > 0) ||
+    (Array.isArray(bid.weeklyPayments) && bid.weeklyPayments.length > 0) ||
+    Number(bid.planCost || 0) > 0 ||
+    Number(bid.permitCost || 0) > 0 ||
+    Number(bid.otherDirectCost || 0) > 0 ||
+    Number(bid.equipment || 0) > 0 ||
+    !!String(bid.scopeDescription || '').trim() ||
+    (!!title && title !== 'Untitled Bid') ||
+    !!(
+      bid.customerName ||
+      bid.customerEmail ||
+      bid.customerPhone ||
+      bid.customerAddress ||
+      bid.customerCompany
+    )
+  );
+}
+
+function resolveMaterialCartUnitPrice(item) {
+  const qty = Number(item?.quantity || item?.qty || 0);
+  const total = Number(item?.total || 0);
+  const storedUnitPrice = Number(item?.unitPrice || 0);
+  const fallbackCost = Number(item?.cost || 0);
+  const isSqft = item?.mode === 'sqft' || item?.unit === 'sq ft';
+
+  if (isSqft && qty > 0 && total > 0) {
+    const storedLooksAccurate =
+      storedUnitPrice > 0 && Math.abs(storedUnitPrice * qty - total) < 0.01;
+    if (storedLooksAccurate) return storedUnitPrice;
+    return total / qty;
+  }
+
+  if (storedUnitPrice > 0) return storedUnitPrice;
+  if (fallbackCost > 0) return fallbackCost;
+  return 0;
+}
+
+function inferMaterialCategoryChip(item) {
+  const explicit = String(item?.category || '').trim();
+  if (explicit) return explicit;
+
+  const raw = `${item?.section || ''} ${item?.name || ''} ${item?.description || ''}`.toLowerCase();
+  if (raw.includes('fram')) return 'Framing';
+  if (raw.includes('drywall') || raw.includes('sheetrock')) return 'Drywall';
+  if (raw.includes('elect')) return 'Electrical';
+  if (raw.includes('plumb')) return 'Plumbing';
+  if (raw.includes('roof')) return 'Roofing';
+  if (raw.includes('floor')) return 'Flooring';
+  if (raw.includes('paint')) return 'Paint';
+  if (raw.includes('tile')) return 'Tile';
+  if (raw.includes('concrete')) return 'Concrete';
+  if (raw.includes('window')) return 'Windows';
+  if (raw.includes('siding') || raw.includes('stucco') || raw.includes('exterior')) return 'Exterior Siding';
+  if (raw.includes('door')) return 'Doors';
+  if (raw.includes('cabinet')) return 'Cabinets';
+  if (raw.includes('light')) return 'Lighting';
+  if (raw.includes('fixture')) return 'Fixtures';
+  if (raw.includes('appliance')) return 'Appliances';
+  if (raw.includes('insulation')) return 'Insulation';
+  if (raw.includes('hvac')) return 'HVAC';
+  if (raw.includes('lumber')) return 'Lumber';
+  if (raw.includes('hardware')) return 'Hardware';
+  return 'General';
 }
 
 const blankState = (isFirstTime = false) => ({
@@ -2826,18 +2938,48 @@ const ESTIMATE_AI_PACKAGES = {
     ],
   },
   home_addition: {
-    scopeSections: ['Sitework', 'Foundation', 'Framing', 'MEP Rough', 'Insulation', 'Exterior'],
+    scopeSections: ['Demolition', 'Framing', 'Electrical', 'Plumbing', 'Drywall & Paint', 'Flooring'],
     materials: [
-      { description: 'Foundation allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
+      { description: 'Demolition allowance', section: 'Demolition', category: 'Demolition', unit: 'allowance' },
       { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'MEP rough allowance', section: 'MEP Rough', category: 'MEP Rough', unit: 'allowance' },
-      { description: 'Exterior finish allowance', section: 'Exterior', category: 'Exterior', unit: 'allowance' },
+      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
+      { description: 'Finish flooring allowance', section: 'Flooring', category: 'Flooring', unit: 'allowance' },
     ],
     labor: [
-      { description: 'Foundation labor', section: 'Foundation', category: 'Foundation' },
+      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'Electrical / plumbing coordination labor', section: 'Electrical', category: 'Electrical' },
+      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
+    ],
+  },
+  adu: {
+    scopeSections: ['Sitework', 'Foundation', 'Framing', 'Roofing', 'MEP Rough', 'Finishes'],
+    materials: [
+      { description: 'Foundation package allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'Roofing allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
+      { description: 'Finish package allowance', section: 'Finishes', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Sitework labor', section: 'Sitework', category: 'Sitework' },
       { description: 'Framing labor', section: 'Framing', category: 'Framing' },
       { description: 'MEP coordination labor', section: 'MEP Rough', category: 'MEP Rough' },
-      { description: 'Exterior finish labor', section: 'Exterior', category: 'Exterior' },
+      { description: 'Finish labor', section: 'Finishes', category: 'Finishes' },
+    ],
+  },
+  garage_conversion: {
+    scopeSections: ['Demolition', 'Framing', 'Electrical', 'Insulation', 'Drywall & Paint', 'Flooring'],
+    materials: [
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
+      { description: 'Insulation allowance', section: 'Insulation', category: 'Insulation', unit: 'allowance' },
+      { description: 'Flooring allowance', section: 'Flooring', category: 'Flooring', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'Electrical labor', section: 'Electrical', category: 'Electrical' },
+      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
     ],
   },
   new_build: {
@@ -2868,6 +3010,51 @@ const ESTIMATE_AI_PACKAGES = {
       { description: 'Planting labor', section: 'Softscape & Plants', category: 'Softscape' },
       { description: 'Irrigation labor', section: 'Irrigation', category: 'Irrigation' },
       { description: 'Lighting labor', section: 'Lighting', category: 'Lighting' },
+    ],
+  },
+  roofing: {
+    scopeSections: ['Demolition', 'Roof Deck', 'Underlayment', 'Roofing', 'Flashing', 'Gutters'],
+    materials: [
+      { description: 'Tear-off allowance', section: 'Demolition', category: 'Demolition', unit: 'allowance' },
+      { description: 'Underlayment allowance', section: 'Underlayment', category: 'Roofing', unit: 'allowance' },
+      { description: 'Roofing material allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
+      { description: 'Flashing / gutter allowance', section: 'Flashing', category: 'Roofing', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Tear-off labor', section: 'Demolition', category: 'Demolition' },
+      { description: 'Deck repair labor', section: 'Roof Deck', category: 'Roofing' },
+      { description: 'Roof install labor', section: 'Roofing', category: 'Roofing' },
+      { description: 'Flashing / gutter labor', section: 'Gutters', category: 'Roofing' },
+    ],
+  },
+  deck_patio: {
+    scopeSections: ['Demolition', 'Footings', 'Framing', 'Decking', 'Railing', 'Concrete & Pavers'],
+    materials: [
+      { description: 'Footing allowance', section: 'Footings', category: 'Concrete', unit: 'allowance' },
+      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
+      { description: 'Decking allowance', section: 'Decking', category: 'Decking', unit: 'allowance' },
+      { description: 'Railing / patio finish allowance', section: 'Railing', category: 'Finishes', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
+      { description: 'Footing labor', section: 'Footings', category: 'Concrete' },
+      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
+      { description: 'Deck / patio finish labor', section: 'Decking', category: 'Decking' },
+    ],
+  },
+  plumbing_service: {
+    scopeSections: ['Diagnostics', 'Plumbing', 'Fixtures', 'Water Heater', 'Finish & Cleanup'],
+    materials: [
+      { description: 'Diagnostic allowance', section: 'Diagnostics', category: 'Plumbing', unit: 'allowance' },
+      { description: 'Pipe / fitting allowance', section: 'Plumbing', category: 'Plumbing', unit: 'allowance' },
+      { description: 'Fixture replacement allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
+      { description: 'Water heater allowance', section: 'Water Heater', category: 'Plumbing', unit: 'allowance' },
+    ],
+    labor: [
+      { description: 'Diagnostic labor', section: 'Diagnostics', category: 'Plumbing' },
+      { description: 'Repair labor', section: 'Plumbing', category: 'Plumbing' },
+      { description: 'Fixture install labor', section: 'Fixtures', category: 'Fixtures' },
+      { description: 'Cleanup / testing labor', section: 'Finish & Cleanup', category: 'Plumbing' },
     ],
   },
   other: {
@@ -3054,7 +3241,7 @@ const buildEstimateAssistantBrief = ({
     };
   } else if (!hasReviewedMarkup || markupLow) {
     bestNextAction = {
-      label: 'Review markup',
+      label: 'Protect profit',
       prompt: 'Review my markup and tell me if this bid is protected enough.',
       reason: markupLow
         ? `Markup is only ${Math.round((Number(markupPct) || 0) * 10) / 10}%, which may leave thin cushion.`
@@ -3091,7 +3278,7 @@ const buildEstimateAssistantBrief = ({
   if (!hasMaterials) riskLines.push('material coverage is still empty');
   if (!hasLabor) riskLines.push('labor coverage is still empty');
   if (!hasPaymentSchedule) riskLines.push('payment timing is not protecting cash flow yet');
-  if (markupLow) riskLines.push('markup looks thin for friction');
+  if (markupLow) riskLines.push('profit cushion looks thin for normal job friction');
 
   const missingPreview = Array.isArray(missingEstimateItems) ? missingEstimateItems.slice(0, 3) : [];
   const summary =
@@ -3127,13 +3314,13 @@ const buildEstimateAssistantBrief = ({
   } else if (stage === 'near_complete') {
     pushChip(bestNextAction.label, bestNextAction.prompt);
     pushChip('Ready to Send?', 'Is this estimate ready to send?');
-    pushChip('Stress Test Profit', 'Run a friction scenario on this estimate.');
-    pushChip('Improve Protection', 'Make this estimate safer.');
+    pushChip('Pressure-Test Profit', 'Run a friction scenario on this estimate.');
+    pushChip('Protect Profit', 'Make this estimate safer and explain the top protection moves.');
     pushChip('Final Review', 'Review this bid before I send it.');
     pushChip('Safer Schedule', 'Generate a safer payment schedule for this estimate.');
   } else {
     pushChip(bestNextAction.label, bestNextAction.prompt);
-    pushChip('Review This Bid', 'Review this bid and tell me the biggest gaps.');
+    pushChip('Review This Bid', 'Review this bid and tell me the biggest profit risks.');
     pushChip('Missing Costs', 'Scan this estimate for missing costs and gaps.');
     pushChip('Check Margin', 'What is my margin on this estimate?');
     pushChip('Add Line Items', 'Help me add line items to this estimate.');
@@ -5394,8 +5581,13 @@ export default function EstimateGeneratorScreen() {
     if (slug.includes('kitchen')) return 'kitchen';
     if (slug.includes('bathroom')) return 'bathroom';
     if (slug.includes('room_add')) return 'room_addition';
-    if (slug.includes('home_add') || slug.includes('home-renov')) return 'home_addition';
+    if (slug.includes('whole_home') || slug.includes('whole-home') || slug.includes('full_remodel') || slug.includes('home_add') || slug.includes('home-renov')) return 'home_addition';
+    if (slug === 'adu' || slug.includes('accessory_dwelling')) return 'adu';
+    if (slug.includes('garage_conversion') || slug.includes('garage-conversion')) return 'garage_conversion';
     if (slug.includes('new_build') || slug.includes('new-build') || slug.includes('newhome') || slug.includes('custom')) return 'new_build';
+    if (slug.includes('roof')) return 'roofing';
+    if (slug.includes('deck') || slug.includes('patio')) return 'deck_patio';
+    if (slug.includes('plumbing') || slug.includes('service')) return 'plumbing_service';
     if (slug.includes('landscape')) return 'landscaping';
     return 'other';
   }, []);
@@ -6293,9 +6485,8 @@ export default function EstimateGeneratorScreen() {
           }, leadSource: ${snapshotBid.leadSource || 'none'}`
         );
 
-        // Note: Auto-save only saves to AsyncStorage (BID_STORAGE_KEY)
-        // To add to restore bids list, user must click "Save Bid" button
-        // This keeps the restore bids list clean and intentional
+        // The restore-bids list is handled separately by silentPersistEstimateDraft
+        // so regular snapshot/project syncing can stay lightweight here.
 
         const matchingEstimate = estimates.find(p => p.id === snapshotBid.id);
         const existingWonProject = activeProjects.find(
@@ -6659,6 +6850,7 @@ export default function EstimateGeneratorScreen() {
     const b = bidRef.current;
     if (!b?.id) return;
     const cart = materialsCartRef.current || [];
+    if (!hasMeaningfulEstimateDraft(b, cart)) return;
     try {
       const bidDataToSave = {
         ...b,
@@ -6715,6 +6907,15 @@ export default function EstimateGeneratorScreen() {
     if (!isLoaded || forceRefresh === 0) return;
     void silentPersistEstimateDraft();
   }, [forceRefresh, isLoaded, silentPersistEstimateDraft]);
+
+  useEffect(() => {
+    if (!isLoaded || isInitialLoadRef.current) return;
+    if (!hasMeaningfulEstimateDraft(bid, materialsCart)) return;
+    const timeoutId = setTimeout(() => {
+      void silentPersistEstimateDraft();
+    }, 1200);
+    return () => clearTimeout(timeoutId);
+  }, [bid, materialsCart, isLoaded, silentPersistEstimateDraft]);
 
   const estimateContext = useMemo(() => {
     const estimateNameTrimmed =
@@ -8544,7 +8745,7 @@ export default function EstimateGeneratorScreen() {
 
     return {
       summary: {
-        contractId: bidData.id || `BPS-${Date.now()}`,
+        contractId: formatProposalIdForContract(bidData),
         projectName: bidData.title || 'Untitled Project',
         siteAddress: formattedSiteAddress,
         unitPrice: bidData.sqft ? (() => {
@@ -9705,7 +9906,27 @@ export default function EstimateGeneratorScreen() {
 
   // Line item management
   const addMaterial = () => setMaterialModal({ visible: true, item: null });
-  const editMaterial = (item) => setMaterialModal({ visible: true, item });
+  const editMaterial = (item) => {
+    setEditingCartItem(null);
+    setMaterialModal({
+      visible: true,
+      item: {
+        ...item,
+        name: item.name || item.description || 'Material',
+        quantity: Number(item.quantity || item.qty || 1),
+        unitPrice: resolveMaterialCartUnitPrice(item),
+        mode: item.mode === 'sqft' || item.unit === 'sq ft' ? 'sqft' : 'flat',
+        vendor:
+          item.vendor ||
+          VENDORS.find((v) => v.id === item.vendorId)?.name ||
+          item.vendorId ||
+          '',
+        category: inferMaterialCategoryChip(item),
+        section: item.section || item.category || '',
+        scope: item.scope || activeScope,
+      },
+    });
+  };
   const saveMaterial = (item) => {
     if (item.id) {
       // Update existing
@@ -9795,8 +10016,10 @@ export default function EstimateGeneratorScreen() {
           }
 
           // Create a completely blank bid (not first time, so no default items)
+          const proposalNumber = await allocateNextProposalNumber();
           const nextBid = {
             ...blankState(false),
+            proposalNumber,
             // Ensure all calculation-related fields are cleared
             previousTotal: undefined,
             materialLineItems: [],
@@ -10922,164 +11145,187 @@ export default function EstimateGeneratorScreen() {
                           </View>
                         ) : (
                           <>
-                            {materialsCart.map((item, index) => {
-                              const isEditing = editingCartItem === index;
-                              
-                              return (
-                                <View key={item.id || index} style={{
-                                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
-                                  borderRadius: 14,
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 12,
-                                  marginBottom: 8,
-                                  borderWidth: 1,
-                                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
-                                }}>
-                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <View style={{ flex: 1, marginRight: 12 }}>
-                                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 3, lineHeight: 20 }}>
-                                        {item.name || item.description || 'Material'}
-                                      </Text>
-                                      {!isEditing ? (
-                                        <>
-                                          <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                            {item.mode === 'sqft' || item.unit === 'sq ft'
-                                              ? `${item.quantity || item.qty || 0} sq ft × ${money(item.unitPrice || item.cost || 0)}/sq ft`
-                                              : `${item.quantity || item.qty || 0} ${item.unit || 'ea'} × ${money(item.unitPrice || item.cost || 0)}`}
-                                          </Text>
-                                          {item.vendorId && (
-                                            <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
-                                              {VENDORS.find(v => v.id === item.vendorId)?.name || item.vendorId}
+                            <ScrollView
+                              nestedScrollEnabled
+                              showsVerticalScrollIndicator={materialsCart.length > 6}
+                              style={materialsCart.length > 6 ? { maxHeight: CART_SCROLL_MAX_HEIGHT } : undefined}
+                              contentContainerStyle={{ paddingBottom: 4 }}
+                            >
+                              {materialsCart.map((item, index) => {
+                                const isEditing = editingCartItem === index;
+                                
+                                return (
+                                  <View key={item.id || index} style={{
+                                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                                    borderRadius: 14,
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 12,
+                                    marginBottom: 8,
+                                    borderWidth: 1,
+                                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                                  }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                      <View style={{ flex: 1, marginRight: 12 }}>
+                                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', marginBottom: 3, lineHeight: 20 }}>
+                                          {item.name || item.description || 'Material'}
+                                        </Text>
+                                        {!isEditing ? (
+                                          <>
+                                            <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
+                                              {item.mode === 'sqft' || item.unit === 'sq ft'
+                                                ? `${item.quantity || item.qty || 0} sq ft × ${money(resolveMaterialCartUnitPrice(item))}/sq ft`
+                                                : `${item.quantity || item.qty || 0} ${item.unit || 'ea'} × ${money(resolveMaterialCartUnitPrice(item))}`}
                                             </Text>
-                                          )}
-                                          {item.sku && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
-                                              <Ionicons name="barcode-outline" size={12} color="#22d3ee" />
-                                              <Text style={{ color: '#5eead4', fontSize: 11, marginLeft: 4, opacity: 0.95 }}>
-                                                {item.sku}
+                                            {item.vendorId && (
+                                              <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
+                                                {VENDORS.find(v => v.id === item.vendorId)?.name || item.vendorId}
                                               </Text>
+                                            )}
+                                            {item.sku && (
+                                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5 }}>
+                                                <Ionicons name="barcode-outline" size={12} color="#22d3ee" />
+                                                <Text style={{ color: '#5eead4', fontSize: 11, marginLeft: 4, opacity: 0.95 }}>
+                                                  {item.sku}
+                                                </Text>
+                                              </View>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+                                              <TouchableOpacity
+                                                onPress={() => {
+                                                  const newQty = Math.max(1, (item.quantity || item.qty || 1) - 1);
+                                                  const unitRate = resolveMaterialCartUnitPrice(item);
+                                                  setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: newQty, qty: newQty, unitPrice: unitRate, cost: unitRate, total: unitRate * newQty } : it));
+                                                }}
+                                                style={{ padding: 8 }}
+                                              >
+                                                <Ionicons name="remove" size={14} color={Colors.text} />
+                                              </TouchableOpacity>
+                                              <TextInput
+                                                style={{ flex: 1, color: Colors.text, fontSize: 14, fontWeight: '600', textAlign: 'center', paddingVertical: 6 }}
+                                                value={String(item.quantity || item.qty || 1)}
+                                                onChangeText={(text) => {
+                                                  const num = parseInt(text) || 1;
+                                                  const unitRate = resolveMaterialCartUnitPrice(item);
+                                                  setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: num, qty: num, unitPrice: unitRate, cost: unitRate, total: unitRate * num } : it));
+                                                }}
+                                                keyboardType="phone-pad"
+                                                textContentType="none"
+                                                autoComplete="off"
+                                                inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
+                                                returnKeyType="done"
+                                                onSubmitEditing={() => Keyboard.dismiss()}
+                                                blurOnSubmit={true}
+                                              />
+                                              <TouchableOpacity
+                                                onPress={() => {
+                                                  const newQty = (item.quantity || item.qty || 1) + 1;
+                                                  const unitRate = resolveMaterialCartUnitPrice(item);
+                                                  setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: newQty, qty: newQty, unitPrice: unitRate, cost: unitRate, total: unitRate * newQty } : it));
+                                                }}
+                                                style={{ padding: 8 }}
+                                              >
+                                                <Ionicons name="add" size={14} color={Colors.text} />
+                                              </TouchableOpacity>
                                             </View>
-                                          )}
-                                        </>
-                                      ) : (
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' }}>
                                             <TouchableOpacity
-                                              onPress={() => {
-                                                const newQty = Math.max(1, (item.quantity || item.qty || 1) - 1);
-                                                setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: newQty, qty: newQty, total: (it.unitPrice || it.cost || 0) * newQty } : it));
-                                              }}
-                                              style={{ padding: 8 }}
+                                              onPress={() => setEditingCartItem(null)}
+                                              style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: Colors.primary, borderRadius: 8 }}
                                             >
-                                              <Ionicons name="remove" size={14} color={Colors.text} />
-                                            </TouchableOpacity>
-                                            <TextInput
-                                              style={{ flex: 1, color: Colors.text, fontSize: 14, fontWeight: '600', textAlign: 'center', paddingVertical: 6 }}
-                                              value={String(item.quantity || item.qty || 1)}
-                                              onChangeText={(text) => {
-                                                const num = parseInt(text) || 1;
-                                                setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: num, qty: num, total: (it.unitPrice || it.cost || 0) * num } : it));
-                                              }}
-                                              keyboardType="phone-pad"
-                                              textContentType="none"
-                                              autoComplete="off"
-                                              inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
-                                              returnKeyType="done"
-                                              onSubmitEditing={() => Keyboard.dismiss()}
-                                              blurOnSubmit={true}
-                                            />
-                                            <TouchableOpacity
-                                              onPress={() => {
-                                                const newQty = (item.quantity || item.qty || 1) + 1;
-                                                setMaterialsCart(prev => prev.map((it, i) => i === index ? { ...it, quantity: newQty, qty: newQty, total: (it.unitPrice || it.cost || 0) * newQty } : it));
-                                              }}
-                                              style={{ padding: 8 }}
-                                            >
-                                              <Ionicons name="add" size={14} color={Colors.text} />
+                                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Done</Text>
                                             </TouchableOpacity>
                                           </View>
+                                        )}
+                                      </View>
+                                      <View style={{ alignItems: 'flex-end' }}>
+                                        <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
+                                          {money(item.total || 0)}
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                                          {!isEditing && (
+                                            <TouchableOpacity
+                                              onPress={() => editMaterial(item)}
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 16,
+                                                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                                justifyContent: 'center',
+                                                alignItems: 'center',
+                                                borderWidth: 1,
+                                                borderColor: 'rgba(34, 197, 94, 0.22)',
+                                              }}
+                                            >
+                                              <Ionicons name="create-outline" size={15} color="#4ade80" />
+                                            </TouchableOpacity>
+                                          )}
                                           <TouchableOpacity
-                                            onPress={() => setEditingCartItem(null)}
-                                            style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: Colors.primary, borderRadius: 8 }}
-                                          >
-                                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>Done</Text>
-                                          </TouchableOpacity>
-                                        </View>
-                                      )}
-                                    </View>
-                                    <View style={{ alignItems: 'flex-end' }}>
-                                      <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
-                                        {money(item.total || 0)}
-                                      </Text>
-                                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                                        {!isEditing && (
-                                          <TouchableOpacity
-                                            onPress={() => setEditingCartItem(index)}
+                                            onPress={() => {
+                                              Alert.alert(
+                                                'Delete Material?',
+                                                `Remove "${item.name || item.description || 'Material'}" from the cart?`,
+                                                [
+                                                  { text: 'Cancel', style: 'cancel' },
+                                                  {
+                                                    text: 'Delete',
+                                                    style: 'destructive',
+                                                    onPress: () => {
+                                                      setMaterialsCart(prev => prev.filter((_, i) => i !== index));
+                                                      if (editingCartItem === index) setEditingCartItem(null);
+                                                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                                    }
+                                                  }
+                                                ]
+                                              );
+                                            }}
                                             style={{
                                               width: 32,
                                               height: 32,
                                               borderRadius: 16,
-                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                              backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
                                               justifyContent: 'center',
                                               alignItems: 'center',
                                               borderWidth: 1,
-                                              borderColor: 'rgba(34, 197, 94, 0.22)',
+                                              borderColor: 'rgba(248, 113, 113, 0.28)',
                                             }}
                                           >
-                                            <Ionicons name="create-outline" size={15} color="#4ade80" />
+                                            <Ionicons name="trash-outline" size={15} color="#f87171" />
                                           </TouchableOpacity>
-                                        )}
-                                        <TouchableOpacity
-                                          onPress={() => {
-                                            setMaterialsCart(prev => prev.filter((_, i) => i !== index));
-                                            if (editingCartItem === index) setEditingCartItem(null);
-                                          }}
-                                          style={{
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: 16,
-                                            backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                                            justifyContent: 'center',
-                                            alignItems: 'center',
-                                            borderWidth: 1,
-                                            borderColor: 'rgba(248, 113, 113, 0.28)',
-                                          }}
-                                        >
-                                          <Ionicons name="trash-outline" size={15} color="#f87171" />
-                                        </TouchableOpacity>
+                                        </View>
                                       </View>
                                     </View>
                                   </View>
-                                </View>
-                              );
-                            })}
-                            
-                            {materialsCart.length > 1 && (
-                              <TouchableOpacity
-                                onPress={() => {
-                                  Alert.alert('Clear Cart?', 'This will remove all items from your cart.', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Clear', style: 'destructive', onPress: () => setMaterialsCart([]) },
-                                  ]);
-                                }}
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  paddingVertical: 12,
-                                  marginTop: 6,
-                                  marginBottom: 10,
-                                  borderRadius: 12,
-                                  backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
-                                  borderWidth: 1,
-                                  borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
-                                }}
-                              >
-                                <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
-                                <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear Cart</Text>
-                              </TouchableOpacity>
-                            )}
-                            
+                                );
+                              })}
+                              
+                              {materialsCart.length > 1 && (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    Alert.alert('Clear Cart?', 'This will remove all items from your cart.', [
+                                      { text: 'Cancel', style: 'cancel' },
+                                      { text: 'Clear', style: 'destructive', onPress: () => setMaterialsCart([]) },
+                                    ]);
+                                  }}
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    paddingVertical: 12,
+                                    marginTop: 6,
+                                    marginBottom: 10,
+                                    borderRadius: 12,
+                                    backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                                    borderWidth: 1,
+                                    borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
+                                  }}
+                                >
+                                  <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
+                                  <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear Cart</Text>
+                                </TouchableOpacity>
+                              )}
+                            </ScrollView>
                             <View style={{
                               backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.12)',
                               borderRadius: 14,
@@ -11578,142 +11824,148 @@ export default function EstimateGeneratorScreen() {
                         </View>
                       ) : (
                         <>
-                          {laborItems.map((item, index) => (
-                            <View key={item.id || index} style={{
-                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
-                              borderRadius: 14,
-                              paddingHorizontal: 14,
-                              paddingVertical: 12,
-                              marginBottom: 8,
-                              borderWidth: 1,
-                              borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
-                            }}>
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <View style={{ flex: 1, marginRight: 12 }}>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
-                                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', lineHeight: 20 }}>
-                                      {item.description || item.name || 'Labor'}
+                          <ScrollView
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator={laborItems.length > 6}
+                            style={laborItems.length > 6 ? { maxHeight: CART_SCROLL_MAX_HEIGHT } : undefined}
+                            contentContainerStyle={{ paddingBottom: 4 }}
+                          >
+                            {laborItems.map((item, index) => (
+                              <View key={item.id || index} style={{
+                                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                                borderRadius: 14,
+                                paddingHorizontal: 14,
+                                paddingVertical: 12,
+                                marginBottom: 8,
+                                borderWidth: 1,
+                                borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                              }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <View style={{ flex: 1, marginRight: 12 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3, flexWrap: 'wrap' }}>
+                                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '600', lineHeight: 20 }}>
+                                        {item.description || item.name || 'Labor'}
+                                      </Text>
+                                      {item.laborType === 'subcontractor' && (
+                                        <View style={{
+                                          marginLeft: 8,
+                                          paddingHorizontal: 6,
+                                          paddingVertical: 2,
+                                          borderRadius: 6,
+                                          backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                                          borderWidth: 1,
+                                          borderColor: '#f59e0b',
+                                        }}>
+                                          <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>
+                                            SUB
+                                          </Text>
+                                        </View>
+                                      )}
+                                      {item.laborType === 'inhouse' && (
+                                        <View style={{
+                                          marginLeft: 8,
+                                          paddingHorizontal: 6,
+                                          paddingVertical: 2,
+                                          borderRadius: 6,
+                                          backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                          borderWidth: 1,
+                                          borderColor: '#22c55e',
+                                        }}>
+                                          <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '600' }}>
+                                            IN-HOUSE
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
+                                    <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
+                                      {item.mode === 'sqft' ? (
+                                        `${bid.sqft || 0} sqft × ${money(item.rate || 0)}/sqft`
+                                      ) : (
+                                        `${item.hours || 0} hrs × ${money(item.rate || 0)}/hr`
+                                      )}
                                     </Text>
-                                    {item.laborType === 'subcontractor' && (
-                                      <View style={{
-                                        marginLeft: 8,
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 2,
-                                        borderRadius: 6,
-                                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                                        borderWidth: 1,
-                                        borderColor: '#f59e0b',
-                                      }}>
-                                        <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>
-                                          SUB
-                                        </Text>
-                                      </View>
-                                    )}
-                                    {item.laborType === 'inhouse' && (
-                                      <View style={{
-                                        marginLeft: 8,
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 2,
-                                        borderRadius: 6,
-                                        backgroundColor: 'rgba(34, 197, 94, 0.2)',
-                                        borderWidth: 1,
-                                        borderColor: '#22c55e',
-                                      }}>
-                                        <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '600' }}>
-                                          IN-HOUSE
-                                        </Text>
+                                    {item.metadata && (
+                                      <View style={{ marginTop: 5 }}>
+                                        {item.metadata.rating && (
+                                          <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
+                                            ⭐ {item.metadata.rating} ({item.metadata.reviews || 0} reviews)
+                                          </Text>
+                                        )}
+                                        {item.metadata.location && (
+                                          <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
+                                            📍 {item.metadata.location}
+                                          </Text>
+                                        )}
                                       </View>
                                     )}
                                   </View>
-                                  <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                    {item.mode === 'sqft' ? (
-                                      `${bid.sqft || 0} sqft × ${money(item.rate || 0)}/sqft`
-                                    ) : (
-                                      `${item.hours || 0} hrs × ${money(item.rate || 0)}/hr`
-                                    )}
-                                  </Text>
-                                  {item.metadata && (
-                                    <View style={{ marginTop: 5 }}>
-                                      {item.metadata.rating && (
-                                        <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
-                                          ⭐ {item.metadata.rating} ({item.metadata.reviews || 0} reviews)
-                                        </Text>
-                                      )}
-                                      {item.metadata.location && (
-                                        <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
-                                          📍 {item.metadata.location}
-                                        </Text>
-                                      )}
-                                    </View>
-                                  )}
-                                </View>
-                                <View style={{ alignItems: 'flex-end' }}>
-                                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
-                                    {money(item.total || 0)}
-                                  </Text>
-                                  <TouchableOpacity
-                                    onPress={() => {
-                                      Alert.alert(
-                                        'Delete Labor Item?',
-                                        `Remove "${item.description || item.name || 'Labor'}"?`,
-                                        [
-                                          { text: 'Cancel', style: 'cancel' },
-                                          {
-                                            text: 'Delete',
-                                            style: 'destructive',
-                                            onPress: () => {
-                                              const updated = laborItems.filter(l => l.id !== item.id);
-                                              updateBid('laborLineItems', updated);
-                                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                  <View style={{ alignItems: 'flex-end' }}>
+                                    <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
+                                      {money(item.total || 0)}
+                                    </Text>
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        Alert.alert(
+                                          'Delete Labor Item?',
+                                          `Remove "${item.description || item.name || 'Labor'}"?`,
+                                          [
+                                            { text: 'Cancel', style: 'cancel' },
+                                            {
+                                              text: 'Delete',
+                                              style: 'destructive',
+                                              onPress: () => {
+                                                const updated = laborItems.filter(l => l.id !== item.id);
+                                                updateBid('laborLineItems', updated);
+                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                              }
                                             }
-                                          }
-                                        ]
-                                      );
-                                    }}
-                                    style={{
-                                      width: 32,
-                                      height: 32,
-                                      borderRadius: 16,
-                                      backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                                      justifyContent: 'center',
-                                      alignItems: 'center',
-                                      borderWidth: 1,
-                                      borderColor: 'rgba(248, 113, 113, 0.28)',
-                                    }}
-                                  >
-                                    <Ionicons name="trash-outline" size={15} color="#f87171" />
-                                  </TouchableOpacity>
+                                          ]
+                                        );
+                                      }}
+                                      style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: 16,
+                                        backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        borderWidth: 1,
+                                        borderColor: 'rgba(248, 113, 113, 0.28)',
+                                      }}
+                                    >
+                                      <Ionicons name="trash-outline" size={15} color="#f87171" />
+                                    </TouchableOpacity>
+                                  </View>
                                 </View>
                               </View>
-                            </View>
-                          ))}
-                          
-                          {laborItems.length > 1 && (
-                            <TouchableOpacity
-                              onPress={() => {
-                                Alert.alert('Clear All?', 'This will remove all labor items.', [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { text: 'Clear', style: 'destructive', onPress: () => updateBid('laborLineItems', []) },
-                                ]);
-                              }}
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                paddingVertical: 12,
-                                marginTop: 6,
-                                marginBottom: 10,
-                                borderRadius: 12,
-                                backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
-                                borderWidth: 1,
-                                borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
-                              }}
-                            >
-                              <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
-                              <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear All</Text>
-                            </TouchableOpacity>
-                          )}
-                          
+                            ))}
+                            
+                            {laborItems.length > 1 && (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  Alert.alert('Clear All?', 'This will remove all labor items.', [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Clear', style: 'destructive', onPress: () => updateBid('laborLineItems', []) },
+                                  ]);
+                                }}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  paddingVertical: 12,
+                                  marginTop: 6,
+                                  marginBottom: 10,
+                                  borderRadius: 12,
+                                  backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                                  borderWidth: 1,
+                                  borderColor: darkMode ? 'rgba(248, 113, 113, 0.22)' : 'rgba(239, 68, 68, 0.2)',
+                                }}
+                              >
+                                <Ionicons name="trash-outline" size={16} color="#f87171" style={{ marginRight: 8 }} />
+                                <Text style={{ color: darkMode ? '#fca5a5' : '#b91c1c', fontSize: 13, fontWeight: '600' }}>Clear All</Text>
+                              </TouchableOpacity>
+                            )}
+                          </ScrollView>
                           <View style={{
                             backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.12)',
                             borderRadius: 14,
@@ -17448,7 +17700,8 @@ export default function EstimateGeneratorScreen() {
           <EmptyStateCard
             onPress={async () => {
               // If we're coming from onboarding, keep everything empty ($0 total)
-              const nextBid = blankState(true);
+              const proposalNumber = await allocateNextProposalNumber();
+              const nextBid = { ...blankState(true), proposalNumber };
               // Convert materialLineItems to materialsCart format
               if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
                 const defaultMaterials = nextBid.materialLineItems.map(item => ({
@@ -17676,16 +17929,33 @@ export default function EstimateGeneratorScreen() {
         item={materialModal.item}
         onSave={(item) => {
           const itemId = materialModal.item?.id || Date.now().toString();
+          const existingItem = materialModal.item || {};
           const normalizedItem = {
+            ...existingItem,
             ...item,
             id: itemId,
             isManual: true,
             source: 'manual',
             quantity: Number(item.quantity) || 1,
             unitPrice: Number(item.unitPrice) || 0,
+            cost: Number(item.unitPrice) || 0,
             total:
               Number(item.total) ||
               (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
+            vendor:
+              item.vendor ||
+              existingItem.vendor ||
+              VENDORS.find((v) => v.id === existingItem.vendorId)?.name ||
+              '',
+            vendorId: existingItem.vendorId || item.vendorId || '',
+            section:
+              item.section ||
+              existingItem.section ||
+              item.category ||
+              existingItem.category ||
+              '',
+            scope: item.scope || existingItem.scope || activeScope,
+            sku: item.sku || existingItem.sku || '',
           };
 
           if (materialModal.item) {

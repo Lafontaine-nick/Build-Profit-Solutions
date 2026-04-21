@@ -282,6 +282,50 @@ function dedupeAiNextStepsByNormalizedLabel(steps: AiNextStep[]): AiNextStep[] {
   return out;
 }
 
+function buildFallbackDailyBrief(
+  insights: AiInsight[],
+  nextSteps: AiNextStep[],
+  projects: any[]
+): NonNullable<AiDashboardResponse["dailyBrief"]> {
+  const projectNameById = new Map<string, string>();
+  for (const project of projects || []) {
+    projectNameById.set(String(project.id), project.name || "Project");
+  }
+
+  const topProfitRisks = (insights || [])
+    .slice(0, 5)
+    .map((insight) => ({
+      id: String(insight.id),
+      type: insight.leakType || insight.type,
+      severity:
+        insight.type === "alert"
+          ? "high"
+          : insight.type === "opportunity"
+            ? "medium"
+            : "low",
+      impactEstimate: Number(insight.impactScore || 0) * 1000,
+      headline: insight.title,
+      body: insight.body,
+      evidence: insight.evidence || [],
+      projectId: insight.projectId ?? null,
+      projectTitle: insight.projectId ? projectNameById.get(String(insight.projectId)) || "Project" : "Portfolio",
+    }));
+
+  return {
+    topProfitRisks,
+    topActions: (nextSteps || []).slice(0, 5),
+    upcomingPayments: [],
+    upcomingScheduleItems: [],
+    portfolioSummary: {
+      activeProjectCount: Array.isArray(projects) ? projects.filter((p) => p.status === "Active").length : 0,
+      totalProjectCount: Array.isArray(projects) ? projects.length : 0,
+      totalProjectedProfit: 0,
+      averageMargin: 0,
+      highestRiskProject: topProfitRisks[0]?.projectTitle || null,
+    },
+  };
+}
+
 /** One subtle operational line per dashboard project card */
 const getDashboardProjectOperationalSignal = (project: {
   rawProject: any;
@@ -4668,6 +4712,13 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     [stepsAfterDismiss]
   );
   const grouped = useMemo(() => groupNextStepsByBucket(stepsAfterDismiss), [stepsAfterDismiss]);
+  const dailyBrief = useMemo(
+    () => aiData?.dailyBrief || buildFallbackDailyBrief(filteredInsights, filteredNextSteps, projects),
+    [aiData?.dailyBrief, filteredInsights, filteredNextSteps, projects]
+  );
+  const dailyRisk = dailyBrief?.topProfitRisks?.[0];
+  const dailyAction = dailyBrief?.topActions?.[0];
+  const nextPayment = dailyBrief?.upcomingPayments?.[0];
 
   const visibleSteps = useMemo(() => {
     if (showAllActions) return sortedSteps;
@@ -4679,7 +4730,13 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     [filteredInsights, filteredNextSteps]
   );
 
-  const heroAccent = primaryInsight
+  const heroAccent = dailyRisk
+    ? dailyRisk.severity === "high"
+      ? "#f97316"
+      : dailyRisk.severity === "medium"
+        ? "#f59e0b"
+        : BPS_BRAND_TEAL
+    : primaryInsight
     ? primaryInsight.type === "alert"
       ? "#f97316"
       : primaryInsight.type === "opportunity"
@@ -4731,7 +4788,9 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               <Ionicons name="sparkles" size={14} color={heroAccent} />
               <Text style={[styles.insightsHeroEyebrow, { color: heroAccent }]}>
                 {aiPmMode
-                  ? primaryInsight
+                  ? dailyRisk
+                    ? "Daily command center"
+                    : primaryInsight
                     ? heroKickerForInsight(primaryInsight.type)
                     : urgentProjects.length > 0
                       ? "Schedule pressure"
@@ -4755,7 +4814,39 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               </>
             )}
 
-            {aiPmMode && !aiLoading && !aiError && primaryInsight && (
+            {aiPmMode && !aiLoading && !aiError && dailyRisk && (
+              <>
+                <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
+                  {dailyRisk.headline}
+                </Text>
+                <Text style={styles.insightsHeroSupport} numberOfLines={4}>
+                  {dailyRisk.projectTitle
+                    ? `${dailyRisk.projectTitle}${dailyRisk.impactEstimate ? ` · impact ~${formatAiDashboardUsdCompact(dailyRisk.impactEstimate)}` : ""}. ${dailyAction?.label ? `Next move: ${dailyAction.label}.` : ""}${nextPayment?.projectTitle ? ` Next payment: ${nextPayment.projectTitle}${nextPayment.date ? ` due ${formatDateShort(nextPayment.date)}` : ""}.` : ""}`
+                    : "The command center is tracking your highest-value risks and actions."}
+                </Text>
+                <LinearGradient
+                  colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.insightsHeroCtaGradient}
+                >
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.insightsHeroCtaInner,
+                      { opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    onPress={() => openProject(dailyRisk.projectId)}
+                  >
+                    <Text style={styles.insightsHeroCtaText}>
+                      {dailyRisk.projectId ? "Review top risk" : "Open portfolio"}
+                    </Text>
+                    <Ionicons name="arrow-forward" size={18} color="#050B13" />
+                  </Pressable>
+                </LinearGradient>
+              </>
+            )}
+
+            {aiPmMode && !aiLoading && !aiError && !dailyRisk && primaryInsight && (
               <>
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
                   {primaryInsight.title}
@@ -4938,6 +5029,35 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
           </View>
         </View>
       )}
+
+      {aiPmMode && !aiLoading && !aiError && dailyBrief?.upcomingPayments?.length ? (
+        <>
+          <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
+            <View>
+              <Text style={styles.sectionTitle}>Upcoming money</Text>
+              <Text style={styles.sectionSubtitle}>Soonest payment milestones first</Text>
+            </View>
+          </View>
+          <View style={styles.wideContainer}>
+            <View style={styles.insightsPatternsCard}>
+              {dailyBrief.upcomingPayments.slice(0, 3).map((payment, index) => (
+                <View
+                  key={`${payment.projectId || "portfolio"}-${payment.name}-${index}`}
+                  style={[
+                    styles.insightsPatternRow,
+                    index === dailyBrief.upcomingPayments.slice(0, 3).length - 1 && { marginBottom: 0 },
+                  ]}
+                >
+                  <View style={styles.insightsPatternDot} />
+                  <Text style={styles.insightsPatternText}>
+                    {`${payment.projectTitle || "Project"} · ${payment.name || "Payment"} · ${formatAiDashboardUsdCompact(payment.amount || 0)}${payment.date ? ` · due ${formatDateShort(payment.date)}` : ""}`}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </>
+      ) : null}
     </>
   );
 };

@@ -15,8 +15,10 @@ import { classifyExpensePriceReasonableness } from "@/utils/expensePriceReasonab
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
+  decimalMoneyInputToNumber,
   digitsOnly,
   dollarsToCentsDigits,
+  sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 
@@ -109,7 +111,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   useEffect(() => {
     if (!supportsPerSqftPricing || pricingMode !== "sqft") return;
     const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-    const rate = centsDigitsToNumber(ratePerSqftInput);
+    const rate = decimalMoneyInputToNumber(ratePerSqftInput);
     if (sq > 0 && rate > 0) {
       setAmount(dollarsToCentsDigits(sq * rate));
     } else {
@@ -310,7 +312,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
     if (supportsPerSqftPricing && pricingMode === "sqft") {
       const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-      const rate = centsDigitsToNumber(ratePerSqftInput);
+      const rate = decimalMoneyInputToNumber(ratePerSqftInput);
       if (sq <= 0 || rate <= 0) {
         Alert.alert(
           "Square feet & rate required",
@@ -329,7 +331,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     let descriptionOut = description.trim();
     if (supportsPerSqftPricing && pricingMode === "sqft") {
       const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-      const rate = centsDigitsToNumber(ratePerSqftInput);
+      const rate = decimalMoneyInputToNumber(ratePerSqftInput);
       if (sq > 0 && rate > 0) {
         const line = `📐 ${sq.toLocaleString()} sq ft × $${rate.toFixed(2)}/sq ft`;
         descriptionOut = descriptionOut ? `${descriptionOut}\n${line}` : line;
@@ -391,7 +393,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   }, []);
 
   const onRatePerSqftChange = useCallback((text: string) => {
-    setRatePerSqftInput(clampCentsDigitsInput(text));
+    setRatePerSqftInput(sanitizeDecimalMoneyInput(text));
   }, []);
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -646,7 +648,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           }
                           value={sqftInput}
                           onChangeText={onSqftChange}
-                          keyboardType="phone-pad"
+                          keyboardType="decimal-pad"
                           inputAccessoryViewID={projectExpensePlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => ratePerSqftRef.current?.focus()}
@@ -717,7 +719,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       Total:{" "}
                       {(() => {
                         const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
-                        const rate = centsDigitsToNumber(ratePerSqftInput);
+                        const rate = decimalMoneyInputToNumber(ratePerSqftInput);
                         const t = sq * rate;
                         return formatMoneyFull(t, { decimals: 2 });
                       })()}

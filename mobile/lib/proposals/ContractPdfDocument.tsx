@@ -207,12 +207,6 @@ const styles = StyleSheet.create({
     color: "#10243B",
     textTransform: "uppercase",
     letterSpacing: 0.6,
-    marginBottom: 14,
-  },
-  coverDeck: {
-    fontSize: 11,
-    lineHeight: 1.42,
-    color: "#334155",
     marginBottom: 22,
   },
   storyGrid: {
@@ -1019,10 +1013,7 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
           <View style={styles.coverMain}>
             <Text style={styles.eyebrow}>Client proposal packet</Text>
             <Text style={styles.docTitle}>{title}</Text>
-            <Text style={styles.coverDeck}>
-              Prepared for {sanitizedDoc.owner.legalName || "Client"} for{" "}
-              {sanitizedDoc.summary.projectName}.
-            </Text>
+            {/* Name + project: only in story grid below (was duplicated in coverDeck) */}
 
             <View style={styles.storyGrid}>
               <View style={styles.storyColLeft}>

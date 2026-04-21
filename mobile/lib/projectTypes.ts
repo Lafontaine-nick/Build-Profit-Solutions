@@ -2,11 +2,16 @@
  * Canonical estimate project types — keep in sync with estimate-generator PROJECT_TYPES.
  */
 export const ESTIMATE_PROJECT_TYPE_ORDER = [
-  { value: "kitchen", label: "Kitchen" },
-  { value: "bathroom", label: "Bathroom" },
+  { value: "kitchen", label: "Kitchen Remodel" },
+  { value: "bathroom", label: "Bathroom Remodel" },
   { value: "room_addition", label: "Room Add." },
-  { value: "home_addition", label: "Home Add." },
+  { value: "home_addition", label: "Whole Home Remodel" },
+  { value: "adu", label: "ADU" },
+  { value: "garage_conversion", label: "Garage Conversion" },
   { value: "new_build", label: "New Build" },
+  { value: "roofing", label: "Roofing" },
+  { value: "deck_patio", label: "Deck & Patio" },
+  { value: "plumbing_service", label: "Plumbing Service" },
   { value: "landscaping", label: "Landscaping" },
   { value: "other", label: "Other" },
 ] as const;
@@ -24,7 +29,12 @@ const CATEGORY_SLUG_TO_TYPE: Record<string, EstimateProjectTypeKey> = {
   "bathroom-remodel": "bathroom",
   addition: "room_addition",
   "home-renovation": "home_addition",
+  adu: "adu",
+  "garage-conversion": "garage_conversion",
   "new-build": "new_build",
+  roofing: "roofing",
+  "deck-patio": "deck_patio",
+  "plumbing-service": "plumbing_service",
   landscaping: "landscaping",
   other: "other",
 };
@@ -52,8 +62,17 @@ export function normalizeEstimateProjectType(raw: unknown): EstimateProjectTypeK
   if (slug.includes("kitchen")) return "kitchen";
   if (slug.includes("bathroom")) return "bathroom";
   if (slug.includes("room_add")) return "room_addition";
-  if (slug.includes("home_add") || slug.includes("home-renov"))
+  if (
+    slug.includes("whole_home") ||
+    slug.includes("whole-home") ||
+    slug.includes("full_remodel") ||
+    slug.includes("home_add") ||
+    slug.includes("home-renov")
+  )
     return "home_addition";
+  if (slug === "adu" || slug.includes("accessory_dwelling")) return "adu";
+  if (slug.includes("garage_conversion") || slug.includes("garage-conversion"))
+    return "garage_conversion";
   if (
     slug.includes("new_build") ||
     slug.includes("new-build") ||
@@ -61,6 +80,9 @@ export function normalizeEstimateProjectType(raw: unknown): EstimateProjectTypeK
     slug.includes("custom")
   )
     return "new_build";
+  if (slug.includes("roof")) return "roofing";
+  if (slug.includes("deck") || slug.includes("patio")) return "deck_patio";
+  if (slug.includes("plumbing") || slug.includes("service")) return "plumbing_service";
   if (slug.includes("landscape")) return "landscaping";
 
   return "other";

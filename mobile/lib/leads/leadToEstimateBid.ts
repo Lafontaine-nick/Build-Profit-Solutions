@@ -11,7 +11,12 @@ const PROJECT_CATEGORY_SLUGS: Record<string, string> = {
   bathroom: 'bathroom-remodel',
   room_addition: 'addition',
   home_addition: 'home-renovation',
+  adu: 'adu',
+  garage_conversion: 'garage-conversion',
   new_build: 'new-build',
+  roofing: 'roofing',
+  deck_patio: 'deck-patio',
+  plumbing_service: 'plumbing-service',
   landscaping: 'landscaping',
   other: 'other',
 };
@@ -21,7 +26,12 @@ export type EstimateProjectType =
   | 'bathroom'
   | 'room_addition'
   | 'home_addition'
+  | 'adu'
+  | 'garage_conversion'
   | 'new_build'
+  | 'roofing'
+  | 'deck_patio'
+  | 'plumbing_service'
   | 'landscaping'
   | 'other';
 
@@ -39,8 +49,13 @@ export function mapLeadProjectTypeToEstimateProjectType(
   if (t === 'kitchen') return 'kitchen';
   if (t === 'bathroom') return 'bathroom';
   if (t === 'addition' || t === 'room_addition') return 'room_addition';
-  if (t === 'home_addition') return 'home_addition';
+  if (t === 'home_addition' || t === 'whole_home_remodel') return 'home_addition';
+  if (t === 'adu') return 'adu';
+  if (t === 'garage_conversion') return 'garage_conversion';
   if (t === 'new_build') return 'new_build';
+  if (t === 'roofing') return 'roofing';
+  if (t === 'deck_patio' || t === 'deck' || t === 'patio') return 'deck_patio';
+  if (t === 'plumbing_service' || t === 'plumbing' || t === 'service') return 'plumbing_service';
   if (t === 'landscaping') return 'landscaping';
   return 'other';
 }

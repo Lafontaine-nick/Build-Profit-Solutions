@@ -113,6 +113,8 @@ export default {
       // Beta-only in-app feedback (Profile row only). Disable for public launch.
       betaFeedbackEnabled: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ENABLED === 'true',
       betaFeedbackAllowlistEmails: process.env.EXPO_PUBLIC_BETA_FEEDBACK_ALLOWLIST_EMAILS || '',
+      // When true, Find Subcontractors calls /api/yelp/search (requires YELP_API_KEY on backend). Default off until you subscribe to Yelp.
+      yelpSubSearchEnabled: process.env.EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED === 'true',
     },
     // EAS Update: only EAS production store builds. All other cases (Expo Go, dev client, local) stay off.
     ...(enableProductionEASUpdate
