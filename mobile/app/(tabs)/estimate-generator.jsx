@@ -9,7 +9,6 @@ import {
   Alert,
   Modal,
   Platform,
-  Switch,
   KeyboardAvoidingView,
   Pressable,
   Linking,
@@ -427,7 +426,7 @@ const STEPS = [
   { id: 2, title: 'Project Information', subtitle: 'Title, location, scope & timeline' },
   { id: 3, title: 'Materials & Supplies', subtitle: 'Live pricing and inflation' },
   { id: 4, title: 'Labor & Subs', subtitle: 'Regional wages and subcontractors' },
-  { id: 5, title: 'Direct costs, overhead & markup', subtitle: 'Direct costs, overhead, and markup rate' },
+  { id: 5, title: 'Project costs, overhead & markup', subtitle: 'Other project costs, company overhead, and markup rate' },
   { id: 6, title: 'Project Analysis', subtitle: 'Scenario presets & stress testing' },
   { id: 7, title: 'Payment / Work Schedule', subtitle: 'Payment terms and work scheduling' },
   { id: 8, title: 'Final Proposal & Agreement', subtitle: 'Generate a polished client-facing PDF from this estimate' },
@@ -2651,13 +2650,8 @@ function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
   if (!bid) return 0;
   const materials = (cart || []).reduce((sum, r) => sum + (r.total || 0), 0);
   const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
-  const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-  const equipmentRental = Number(bid.equipment) || 0;
-  const otherDirectCost = Number(bid.otherDirectCost) || 0;
-  // Markup applies to direct job cost (materials + labor + plans/permits + equipment rental + other direct). Business overhead is paid from profit.
-  const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-  const profit = (subtotal * (Number(bid.markupPct) || 0)) / 100;
-  return subtotal + profit;
+  const financials = getEstimateStep5Financials(bid, materials, labor);
+  return financials.bidPrice;
 }
 
 function hasMeaningfulEstimateDraft(bid, cart = []) {
@@ -2703,6 +2697,55 @@ function resolveMaterialCartUnitPrice(item) {
   return 0;
 }
 
+function resolveLaborContractLineItem(item, projectSqft = 0) {
+  const mode = item?.mode === 'sqft' ? 'sqft' : 'hourly';
+  const rate = Number(item?.rate || item?.unitPrice || item?.cost || 0) || 0;
+  const hoursOrSqft = Number(item?.hours ?? item?.quantity ?? item?.qty ?? 0) || 0;
+  const total = Number(item?.total || item?.totalCost || 0) || 0;
+  const bidSqft = Number(projectSqft || 0) || 0;
+
+  if (mode === 'sqft') {
+    let qty = hoursOrSqft > 0 ? hoursOrSqft : 0;
+    if (!qty && total > 0 && rate > 0) {
+      qty = total / rate;
+    }
+    if (!qty && total > 0 && bidSqft > 0) {
+      const impliedRate = total / bidSqft;
+      if (rate > 0 && Math.abs(impliedRate - rate) < 0.05) {
+        qty = bidSqft;
+      }
+    }
+    const storedLooksAccurate = qty > 0 && rate > 0 && Math.abs(rate * qty - total) < 0.01;
+    const unitPrice = storedLooksAccurate ? rate : qty > 0 && total > 0 ? total / qty : rate;
+    return {
+      unit: 'sq ft',
+      quantity: qty,
+      unitPrice: Number(unitPrice) || 0,
+      labor: total,
+      mode: 'sqft',
+      hours: hoursOrSqft,
+      rate,
+    };
+  }
+
+  let qty = hoursOrSqft > 0 ? hoursOrSqft : 0;
+  if (!qty && total > 0 && rate > 0) {
+    qty = total / rate;
+  }
+  const storedLooksAccurate = qty > 0 && rate > 0 && Math.abs(rate * qty - total) < 0.01;
+  const unitPrice = storedLooksAccurate ? rate : qty > 0 && total > 0 ? total / qty : rate;
+
+  return {
+    unit: 'hr',
+    quantity: qty,
+    unitPrice: Number(unitPrice) || 0,
+    labor: total,
+    mode: 'hourly',
+    hours: hoursOrSqft,
+    rate,
+  };
+}
+
 function inferMaterialCategoryChip(item) {
   const explicit = String(item?.category || '').trim();
   if (explicit) return explicit;
@@ -2729,6 +2772,131 @@ function inferMaterialCategoryChip(item) {
   if (raw.includes('lumber')) return 'Lumber';
   if (raw.includes('hardware')) return 'Hardware';
   return 'General';
+}
+
+function sanitizeStep5NumericInput(raw = '') {
+  const stripped = String(raw).replace(/,/g, '').replace(/[^0-9.]/g, '');
+  const firstDot = stripped.indexOf('.');
+  if (firstDot === -1) return stripped;
+  return `${stripped.slice(0, firstDot + 1)}${stripped.slice(firstDot + 1).replace(/\./g, '')}`;
+}
+
+function formatStep5NumericInput(raw = '') {
+  const cleaned = sanitizeStep5NumericInput(raw);
+  if (!cleaned) return '';
+
+  const hasDot = cleaned.includes('.');
+  const [intPartRaw, fracPart = ''] = cleaned.split('.');
+  const normalizedInt = (intPartRaw || '0').replace(/^0+(?=\d)/, '');
+  const groupedInt = normalizedInt.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  if (!hasDot) return groupedInt;
+  return `${groupedInt}.${fracPart}`;
+}
+
+function getEstimateStep5ProfileBehavior(contractorType) {
+  const normalizedContractorType = contractorType ? parseInt(String(contractorType), 10) : null;
+  const showDeveloperProjectCosts =
+    normalizedContractorType === 4 ||
+    normalizedContractorType === 5 ||
+    normalizedContractorType == null;
+
+  return {
+    normalizedContractorType,
+    showDeveloperProjectCosts,
+    otherProjectCostsHelperText: showDeveloperProjectCosts
+      ? 'Job-specific costs outside of materials and labor, including permits, engineering, financing, interest, contingency, and other developer/project costs.'
+      : 'Job-specific costs outside of materials and labor, such as equipment rental, plans, permits, engineering, and other project costs.',
+  };
+}
+
+function getEstimateProjectCostBreakdown(bid) {
+  const profileBehavior = getEstimateStep5ProfileBehavior(bid?.contractorType);
+  const permitCosts = (Number(bid?.planCost) || 0) + (Number(bid?.permitCost) || 0);
+  const equipmentRental = Number(bid?.equipment) || 0;
+  const otherDirectCost = Number(bid?.otherDirectCost) || 0;
+  const engineering = Number(bid?.engineeringCost) || 0;
+  const financingFees = Number(bid?.financingFees) || 0;
+  const interest = Number(bid?.interestCost) || 0;
+  const contingency = Number(bid?.contingencyAllowance) || 0;
+  const developerOnlyProjectCosts = financingFees + interest + contingency;
+  const totalProjectCosts =
+    permitCosts +
+    equipmentRental +
+    otherDirectCost +
+    engineering +
+    (profileBehavior.showDeveloperProjectCosts ? developerOnlyProjectCosts : 0);
+
+  return {
+    permitCosts,
+    equipmentRental,
+    otherDirectCost,
+    engineering,
+    financingFees,
+    interest,
+    contingency,
+    developerOnlyProjectCosts,
+    developerProjectCostsActive: profileBehavior.showDeveloperProjectCosts,
+    totalProjectCosts,
+  };
+}
+
+function getEstimateCompanyOverheadTotal(bid) {
+  return (
+    (Number(bid?.insuranceOverhead) || 0) +
+    (Number(bid?.equipmentMaintenance) || 0) +
+    (Number(bid?.facilities) || 0) +
+    (Number(bid?.adminOverhead) || 0) +
+    (Number(bid?.otherOverhead) || 0)
+  );
+}
+
+function getEstimateStep5Financials(bid, materials, labor) {
+  const projectCosts = getEstimateProjectCostBreakdown(bid);
+  const companyOverheadTotal = getEstimateCompanyOverheadTotal(bid);
+
+  const coreMarkupProjectCosts =
+    projectCosts.equipmentRental +
+    projectCosts.permitCosts +
+    projectCosts.engineering +
+    projectCosts.otherDirectCost;
+
+  const markupBaseSubtotal = materials + labor + coreMarkupProjectCosts;
+  const totalCostBeforeMarkup = materials + labor + projectCosts.totalProjectCosts;
+  const markupPct = Number(bid?.markupPct) || 0;
+  const markupAmount = (markupBaseSubtotal * markupPct) / 100;
+  const bidPrice = totalCostBeforeMarkup + markupAmount;
+
+  return {
+    projectCosts,
+    companyOverheadTotal,
+    coreMarkupProjectCosts,
+    markupBaseSubtotal,
+    totalCostBeforeMarkup,
+    markupAmount,
+    bidPrice,
+    overheadContextTotal: companyOverheadTotal + projectCosts.totalProjectCosts,
+  };
+}
+
+function getEstimateSavedFinancialFields({ materials = 0, labor = 0, financials, subtotal, bidPrice, netProfit }) {
+  const companyOverhead = Number(financials?.companyOverheadTotal) || 0;
+  const totalProjectCosts = Number(financials?.projectCosts?.totalProjectCosts) || 0;
+  const costContextTotal = Number(financials?.overheadContextTotal) || 0;
+
+  return {
+    materials: Number(materials) || 0,
+    labor: Number(labor) || 0,
+    // Keep plain "overhead" aligned with company overhead only.
+    overhead: companyOverhead,
+    companyOverhead,
+    totalProjectCosts,
+    costContextTotal,
+    subtotal: Number(subtotal) || 0,
+    estimatedCost: Number(subtotal) || 0,
+    bidPrice: Number(bidPrice) || 0,
+    profit: Number(netProfit) || 0,
+  };
 }
 
 const blankState = (isFirstTime = false) => ({
@@ -2763,6 +2931,10 @@ const blankState = (isFirstTime = false) => ({
   planCostText: '',
   permitCost: 0,
   permitCostText: '',
+  engineeringCost: 0,
+  financingFees: 0,
+  interestCost: 0,
+  contingencyAllowance: 0,
   otherDirectCost: 0,
   zoning: 'residential',
   
@@ -2826,6 +2998,7 @@ const blankState = (isFirstTime = false) => ({
   equipment: 0, // equipment rental (direct cost; same field name for saved bids)
   equipmentMaintenance: 0,
   facilities: 0,
+  adminOverhead: 0,
   otherOverhead: 0,
   
   // Percentages
@@ -3450,12 +3623,8 @@ const computeTotalFromBidData = (bidData) => {
   if (!bidData) return 0;
   const materials = (bidData.materialLineItems || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
   const labor = (bidData.laborLineItems || []).reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-  const permitCosts = (Number(bidData.planCost) || 0) + (Number(bidData.permitCost) || 0);
-  const equipmentRental = Number(bidData.equipment) || 0;
-  const otherDirectCost = Number(bidData.otherDirectCost) || 0;
-  const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-  const profit = (subtotal * (Number(bidData.markupPct) || 0)) / 100;
-  return Math.round(subtotal + profit) || 0;
+  const financials = getEstimateStep5Financials(bidData, materials, labor);
+  return Math.round(financials.bidPrice) || 0;
 };
 
 // Gradient colors for borders
@@ -4850,7 +5019,7 @@ export default function EstimateGeneratorScreen() {
       case 4:
         return ['laborLineItems', 'subcontractors', 'hours', 'trade'];
       case 5:
-        return ['markupPct', 'insuranceOverhead', 'equipment', 'equipmentMaintenance', 'facilities', 'planCost', 'permitCost', 'otherDirectCost'];
+        return ['contractorType', 'markupPct', 'insuranceOverhead', 'equipment', 'equipmentMaintenance', 'facilities', 'adminOverhead', 'planCost', 'permitCost', 'otherDirectCost', 'engineeringCost', 'financingFees', 'interestCost', 'contingencyAllowance'];
       case 6:
         return ['scenarioAnalysis', 'projectAnalysis', 'marketRates', 'laborRates'];
       case 7:
@@ -5095,7 +5264,7 @@ export default function EstimateGeneratorScreen() {
   useEffect(() => {
     if (!isMarkupFocused.current) {
       const markupValue = bid.markupPct !== undefined && bid.markupPct !== null ? String(bid.markupPct) : '';
-      setMarkupPctText(markupValue);
+      setMarkupPctText(formatStep5NumericInput(markupValue));
     }
   }, [bid.markupPct]);
 
@@ -5106,7 +5275,7 @@ export default function EstimateGeneratorScreen() {
       if (eq == null || eq === '' || Number(eq) === 0) {
         setEquipmentRentalText('');
       } else {
-        setEquipmentRentalText(String(eq));
+        setEquipmentRentalText(formatStep5NumericInput(String(eq)));
       }
     }
   }, [bid.equipment, bid.id]);
@@ -6427,19 +6596,12 @@ export default function EstimateGeneratorScreen() {
     // Calculate values with exact decimal precision for estimateContext
     const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
     const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
-    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const equipmentRental = Number(bid.equipment) || 0;
-    const otherDirectCost = Number(bid.otherDirectCost) || 0;
-    const companyOverheadOnly =
-      (bid.insuranceOverhead || 0) +
-      (bid.equipmentMaintenance || 0) +
-      (bid.facilities || 0) +
-      (bid.otherOverhead || 0);
-    const calculatedSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-    const overhead = companyOverheadOnly + permitCosts + equipmentRental + otherDirectCost;
+    const financials = getEstimateStep5Financials(bid, materials, labor);
+    const calculatedSubtotal = financials.totalCostBeforeMarkup;
+    const costContextTotal = financials.overheadContextTotal;
     const markup = Number(bid.markupPct) || 0;
-    const profit = (calculatedSubtotal * markup) / 100;
-    const total = calculatedSubtotal + profit; // Preserve exact decimal precision, don't round
+    const profit = financials.markupAmount;
+    const total = financials.bidPrice; // Preserve exact decimal precision, don't round
 
     const bidSnapshot = {
       ...bid,
@@ -6463,9 +6625,9 @@ export default function EstimateGeneratorScreen() {
       estimateContext: {
         materials,
         labor,
-        overhead,
-        companyOverhead: companyOverheadOnly,
-        permitCosts,
+        costContextTotal,
+        companyOverhead: financials.companyOverheadTotal,
+        permitCosts: financials.projectCosts.totalProjectCosts,
         subtotal: calculatedSubtotal,
         markup,
         profit,
@@ -6500,7 +6662,7 @@ export default function EstimateGeneratorScreen() {
           const location = `${snapshotBid.customerCity || 'Unknown'}, ${snapshotBid.customerState || 'Unknown'}`;
 
           console.log(
-            `💰 Auto-sync calculation: materials=${estimateContext.materials}, labor=${estimateContext.labor}, overhead=${estimateContext.overhead}, permit=${estimateContext.permitCosts}, subtotal=${estimateContext.subtotal}, markup=${estimateContext.markup}%, total=${estimateContext.total}`
+            `💰 Auto-sync calculation: materials=${estimateContext.materials}, labor=${estimateContext.labor}, costContextTotal=${estimateContext.costContextTotal}, permit=${estimateContext.permitCosts}, subtotal=${estimateContext.subtotal}, markup=${estimateContext.markup}%, total=${estimateContext.total}`
           );
 
         // Calculate labor and materials budgets from estimateContext (which uses CURRENT materialsCart and laborLineItems)
@@ -6541,21 +6703,27 @@ export default function EstimateGeneratorScreen() {
 
           const companyOH =
             estimateContext.companyOverhead ??
-            Math.max(0, (estimateContext.overhead ?? 0) - (estimateContext.permitCosts ?? 0));
+            Math.max(0, (estimateContext.costContextTotal ?? 0) - (estimateContext.permitCosts ?? 0));
           const profitRaw = estimateContext.profit ?? 0;
-          const netProfit = Math.max(0, profitRaw - companyOH);
+          const netProfit = profitRaw - companyOH;
           const margin = estimateContext.total > 0 ? (netProfit / estimateContext.total) * 100 : 0;
+          const savedFinancialFields = getEstimateSavedFinancialFields({
+            materials: estimateContext.materials,
+            labor: estimateContext.labor,
+            financials: {
+              companyOverheadTotal: companyOH,
+              projectCosts: { totalProjectCosts: estimateContext.permitCosts ?? 0 },
+              overheadContextTotal: estimateContext.costContextTotal,
+            },
+            subtotal: estimateContext.subtotal,
+            bidPrice: estimateContext.total,
+            netProfit,
+          });
           const estimateData = {
             id: snapshotBid.id,
             title: snapshotBid.title || 'Untitled Bid',
           status: existingProject?.status || snapshotBid.status || 'estimate',
-            estimatedCost: estimateContext.subtotal,
-            bidPrice: estimateContext.total,
-            profit: netProfit,
-            materials: estimateContext.materials ?? 0,
-            labor: estimateContext.labor ?? 0,
-            overhead: estimateContext.overhead ?? 0,
-            subtotal: estimateContext.subtotal ?? 0,
+            ...savedFinancialFields,
           actualCost: existingProject?.actualCost || 0,
             margin,
             markup: estimateContext.markup,
@@ -6805,22 +6973,14 @@ export default function EstimateGeneratorScreen() {
     // Calculate rental equipment costs (note: rentals don't have fixed pricing, just duration tracking)
     const rentals = rentalCart.length; // Count of rental items for tracking
     
-    // Direct job cost (Total Cost / markup base) = materials + labor + plans + permits + equipment rental + other direct costs.
-    // Business overhead (insurance, equipment maintenance, facilities, other) is not in subtotal; it reduces net profit after markup.
-    const permitCosts = (bid.planCost || 0) + (bid.permitCost || 0);
-    const equipmentRental = Number(bid.equipment) || 0;
-    const otherDirectCost = Number(bid.otherDirectCost) || 0;
-    const companyOverhead =
-      (Number(bid.insuranceOverhead) || 0) +
-      (Number(bid.equipmentMaintenance) || 0) +
-      (Number(bid.facilities) || 0) +
-      (Number(bid.otherOverhead) || 0);
-    const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-    // All non–mat/labor dollars in the overhead section (for charts / context)
-    const overhead = companyOverhead + permitCosts + equipmentRental + otherDirectCost;
-    const contingency = Math.round((subtotal * bid.contingencyPct) / 100);
-    const profit = (subtotal * bid.markupPct) / 100;
-    const total = subtotal + profit; // Preserve exact decimal precision, don't round
+    // Total project cost includes all project costs; markup applies only to the selected markup base.
+    // Business overhead (insurance, equipment maintenance, facilities, admin, other) is not in the markup base; it reduces net profit after markup.
+    const financials = getEstimateStep5Financials(bid, materials, labor);
+    const subtotal = financials.totalCostBeforeMarkup;
+    const costContextTotal = financials.overheadContextTotal;
+    const contingency = financials.projectCosts.developerProjectCostsActive ? financials.projectCosts.contingency : 0;
+    const profit = financials.markupAmount;
+    const total = financials.bidPrice; // Preserve exact decimal precision, don't round
     const marginRatio = total > 0 ? profit / total : 0;
     const marginPercent = marginRatio * 100;
     
@@ -6831,12 +6991,15 @@ export default function EstimateGeneratorScreen() {
       materials,
       labor,
       rentals,
-      overhead,
-      companyOverhead,
-      permitCosts,
+      costContextTotal,
+      companyOverhead: financials.companyOverheadTotal,
+      permitCosts: financials.projectCosts.permitCosts,
+      totalProjectCosts: financials.projectCosts.totalProjectCosts,
+      markupBaseSubtotal: financials.markupBaseSubtotal,
       contingency,
       profit,
       total,
+      grandTotal: total,
       subtotal,
       unitPrice,
       marginRatio,
@@ -6961,9 +7124,11 @@ export default function EstimateGeneratorScreen() {
           materials: calc.materials,
           labor: calc.labor,
           rentals: calc.rentals,
-          overhead: calc.overhead,
+          costContextTotal: calc.costContextTotal,
           companyOverhead: calc.companyOverhead,
           permitCosts: calc.permitCosts,
+          totalProjectCosts: calc.totalProjectCosts,
+          markupBaseSubtotal: calc.markupBaseSubtotal,
           contingency: calc.contingency,
           subtotal: calc.subtotal,
           profit: calc.profit,
@@ -8281,12 +8446,8 @@ export default function EstimateGeneratorScreen() {
       // Calculate current total from materials, labor, overhead, markup
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
       const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
-      const permitCosts = (currentBid.planCost || 0) + (currentBid.permitCost || 0);
-      const equipmentRental = Number(currentBid.equipment) || 0;
-      const otherDirectCost = Number(currentBid.otherDirectCost) || 0;
-      const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-      const profit = (subtotal * (currentBid.markupPct || 0)) / 100;
-      const grandTotal = Math.round(subtotal + profit) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
+      const financials = getEstimateStep5Financials(currentBid, materials, labor);
+      const grandTotal = Math.round(financials.bidPrice) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
       
       if (grandTotal > 0 && Array.isArray(value) && value.length > 0) {
         if (key === 'paymentMilestones') {
@@ -8693,6 +8854,8 @@ export default function EstimateGeneratorScreen() {
           description: item.name || item.description || 'Material',
           unit: item.unit || 'ea',
           quantity: item.qty || item.quantity || 1,
+          unitPrice: resolveMaterialCartUnitPrice(item),
+          mode: item.mode === 'sqft' || item.unit === 'sq ft' ? 'sqft' : 'flat',
           materials: item.total || 0,
           labor: 0,
           category: 'Materials',
@@ -8707,18 +8870,17 @@ export default function EstimateGeneratorScreen() {
           category: 'Materials'
         }] : []);
 
-    const permitCosts = Number(bidData.planCost || 0) + Number(bidData.permitCost || 0);
-    const equipmentRental = Number(bidData.equipment || 0);
-    const otherDirectCost = Number(bidData.otherDirectCost || 0);
-    const companyOverheadOnly =
-      Number(bidData.insuranceOverhead || 0) +
-      Number(bidData.equipmentMaintenance || 0) +
-      Number(bidData.facilities || 0) +
-      Number(bidData.otherOverhead || 0);
-    const totalOverhead = companyOverheadOnly + permitCosts + equipmentRental + otherDirectCost;
+    const financials = getEstimateStep5Financials(
+      bidData,
+      calcData?.materials || 0,
+      calcData?.labor || 0
+    );
+    const projectCosts = financials.projectCosts;
+    const companyOverheadOnly = financials.companyOverheadTotal;
+    const totalOverhead = financials.overheadContextTotal;
 
-    const baseSubtotal = (calcData?.materials || 0) + (calcData?.labor || 0) + permitCosts + equipmentRental + otherDirectCost;
-    const grandTotal = Math.round(baseSubtotal + (baseSubtotal * ((bidData.markupPct || 0) / 100)));
+    const baseSubtotal = financials.totalCostBeforeMarkup;
+    const grandTotal = Math.round(financials.bidPrice);
     const resolvedStartDate = bidData.startDate || bidData.projectStartDate || undefined;
     const resolvedEndDate =
       bidData.endDate ||
@@ -8751,7 +8913,7 @@ export default function EstimateGeneratorScreen() {
         unitPrice: bidData.sqft ? (() => {
           const materials = calcData?.materials || 0;
           const labor = calcData?.labor || 0;
-          const subtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
+          const subtotal = materials + labor + projectCosts.totalProjectCosts;
           const markup = subtotal * ((bidData.markupPct || 0) / 100);
           return Math.round(subtotal + markup) / bidData.sqft;
         })() : undefined,
@@ -8793,12 +8955,21 @@ export default function EstimateGeneratorScreen() {
         exclusions: [],
         ownerResponsibilities: [],
         materialLineItems: materialLineItems,
-        laborLineItems: (bidData.laborLineItems || []).map(item => ({
-          description: item.name || item.description || item.category || 'Labor',
-          labor: item.total || 0,
-          materials: 0,
-          category: item.section || item.category || 'Labor'
-        })),
+        laborLineItems: (bidData.laborLineItems || []).map(item => {
+          const resolved = resolveLaborContractLineItem(item, bidData.sqft);
+          return {
+            description: item.name || item.description || item.category || 'Labor',
+            unit: resolved.unit,
+            quantity: resolved.quantity,
+            unitPrice: resolved.unitPrice,
+            hours: resolved.hours,
+            rate: resolved.rate,
+            mode: resolved.mode,
+            labor: resolved.labor,
+            materials: 0,
+            category: item.section || item.category || 'Labor',
+          };
+        }),
       },
       allowances: [],
       milestones: bidData.paymentSchedule === 'milestone-based' && bidData.paymentMilestones
@@ -8843,9 +9014,9 @@ export default function EstimateGeneratorScreen() {
       },
       labor: calcData?.labor || 0,
       materials: calcData?.materials || 0,
-      // PDF "Direct costs" line — plans, permits, equipment rental, other direct (not M/L).
-      permitCosts: permitCosts + equipmentRental + otherDirectCost,
-      // Company overhead only (insurance, facilities, etc.) — separate from direct job costs.
+      // PDF project costs line — all project-specific costs outside materials/labor.
+      permitCosts: projectCosts.totalProjectCosts,
+      // Company overhead only (insurance, facilities, admin, etc.) — separate from direct job costs.
       overhead: companyOverheadOnly,
       profitMarginPct: bidData.markupPct || 0,
     };
@@ -9102,8 +9273,20 @@ export default function EstimateGeneratorScreen() {
       const bidPrice = Number(calc?.grandTotal) || 0;
       const markup = Number(bid.markupPct) || 0;
       const profitRaw = calc?.profit ?? 0;
-      const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
+      const netProfit = profitRaw - (calc?.companyOverhead ?? 0);
       const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
+      const savedFinancialFields = getEstimateSavedFinancialFields({
+        materials: calc?.materials,
+        labor: calc?.labor,
+        financials: {
+          companyOverheadTotal: calc?.companyOverhead,
+          projectCosts: { totalProjectCosts: calc?.totalProjectCosts },
+          overheadContextTotal: calc?.costContextTotal,
+        },
+        subtotal: calc?.subtotal ?? estimatedCost,
+        bidPrice,
+        netProfit,
+      });
       
       console.log('🔍 Debug - calculated values:', {
         estimatedCost,
@@ -9123,13 +9306,7 @@ export default function EstimateGeneratorScreen() {
         id: bid.id,
         title: bid.title || 'Untitled Bid',
         status: preservedStatus, // Preserve existing status (estimate, bid_submitted, won, etc.)
-        estimatedCost,
-        bidPrice,
-        profit: netProfit,
-        materials: calc?.materials ?? 0,
-        labor: calc?.labor ?? 0,
-        overhead: calc?.overhead ?? 0,
-        subtotal: calc?.subtotal ?? estimatedCost,
+        ...savedFinancialFields,
         actualCost: 0,
         margin,
         markup,
@@ -9195,8 +9372,20 @@ export default function EstimateGeneratorScreen() {
               const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
               const markup = Number(sourceBid.markupPct || 0);
               const profitRaw = calc?.profit ?? 0;
-              const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
+              const netProfit = profitRaw - (calc?.companyOverhead ?? 0);
               const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
+              const savedFinancialFields = getEstimateSavedFinancialFields({
+                materials: calc?.materials,
+                labor: calc?.labor,
+                financials: {
+                  companyOverheadTotal: calc?.companyOverhead,
+                  projectCosts: { totalProjectCosts: calc?.totalProjectCosts },
+                  overheadContextTotal: calc?.costContextTotal,
+                },
+                subtotal: calc?.subtotal ?? estimatedCost,
+                bidPrice,
+                netProfit,
+              });
               
               console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
               
@@ -9204,9 +9393,7 @@ export default function EstimateGeneratorScreen() {
                 id: sourceBid.id,
                 title: sourceBid.title || 'Untitled Bid',
                 status: 'bid_submitted', // Set status to bid_submitted so it shows as "Submitted" in projects
-                estimatedCost,
-                bidPrice,
-                profit: netProfit,
+                ...savedFinancialFields,
                 actualCost: 0,
                 margin,
                 markup,
@@ -9341,8 +9528,20 @@ export default function EstimateGeneratorScreen() {
       const bidPrice = Number(calc?.grandTotal || calc?.total) || 0;
       const markup = Number(sourceBid.markupPct) || 0;
       const profitRaw = calc?.profit ?? 0;
-      const netProfit = Math.max(0, profitRaw - (calc?.companyOverhead ?? 0));
+      const netProfit = profitRaw - (calc?.companyOverhead ?? 0);
       const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
+      const savedFinancialFields = getEstimateSavedFinancialFields({
+        materials: calc?.materials,
+        labor: calc?.labor,
+        financials: {
+          companyOverheadTotal: calc?.companyOverhead,
+          projectCosts: { totalProjectCosts: calc?.totalProjectCosts },
+          overheadContextTotal: calc?.costContextTotal,
+        },
+        subtotal: calc?.subtotal ?? estimatedCost,
+        bidPrice,
+        netProfit,
+      });
 
       const normalizedPaymentMilestones = Array.isArray(sourceBid.paymentMilestones)
         ? sourceBid.paymentMilestones.map((m, i) => ({ ...m, id: m.id || `payment-${i}` }))
@@ -9367,9 +9566,7 @@ export default function EstimateGeneratorScreen() {
         id: sourceBid.id,
         title: sourceBid.title || 'Untitled Bid',
         status: 'won',
-        estimatedCost,
-        bidPrice,
-        profit: netProfit,
+        ...savedFinancialFields,
         actualCost: existingProject?.actualCost || 0,
         margin,
         markup,
@@ -9507,19 +9704,13 @@ export default function EstimateGeneratorScreen() {
     }));
   }, []);
 
-  // Overhead % = business overhead as % of direct job cost (mat + labor + plans/permits + equipment rental).
+  // Overhead % = business overhead as % of active job cost for the selected pricing profile.
   useEffect(() => {
-    const totalPermitCosts = Number(bid.planCost || 0) + Number(bid.permitCost || 0);
-    const companyOverhead =
-      Number(bid.insuranceOverhead || 0) +
-      Number(bid.equipmentMaintenance || 0) +
-      Number(bid.facilities || 0) +
-      Number(bid.otherOverhead || 0);
+    const projectCosts = getEstimateProjectCostBreakdown(bid);
+    const companyOverhead = getEstimateCompanyOverheadTotal(bid);
     const totalMaterials = Number(calc.materials || 0);
     const totalLabor = Number(calc.labor || 0);
-    const equipmentRental = Number(bid.equipment) || 0;
-    const otherDirectCost = Number(bid.otherDirectCost) || 0;
-    const directCost = totalMaterials + totalLabor + totalPermitCosts + equipmentRental + otherDirectCost;
+    const directCost = totalMaterials + totalLabor + projectCosts.totalProjectCosts;
     const overheadPct = directCost > 0 ? Math.round((companyOverhead / directCost) * 100) : 0;
     
     if (bid.overheadPct !== overheadPct) {
@@ -9528,7 +9719,7 @@ export default function EstimateGeneratorScreen() {
         overheadPct: overheadPct
       }));
     }
-  }, [bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, calc.materials, calc.labor]);
+  }, [bid.contractorType, bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.adminOverhead, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, bid.engineeringCost, bid.financingFees, bid.interestCost, bid.contingencyAllowance, calc.materials, calc.labor]);
 
   
   // Enhanced materials helpers
@@ -10130,10 +10321,10 @@ export default function EstimateGeneratorScreen() {
           : 'Risk detected. Labor-heavy bid and low health score—review before sending.';
         
         const maxBarHeight = 120;
-        const maxValue = Math.max(calc.materials, calc.labor, calc.overhead, calc.profit, 1);
+        const maxValue = Math.max(calc.materials, calc.labor, calc.costContextTotal, calc.profit, 1);
         const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
         const laborHeight = (calc.labor / maxValue) * maxBarHeight;
-        const overheadHeight = (calc.overhead / maxValue) * maxBarHeight;
+        const overheadHeight = (calc.costContextTotal / maxValue) * maxBarHeight;
         const markupHeight = (calc.profit / maxValue) * maxBarHeight;
         const summaryMuted = darkMode ? 'rgba(248, 250, 252, 0.88)' : '#4a5568';
         const summaryMutedSoft = darkMode ? 'rgba(248, 250, 252, 0.7)' : '#5c667a';
@@ -10298,7 +10489,7 @@ export default function EstimateGeneratorScreen() {
                       minimumFontScale={0.65}
                       style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
                     >
-                      {moneyCompactBar(calc.overhead)}
+                      {moneyCompactBar(calc.costContextTotal)}
                     </Text>
                     <View
                       style={{
@@ -10429,7 +10620,7 @@ export default function EstimateGeneratorScreen() {
                         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
                         <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Overhead</Text>
                       </View>
-                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.overhead)}</Text>
+                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.costContextTotal)}</Text>
                     </View>
                     
                     <View style={{ 
@@ -12058,16 +12249,30 @@ export default function EstimateGeneratorScreen() {
           },
         };
 
-        const normalizedContractorType = contractorType ? parseInt(contractorType, 10) : null;
+        const profileBehavior = getEstimateStep5ProfileBehavior(contractorType);
+        const normalizedContractorType = profileBehavior.normalizedContractorType;
         const isCustomProfile = normalizedContractorType === 5;
         const recommendationInfo =
           normalizedContractorType && normalizedContractorType >= 1 && normalizedContractorType <= 4
             ? contractorTypes[normalizedContractorType]
             : null;
+        const showDeveloperProjectCosts = profileBehavior.showDeveloperProjectCosts;
+        const showAdvancedDeveloperCosts = showDeveloperProjectCosts;
+        const otherProjectCostsHelperText = profileBehavior.otherProjectCostsHelperText;
+        const markupBaseSummary = 'hard costs + equipment + plans + permits + engineering + other project costs';
+        const handleSelectStep5Profile = (typeNum) => {
+          const currentBid = bidRef.current || bid;
+          const updatedBid = {
+            ...currentBid,
+            contractorType: typeNum,
+          };
+          bidRef.current = updatedBid;
+          setBid(updatedBid);
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        };
         
         // Deduct only business overhead from gross markup; plans/permits are already inside Total Cost (subtotal).
         const businessOverheadDeduct = calc?.companyOverhead ?? 0;
-        
         const jobTotal = calc?.grandTotal || calc?.total || 0;
         
         // Calculate recommended markup based on contractor type and job characteristics
@@ -12102,9 +12307,24 @@ export default function EstimateGeneratorScreen() {
         const currentMarkup = bid.markupPct || 0;
         const profit = calc?.profit || 0;
         const subtotal = calc?.subtotal || 0;
+        const overheadLoadRatio = subtotal > 0 ? businessOverheadDeduct / subtotal : 0;
+        const overheadWarning =
+          businessOverheadDeduct === 0
+            ? {
+                tone: 'strong',
+                text: 'Company overhead is currently $0. Net profit may be overstated if business overhead is not accounted for.',
+              }
+            : subtotal > 0 && overheadLoadRatio < 0.01
+              ? {
+                  tone: 'soft',
+                  text: 'Company overhead appears low for this estimate. Continue if this is intentional.',
+                }
+              : null;
         // Net profit = gross markup minus business overhead only (plans/permits are job cost, not taken again here).
-        const netProfit = Math.max(0, profit - businessOverheadDeduct);
-        const netProfitPct = jobTotal > 0 ? (netProfit / jobTotal) * 100 : 0;
+        const netProfit = profit - businessOverheadDeduct;
+        const bidPriceForMargin = jobTotal;
+        const netProfitPct = bidPriceForMargin > 0 ? (netProfit / bidPriceForMargin) * 100 : 0;
+        const netProfitAccentColor = netProfit >= 0 ? '#38d39f' : '#f87171';
         
         // AI badge always shows - determine message and button text
         let showApplyButton = true; // Always show the AI badge
@@ -12246,7 +12466,11 @@ export default function EstimateGeneratorScreen() {
         
         if (subtotal > 0) {
           // Status based on net profit (after overhead) — true profitability
-          if (netProfitPct < 5) {
+          if (netProfitPct < 0) {
+            markupStatus = 'risk';
+            markupStatusText = 'Net profit is negative after overhead — increase markup or reduce overhead';
+            markupStatusColor = '#ef4444';
+          } else if (netProfitPct < 5) {
             markupStatus = 'risk';
             markupStatusText = 'Too low – net profit too low, increase markup';
             markupStatusColor = '#ef4444';
@@ -12317,6 +12541,24 @@ export default function EstimateGeneratorScreen() {
           marginBottom: 5,
         };
         const step5FieldWrapStyle = { marginBottom: 12 };
+        const step5SectionTitleStyle = {
+          color: Colors.text,
+          fontSize: 17,
+          fontWeight: '800',
+          letterSpacing: -0.3,
+        };
+        const step5SectionSubtitleStyle = {
+          color: step5Muted,
+          fontSize: 12.5,
+          marginTop: 5,
+          lineHeight: 17,
+        };
+        const step5SectionHelperStyle = {
+          color: step5MutedSoft,
+          fontSize: 11.5,
+          marginTop: 7,
+          lineHeight: 16,
+        };
         /**
          * Step 5 decimal fields: pair with `keyboardType="decimal-pad"` and
          * `inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}` only.
@@ -12342,8 +12584,8 @@ export default function EstimateGeneratorScreen() {
                     <Ionicons name="calculator-outline" size={21} color="#2DFFC4" />
                   </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.35 }}>Direct costs, overhead & markup</Text>
-                  <Text style={{ color: step5Muted, fontSize: 13, marginTop: 5, lineHeight: 18 }}>Enter direct costs, overhead, and your markup rate</Text>
+                  <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.35 }}>Project costs, overhead & markup</Text>
+                  <Text style={{ color: step5Muted, fontSize: 13, marginTop: 5, lineHeight: 18 }}>Enter other project costs, company overhead, and your markup rate</Text>
                 </View>
               </View>
 
@@ -12360,7 +12602,7 @@ export default function EstimateGeneratorScreen() {
                   Pricing Profile
                 </Text>
                 <Text style={{ color: step5MutedSoft, fontSize: 12, marginBottom: 14, lineHeight: 17 }}>
-                  Choose a pricing profile to pre-fill markup and overhead targets. You can adjust everything.
+                  Choose a pricing profile to pre-fill markup and company overhead targets. You can adjust everything.
                 </Text>
 
                 {[[1, 2], [3, 4]].map((row) => (
@@ -12376,8 +12618,7 @@ export default function EstimateGeneratorScreen() {
                           key={typeNum}
                           activeOpacity={0.88}
                           onPress={() => {
-                            updateBid('contractorType', typeNum);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            handleSelectStep5Profile(typeNum);
                           }}
                           style={{
                             flex: 1,
@@ -12429,8 +12670,7 @@ export default function EstimateGeneratorScreen() {
                 <TouchableOpacity
                   activeOpacity={0.88}
                   onPress={() => {
-                    updateBid('contractorType', 5);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    handleSelectStep5Profile(5);
                   }}
                   style={{
                     width: '100%',
@@ -12506,7 +12746,7 @@ export default function EstimateGeneratorScreen() {
                           Suggested starting targets
                         </Text>
                         {[
-                          ['Overhead', recommendationInfo.overheadRange],
+                          ['Company overhead', recommendationInfo.overheadRange],
                           ['Profit', recommendationInfo.profitRange],
                           ['Markup equivalent', recommendationInfo.markupEquivalentRange],
                         ].map(([label, range]) => (
@@ -12569,7 +12809,7 @@ export default function EstimateGeneratorScreen() {
                             fontWeight: '500',
                           }}
                         >
-                          Set your own overhead, profit, and markup targets.
+                          Set your own company overhead, profit, and markup targets.
                         </Text>
                         <Text
                           style={{
@@ -12588,14 +12828,60 @@ export default function EstimateGeneratorScreen() {
                 )}
               </View>
 
-              <View style={{ marginBottom: 10 }}>
-                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Direct costs</Text>
-                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
-                  Equipment rental, plans, permits, and other direct costs
+              <View style={{ marginBottom: 12 }}>
+                <Text style={step5SectionTitleStyle}>Hard costs</Text>
+                <Text style={step5SectionSubtitleStyle}>
+                  Materials and labor used to build the job
+                </Text>
+                <Text style={step5SectionHelperStyle}>
+                  These are your physical construction costs.
                 </Text>
               </View>
 
-              <View ref={equipmentRentalBlockRef} style={step5FieldWrapStyle}>
+              <View style={{ gap: 10, marginBottom: 22 }}>
+                {[
+                  { label: 'Materials', value: calc?.materials || 0, accent: '#3b82f6' },
+                  { label: 'Labor', value: calc?.labor || 0, accent: '#22c55e' },
+                ].map((item) => (
+                  <View
+                    key={item.label}
+                    style={{
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                      borderRadius: 14,
+                      paddingHorizontal: 14,
+                      paddingVertical: 14,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.accent, marginRight: 10 }} />
+                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{item.label}</Text>
+                    </View>
+                    <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.25 }}>
+                      {money(item.value)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ marginTop: 4, marginBottom: 12 }}>
+                <Text style={step5SectionTitleStyle}>Other project costs</Text>
+                <Text style={step5SectionSubtitleStyle}>
+                  Job-specific costs outside of materials and labor
+                </Text>
+                <Text style={step5SectionHelperStyle}>
+                  {otherProjectCostsHelperText}
+                </Text>
+                <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
+                  Use this section for job-specific costs. Do not enter company-wide admin, facilities, or general business insurance here.
+                </Text>
+              </View>
+
+              <View ref={equipmentRentalBlockRef} style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
                 <Text style={step5FieldLabelStyle}>Equipment Rental</Text>
                 <TextInput
                   keyboardType="decimal-pad"
@@ -12612,13 +12898,13 @@ export default function EstimateGeneratorScreen() {
                     setEquipmentRentalFocused(true);
                   }}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    setEquipmentRentalText(cleaned);
+                    const cleaned = sanitizeStep5NumericInput(text);
+                    setEquipmentRentalText(formatStep5NumericInput(cleaned));
                   }}
                   onBlur={() => {
                     equipmentRentalInputFocusedRef.current = false;
                     setEquipmentRentalFocused(false);
-                    const cleaned = equipmentRentalText.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(equipmentRentalText);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('equipment', 0);
                       setEquipmentRentalText('');
@@ -12639,13 +12925,13 @@ export default function EstimateGeneratorScreen() {
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.planCost && bid.planCost !== 0 ? bid.planCost.toString() : ''}
+                  value={bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('planCost', 0);
                     } else {
@@ -12665,13 +12951,13 @@ export default function EstimateGeneratorScreen() {
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.permitCost && bid.permitCost !== 0 ? bid.permitCost.toString() : ''}
+                  value={bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('permitCost', 0);
                     } else {
@@ -12685,19 +12971,127 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={step5FieldWrapStyle}>
-                <Text style={step5FieldLabelStyle}>Other direct costs</Text>
+                <Text style={step5FieldLabelStyle}>Engineering</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? bid.otherDirectCost.toString() : ''}
+                  value={bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('engineeringCost', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('engineeringCost', num);
+                      }
+                    }
+                  }}
+                />
+              </View>
+
+              {showDeveloperProjectCosts && (
+                <>
+                  <View style={step5FieldWrapStyle}>
+                    <Text style={step5FieldLabelStyle}>Financing / Fees</Text>
+                    <TextInput
+                      keyboardType="decimal-pad"
+                      {...step5DecimalInputProps}
+                      autoCorrect={false}
+                      spellCheck={false}
+                      style={[s.input, { color: getStepFieldTextColor(bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : '') }]}
+                      placeholder="0"
+                      placeholderTextColor={estimateStepMutedInputColor}
+                      value={bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : ''}
+                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                      onChangeText={(text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('financingFees', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('financingFees', num);
+                          }
+                        }
+                      }}
+                    />
+                  </View>
+
+                  <View style={step5FieldWrapStyle}>
+                    <Text style={step5FieldLabelStyle}>Interest</Text>
+                    <TextInput
+                      keyboardType="decimal-pad"
+                      {...step5DecimalInputProps}
+                      autoCorrect={false}
+                      spellCheck={false}
+                      style={[s.input, { color: getStepFieldTextColor(bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : '') }]}
+                      placeholder="0"
+                      placeholderTextColor={estimateStepMutedInputColor}
+                      value={bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : ''}
+                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                      onChangeText={(text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('interestCost', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('interestCost', num);
+                          }
+                        }
+                      }}
+                    />
+                  </View>
+
+                  <View style={step5FieldWrapStyle}>
+                    <Text style={step5FieldLabelStyle}>Contingency</Text>
+                    <TextInput
+                      keyboardType="decimal-pad"
+                      {...step5DecimalInputProps}
+                      autoCorrect={false}
+                      spellCheck={false}
+                      style={[s.input, { color: getStepFieldTextColor(bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : '') }]}
+                      placeholder="0"
+                      placeholderTextColor={estimateStepMutedInputColor}
+                      value={bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : ''}
+                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                      onChangeText={(text) => {
+                        const cleaned = sanitizeStep5NumericInput(text);
+                        if (cleaned === '' || cleaned === '.') {
+                          updateBid('contingencyAllowance', 0);
+                        } else {
+                          const num = parseFloat(cleaned);
+                          if (!isNaN(num)) {
+                            updateBid('contingencyAllowance', num);
+                          }
+                        }
+                      }}
+                    />
+                  </View>
+                </>
+              )}
+
+              <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
+                <Text style={step5FieldLabelStyle}>Other project costs</Text>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
+                  style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? formatStep5NumericInput(String(bid.otherDirectCost)) : '') }]}
+                  placeholder="0"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? formatStep5NumericInput(String(bid.otherDirectCost)) : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                  onChangeText={(text) => {
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('otherDirectCost', 0);
                     } else {
@@ -12710,27 +13104,33 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={{ marginTop: 14, marginBottom: 10 }}>
-                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Overhead</Text>
-                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
-                  Insurance, equipment maintenance, facilities, and other overhead
+              <View style={{ marginTop: 10, marginBottom: 12 }}>
+                <Text style={step5SectionTitleStyle}>Company overhead</Text>
+                <Text style={step5SectionSubtitleStyle}>
+                  Business operating costs not tied to just this one project
+                </Text>
+                <Text style={step5SectionHelperStyle}>
+                  Examples: insurance, office/facilities, admin, equipment upkeep, and general business overhead.
+                </Text>
+                <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
+                  Use this section for company operating costs, not job-specific permits, plans, engineering, financing, interest, or contingency.
                 </Text>
               </View>
 
-              <View style={step5FieldWrapStyle}>
+              <View style={{ ...step5FieldWrapStyle, marginTop: 14 }}>
                 <Text style={step5FieldLabelStyle}>Insurance Overhead</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? bid.insuranceOverhead.toString() : ''}
+                  value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('insuranceOverhead', 0);
                     } else {
@@ -12750,13 +13150,13 @@ export default function EstimateGeneratorScreen() {
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? bid.equipmentMaintenance.toString() : ''}
+                  value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('equipmentMaintenance', 0);
                     } else {
@@ -12776,13 +13176,13 @@ export default function EstimateGeneratorScreen() {
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.facilities && bid.facilities !== 0 ? bid.facilities.toString() : ''}
+                  value={bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('facilities', 0);
                     } else {
@@ -12795,20 +13195,49 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={{ ...step5FieldWrapStyle, marginBottom: 14 }}>
+              <View style={step5FieldWrapStyle}>
+                <Text style={step5FieldLabelStyle}>Admin</Text>
+                <Text style={{ color: step5MutedSoft, fontSize: 10.5, marginBottom: 6, lineHeight: 14 }}>
+                  Only include company/admin burden here. Project-specific coordination belongs in project costs.
+                </Text>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  {...step5DecimalInputProps}
+                  autoCorrect={false}
+                  spellCheck={false}
+                  style={[s.input, { color: getStepFieldTextColor(bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : '') }]}
+                  placeholder="0"
+                  placeholderTextColor={estimateStepMutedInputColor}
+                  value={bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : ''}
+                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                  onChangeText={(text) => {
+                    const cleaned = sanitizeStep5NumericInput(text);
+                    if (cleaned === '' || cleaned === '.') {
+                      updateBid('adminOverhead', 0);
+                    } else {
+                      const num = parseFloat(cleaned);
+                      if (!isNaN(num)) {
+                        updateBid('adminOverhead', num);
+                      }
+                    }
+                  }}
+                />
+              </View>
+
+              <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
                 <Text style={step5FieldLabelStyle}>Other Overhead</Text>
                 <TextInput
                   keyboardType="decimal-pad"
                   {...step5DecimalInputProps}
                   autoCorrect={false}
                   spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : '') }]}
+                  style={[s.input, { color: getStepFieldTextColor(bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : '') }]}
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.otherOverhead && bid.otherOverhead !== 0 ? bid.otherOverhead.toString() : ''}
+                  value={bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : ''}
                   inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
-                    const cleaned = text.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('otherOverhead', 0);
                     } else {
@@ -12821,14 +13250,45 @@ export default function EstimateGeneratorScreen() {
                 />
               </View>
 
-              <View style={{ marginTop: 4, marginBottom: 10 }}>
-                <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.3 }}>Markup percentage</Text>
-                <Text style={{ color: step5Muted, fontSize: 12.5, marginTop: 5, lineHeight: 17 }}>
-                  Applied to materials, labor, and all direct costs above
+              {overheadWarning && (
+                <View
+                  style={{
+                    marginBottom: 18,
+                    paddingVertical: 11,
+                    paddingHorizontal: 13,
+                    borderRadius: 12,
+                    backgroundColor:
+                      overheadWarning.tone === 'strong'
+                        ? 'rgba(251, 191, 36, 0.1)'
+                        : 'rgba(148, 163, 184, 0.08)',
+                    borderWidth: 1,
+                    borderColor:
+                      overheadWarning.tone === 'strong'
+                        ? 'rgba(251, 191, 36, 0.32)'
+                        : 'rgba(148, 163, 184, 0.18)',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: overheadWarning.tone === 'strong' ? '#fbbf24' : step5MutedSoft,
+                      fontSize: 12,
+                      lineHeight: 18,
+                      fontWeight: overheadWarning.tone === 'strong' ? '600' : '500',
+                    }}
+                  >
+                    {overheadWarning.text}
+                  </Text>
+                </View>
+              )}
+
+              <View style={{ marginTop: 10, marginBottom: 12 }}>
+                <Text style={step5SectionTitleStyle}>Markup percentage</Text>
+                <Text style={step5SectionSubtitleStyle}>
+                  Applied to hard costs plus equipment, plans, permits, engineering, and other project costs
                 </Text>
               </View>
 
-              <View ref={markupPctBlockRef} style={{ marginBottom: 4 }}>
+              <View ref={markupPctBlockRef} style={{ marginTop: 14, marginBottom: 4 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text style={step5FieldLabelStyle}>Markup %</Text>
                   <TouchableOpacity
@@ -12901,14 +13361,14 @@ export default function EstimateGeneratorScreen() {
                   }}
                   onChangeText={(text) => {
                     // Only update local state while typing - no re-renders of parent
-                    const cleaned = text.replace(/[^0-9.]/g, '');
-                    setMarkupPctText(cleaned);
+                    const cleaned = sanitizeStep5NumericInput(text);
+                    setMarkupPctText(formatStep5NumericInput(cleaned));
                   }}
                   onBlur={() => {
                     isMarkupFocused.current = false;
                     setMarkupPctFocused(false);
                     // Only update bid state when done typing
-                    const cleaned = markupPctText.replace(/[^0-9.]/g, '');
+                    const cleaned = sanitizeStep5NumericInput(markupPctText);
                     if (cleaned === '' || cleaned === '.') {
                       updateBid('markupPct', 0);
                       setMarkupPctText('0');
@@ -13001,7 +13461,10 @@ export default function EstimateGeneratorScreen() {
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
                       <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', letterSpacing: -0.2 }}>Total Cost</Text>
                       <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
-                        Materials + labor + plans & permits + equipment rental + other direct (markup applies here; business overhead is below)
+                        {'Materials + labor + active project costs above\n(company overhead is shown separately below)'}
+                      </Text>
+                      <Text style={{ color: step5MutedSoft, fontSize: 10.5, marginTop: 6, lineHeight: 15, fontWeight: '600' }}>
+                        {`Markup base: ${markupBaseSummary}`}
                       </Text>
                     </View>
                     <Text style={{
@@ -13065,7 +13528,7 @@ export default function EstimateGeneratorScreen() {
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
                       <Text style={{ color: '#f97316', fontSize: 13, fontWeight: '700' }}>- Business overhead</Text>
                       <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
-                        Insurance, equipment maintenance, facilities, other — not plans, permits, equipment rental, or other direct (those are in Total Cost)
+                        Insurance, equipment maintenance, facilities, admin, and other company costs — not plans, permits, equipment rental, engineering, financing, interest, contingency, or other project costs.
                       </Text>
                     </View>
                     <Text style={{
@@ -13084,12 +13547,12 @@ export default function EstimateGeneratorScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1, paddingRight: 12 }}>
                       <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', letterSpacing: -0.25 }}>Net Profit</Text>
-                      <Text style={{ color: '#38d39f', fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>
+                      <Text style={{ color: netProfitAccentColor, fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>
                         {netProfitPct.toFixed(1)}% margin on bid
                       </Text>
                     </View>
                     <Text style={{
-                      color: '#38d39f',
+                      color: netProfitAccentColor,
                       fontSize: 20,
                       fontWeight: '800',
                       letterSpacing: -0.35,
@@ -13098,7 +13561,7 @@ export default function EstimateGeneratorScreen() {
                       ...(Platform.OS === 'ios' ? { fontVariant: ['tabular-nums'] } : {}),
                     }}
                     >
-                      {money(Math.max(0, (calc.profit || 0) - businessOverheadDeduct))}
+                      {money(netProfit)}
                     </Text>
                   </View>
                 </View>
@@ -13255,6 +13718,34 @@ export default function EstimateGeneratorScreen() {
         const milestones = bid.paymentMilestones || [];
         const weeklyPayments = bid.weeklyPayments || [];
         const grandTotal = calc?.grandTotal || calc?.total || 0;
+        const buildStep7MarkedDates = (items, activeItemId = null) =>
+          (items || []).reduce((acc, item) => {
+            if (!item?.scheduledDate) return acc;
+            acc[item.scheduledDate] = {
+              ...(acc[item.scheduledDate] || {}),
+              marked: true,
+              dotColor: item.id === activeItemId ? '#2DFFC4' : '#38d39f',
+            };
+            return acc;
+          }, {});
+        const findPreviousScheduledDateById = (items, activeItemId) => {
+          const activeIndex = (items || []).findIndex((item) => item?.id === activeItemId);
+          if (activeIndex <= 0) return null;
+          for (let i = activeIndex - 1; i >= 0; i -= 1) {
+            if (items?.[i]?.scheduledDate) return items[i].scheduledDate;
+          }
+          return null;
+        };
+        const getStep7CalendarAnchorDate = (currentDate, fallbackItems = [], activeItemId = null) =>
+          currentDate ||
+          findPreviousScheduledDateById(fallbackItems, activeItemId) ||
+          bid.startDate ||
+          bid.projectStartDate ||
+          bid.endDate ||
+          bid.projectEndDate ||
+          null;
+        const milestoneCalendarMarks = buildStep7MarkedDates(milestones);
+        const weeklyCalendarMarks = buildStep7MarkedDates(weeklyPayments);
         
         // Calculate totals
         // For hybrid mode, only count deposit and final milestones, not all milestones
@@ -15009,16 +15500,11 @@ export default function EstimateGeneratorScreen() {
                                       }
                                       setShowDepositCalendar(false);
                                     }}
-                                    markedDates={{
-                                      [(() => {
-                                        const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
-                                        return depositMilestone?.scheduledDate || '';
-                                      })()]: {
-                                        selected: true,
-                                        selectedColor: '#38d39f',
-                                        selectedTextColor: '#000000',
-                                      }
-                                    }}
+                                    markedDates={milestoneCalendarMarks}
+                                    selectedDateString={(() => {
+                                      const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
+                                      return depositMilestone?.scheduledDate || null;
+                                    })()}
                                     initialDate={(() => {
                                       const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
                                       return depositMilestone?.scheduledDate;
@@ -15439,14 +15925,9 @@ export default function EstimateGeneratorScreen() {
                                                 updateBid('paymentMilestones', updatedMilestones);
                                                 setOpenMilestoneCalendarId(null);
                                               }}
-                                              markedDates={{
-                                                [milestone.scheduledDate || '']: {
-                                                  selected: true,
-                                                  selectedColor: '#38d39f',
-                                                  selectedTextColor: '#000000',
-                                                }
-                                              }}
-                                              initialDate={milestone.scheduledDate}
+                                              markedDates={buildStep7MarkedDates(milestones, milestone.id)}
+                                              selectedDateString={milestone.scheduledDate || null}
+                                              initialDate={getStep7CalendarAnchorDate(milestone.scheduledDate, milestones, milestone.id)}
                                             />
                                           </View>
                                         )}
@@ -16141,14 +16622,9 @@ export default function EstimateGeneratorScreen() {
                                                 updateBid('weeklyPayments', updatedPayments);
                                                 setOpenWeekCalendarId(null);
                                               }}
-                                              markedDates={{
-                                                [payment.scheduledDate || '']: {
-                                                  selected: true,
-                                                  selectedColor: '#38d39f',
-                                                  selectedTextColor: '#000000',
-                                                }
-                                              }}
-                                              initialDate={payment.scheduledDate}
+                                              markedDates={buildStep7MarkedDates(weeklyPayments, payment.id)}
+                                              selectedDateString={payment.scheduledDate || null}
+                                              initialDate={getStep7CalendarAnchorDate(payment.scheduledDate, weeklyPayments, payment.id)}
                                             />
                                           </View>
                                         )}
@@ -17149,7 +17625,7 @@ export default function EstimateGeneratorScreen() {
           : step === 4
             ? 'Add crew labor or subcontractor costs so the estimate reflects the real cost of the job.'
             : step === 5
-              ? 'Direct costs cover job-specific expenses, overhead covers business costs, and markup protects your profit.'
+              ? 'Other project costs cover job-specific expenses, company overhead covers business costs, and markup protects your profit.'
               : step === 6
                 ? 'Check margin, risk, and likely job outcomes before sending the bid.'
                 : step === 7

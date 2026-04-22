@@ -83,16 +83,20 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
     // Days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const markedConfig = markedDates[dateString] || {};
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const dayDate = new Date(year, month, day);
       dayDate.setHours(0, 0, 0, 0);
       const isToday = dayDate.getTime() === today.getTime();
-      const isSelected = Boolean(selectedDateString && dateString === selectedDateString);
+      const isSelected = selectedDateString
+        ? dateString === selectedDateString
+        : Boolean(markedConfig.selected);
+      const isMarked = Boolean(markedConfig.marked || (markedConfig.selected && !isSelected));
 
       // Get events for this date
       const dayEvents = events.filter(e => e.date === dateString);
-      const hasEvents = dayEvents.length > 0;
+      const hasEvents = dayEvents.length > 0 || isMarked;
 
       const dayNumberStyle = isSelected
         ? styles.dayTextSelected
@@ -117,7 +121,15 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
             <Text style={dayNumberStyle}>{day}</Text>
             {hasEvents && (
               <View style={styles.dayEvents}>
-                {dayEvents.slice(0, 3).map((event, idx) => (
+                {isMarked && (
+                  <View
+                    style={[
+                      styles.dayEventDot,
+                      { backgroundColor: markedConfig.dotColor || markedConfig.selectedColor || '#38d39f' },
+                    ]}
+                  />
+                )}
+                {dayEvents.slice(0, Math.max(0, isMarked ? 2 : 3)).map((event, idx) => (
                   <View
                     key={idx}
                     style={[

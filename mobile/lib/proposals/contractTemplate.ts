@@ -426,7 +426,7 @@ export const getStateClausePack = (
 
 /** Client-safe label for the remainder after M/L/direct job costs (covers PM, coordination, company overhead, and contractor margin). */
 export const BUILDER_FEE_LABEL =
-  "Project management, coordination & overhead";
+  "Project management & coordination (scheduling, supervision, documentation)";
 
 export const formatProjectTypeLabel = (projectType?: string): string =>
   toTitleCase(projectType) || "Project";

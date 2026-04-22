@@ -26,6 +26,58 @@ const money = (n: number | undefined | null) =>
     maximumFractionDigits: 2,
   });
 
+type AppendixLineItem = {
+  unit?: string | null;
+  mode?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  materials?: number | null;
+  labor?: number | null;
+};
+
+const formatPdfWholeNumber = (value: number | null | undefined) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return Math.round(n).toLocaleString("en-US");
+};
+
+const resolveAppendixLineAmount = (item: AppendixLineItem) => {
+  const materials = Number(item?.materials || 0);
+  if (materials > 0) return materials;
+  return Number(item?.labor || 0) || 0;
+};
+
+const resolveAppendixUnitRate = (item: AppendixLineItem) => {
+  const stored = Number(item?.unitPrice || 0);
+  const qty = Number(item?.quantity || 0);
+  const amount = resolveAppendixLineAmount(item);
+  if (stored > 0 && qty > 0 && Math.abs(stored * qty - amount) < 0.01) return stored;
+  if (qty > 0 && amount > 0) return amount / qty;
+  return stored > 0 ? stored : 0;
+};
+
+const hasLineItemRate = (item: AppendixLineItem) => resolveAppendixUnitRate(item) > 0;
+const isSqftUnit = (unit?: string | null) => String(unit || "").trim().toLowerCase() === "sq ft";
+const isSqftMode = (mode?: string | null) => String(mode || "").trim().toLowerCase() === "sqft";
+const usesSqftLayout = (items: AppendixLineItem[]) =>
+  items.some(
+    (item) =>
+      (isSqftUnit(item.unit) || isSqftMode(item.mode)) &&
+      (Number(item.quantity || 0) > 0 || hasLineItemRate(item)),
+  );
+
+const formatLineItemRate = (item: AppendixLineItem) => {
+  const rate = resolveAppendixUnitRate(item);
+  if (!(rate > 0)) return "—";
+  const unit = String(item?.unit || "").trim();
+  return unit ? `${money(rate)} / ${esc(unit)}` : money(rate);
+};
+
+const formatSqftRate = (item: AppendixLineItem) => {
+  const rate = resolveAppendixUnitRate(item);
+  return rate > 0 ? money(rate) : "—";
+};
+
 const esc = (s: string) =>
   (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as any)[c]);
 
@@ -145,7 +197,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const pricingRows = [
     { label: "Materials", value: materialsSubtotal },
     { label: "Labor", value: laborSubtotal },
-    { label: "Direct costs", value: directCostsSubtotal },
+    { label: "Project costs (permits, plans, engineering, equipment)", value: directCostsSubtotal },
     { label: BUILDER_FEE_LABEL, value: builderFeeAmount },
   ];
   const hasLineItemAppendix =
@@ -202,6 +254,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const renderMaterialGroupsHtml = Object.entries(groupedMaterials)
     .map(([group, items]) => {
       const subtotal = items.reduce((sum, item) => sum + Number(item.materials || 0), 0);
+      const hasRateColumn = items.some(hasLineItemRate);
+      const showSqftLayout = usesSqftLayout(items);
       const groupHead =
         isRedundantMaterialGroupTitle(group) || !String(group).trim()
           ? ""
@@ -212,10 +266,14 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <table class="appendix-table">
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th class="center">Qty</th>
-                  <th class="center">Unit</th>
-                  <th class="num">Materials</th>
+                  <th style="width:${showSqftLayout ? "46%" : hasRateColumn ? "44%" : "52%"};">Description</th>
+                  <th class="center" style="width:12%;">${showSqftLayout ? "Sq Ft" : "Qty"}</th>
+                  ${
+                    showSqftLayout
+                      ? `<th class="num" style="width:22%;">Price / Sq Ft</th>`
+                      : `<th class="center" style="width:14%;">Unit</th>${hasRateColumn ? `<th class="num" style="width:14%;">Rate</th>` : ""}`
+                  }
+                  <th class="num" style="width:${showSqftLayout ? "20%" : hasRateColumn ? "16%" : "22%"};">Materials</th>
                 </tr>
               </thead>
               <tbody>
@@ -224,14 +282,18 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                     (item) => `
                     <tr>
                       <td>${esc(item.description || "Material")}</td>
-                      <td class="center">${item.quantity || "—"}</td>
-                      <td class="center">${esc(item.unit || "—")}</td>
+                      <td class="center">${formatPdfWholeNumber(item.quantity)}</td>
+                      ${
+                        showSqftLayout
+                          ? `<td class="num">${formatSqftRate(item)}</td>`
+                          : `<td class="center">${esc(item.unit || "—")}</td>${hasRateColumn ? `<td class="num">${formatLineItemRate(item)}</td>` : ""}`
+                      }
                       <td class="num">${money(item.materials || 0)}</td>
                     </tr>`,
                   )
                   .join("")}
                 <tr class="subtotal-row">
-                  <td colspan="3">Material subtotal</td>
+                  <td colspan="${showSqftLayout ? "3" : hasRateColumn ? "4" : "3"}">Material subtotal</td>
                   <td class="num">${money(subtotal)}</td>
                 </tr>
               </tbody>
@@ -243,6 +305,10 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const renderLaborGroupsHtml = Object.entries(groupedLabor)
     .map(([group, items]) => {
       const subtotal = items.reduce((sum, item) => sum + Number(item.labor || 0), 0);
+      const hasDetailColumns = items.some(
+        (item) => Number(item.quantity || 0) > 0 || String(item.unit || "").trim() || hasLineItemRate(item),
+      );
+      const showSqftLayout = usesSqftLayout(items);
       const groupHead =
         isRedundantLaborGroupTitle(group) || !String(group).trim()
           ? ""
@@ -253,8 +319,16 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <table class="appendix-table">
               <thead>
                 <tr>
-                  <th>Description</th>
-                  <th class="num">Labor</th>
+                  <th style="width:${showSqftLayout ? "46%" : hasDetailColumns ? "38%" : "75%"};">Description</th>
+                  ${hasDetailColumns ? `<th class="center" style="width:12%;">${showSqftLayout ? "Sq Ft" : "Qty"}</th>` : ""}
+                  ${
+                    hasDetailColumns
+                      ? showSqftLayout
+                        ? `<th class="num" style="width:22%;">Price / Sq Ft</th>`
+                        : `<th class="center" style="width:14%;">Unit</th><th class="num" style="width:14%;">Rate</th>`
+                      : ""
+                  }
+                  <th class="num" style="width:${showSqftLayout ? "20%" : hasDetailColumns ? "22%" : "25%"};">Labor</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,12 +337,20 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                     (item) => `
                     <tr>
                       <td>${esc(item.description || "Labor")}</td>
+                      ${hasDetailColumns ? `<td class="center">${formatPdfWholeNumber(item.quantity)}</td>` : ""}
+                      ${
+                        hasDetailColumns
+                          ? showSqftLayout
+                            ? `<td class="num">${formatSqftRate(item)}</td>`
+                            : `<td class="center">${esc(item.unit || "—")}</td><td class="num">${formatLineItemRate(item)}</td>`
+                          : ""
+                      }
                       <td class="num">${money(item.labor || 0)}</td>
                     </tr>`,
                   )
                   .join("")}
                 <tr class="subtotal-row">
-                  <td>Labor subtotal</td>
+                  <td colspan="${showSqftLayout ? "3" : hasDetailColumns ? "4" : "1"}">Labor subtotal</td>
                   <td class="num">${money(subtotal)}</td>
                 </tr>
               </tbody>
@@ -295,7 +377,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <td class="num">${money(laborSubtotal)}</td>
           </tr>
           <tr>
-            <td>Direct costs (permits, plans, equipment, other direct)</td>
+            <td>Project costs (permits, plans, engineering, equipment)</td>
             <td class="num">${money(directCostsSubtotal)}</td>
           </tr>
           <tr>
@@ -310,7 +392,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       </table>
       ${
         !pricingBreakdown.reconciles
-          ? `<p class="subtle-p">Note: Roll-up rounding — verify materials, labor, direct costs, and contract total in the estimate match this agreement.</p>`
+          ? `<p class="subtle-p">Note: Roll-up rounding — verify materials, labor, project costs, and contract total in the estimate match this agreement.</p>`
           : `<p class="subtle-p">The amounts above reconcile to the contract total shown on the pricing summary.</p>`
       }
     `;
@@ -318,6 +400,10 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const notes =
     input?.notes ||
     [
+      "Pricing is all-inclusive for the scope described. Nothing is hidden.",
+      "Permits, plans, and inspections are billed at actual cost; receipts available on request.",
+      "Project management covers scheduling, supervision, and documentation — not additional profit.",
+      "Change orders are priced and approved in writing before work continues.",
       "Selections, finishes, and owner-furnished items must be approved before ordering.",
       "Lead times begin after approvals, deposit receipt, and material release.",
       "Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
@@ -510,8 +596,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <th class="col-pay">Payment</th>
             <th class="center col-pct">Pct.</th>
             <th class="num col-amt">Amount</th>
-            <th class="col-due">Due date / condition</th>
-            <th class="col-note">Notes</th>
+            <th class="center col-due">Due date / condition</th>
+            <th class="center col-note">Notes</th>
           </tr>
         </thead>
         <tbody>
@@ -533,8 +619,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                         <td>${esc(milestone.name || "Scheduled payment")}</td>
                         <td class="center">${pct ? `${pct.toFixed(1)}%` : "—"}</td>
                         <td class="num">${money(amount)}</td>
-                        <td>${esc(formatDate(milestone.scheduledDate) || "TBD")}</td>
-                        <td>${esc(milestone.description || milestone.status || "—")}</td>
+                        <td class="center">${esc(formatDate(milestone.scheduledDate) || "TBD")}</td>
+                        <td class="center">${esc(milestone.description || milestone.status || "—")}</td>
                       </tr>`;
                   })
                   .join("")
@@ -544,7 +630,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <td>Total contract</td>
             <td class="center schedule-total-pct">${displayPaymentPct}</td>
             <td class="num">${money(totalBid)}</td>
-            <td colspan="2"></td>
+            <td class="center"></td>
+            <td class="center"></td>
           </tr>
         </tbody>
       </table>
@@ -1025,12 +1112,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .schedule-table {
       width: 100%;
       table-layout: fixed;
+      border-collapse: collapse;
     }
     .schedule-table th,
     .schedule-table td {
-      padding: 7px 6px;
+      padding: 8px 8px;
       border-bottom: 1px solid #e5e7eb;
-      vertical-align: top;
+      vertical-align: middle;
       font-size: 9pt;
     }
     .schedule-table th {
@@ -1041,20 +1129,34 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       color: ${muted};
       background: #f1f5f9;
       font-weight: 700;
+      border-bottom: 1.5px solid #cbd5e1;
     }
-    .col-pay { width: 19%; }
-    .col-pct { width: 9%; }
-    .col-amt { width: 15%; }
-    .col-due { width: 22%; }
-    .col-note { width: 35%; }
-    .schedule-total-row td {
+    .schedule-table th.center,
+    .schedule-table td.center {
+      text-align: center;
+    }
+    .schedule-table th.num,
+    .schedule-table td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .col-pay { width: 18%; }
+    .col-pct { width: 10%; }
+    .col-amt { width: 18%; }
+    .col-due { width: 20%; }
+    .col-note { width: 34%; }
+    .schedule-table tbody tr:nth-child(even) td {
+      background: #fafbfc;
+    }
+    .schedule-total-row td,
+    .schedule-table tbody tr.schedule-total-row:nth-child(even) td {
       font-weight: 700;
       font-size: 10pt;
       color: ${brandDark};
       border-bottom: none;
       border-top: 2px solid ${brandDark};
       padding-top: 10px;
-      padding-bottom: 6px;
+      padding-bottom: 8px;
       background: #fafbfd;
     }
     .schedule-total-pct { font-variant-numeric: tabular-nums; }

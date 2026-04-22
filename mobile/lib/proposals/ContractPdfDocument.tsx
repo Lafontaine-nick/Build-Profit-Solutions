@@ -72,6 +72,56 @@ const isRedundantLaborGroupTitle = (g: string) => {
   return x === "labor";
 };
 
+type AppendixLineItem = {
+  unit?: string | null;
+  mode?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  materials?: number | null;
+  labor?: number | null;
+};
+
+const formatPdfWholeNumber = (value: number | null | undefined) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return Math.round(n).toLocaleString("en-US");
+};
+
+const resolveAppendixLineAmount = (item: AppendixLineItem) => {
+  const materials = Number(item?.materials || 0);
+  if (materials > 0) return materials;
+  return Number(item?.labor || 0) || 0;
+};
+
+const resolveAppendixUnitRate = (item: AppendixLineItem) => {
+  const stored = Number(item?.unitPrice || 0);
+  const qty = Number(item?.quantity || 0);
+  const amount = resolveAppendixLineAmount(item);
+  if (stored > 0 && qty > 0 && Math.abs(stored * qty - amount) < 0.01) return stored;
+  if (qty > 0 && amount > 0) return amount / qty;
+  return stored > 0 ? stored : 0;
+};
+
+const hasLineItemRate = (item: AppendixLineItem) => resolveAppendixUnitRate(item) > 0;
+const isSqftUnit = (unit?: string | null) => String(unit || "").trim().toLowerCase() === "sq ft";
+const isSqftMode = (mode?: string | null) => String(mode || "").trim().toLowerCase() === "sqft";
+const usesSqftLayout = (items: AppendixLineItem[]) =>
+  items.some(
+    (item) =>
+      (isSqftUnit(item.unit) || isSqftMode(item.mode)) &&
+      (Number(item.quantity || 0) > 0 || hasLineItemRate(item)),
+  );
+const formatLineItemRate = (item: AppendixLineItem) => {
+  const rate = resolveAppendixUnitRate(item);
+  if (!(rate > 0)) return "—";
+  const unit = String(item?.unit || "").trim();
+  return unit ? `${money(rate)} / ${unit}` : money(rate);
+};
+const formatSqftRate = (item: AppendixLineItem) => {
+  const rate = resolveAppendixUnitRate(item);
+  return rate > 0 ? money(rate) : "—";
+};
+
 const styles = StyleSheet.create({
   page: {
     paddingTop: 32,
@@ -790,11 +840,11 @@ const PaymentTable = ({
 }) => (
   <View style={styles.table}>
     <View style={styles.tableHeaderRow}>
-      <Text style={[styles.tableHeaderCell, { width: "19%" }]}>Payment</Text>
-      <Text style={[styles.tableHeaderCell, { width: "9%", textAlign: "center" }]}>Pct.</Text>
-      <Text style={[styles.tableHeaderCell, { width: "15%", textAlign: "right" }]}>Amount</Text>
-      <Text style={[styles.tableHeaderCell, { width: "22%" }]}>Due</Text>
-      <Text style={[styles.tableHeaderCell, { width: "35%" }]}>Notes</Text>
+      <Text style={[styles.tableHeaderCell, { width: "18%" }]}>Payment</Text>
+      <Text style={[styles.tableHeaderCell, { width: "10%", textAlign: "center" }]}>Pct.</Text>
+      <Text style={[styles.tableHeaderCell, { width: "18%", textAlign: "right" }]}>Amount</Text>
+      <Text style={[styles.tableHeaderCell, { width: "20%", textAlign: "center" }]}>Due</Text>
+      <Text style={[styles.tableHeaderCell, { width: "34%", textAlign: "center" }]}>Notes</Text>
     </View>
     {milestones.length ? (
       milestones.map((milestone, index) => {
@@ -817,21 +867,23 @@ const PaymentTable = ({
         const cellDeposit = deposit ? styles.tableRowDepositText : null;
         return (
           <View key={milestone.id || String(index)} style={rowStyle}>
-            <Text style={[styles.tableCell, { width: "19%" }, cellDeposit]}>
+            <Text style={[styles.tableCell, { width: "18%" }, cellDeposit]}>
               {milestone.name || "Scheduled payment"}
             </Text>
-            <Text style={[styles.tableCell, { width: "9%", textAlign: "center" }, cellDeposit]}>
+            <Text style={[styles.tableCell, { width: "10%", textAlign: "center" }, cellDeposit]}>
               {pct ? `${pct.toFixed(1)}%` : "—"}
             </Text>
             <Text
-              style={[styles.tableCell, styles.tableCellNum, { width: "15%" }, cellDeposit]}
+              style={[styles.tableCell, styles.tableCellNum, { width: "18%" }, cellDeposit]}
             >
               {money(amount)}
             </Text>
-            <Text style={[styles.tableCell, { width: "22%" }]}>
+            <Text style={[styles.tableCell, { width: "20%", textAlign: "center" }]}>
               {formatDate(milestone.scheduledDate) || "TBD"}
             </Text>
-            <Text style={[styles.tableCell, { width: "35%" }]}>{shortenPaymentNote(milestone)}</Text>
+            <Text style={[styles.tableCell, { width: "34%", textAlign: "center" }]}>
+              {shortenPaymentNote(milestone)}
+            </Text>
           </View>
         );
       })
@@ -843,8 +895,8 @@ const PaymentTable = ({
       </View>
     )}
     <View style={[styles.tableRow, styles.totalRow]}>
-      <Text style={[styles.tableCell, { width: "19%" }, styles.totalText]}>Total contract</Text>
-      <Text style={[styles.tableCell, { width: "9%", textAlign: "center" }, styles.totalText]}>
+      <Text style={[styles.tableCell, { width: "18%" }, styles.totalText]}>Total contract</Text>
+      <Text style={[styles.tableCell, { width: "10%", textAlign: "center" }, styles.totalText]}>
         {milestones.length
           ? `${milestones
               .reduce((sum, milestone) => {
@@ -863,11 +915,11 @@ const PaymentTable = ({
               .replace(".0", "")}%`
           : "—"}
       </Text>
-      <Text style={[styles.tableCell, styles.tableCellNum, { width: "15%" }, styles.totalText]}>
+      <Text style={[styles.tableCell, styles.tableCellNum, { width: "18%" }, styles.totalText]}>
         {money(totalBid)}
       </Text>
-      <Text style={[styles.tableCell, { width: "22%" }]} />
-      <Text style={[styles.tableCell, { width: "35%" }]} />
+      <Text style={[styles.tableCell, { width: "20%" }]} />
+      <Text style={[styles.tableCell, { width: "34%" }]} />
     </View>
   </View>
 );
@@ -932,11 +984,15 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
   const pricingRows = [
     { label: "Materials", value: materialsSubtotal },
     { label: "Labor", value: laborSubtotal },
-    { label: "Direct costs", value: directCostsSubtotal },
+    { label: "Project costs (permits, plans, engineering, equipment)", value: directCostsSubtotal },
     { label: BUILDER_FEE_LABEL, value: builderFeeAmount },
     { label: "Contract total", value: contractTotalPricing },
   ];
   const notes = [
+    "Pricing is all-inclusive for the scope described. Nothing is hidden.",
+    "Permits, plans, and inspections are billed at actual cost; receipts available on request.",
+    "Project management covers scheduling, supervision, and documentation — not additional profit.",
+    "Change orders are priced and approved in writing before work continues.",
     "Selections, finishes, and owner-furnished items must be approved before ordering.",
     "Lead times begin after approvals, deposit receipt, and material release.",
     "Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
@@ -1140,6 +1196,8 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
                       (sum, item) => sum + Number(item.materials || 0),
                       0,
                     );
+                    const hasRateColumn = items.some(hasLineItemRate);
+                    const showSqftLayout = usesSqftLayout(items);
                     return (
                       <View key={group} style={styles.appendixGroup}>
                         {!isRedundantMaterialGroupTitle(group) ? (
@@ -1147,50 +1205,80 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
                         ) : null}
                         <View style={styles.table}>
                           <View style={styles.tableHeaderRow}>
-                            <Text style={[styles.tableHeaderCell, { width: "49%" }]}>
+                            <Text style={[styles.tableHeaderCell, { width: showSqftLayout ? "46%" : hasRateColumn ? "41%" : "49%" }]}>
                               Description
                             </Text>
                             <Text
                               style={[styles.tableHeaderCell, { width: "12%", textAlign: "center" }]}
                             >
-                              Qty
+                              {showSqftLayout ? "Sq Ft" : "Qty"}
                             </Text>
+                            {showSqftLayout ? (
+                              <Text
+                                style={[styles.tableHeaderCell, { width: "22%", textAlign: "right" }]}
+                              >
+                                Price / Sq Ft
+                              </Text>
+                            ) : (
+                              <>
+                                <Text
+                                  style={[styles.tableHeaderCell, { width: "14%", textAlign: "center" }]}
+                                >
+                                  Unit
+                                </Text>
+                                {hasRateColumn ? (
+                                  <Text
+                                    style={[styles.tableHeaderCell, { width: "22%", textAlign: "right" }]}
+                                  >
+                                    Rate
+                                  </Text>
+                                ) : null}
+                              </>
+                            )}
                             <Text
-                              style={[styles.tableHeaderCell, { width: "14%", textAlign: "center" }]}
-                            >
-                              Unit
-                            </Text>
-                            <Text
-                              style={[styles.tableHeaderCell, { width: "25%", textAlign: "right" }]}
+                              style={[styles.tableHeaderCell, { width: showSqftLayout ? "20%" : hasRateColumn ? "11%" : "25%", textAlign: "right" }]}
                             >
                               Materials
                             </Text>
                           </View>
                           {items.map((item, index) => (
                             <View key={`${group}-${index}`} style={styles.tableRow}>
-                              <Text style={[styles.tableCell, { width: "49%" }]}>
+                              <Text style={[styles.tableCell, { width: showSqftLayout ? "46%" : hasRateColumn ? "41%" : "49%" }]}>
                                 {item.description || "Material"}
                               </Text>
                               <Text style={[styles.tableCell, { width: "12%", textAlign: "center" }]}>
-                                {item.quantity || "—"}
+                                {formatPdfWholeNumber(item.quantity)}
                               </Text>
-                              <Text style={[styles.tableCell, { width: "14%", textAlign: "center" }]}>
-                                {item.unit || "—"}
-                              </Text>
-                              <Text style={[styles.tableCell, styles.tableCellNum, { width: "25%" }]}>
+                              {showSqftLayout ? (
+                                <Text style={[styles.tableCell, styles.tableCellNum, { width: "22%" }]}>
+                                  {formatSqftRate(item)}
+                                </Text>
+                              ) : (
+                                <>
+                                  <Text style={[styles.tableCell, { width: "14%", textAlign: "center" }]}>
+                                    {item.unit || "—"}
+                                  </Text>
+                                  {hasRateColumn ? (
+                                    <Text style={[styles.tableCell, styles.tableCellNum, { width: "22%" }]}>
+                                      {formatLineItemRate(item)}
+                                    </Text>
+                                  ) : null}
+                                </>
+                              )}
+                              <Text style={[styles.tableCell, styles.tableCellNum, { width: showSqftLayout ? "20%" : hasRateColumn ? "11%" : "25%" }]}>
                                 {money(item.materials || 0)}
                               </Text>
                             </View>
                           ))}
                           <View style={[styles.tableRow, styles.totalRow]}>
-                            <Text style={[styles.tableCell, { width: "75%" }, styles.totalText]}>
+                            <Text style={[styles.tableCell, { width: showSqftLayout ? "80%" : hasRateColumn ? "89%" : "75%" }, styles.totalText]}>
                               Material subtotal
                             </Text>
                             <Text
                               style={[
                                 styles.tableCell,
                                 styles.tableCellNum,
-                                { width: "25%" },
+                                { width: showSqftLayout ? "20%" : hasRateColumn ? "11%" : "25%" },
                                 styles.totalText,
                               ]}
                             >
@@ -1208,6 +1296,10 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
                   <Text style={styles.lineItemSubhead}>Labor</Text>
                   {Object.entries(groupedLabor).map(([group, items]) => {
                     const subtotal = items.reduce((sum, item) => sum + Number(item.labor || 0), 0);
+                    const hasDetailColumns = items.some(
+                      (item) => Number(item.quantity || 0) > 0 || String(item.unit || "").trim() || hasLineItemRate(item),
+                    );
+                    const showSqftLayout = usesSqftLayout(items);
                     return (
                       <View key={`labor-${group}`} style={styles.appendixGroup}>
                         {!isRedundantLaborGroupTitle(group) ? (
@@ -1215,32 +1307,74 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
                         ) : null}
                         <View style={styles.table}>
                           <View style={styles.tableHeaderRow}>
-                            <Text style={[styles.tableHeaderCell, { width: "75%" }]}>
+                            <Text style={[styles.tableHeaderCell, { width: showSqftLayout ? "46%" : hasDetailColumns ? "39%" : "75%" }]}>
                               Description
                             </Text>
-                            <Text style={[styles.tableHeaderCell, { width: "25%", textAlign: "right" }]}>
+                            {hasDetailColumns ? (
+                              <Text style={[styles.tableHeaderCell, { width: "12%", textAlign: "center" }]}>
+                                {showSqftLayout ? "Sq Ft" : "Qty"}
+                              </Text>
+                            ) : null}
+                            {hasDetailColumns ? (
+                              showSqftLayout ? (
+                                <Text style={[styles.tableHeaderCell, { width: "22%", textAlign: "right" }]}>
+                                  Price / Sq Ft
+                                </Text>
+                              ) : (
+                                <>
+                                  <Text style={[styles.tableHeaderCell, { width: "14%", textAlign: "center" }]}>
+                                    Unit
+                                  </Text>
+                                  <Text style={[styles.tableHeaderCell, { width: "22%", textAlign: "right" }]}>
+                                    Rate
+                                  </Text>
+                                </>
+                              )
+                            ) : null}
+                            <Text style={[styles.tableHeaderCell, { width: showSqftLayout ? "20%" : hasDetailColumns ? "13%" : "25%", textAlign: "right" }]}>
                               Labor
                             </Text>
                           </View>
                           {items.map((item, index) => (
                             <View key={`${group}-${index}`} style={styles.tableRow}>
-                              <Text style={[styles.tableCell, { width: "75%" }]}>
+                              <Text style={[styles.tableCell, { width: showSqftLayout ? "46%" : hasDetailColumns ? "39%" : "75%" }]}>
                                 {item.description || "Labor"}
                               </Text>
-                              <Text style={[styles.tableCell, styles.tableCellNum, { width: "25%" }]}>
+                              {hasDetailColumns ? (
+                                <Text style={[styles.tableCell, { width: "12%", textAlign: "center" }]}>
+                                  {formatPdfWholeNumber(item.quantity)}
+                                </Text>
+                              ) : null}
+                              {hasDetailColumns ? (
+                                showSqftLayout ? (
+                                  <Text style={[styles.tableCell, styles.tableCellNum, { width: "22%" }]}>
+                                    {formatSqftRate(item)}
+                                  </Text>
+                                ) : (
+                                  <>
+                                    <Text style={[styles.tableCell, { width: "14%", textAlign: "center" }]}>
+                                      {item.unit || "—"}
+                                    </Text>
+                                    <Text style={[styles.tableCell, styles.tableCellNum, { width: "22%" }]}>
+                                      {formatLineItemRate(item)}
+                                    </Text>
+                                  </>
+                                )
+                              ) : null}
+                              <Text style={[styles.tableCell, styles.tableCellNum, { width: showSqftLayout ? "20%" : hasDetailColumns ? "13%" : "25%" }]}>
                                 {money(item.labor || 0)}
                               </Text>
                             </View>
                           ))}
                           <View style={[styles.tableRow, styles.totalRow]}>
-                            <Text style={[styles.tableCell, { width: "75%" }, styles.totalText]}>
+                            <Text style={[styles.tableCell, { width: showSqftLayout ? "80%" : hasDetailColumns ? "87%" : "75%" }, styles.totalText]}>
                               Labor subtotal
                             </Text>
                             <Text
                               style={[
                                 styles.tableCell,
                                 styles.tableCellNum,
-                                { width: "25%" },
+                                { width: showSqftLayout ? "20%" : hasDetailColumns ? "13%" : "25%" },
                                 styles.totalText,
                               ]}
                             >
@@ -1285,7 +1419,7 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
             </View>
             <View style={styles.tableRow}>
               <Text style={[styles.tableCell, { width: "62%" }]}>
-                Direct costs (permits, plans, equipment, other direct)
+                Project costs (permits, plans, engineering, equipment)
               </Text>
               <Text style={[styles.tableCell, styles.tableCellNum, { width: "38%" }]}>
                 {money(directCostsSubtotal)}
@@ -1308,7 +1442,7 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
           </View>
           <Text style={styles.subtle}>
             {!pricingBreakdown.reconciles
-              ? "Note: Roll-up rounding — verify materials, labor, direct costs, and contract total in the estimate match this agreement."
+              ? "Note: Roll-up rounding — verify materials, labor, project costs, and contract total in the estimate match this agreement."
               : "The amounts above reconcile to the contract total shown on the pricing summary."}
           </Text>
         </View>

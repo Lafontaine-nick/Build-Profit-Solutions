@@ -77,6 +77,8 @@ export interface MaterialLineItem {
   description: string;
   unit?: string;
   quantity?: number;
+  unitPrice?: number;
+  mode?: string;
   materials?: number;
   labor?: number;
   category?: string;
@@ -85,6 +87,13 @@ export interface MaterialLineItem {
 
 export interface LaborLineItem {
   description: string;
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
+  /** In-app labor uses `hours` for both hourly hours and per-sq-ft square footage. */
+  hours?: number;
+  rate?: number;
+  mode?: string;
   labor?: number;
   materials?: number;
   category?: string;

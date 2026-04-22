@@ -200,39 +200,29 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
   // Base values from the current bid
   const base = useMemo(() => {
-    // Calculate total overhead same way as Step 5 (direct costs, overhead & markup)
-    const totalOverhead = (bid?.insuranceOverhead || 0) +
-                          (bid?.equipment || 0) +
-                          (bid?.facilities || 0) +
-                          (bid?.otherOverhead || 0) +
-                          (bid?.planCost || 0) +
-                          (bid?.permitCost || 0);
-    
     return {
       labor: Number(calc?.labor || 0),
       materials: Number(calc?.materials || 0),
-      overhead: Number(calc?.overhead || 0),
-      totalOverhead: totalOverhead, // Total overhead for net profit calculation
+      companyOverhead: Number(calc?.companyOverhead || 0),
+      projectCosts: Number(calc?.totalProjectCosts || 0),
       contingency: Number(calc?.contingency || 0),
       markupPct: Number(bid?.markupPct || 25), // Use actual markup from bid (default 25 to match step 6)
       originalTotalBid: Number(calc?.grandTotal || calc?.total || 0), // Original contract price
-      subtotal: Number(calc?.subtotal || 0), // Subtotal for net profit percentage calculation (includes permit costs)
-      permitCosts: Number(calc?.permitCosts || 0), // Permit costs to include in adjustedSubtotal
+      subtotal: Number(calc?.subtotal || 0), // Cost before markup from Step 5
       profit: Number(calc?.profit || 0), // Gross profit from calc
     };
   }, [calc, bid]);
 
   // Simulated/adjusted values
-  // Timeline: extended job = more labor hours + more overhead (equipment, admin); early finish = less
+  // Timeline: extended job = more labor hours + more company overhead; early finish = less
   const sim = useMemo(() => {
     const timelineFactor = 1 + (adj.timelinePct || 0) / 100;
     const labor = base.labor * (1 + adj.laborPct / 100) * timelineFactor;
     const materials = base.materials * (1 + adj.materialPct / 100);
-    const overhead = base.overhead * (1 + adj.overheadPct / 100) * timelineFactor;
+    const companyOverhead = base.companyOverhead * (1 + adj.overheadPct / 100) * timelineFactor;
     const directCost = labor + materials;
-    // Include permit costs so adjustedSubtotal matches base.subtotal when no adjustments
-    // This ensures sim.netProfit matches base.profit - base.totalOverhead when all adjustments are 0
-    const adjustedSubtotal = directCost + overhead + base.permitCosts;
+    const adjustedSubtotal = directCost + base.projectCosts;
+    const breakEvenBid = adjustedSubtotal + companyOverhead;
     
     // Calculate if markup is manually adjusted (inline to avoid dependency issues)
     // All presets have markupPct: 0, so any non-zero value is manually adjusted
@@ -264,7 +254,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       const hasCostAdjustments = adj.laborPct !== 0 || adj.materialPct !== 0 || adj.overheadPct !== 0 || (adj.timelinePct || 0) !== 0;
       
       if (hasCostAdjustments) {
-        // When costs change: Profit = Bid - Adjusted Costs (profit decreases when costs increase)
+        // When costs change: gross profit = bid - active project cost subtotal
         profit = totalBid - adjustedSubtotal;
       } else {
         // When no adjustments: Use markup method to match step 6 exactly
@@ -275,21 +265,17 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       marginPct = totalBid > 0 ? (profit / totalBid) * 100 : 0;
     }
     
-    // Calculate net profit (profit - totalOverhead) same way as step 6
-    // Total overhead scales with timeline (equipment rental, admin time, etc.)
-    const adjustedTotalOverhead = base.totalOverhead * (1 + adj.overheadPct / 100) * timelineFactor;
-    
     // When only bid adjustment is active (no cost adjustments), profit change should equal bid change
     let netProfit;
     if (isMarkupManuallyAdjustedInline && adj.laborPct === 0 && adj.materialPct === 0 && adj.overheadPct === 0 && (adj.timelinePct || 0) === 0) {
       // Pure bid adjustment: net profit change = bid change exactly
       // This ensures profitDelta matches bidDelta when only bid is adjusted
-      const originalNetProfit = base.profit - base.totalOverhead;
+      const originalNetProfit = base.profit - base.companyOverhead;
       const bidDelta = totalBid - base.originalTotalBid;
       netProfit = originalNetProfit + bidDelta;
     } else {
       // Normal calculation: profit - overhead
-      netProfit = profit - adjustedTotalOverhead;
+      netProfit = profit - companyOverhead;
     }
     
     // Keep both metrics explicit:
@@ -301,7 +287,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     const result = { 
       labor, 
       materials, 
-      overhead, 
+      overhead: companyOverhead,
       totalBid, 
       profit, // Gross profit
       netProfit, // Net profit after overhead (matches step 6)
@@ -311,9 +297,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
       markupPct: base.markupPct + adj.markupPct, 
       directCost,
       subtotal: adjustedSubtotal,
+      breakEvenBid,
       originalBid: base.originalTotalBid,
       isExecutionMode: !isMarkupManuallyAdjustedInline,
-      totalOverhead: adjustedTotalOverhead
+      totalOverhead: companyOverhead
     };
     
     return result;
@@ -324,7 +311,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     return [
       { label: "Labor", value: adj.laborPct, base: base.labor },
       { label: "Materials", value: adj.materialPct, base: base.materials },
-      { label: "Overhead", value: adj.overheadPct, base: base.overhead },
+      { label: "Overhead", value: adj.overheadPct, base: base.companyOverhead },
       { label: "Timeline", value: adj.timelinePct ?? 0, base: base.labor },
       { label: "Markup", value: adj.markupPct, base: base.markupPct },
     ].map((b) => ({
@@ -341,7 +328,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     // This is the baseline before any adjustments (preset or bid)
     // Net profit = gross profit - total overhead (same calculation as step 6)
     // Use base.profit directly (which comes from calc.profit) to match step 6 exactly
-    const originalNetProfit = base.profit - base.totalOverhead;
+    const originalNetProfit = base.profit - base.companyOverhead;
     
     // Calculate net profit delta - total change from original to final
     // This includes BOTH preset cost adjustments AND bid markup adjustments
@@ -960,9 +947,9 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View style={[styles.heroRow, { marginBottom: 0 }]}>
                 <Text style={styles.heroLabel}>Cushion above break-even</Text>
                 <Text style={[styles.heroValueAccent, {
-                  color: (sim.totalBid - sim.subtotal) >= 0 ? '#38d39f' : palette.red,
+                  color: (sim.totalBid - sim.breakEvenBid) >= 0 ? '#38d39f' : palette.red,
                 }]}>
-                  ${((sim.totalBid || 0) - (sim.subtotal || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((sim.totalBid || 0) - (sim.breakEvenBid || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
             </View>
@@ -1018,7 +1005,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                   <Text style={styles.supportingValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.overheadPct !== 0) && (
                     <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
-                      {adj.overheadPct > 0 ? '+' : ''}${(base.overhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {adj.overheadPct > 0 ? '+' : ''}${(base.companyOverhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
                 </View>
@@ -1035,7 +1022,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View style={styles.supportingRow}>
                 <Text style={styles.supportingLabel}>Break-even bid</Text>
                 <Text style={styles.supportingValue}>
-                  ${(sim.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${(sim.breakEvenBid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
               <View style={styles.supportingRow}>
