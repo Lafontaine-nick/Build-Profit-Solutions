@@ -9164,22 +9164,27 @@ router.post('/', async (req, res) => {
         if (missingReceipts >= 3) risks.push(`${missingReceipts} expenses missing receipts`);
         if (projectIsCompleted && missingReceipts > 0 && missingReceipts < 3) risks.push(`${missingReceipts} expense(s) missing receipts (optional housekeeping)`);
 
-        const marginLabel = projectIsCompleted ? 'Margin' : 'Current margin';
+        const hasRecordedSpend = spent > 0;
+        const marginLabel = projectIsCompleted
+          ? 'Margin'
+          : hasRecordedSpend
+            ? 'Current margin'
+            : 'Estimate-phase margin';
         const profitLabel = projectIsCompleted ? 'Net Profit' : 'Projected Profit';
         const finalProfit = projectIsCompleted ? (revenue - spent) : Math.round(projectedProfit);
         const finalMargin = projectIsCompleted ? (revenue > 0 ? ((revenue - spent) / revenue * 100) : currentMarginPct) : currentMarginPct;
         const healthMessage = projectIsCompleted
           ? `Health check for ${title}. **Completed.** ${marginLabel}: ${Math.round(finalMargin * 10) / 10}%, ${profitLabel}: $${Math.round(finalProfit).toLocaleString()}. Do NOT suggest next steps or forecast — job is done. You may mention missing receipts as optional housekeeping only.`
-          : `Health check for ${title}. ${marginLabel}: ${Math.round(currentMarginPct * 10) / 10}% spend-to-date. Projected margin at completion: ${Math.round(projectedMarginPct * 10) / 10}%. PAYMENT QUESTIONS ("when am I getting paid next", "payments", "next payment"): Answer from TIMELINE data — upcomingPayments, overduePayments, unscheduledPayments. Format: "Your next payment is the [payment name] for the ${title} project, amounting to $[amount], due on [date]." Use exact name, amount, date from the data. You may end with: "Want me to check on any other upcoming payments or project details?" If no dated payments but unscheduledPayments has items, list them and say they can set dates in the Timeline. If all empty, say payments are set in the Timeline tab (Projects → ${title} → Timeline) and suggest opening it to sync. Never say "no upcoming payments" without that guidance.`;
+          : `Health check for ${title}. ${marginLabel}: ${Math.round(currentMarginPct * 10) / 10}%${hasRecordedSpend ? ' spend-to-date' : ' (no costs recorded yet)'}. Projected margin at completion: ${Math.round(projectedMarginPct * 10) / 10}%. PAYMENT QUESTIONS ("when am I getting paid next", "payments", "next payment"): Answer from TIMELINE data — upcomingPayments, overduePayments, unscheduledPayments. Format: "Your next payment is the [payment name] for the ${title} project, amounting to $[amount], due on [date]." Use exact name, amount, date from the data. You may end with: "Want me to check on any other upcoming payments or project details?" If no dated payments but unscheduledPayments has items, list them and say they can set dates in the Timeline. If all empty, say payments are set in the Timeline tab (Projects → ${title} → Timeline) and suggest opening it to sync. Never say "no upcoming payments" without that guidance.`;
 
         // Structured detailed margin breakdown for "yes" / "detailed breakdown" follow-up (margin, projected at completion, how margin can go down)
         const marginDetailNote = progress > 5 && spent > 0
           ? `Current margin is spend-to-date based on $${Math.round(spent).toLocaleString()} spent against $${Math.round(revenue).toLocaleString()} in revenue. If spending continues at the same run-rate, projected final cost would be $${Math.round(projectedFinalCost).toLocaleString()} at ${Math.round(progress)}% progress, for a projected margin at completion of ${Math.round(projectedMarginPct * 10) / 10}%.`
-          : `Current margin matches your bid margin (${Math.round(marginPct * 10) / 10}%) because there's little spend so far ($${Math.round(spent).toLocaleString()} of $${Math.round(estCost || revenue).toLocaleString()} budget).`;
+          : `Estimate-phase margin is being shown because there are no recorded job costs yet. It currently matches the expected margin (${Math.round(currentMarginPct * 10) / 10}%) until spending starts.`;
         let detailedMarginBreakdown = `**Detailed margin breakdown for ${title}**\n\n` +
           `**1. Margin breakdown**\n` +
           `• Original (bid) margin from your estimate: ${Math.round(marginPct * 10) / 10}%\n` +
-          `• Current margin (spend-to-date): ${Math.round(currentMarginPct * 10) / 10}%\n` +
+          `• ${hasRecordedSpend ? 'Current margin (spend-to-date)' : 'Estimate-phase margin'}: ${Math.round(currentMarginPct * 10) / 10}%\n` +
           `• ${marginDetailNote}\n` +
           `• Revenue: $${Math.round(revenue).toLocaleString()} | Spent: $${Math.round(spent).toLocaleString()} of $${Math.round(estCost || adjustedBudget).toLocaleString()} budget | Progress: ${Math.round(progress)}%\n\n` +
           `**2. Projected when job is completed**\n` +
@@ -13613,11 +13618,17 @@ RULES:
     });
     
     if (isHealthCheck && (bidTotal > 0 || estimatedCost > 0 || materialBudget > 0)) {
-      const revenue = contractValue > 0 ? contractValue : bidTotal;
-      const estMarginPct = revenue > 0 && estimatedCost > 0 ? ((revenue - estimatedCost) / revenue * 100) : 0;
-      const curMarginPct = revenue > 0 && actualCost > 0 ? ((revenue - actualCost) / revenue * 100) : estMarginPct;
-      const forecastProfit = revenue > 0 ? revenue - (actualCost > 0 ? actualCost : estimatedCost) : 0;
-      const spentPct = estimatedCost > 0 ? (actualCost / estimatedCost * 100) : 0;
+      const healthSnapshot = getProjectFinancialSnapshot({
+        parsedContext,
+        project: currentProjectData || null,
+      });
+      const revenue = Number(healthSnapshot?.revenue ?? (contractValue > 0 ? contractValue : bidTotal) ?? 0);
+      const effectiveEstimatedCost = Number(healthSnapshot?.estimatedCost ?? estimatedCost ?? 0);
+      const estMarginPct = Number(healthSnapshot?.projectedMarginPct ?? 0);
+      const curMarginPct = Number(healthSnapshot?.currentMarginPct ?? estMarginPct ?? 0);
+      const forecastProfit = Number(healthSnapshot?.projectedProfit ?? 0);
+      const spentForHealth = Number(healthSnapshot?.spent ?? actualCost ?? 0);
+      const spentPct = effectiveEstimatedCost > 0 ? (spentForHealth / effectiveEstimatedCost * 100) : 0;
       const progressNum = Number(progress) || 0;
       
       // Get expenses array once for all calculations
@@ -13652,7 +13663,7 @@ RULES:
       else if (curMarginPct < 10 && revenue > 0) { riskLevel = 'Medium'; riskReason = `Current margin (${curMarginPct.toFixed(1)}%) is below 10% target.`; }
       
       // Budget status
-      let budgetStatus = estimatedCost > 0 ? (spentPct < 50 ? 'On Track' : spentPct < 90 ? 'Watch' : 'Over') : 'Data needed';
+      let budgetStatus = effectiveEstimatedCost > 0 ? (spentPct < 50 ? 'On Track' : spentPct < 90 ? 'Watch' : 'Over') : 'Data needed';
       let marginStatus = revenue > 0 ? `${curMarginPct.toFixed(1)}%` : 'Data needed';
       let scheduleStatus = progressNum > 0 ? `${progressNum}% complete` : (milestones.length > 0 ? `${milestones.length} milestones` : 'No schedule data');
 
@@ -13676,7 +13687,7 @@ RULES:
       analysisCard = {
         summary: { budgetStatus, marginStatus, scheduleStatus },
         budgetAndCosting: {
-          planned: Math.round(estimatedCost),
+          planned: Math.round(effectiveEstimatedCost),
           actual: Math.round(actualCost),
           materialBudget: Math.round(materialBudget * 100) / 100,
           materialSpent: Math.round(materialSpent * 100) / 100,
@@ -13750,6 +13761,117 @@ RULES:
     } else {
       console.log('⚠️ No analysis card built:', { isHealthCheck, hasData: !!(bidTotal > 0 || estimatedCost > 0 || materialBudget > 0) });
     }
+
+    if (isHealthCheck && analysisCard) {
+      const projectTitle =
+        parsedContext?.currentProject ||
+        parsedContext?.projectName ||
+        parsedContext?.bidTitle ||
+        currentProjectData?.title ||
+        currentProjectData?.name ||
+        'This project';
+      const fmtMoney = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
+      const fmtPct = (value) => `${(Math.round(Number(value || 0) * 10) / 10).toFixed(1)}%`;
+      const fmtDate = (value) => {
+        if (!value) return '';
+        const dt = typeof value === 'string' || value instanceof Date ? new Date(value) : null;
+        if (!dt || Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      };
+      const normalizedMilestones = Array.isArray(milestones) ? milestones : [];
+      const upcomingPayment = normalizedMilestones
+        .filter((m) => {
+          const amount = Number(m?.amount || m?.paymentAmount || 0);
+          const status = String(m?.status || '').toLowerCase();
+          const rawDate = m?.plannedDate || m?.dueDate || m?.date || null;
+          const dt = rawDate ? new Date(rawDate) : null;
+          return (
+            amount > 0 &&
+            status !== 'completed' &&
+            status !== 'complete' &&
+            dt &&
+            !Number.isNaN(dt.getTime())
+          );
+        })
+        .sort((a, b) => {
+          const dateA = new Date(a?.plannedDate || a?.dueDate || a?.date || 0).getTime();
+          const dateB = new Date(b?.plannedDate || b?.dueDate || b?.date || 0).getTime();
+          return dateA - dateB;
+        })[0];
+      const currentMarginForReply = Number(
+        analysisCard.profitability.currentMargin ??
+          parsedContext?.bidMarginPct ??
+          parsedContext?.margin ??
+          currentProjectData?.margin ??
+          0
+      );
+      const hasRecordedSpendForReply = Number(actualCost || 0) > 0;
+      const currentMarginLabelForReply = hasRecordedSpendForReply
+        ? 'Current Margin (Spend-to-date)'
+        : 'Estimate-Phase Margin';
+      const projectedProfitFromOverview = Number(
+        parsedContext?.projectedProfit ??
+          currentProjectData?.projectedProfit ??
+          currentProjectData?.projectData?.projectedProfit ??
+          NaN
+      );
+      const revenueForReply = Number(contractValue > 0 ? contractValue : bidTotal);
+      const estimatePhaseProjectedProfit =
+        revenueForReply > 0 && estimatedCost > 0 ? revenueForReply - estimatedCost : NaN;
+      const projectedProfitForReply = Number.isFinite(projectedProfitFromOverview)
+        ? projectedProfitFromOverview
+        : Number.isFinite(estimatePhaseProjectedProfit)
+          ? estimatePhaseProjectedProfit
+          : Number(analysisCard.profitability.forecastAtCompletion ?? 0);
+      const projectedMarginFromOverview = Number(
+        parsedContext?.projectedMarginPct ??
+          currentProjectData?.projectedMarginPct ??
+          currentProjectData?.projectData?.projectedMarginPct ??
+          NaN
+      );
+      const estimatePhaseProjectedMargin =
+        revenueForReply > 0 && Number.isFinite(projectedProfitForReply)
+          ? (projectedProfitForReply / revenueForReply) * 100
+          : NaN;
+      const projectedMarginForReply = Number.isFinite(projectedMarginFromOverview)
+        ? projectedMarginFromOverview
+        : Number.isFinite(estimatePhaseProjectedMargin)
+          ? estimatePhaseProjectedMargin
+          : Number(analysisCard.profitability.targetMargin ?? parsedContext?.bidMarginPct ?? parsedContext?.margin ?? 0);
+      const riskLine =
+        analysisCard.profitability.riskLevel === 'High'
+          ? 'The project has high-risk items that need immediate attention.'
+          : analysisCard.profitability.riskLevel === 'Medium'
+            ? 'The project is mostly on track, but there are a few risks to watch.'
+            : 'The project is on track with no significant risks identified.';
+      const paymentLine = upcomingPayment
+        ? `Upcoming payments are scheduled, starting with ${String(upcomingPayment?.title || upcomingPayment?.name || 'the next payment').toLowerCase()} of ${fmtMoney(upcomingPayment?.amount || upcomingPayment?.paymentAmount || 0)} due on ${fmtDate(upcomingPayment?.plannedDate || upcomingPayment?.dueDate || upcomingPayment?.date)}.`
+        : 'Upcoming payments are scheduled in the Timeline tab for this project.';
+      reply =
+        `Here's the updated project health check for **${projectTitle}**:\n\n` +
+        `**Budget Overview**\n` +
+        `• **Revenue**: ${fmtMoney(contractValue > 0 ? contractValue : bidTotal)}\n` +
+        `• **Estimated Cost**: ${fmtMoney(estimatedCost)}\n` +
+        `• **Actual Spent**: ${fmtMoney(actualCost)}\n` +
+        `• **Budget Used**: ${Math.round((analysisCard.budgetAndCosting?.planned || 0) > 0 ? ((analysisCard.budgetAndCosting.actual || 0) / analysisCard.budgetAndCosting.planned) * 100 : 0)}%\n\n` +
+        `**Material Budget**\n` +
+        `• **Total Budget**: ${fmtMoney(analysisCard.budgetAndCosting.materialBudget)}\n` +
+        `• **Spent**: ${fmtMoney(analysisCard.budgetAndCosting.materialSpent)}\n` +
+        `• **Remaining**: ${fmtMoney(analysisCard.budgetAndCosting.materialRemaining)}\n\n` +
+        `**Labor Budget**\n` +
+        `• **Total Budget**: ${fmtMoney(analysisCard.budgetAndCosting.laborBudget)}\n` +
+        `• **Spent**: ${fmtMoney(analysisCard.budgetAndCosting.laborSpent)}\n` +
+        `• **Remaining**: ${fmtMoney(analysisCard.budgetAndCosting.laborRemaining)}\n\n` +
+        `**Margin Summary**\n` +
+        `• **${currentMarginLabelForReply}**: ${fmtPct(currentMarginForReply)}\n` +
+        `• **Projected Margin at Completion**: ${fmtPct(projectedMarginForReply)}\n` +
+        `• **Projected Profit**: ${fmtMoney(projectedProfitForReply)}\n\n` +
+        `**Key Insights**\n` +
+        `• ${riskLine}\n` +
+        `• ${paymentLine}\n\n` +
+        `Want me to check on any other upcoming payments or project details?`;
+      responseData.reply = reply;
+    }
     
     console.log('📤 AI Assistant: Final response data being sent:', {
       hasReply: !!responseData.reply,
@@ -13788,7 +13910,8 @@ RULES:
                           routerResult.domain === 'change_order' ||
                           responseData.actions?.some(a => a.type === 'create_change_order');
     
-    if (!isCOFlowFinal && 
+    if (!isHealthCheck &&
+        !isCOFlowFinal && 
         !isExpenseFlow && // NEVER inject delivery date when user is logging labor/material expense
         (reply?.toLowerCase().includes('purchase order') || reply?.toLowerCase().includes('po')) && 
         (reply?.toLowerCase().includes('recorded') || reply?.toLowerCase().includes('created')) &&

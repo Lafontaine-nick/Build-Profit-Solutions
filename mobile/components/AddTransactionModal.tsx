@@ -689,7 +689,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           }
                           value={ratePerSqftInput}
                           onChangeText={onRatePerSqftChange}
-                          keyboardType="phone-pad"
+                          keyboardType="decimal-pad"
                           inputAccessoryViewID={projectExpensePlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => descriptionRef.current?.focus()}

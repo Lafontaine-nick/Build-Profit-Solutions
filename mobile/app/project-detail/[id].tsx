@@ -2341,7 +2341,14 @@ function ProjectDetailContent() {
             status: realProjectData?.status || safeProjectData?.status || 'estimate',
             // Financial data — pull from estimateData when top-level is 0
             bidPrice: baseBid,
-            estimatedCost: realProjectData?.estimatedCost || safeProjectData?.estimatedCost || ed?.totalCost || ed?.baseCost || 0,
+            estimatedCost:
+              overviewMetrics?.financials?.adjustedCostBudget ||
+              pf?.forecastFinalCost ||
+              realProjectData?.estimatedCost ||
+              safeProjectData?.estimatedCost ||
+              ed?.totalCost ||
+              ed?.baseCost ||
+              0,
             actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || computedSpent || 0,
             totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || computedSpent || 0,
             expenses: allExpenses,
@@ -2352,11 +2359,12 @@ function ProjectDetailContent() {
             // CRITICAL: For projected profit, Revenue = contract value (bid + approved change orders)
             approvedChangeOrdersTotal: approvedCOs,
             contractValue: contractValue > 0 ? contractValue : baseBid,
+            adjustedCostBudget: overviewMetrics?.financials?.adjustedCostBudget,
             // Pre-computed profit forecast — matches Financial Health / Budget Totals. AI uses these when answering "what is projected profit"
+            forecastFinalCost: pf?.forecastFinalCost,
             projectedProfit: pf?.projectedProfit,
             projectedMarginPct: pf?.projectedMarginPct,
             spendToDateMarginPct: pf?.spendToDateMarginPct,
-            forecastFinalCost: pf?.forecastFinalCost,
             profitStatus: pf?.status,
             location: safeProjectData?.location || '',
             projectType: safeProjectData?.projectType || '',

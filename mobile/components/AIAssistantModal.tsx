@@ -144,6 +144,25 @@ function stampAiContextSnapshot(ctxStr: string | null | undefined): string | nul
 /** Estimated cost baseline = materials + labor + overhead (incl. plans & permits). Matches BudgetTab/project-detail. */
 function getEstimatedCostBaseline(project: any, estimateData: any): number {
   const ed = estimateData;
+  const buckets = Array.isArray(project?.buckets)
+    ? project.buckets
+    : Array.isArray(project?.projectData?.buckets)
+      ? project.projectData.buckets
+      : [];
+  const fromBuckets = buckets.reduce((sum: number, bucket: any) => {
+    const name = String(bucket?.name || '').toLowerCase();
+    if (
+      name.includes('markup') ||
+      name.includes('revenue') ||
+      name.includes('contract value') ||
+      name.includes('sell price') ||
+      (name.includes('profit') && !name.includes('cost'))
+    ) {
+      return sum;
+    }
+    return sum + (Number(bucket?.budget) || 0);
+  }, 0);
+  if (fromBuckets > 0) return fromBuckets;
   const fromEst = Number(ed?.estimatedCost ?? ed?.subtotal ?? ed?.totalCost ?? ed?.baseCost ?? 0);
   if (fromEst > 0) return fromEst;
   const fromParts =
@@ -1267,6 +1286,8 @@ const AIAssistantModal: React.FC<Props> = ({
             if (typeof baseContext.projectedMarginPct === 'number' && Number.isFinite(baseContext.projectedMarginPct)) inject.projectedMarginPct = baseContext.projectedMarginPct;
             if (typeof baseContext.projectedProfit === 'number' && Number.isFinite(baseContext.projectedProfit)) inject.projectedProfit = baseContext.projectedProfit;
             if (typeof baseContext.spendToDateMarginPct === 'number' && Number.isFinite(baseContext.spendToDateMarginPct)) inject.spendToDateMarginPct = baseContext.spendToDateMarginPct;
+            if (typeof baseContext.forecastFinalCost === 'number' && Number.isFinite(baseContext.forecastFinalCost)) inject.forecastFinalCost = baseContext.forecastFinalCost;
+            if (typeof baseContext.adjustedCostBudget === 'number' && Number.isFinite(baseContext.adjustedCostBudget)) inject.adjustedCostBudget = baseContext.adjustedCostBudget;
             if (typeof baseContext.actualCost === 'number' && Number.isFinite(baseContext.actualCost)) inject.actualCost = baseContext.actualCost;
             if (typeof baseContext.totalSpent === 'number' && Number.isFinite(baseContext.totalSpent)) inject.totalSpent = baseContext.totalSpent;
             if (typeof baseContext.contractValue === 'number' && Number.isFinite(baseContext.contractValue)) inject.contractValue = baseContext.contractValue;
@@ -1323,6 +1344,8 @@ const AIAssistantModal: React.FC<Props> = ({
             if (typeof baseContext.projectedMarginPct === 'number' && Number.isFinite(baseContext.projectedMarginPct)) inject.projectedMarginPct = baseContext.projectedMarginPct;
             if (typeof baseContext.projectedProfit === 'number' && Number.isFinite(baseContext.projectedProfit)) inject.projectedProfit = baseContext.projectedProfit;
             if (typeof baseContext.spendToDateMarginPct === 'number' && Number.isFinite(baseContext.spendToDateMarginPct)) inject.spendToDateMarginPct = baseContext.spendToDateMarginPct;
+            if (typeof baseContext.forecastFinalCost === 'number' && Number.isFinite(baseContext.forecastFinalCost)) inject.forecastFinalCost = baseContext.forecastFinalCost;
+            if (typeof baseContext.adjustedCostBudget === 'number' && Number.isFinite(baseContext.adjustedCostBudget)) inject.adjustedCostBudget = baseContext.adjustedCostBudget;
             if (typeof baseContext.actualCost === 'number' && Number.isFinite(baseContext.actualCost)) inject.actualCost = baseContext.actualCost;
             if (typeof baseContext.totalSpent === 'number' && Number.isFinite(baseContext.totalSpent)) inject.totalSpent = baseContext.totalSpent;
             if (typeof baseContext.contractValue === 'number' && Number.isFinite(baseContext.contractValue)) inject.contractValue = baseContext.contractValue;
@@ -1445,6 +1468,8 @@ const AIAssistantModal: React.FC<Props> = ({
             marginPct: Number(baseContext.margin ?? ed?.marginPct ?? ed?.margin ?? 0) || 0,
             bidMarginPct: getBidMarginPct(ed, bidForMargins),
             currentMarginPct: getCurrentMarginPct(bidForMargins, spentForMargins),
+            adjustedCostBudget: baseContext.adjustedCostBudget,
+            forecastFinalCost: baseContext.forecastFinalCost,
             projectedMarginPct: baseContext.projectedMarginPct,
             projectedProfit: baseContext.projectedProfit,
             spendToDateMarginPct: baseContext.spendToDateMarginPct,
@@ -1484,10 +1509,11 @@ const AIAssistantModal: React.FC<Props> = ({
     loadTeamData();
   }, [visible, parsedContext?.projectId, parsedContext?.activeProjectId, JSON.stringify(parsedContext?.crewMembers || [])]);
 
-  // Auto-refresh existing summary cards in place when project budgets/expenses/schedule change while chat is open.
-  // Uses a lightweight polling loop + snapshot guard to avoid waiting on navigation/focus cycles.
+  // Auto-refresh disabled: rewriting an existing health-check message in the background
+  // caused multiple conflicting responses for a single user request.
   useEffect(() => {
     if (!visible) return;
+    return;
     let cancelled = false;
 
     const findLatestSummary = (list: Message[]) =>
@@ -2833,8 +2859,17 @@ const AIAssistantModal: React.FC<Props> = ({
             const committedPOs = Array.isArray(storageProject?.purchaseOrders)
               ? storageProject.purchaseOrders.filter((po: any) => (po?.status || '').toLowerCase() === 'pending').reduce((s: number, po: any) => s + Number(po?.amount || 0), 0)
               : 0;
-            const estCostBaseline = getEstimatedCostBaseline({ ...storageProject, ...ctxObj }, mergedEstimateData) || contractVal;
-            const pf = contractVal > 0 ? computeProfitForecast({
+            const overviewAdjustedBudget = Number(ctxObj?.adjustedCostBudget || 0) || 0;
+            const overviewForecastFinalCost = Number(ctxObj?.forecastFinalCost || 0) || 0;
+            const hasOverviewForecast =
+              Number.isFinite(Number(ctxObj?.projectedMarginPct)) &&
+              Number.isFinite(Number(ctxObj?.projectedProfit));
+            const estCostBaseline =
+              overviewAdjustedBudget ||
+              overviewForecastFinalCost ||
+              getEstimatedCostBaseline({ ...storageProject, ...ctxObj }, mergedEstimateData) ||
+              contractVal;
+            const pf = !hasOverviewForecast && contractVal > 0 ? computeProfitForecast({
               contractValue: contractVal,
               adjustedBudget: estCostBaseline || contractVal,
               estimatedCostBaseline: estCostBaseline,
@@ -2857,15 +2892,27 @@ const AIAssistantModal: React.FC<Props> = ({
               actualCost: mergedTotalSpent,
               totalSpent: mergedTotalSpent,
               contractValue: contractVal > 0 ? contractVal : (ctxObj?.contractValue || ctxObj?.bidTotal || 0),
-              spendToDateMarginPct: typeof spendToDatePct === 'number' ? spendToDatePct : (pf?.spendToDateMarginPct ?? ctxObj?.spendToDateMarginPct),
-              projectedMarginPct: pf?.projectedMarginPct ?? ctxObj?.projectedMarginPct,
-              projectedProfit: pf?.projectedProfit ?? ctxObj?.projectedProfit,
+              spendToDateMarginPct:
+                typeof ctxObj?.spendToDateMarginPct === 'number'
+                  ? ctxObj.spendToDateMarginPct
+                  : typeof spendToDatePct === 'number'
+                    ? spendToDatePct
+                    : pf?.spendToDateMarginPct,
+              adjustedCostBudget: overviewAdjustedBudget || estCostBaseline,
+              forecastFinalCost: overviewForecastFinalCost || pf?.forecastFinalCost,
+              projectedMarginPct: ctxObj?.projectedMarginPct ?? pf?.projectedMarginPct,
+              projectedProfit: ctxObj?.projectedProfit ?? pf?.projectedProfit,
               hasLiveProjectContext: mergedTotalSpent > 0 || ctxObj?.hasLiveProjectContext === true,
               bidPrice: storageProject?.bidPrice || ctxObj?.bidPrice || 0,
-              estimatedCost: getEstimatedCostBaseline(
-                { ...storageProject, ...ctxObj },
-                mergedEstimateData
-              ) || storageProject?.estimatedCost || ctxObj?.estimatedCost || 0,
+              estimatedCost:
+                overviewAdjustedBudget ||
+                getEstimatedCostBaseline(
+                  { ...storageProject, ...ctxObj },
+                  mergedEstimateData
+                ) ||
+                storageProject?.estimatedCost ||
+                ctxObj?.estimatedCost ||
+                0,
               laborTotal: Number(
                 mergedEstimateData?.laborTotal || storageProject?.laborTotal || ctxObj?.laborTotal || 0
               ),

@@ -87,6 +87,23 @@ function normalizeMoneyValue(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
+function sumPlannedCostFromBuckets(buckets) {
+  if (!Array.isArray(buckets)) return 0;
+  return buckets.reduce((sum, bucket) => {
+    const name = String(bucket?.name || '').toLowerCase();
+    if (
+      name.includes('markup') ||
+      name.includes('revenue') ||
+      name.includes('contract value') ||
+      name.includes('sell price') ||
+      (name.includes('profit') && !name.includes('cost'))
+    ) {
+      return sum;
+    }
+    return sum + normalizeMoneyValue(bucket?.budget);
+  }, 0);
+}
+
 function getApprovedChangeOrdersTotal(changeOrders = []) {
   if (!Array.isArray(changeOrders)) return 0;
   return changeOrders.reduce((sum, co) => {
@@ -134,6 +151,22 @@ function isPaymentCollectedForAI(milestone, opts = {}) {
 function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progressOverride = null } = {}) {
   const estimateData = project?.estimateData || project?.projectData?.estimateData || parsedContext?.estimateData || {};
   const changeOrders = parsedContext?.changeOrders || project?.changeOrders || project?.projectData?.changeOrders || [];
+  const costBuckets =
+    parsedContext?.buckets ??
+    project?.buckets ??
+    project?.projectData?.buckets ??
+    [];
+  const plannedCostFromBuckets = sumPlannedCostFromBuckets(costBuckets);
+  const projectAdjustedCostBudget = normalizeMoneyValue(
+    project?.adjustedCostBudget ??
+    project?.projectData?.adjustedCostBudget ??
+    0
+  );
+  const projectForecastFinalCost = normalizeMoneyValue(
+    project?.forecastFinalCost ??
+    project?.projectData?.forecastFinalCost ??
+    0
+  );
   const approvedChangeOrders = parsedContext?.approvedChangeOrdersTotal != null
     ? normalizeMoneyValue(parsedContext.approvedChangeOrdersTotal)
     : getApprovedChangeOrdersTotal(changeOrders);
@@ -148,6 +181,11 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
   );
   const revenue = normalizeMoneyValue(parsedContext?.contractValue) || (baseBid + approvedChangeOrders > 0 ? baseBid + approvedChangeOrders : baseBid);
   const estimatedCost = normalizeMoneyValue(
+    parsedContext?.adjustedCostBudget ??
+    parsedContext?.forecastFinalCost ??
+    (plannedCostFromBuckets > 0 ? plannedCostFromBuckets : null) ??
+    projectAdjustedCostBudget ??
+    projectForecastFinalCost ??
     parsedContext?.estimatedCost ??
     project?.estimatedCost ??
     project?.estimateData?.totalCost ??
@@ -185,13 +223,29 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     bidMarginPct = revenue > 0 && estimatedCost > 0 ? ((revenue - estimatedCost) / revenue * 100) : 0;
   }
 
-  const spendToDateMarginPct = revenue > 0 && spent >= 0 ? ((revenue - spent) / revenue * 100) : null;
-  const projectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estimatedCost;
-  const projectedProfit = revenue - projectedFinalCost;
-  const projectedMarginPct = revenue > 0 ? (projectedProfit / revenue * 100) : null;
+  const computedSpendToDateMarginPct = revenue > 0 && spent >= 0 ? ((revenue - spent) / revenue * 100) : null;
+  const contextSpendToDateMarginPct = parsedContext?.spendToDateMarginPct ?? project?.spendToDateMarginPct ?? project?.projectData?.spendToDateMarginPct;
+  const spendToDateMarginPct =
+    typeof contextSpendToDateMarginPct === 'number' && Number.isFinite(contextSpendToDateMarginPct)
+      ? contextSpendToDateMarginPct
+      : computedSpendToDateMarginPct;
+  const contextProjectedFinalCost = normalizeMoneyValue(parsedContext?.forecastFinalCost || projectForecastFinalCost);
+  const derivedProjectedFinalCost = progress > 5 && spent > 0 ? (spent / (progress / 100)) : estimatedCost;
+  const projectedFinalCost = contextProjectedFinalCost > 0 ? contextProjectedFinalCost : derivedProjectedFinalCost;
+  const contextProjectedProfit = parsedContext?.projectedProfit ?? project?.projectedProfit ?? project?.projectData?.projectedProfit;
+  const derivedProjectedProfit = revenue - projectedFinalCost;
+  const projectedProfit =
+    typeof contextProjectedProfit === 'number' && Number.isFinite(contextProjectedProfit)
+      ? contextProjectedProfit
+      : derivedProjectedProfit;
+  const contextProjectedMarginPct = parsedContext?.projectedMarginPct ?? project?.projectedMarginPct ?? project?.projectData?.projectedMarginPct;
+  const projectedMarginPct =
+    typeof contextProjectedMarginPct === 'number' && Number.isFinite(contextProjectedMarginPct)
+      ? contextProjectedMarginPct
+      : revenue > 0 ? (projectedProfit / revenue) * 100 : null;
   const currentMarginPct = spent > 0
     ? spendToDateMarginPct
-    : (bidMarginPct > 0 ? bidMarginPct : projectedMarginPct);
+    : (projectedMarginPct > 0 ? projectedMarginPct : (bidMarginPct > 0 ? bidMarginPct : projectedMarginPct));
 
   return {
     approvedChangeOrders,
