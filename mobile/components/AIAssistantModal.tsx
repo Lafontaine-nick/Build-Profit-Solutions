@@ -1202,9 +1202,11 @@ const AIAssistantModal: React.FC<Props> = ({
   const enhancedContext = useMemo(() => {
     try {
       const baseContext = parsedContext || {};
-      
-      // Ensure allProjects is included with budget and expense data
-      if (!baseContext.allProjects) {
+      const hasUsableAllProjects =
+        Array.isArray(baseContext.allProjects) && baseContext.allProjects.length > 0;
+
+      // Ensure allProjects is included with budget and expense data (treat [] like missing)
+      if (!hasUsableAllProjects) {
         const allProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
           const ed = p.estimateData || p.projectData?.estimateData || null;
           const rawExpensesA = Array.isArray(p.expenses) ? p.expenses : [];
@@ -1388,7 +1390,60 @@ const AIAssistantModal: React.FC<Props> = ({
           offDuty: mergedTeam.filter((m: any) => (m.status || '').toLowerCase() === 'off_duty').length,
         };
       }
-      
+
+      // Project Detail / PM modal send rich single-project context but often no portfolio list yet.
+      // Backend tools (get_project_health, get_project_by_name) resolve against parsedContext.allProjects — inject this project if missing.
+      if (
+        String(baseContext.screen || "") === "Project Detail" &&
+        (baseContext.projectId || baseContext.projectName || baseContext.bidTitle || baseContext.currentProject)
+      ) {
+        const list = Array.isArray(baseContext.allProjects) ? [...baseContext.allProjects] : [];
+        const pid = baseContext.projectId != null ? String(baseContext.projectId) : "";
+        const displayName = String(
+          baseContext.projectName || baseContext.bidTitle || baseContext.currentProject || "",
+        ).trim();
+        const foundById = pid && list.some((p: any) => String(p?.id) === pid);
+        if (!foundById && displayName) {
+          const ed = baseContext.estimateData || {};
+          const expenses = Array.isArray(baseContext.expenses) ? baseContext.expenses : [];
+          const computedSpent = expenses.reduce((s: number, e: any) => s + Number(e?.amount || 0), 0);
+          const bidForMargins =
+            Number(baseContext.bidPrice || baseContext.bidTotal || baseContext.total || 0) || 0;
+          const spentForMargins =
+            Number(baseContext.actualCost || baseContext.totalSpent || computedSpent) || 0;
+          const synthetic: RecentProject = {
+            id: pid || `local-${displayName.toLowerCase().replace(/[^\w-]+/g, "-").slice(0, 48)}`,
+            title: displayName,
+            name: displayName,
+            status: baseContext.status || "unknown",
+            bidPrice: bidForMargins,
+            estimatedCost:
+              Number(baseContext.estimatedCost || ed?.totalCost || ed?.baseCost || 0) || 0,
+            actualCost: spentForMargins,
+            totalSpent: spentForMargins,
+            expenses,
+            expensesCount: expenses.length,
+            buckets: Array.isArray(baseContext.buckets) ? baseContext.buckets : [],
+            changeOrders: Array.isArray(baseContext.changeOrders) ? baseContext.changeOrders : [],
+            purchaseOrders: [],
+            estimateData: ed,
+            materialTotal: Number(baseContext.materialTotal ?? ed?.materialTotal ?? 0) || 0,
+            laborTotal: Number(baseContext.laborTotal ?? ed?.laborTotal ?? 0) || 0,
+            overheadTotal: Number(baseContext.overheadTotal ?? ed?.overheadTotal ?? 0) || 0,
+            markupPct: Number(baseContext.markup ?? ed?.markupPct ?? ed?.markup ?? 0) || 0,
+            profit: Number(baseContext.profit ?? ed?.profit ?? 0) || 0,
+            marginPct: Number(baseContext.margin ?? ed?.marginPct ?? ed?.margin ?? 0) || 0,
+            bidMarginPct: getBidMarginPct(ed, bidForMargins),
+            currentMarginPct: getCurrentMarginPct(bidForMargins, spentForMargins),
+            projectedMarginPct: baseContext.projectedMarginPct,
+            projectedProfit: baseContext.projectedProfit,
+            spendToDateMarginPct: baseContext.spendToDateMarginPct,
+          };
+          list.push(synthetic);
+          baseContext.allProjects = list;
+        }
+      }
+
       return JSON.stringify(baseContext);
     } catch (e) {
       console.error('Error enhancing context:', e);
