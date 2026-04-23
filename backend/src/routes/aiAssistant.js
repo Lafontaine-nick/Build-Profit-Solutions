@@ -8450,12 +8450,16 @@ router.post('/', async (req, res) => {
           parameters: {
             type: 'object',
             properties: {
+              projectId: {
+                type: 'string',
+                description: 'Optional project ID. Prefer this when the current project is already selected in UI context.',
+              },
               projectName: {
                 type: 'string',
-                description: 'The name of the project to check.',
+                description: 'Optional project name. Omit when the current project is already selected in UI context.',
               },
             },
-            required: ['projectName'],
+            required: [],
           },
         },
       },
@@ -9048,8 +9052,42 @@ router.post('/', async (req, res) => {
           if (typeof v === 'string') { const n = Number(v.replace(/[$,\s]/g, '')); return Number.isFinite(n) ? n : 0; }
           const n = Number(v); return Number.isFinite(n) ? n : 0;
         };
-        const match = resolveProjectByQuery(allProjects, args.projectName, { minScore: 35 }).project;
-        if (!match) return { success: false, error: `Could not find project "${args.projectName}".` };
+        const requestedProjectId =
+          args.projectId || parsedContext?.resolvedProjectId || parsedContext?.projectId || parsedContext?.activeProjectId;
+        const requestedProjectName =
+          args.projectName || parsedContext?.currentProject || parsedContext?.projectName || parsedContext?.bidTitle;
+        let match = null;
+        if (requestedProjectId) {
+          match = allProjects.find((p) => String(p?.id) === String(requestedProjectId)) || null;
+        }
+        if (!match && requestedProjectName) {
+          match = resolveProjectByQuery(allProjects, requestedProjectName, { minScore: 35 }).project;
+        }
+        if (!match) {
+          const syntheticTitle = String(requestedProjectName || '').trim();
+          if (syntheticTitle) {
+            match = {
+              id: String(requestedProjectId || `context-${syntheticTitle.toLowerCase().replace(/[^\w-]+/g, '-')}`),
+              title: syntheticTitle,
+              status: parsedContext?.status || 'unknown',
+              bidPrice: normalize(parsedContext?.bidPrice ?? parsedContext?.bidTotal ?? parsedContext?.total ?? 0),
+              estimatedCost: normalize(parsedContext?.estimatedCost ?? 0),
+              actualCost: normalize(parsedContext?.actualCost ?? parsedContext?.totalSpent ?? 0),
+              totalSpent: normalize(parsedContext?.totalSpent ?? parsedContext?.actualCost ?? 0),
+              expenses: Array.isArray(parsedContext?.expenses) ? parsedContext.expenses : [],
+              estimateData: parsedContext?.estimateData || {},
+              changeOrders: Array.isArray(parsedContext?.changeOrders) ? parsedContext.changeOrders : [],
+              milestones: Array.isArray(parsedContext?.milestones) ? parsedContext.milestones : [],
+              purchaseOrders: Array.isArray(parsedContext?.purchaseOrders) ? parsedContext.purchaseOrders : [],
+              progress: normalize(parsedContext?.progress ?? 0),
+              overallProgressPct: normalize(parsedContext?.progress ?? 0),
+            };
+          }
+        }
+        if (!match) {
+          const label = requestedProjectName || requestedProjectId || 'the requested project';
+          return { success: false, error: `Could not find project "${label}".` };
+        }
 
         const title = match.title || match.name || 'Project';
         const pid = String(match?.id ?? '');
