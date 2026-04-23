@@ -365,5 +365,106 @@
     "budgetItems": [],
     "createdAt": "2026-03-19T05:24:34.659Z",
     "updatedAt": "2026-03-20T06:12:41.117Z"
+  },
+  {
+    "id": "1776749886384",
+    "userId": "user_3C199YYNSLjygvWOa0z8TbO1Uuo",
+    "name": "Duplex Build",
+    "title": "Duplex Build",
+    "client": "Unknown Client",
+    "location": "",
+    "totalBudget": 583338.7055,
+    "estimatedCost": 441015.57,
+    "bidPrice": 583338.7055,
+    "totalSpent": 135979.03999999998,
+    "remaining": 447359.66550000006,
+    "progress": 0,
+    "status": "won",
+    "description": "",
+    "expenses": [
+      {
+        "id": "txn-1776917984368",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 14987.6,
+        "date": "2026-04-23T04:19:44.368Z",
+        "notes": "📐 3,368 sq ft × $4.45/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "projectPhase": "Foundation",
+        "scope": "Foundation ",
+        "priceReasonableness": "high"
+      },
+      {
+        "id": "txn-1776918032909",
+        "category": "Labor",
+        "vendor": "Concrete",
+        "amount": 20005.92,
+        "date": "2026-04-23T04:20:32.909Z",
+        "notes": "📐 3,368 sq ft × $5.94/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "projectPhase": "Foundation",
+        "priceReasonableness": "high"
+      },
+      {
+        "id": "txn-1776925911711",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 47994,
+        "date": "2026-04-23T06:31:51.711Z",
+        "notes": "📐 3,368 sq ft × $14.25/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "scope": "Framing",
+        "priceReasonableness": "outlier"
+      },
+      {
+        "id": "txn-1776925950547",
+        "category": "Labor",
+        "vendor": "Framing",
+        "amount": 31996,
+        "date": "2026-04-23T06:32:30.547Z",
+        "notes": "📐 3,368 sq ft × $9.50/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "outlier"
+      },
+      {
+        "id": "txn-1776926828320",
+        "category": "Materials/Equipment",
+        "vendor": "Roofing",
+        "amount": 10002.96,
+        "date": "2026-04-23T06:47:08.320Z",
+        "notes": "📐 3,368 sq ft × $2.97/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "normal"
+      },
+      {
+        "id": "txn-1776926853850",
+        "category": "Labor",
+        "vendor": "Roofer",
+        "amount": 8992.56,
+        "date": "2026-04-23T06:47:33.850Z",
+        "notes": "📐 3,368 sq ft × $2.67/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "normal"
+      },
+      {
+        "id": "expense-1776933194317",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 2000,
+        "date": "2026-04-23",
+        "notes": "Tile from Home Depot",
+        "createdAt": "2026-04-23T08:33:14.317Z"
+      }
+    ],
+    "phases": [],
+    "budgetItems": [],
+    "createdAt": "2026-04-23T08:33:14.315Z",
+    "updatedAt": "2026-04-23T08:33:14.317Z"
   }
 ]
