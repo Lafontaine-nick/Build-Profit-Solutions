@@ -1252,6 +1252,15 @@ function ProjectDetailContent() {
         title: String(co.title ?? 'Change Order'),
         amount: Number(co.amount ?? 0),
         status: co.status ?? (co.approved ? 'Approved' : 'Draft'),
+        approved: co.approved === true || co.status === 'Approved',
+        materialsAmount:
+          co.materialsAmount !== undefined && co.materialsAmount !== null
+            ? Number(co.materialsAmount)
+            : undefined,
+        laborAmount:
+          co.laborAmount !== undefined && co.laborAmount !== null
+            ? Number(co.laborAmount)
+            : undefined,
         date: co.date ?? new Date().toISOString(),
       })),
     };
@@ -1587,6 +1596,20 @@ function ProjectDetailContent() {
                     committedPOsTotal={metrics.committedPOsTotal}
                     adjustedCostBudget={metrics.financials.adjustedCostBudget}
                     profitForecast={metrics.profitForecast}
+                    originalEstimateMarginPct={Number(
+                      (realProjectData as any)?.estimateData?.marginPercent ??
+                      (realProjectData as any)?.estimateData?.margin ??
+                      (realProjectData as any)?.estimateData?.marginPct ??
+                      (safeProjectData as any)?.estimateData?.marginPercent ??
+                      (safeProjectData as any)?.estimateData?.margin ??
+                      (safeProjectData as any)?.estimateData?.marginPct ??
+                      0
+                    )}
+                    originalEstimateProfit={Number(
+                      (realProjectData as any)?.estimateData?.profit ??
+                      (safeProjectData as any)?.estimateData?.profit ??
+                      0
+                    )}
                     onChipsPress={() => {
                       void Haptics.selectionAsync();
                       setActiveTab('Budget');
@@ -2656,20 +2679,22 @@ function ProjectDetailContent() {
               
               console.log('✅ Added labor expense:', action.amount);
             } else if (action.type === 'add_purchase_order') {
+              const actionProjectId = String(action.projectId ?? '').trim();
+              const currentProjectId = String(id ?? '').trim();
               console.log('📦 Action handler: Received add_purchase_order action', {
-                projectId: action.projectId,
-                currentProjectId: id,
-                match: action.projectId === id,
+                projectId: actionProjectId,
+                currentProjectId,
+                match: actionProjectId === currentProjectId,
                 poNumber: action.poNumber,
                 amount: action.amount,
                 vendor: action.vendor,
                 category: action.category
               });
               
-              if (action.projectId !== id) {
+              if (actionProjectId !== currentProjectId) {
                 console.warn('⚠️ Action projectId mismatch:', {
-                  actionProjectId: action.projectId,
-                  currentId: id
+                  actionProjectId,
+                  currentId: currentProjectId
                 });
                 return;
               }
@@ -2767,18 +2792,20 @@ function ProjectDetailContent() {
                 }, 200);
               }, 1000); // Increased delay to ensure AsyncStorage write completes
             } else if (action.type === 'mark_po_received') {
+              const actionProjectId = String(action.projectId ?? '').trim();
+              const currentProjectId = String(id ?? '').trim();
               console.log('📦 Action handler: Received mark_po_received action', {
-                projectId: action.projectId,
-                currentProjectId: id,
-                match: action.projectId === id,
+                projectId: actionProjectId,
+                currentProjectId,
+                match: actionProjectId === currentProjectId,
                 poId: action.poId,
                 poNumber: action.poNumber
               });
               
-              if (action.projectId !== id) {
+              if (actionProjectId !== currentProjectId) {
                 console.warn('⚠️ Action projectId mismatch:', {
-                  actionProjectId: action.projectId,
-                  currentId: id
+                  actionProjectId,
+                  currentId: currentProjectId
                 });
                 return;
               }
@@ -3058,17 +3085,21 @@ function ProjectDetailContent() {
                 // Map backend CO fields to the format expected by ProjectDataContext
                 // Backend sends: description, cost, vendor, clientPrice, markupPct, status
                 // Context expects: title, amount, approved, notes, status
+                const mat = Number(co.materialsAmount);
+                const lab = Number(co.laborAmount);
+                const total =
+                  Number(co.clientPrice || co.cost || co.amount || 0) ||
+                  ((Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0));
                 const mappedCO = {
                   id: co.id || `co-${Date.now()}`,
                   title: co.description || co.title || 'Change Order',
-                  amount: co.clientPrice || co.cost || co.amount || 0,
+                  amount: total,
                   approved: true, // User already approved via the dialog
                   notes: co.vendor ? `Vendor: ${co.vendor}` : '',
                   status: 'Approved',
                   date: co.createdAt || new Date().toISOString(),
-                  // Preserve extra fields for display
-                  materialsAmount: co.cost || co.amount || 0,
-                  laborAmount: 0,
+                  materialsAmount: Number.isFinite(mat) ? mat : 0,
+                  laborAmount: Number.isFinite(lab) ? lab : 0,
                 };
                 
                 console.log('📋 Mapped CO for context:', mappedCO);
@@ -3214,11 +3245,13 @@ function ProjectDetailContent() {
               }
 
             } else if (action.type === 'project_updated') {
+              const actionProjectId = String(action.projectId ?? '').trim();
+              const currentProjectId = String(id ?? '').trim();
               // AI assistant updated the project via backend - sync to ProjectDataContext
               console.log('🔄 Project updated by AI assistant, syncing to ProjectDataContext', {
-                actionProjectId: action.projectId,
-                currentProjectId: id,
-                match: action.projectId === id,
+                actionProjectId,
+                currentProjectId,
+                match: actionProjectId === currentProjectId,
                 expensesCount: action.expenses?.length || 0,
                 purchaseOrdersCount: action.purchaseOrders?.length || 0,
                 totalSpent: action.totalSpent || 0,
@@ -3227,7 +3260,7 @@ function ProjectDetailContent() {
                 poDetails: action.purchaseOrders?.map((po: any) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, vendor: po.vendor, status: po.status })) || []
               });
               
-              if (action.projectId === id) {
+              if (actionProjectId === currentProjectId) {
                 // Sync expenses to ProjectDataContext
                 if (action.expenses && action.expenses.length > 0) {
                   const currentExpenses = contextProjectData?.expenses || [];

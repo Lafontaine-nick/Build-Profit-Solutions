@@ -196,6 +196,7 @@ Required for LABOR: amount + trade + description + ${hasProject ? `projectId "${
 → For LABOR: "general labor", "framing", "plumbing", "tile work" etc. ARE the trade. Store in vendor field internally but NEVER use the word "vendor" when asking — say "trade" or "what was the labor for?"
 → Vendor IS REQUIRED for material expenses only - ALWAYS ask "Where was it purchased?" if missing
 → CRITICAL: For labor expenses, NEVER ask for expected delivery or pickup date. That is for purchase orders only.
+→ CRITICAL: For MATERIAL expenses ("material expense", "log expense", spent at a store, already purchased) NEVER ask for expected delivery, pickup date, or received date — those are ONLY for add_purchase_order when the user explicitly wants to create a PO.
 → Call add_material_expense (covers both materials and labor) or add_labor_expense for labor
 → CRITICAL: If user says "log expense" / "I need to log an expense" / "add expense" WITHOUT specifying materials or labor → ALWAYS ask: "What type of expense are you logging? Is it for materials or labor? If it's for materials, please provide the amount, category, and vendor. If it's for labor, please provide the amount, trade, and description of the work." DO NOT proceed until you know the expense type.
 → CRITICAL: If user confirms "it's for labor" / "labor" → ask ONLY: "Please provide the amount, trade, and description for the labor expense." NEVER ask for vendor or delivery date.
@@ -206,7 +207,8 @@ Required for LABOR: amount + trade + description + ${hasProject ? `projectId "${
 PURCHASE ORDER RULES:
 Required: amount + vendor + category + expectedDelivery + ${hasProject ? `projectId "${projectId}"` : 'projectId'}
 → Extract amounts from ANY number in user message: "1000", "$1000", "1000 dollars", "for 1000" all work. Be smart - if user says "1000" or "March 10th", extract the number (1000) as the amount. Don't require "$" or "dollars" - plain numbers are fine.
-→ CRITICAL: If expectedDelivery is missing, ALWAYS ask: "What is the expected delivery or received date?" before calling add_purchase_order. The delivery date is required for the purchase order card.
+→ CRITICAL: Use add_purchase_order ONLY when the user explicitly wants a purchase order / PO / committed vendor order. If they are logging a material expense or "spent $X at Home Depot", use add_material_expense — do NOT ask for delivery dates for expenses.
+→ CRITICAL: If expectedDelivery is missing for a real PO, ask for delivery or pickup date before calling add_purchase_order. Never ask for delivery dates when the user is in an expense logging flow (material expense, log expense, etc.).
 → POs start as "Pending" → show in Committed POs → convert to expenses when received
 → "Mark as received" / "mark PO received" → call mark_purchase_order_received (NOT add_purchase_order)
 → CRITICAL: When mark_purchase_order_received succeeds, ALWAYS say "I've marked purchase order [PO-XXXXX] as received" or "Purchase order [PO-XXXXX] has been marked as received" in your response. Be explicit and clear.
@@ -540,7 +542,8 @@ CHANGE ORDER RULES:
 → Flow: create CO → adjust budget → show margin impact
 → CRITICAL: Do NOT add a payment milestone unless the user explicitly asks for one. Set addPaymentMilestone=false by default.
 → DO NOT call add_timeline_payment separately - only create the change order action.
-→ After CO: "📊 Budget updated: $X → $Y | New bid: $X → $Y | Margin: X%"` : '';
+→ After create_change_order succeeds: tell the user an **Approve Change Order** dialog appears **on this assistant** and they should tap **Approve** there to finalize — do NOT tell them to approve from the Change Orders tab for this step.
+→ After CO (once approved by user): "📊 Budget updated: $X → $Y | New bid: $X → $Y | Margin: X%"` : '';
 
   // Daily log domain
   const dailyLogBlock = aiPmMode ? `
@@ -770,7 +773,7 @@ Intent rules:
 Change order detection:
 - If user says "client wants to add", "scope change", "extra work", "added X to the job", "change order" → set is_change_order = true, domain = "change_order"
 - This triggers a multi-step flow — the router should identify what info is available vs missing
-- ALWAYS check context.coFlow.hasDescription, context.coFlow.hasAmount, context.coFlow.hasVendor before asking for fields
+- ALWAYS check context.coFlow.hasDescription, context.coFlow.hasMaterialsAmount, context.coFlow.hasLaborAmount (and hasVendor if you want a supplier) before asking for fields
 - NEVER ask for "expected delivery" or "received date" for change orders - they don't need delivery dates
 
 Required-field rules:
@@ -790,9 +793,9 @@ Required-field rules:
   * Daily logs capture: what happened on site, weather conditions, crew count, hours worked, issues encountered
   * Daily logs are NOT expenses - they are narrative notes about the day's work
 - run_scenario_analysis: scenario (infer from message — "materials up 10%" → materials_up_10, "bad remodel" → bad_remodel, "smooth job" → smooth_job). If user says "what if" or "scenario analysis" without specifics, set required_fields_missing = ["scenario"] and ask: "Do you want Typical Friction, Bad Remodel, or Smooth Job?"
-- create_change_order: description, amount, vendor
-  * CRITICAL: Change orders need ONLY description + amount + vendor. NO delivery dates. NO received dates. NEVER.
-  * Check context.coFlow: hasDescription, hasAmount, hasVendor. Only ask for fields that are still false.
+- create_change_order: description, materialsAmount, laborAmount (optional: vendor)
+  * CRITICAL: Change orders need **what it is for** (description), **material cost** and **labor cost** in dollars (materialsAmount, laborAmount; **0** is allowed on one side). **Total** = material + labor. NO delivery dates. NO received dates. NEVER.
+  * Check context.coFlow: hasDescription, hasMaterialsAmount, hasLaborAmount, hasVendor. Only ask for fields that are still false / missing.
   * NEVER add "expectedDelivery", "delivery date", "received date", or "pickup date" to required_fields_missing for change orders.
 - generate_estimate: projectType, description (sqft is highly recommended)
 - mark_timeline_item_complete: itemName (if user gives a %, set progressPct in tool_args_draft)

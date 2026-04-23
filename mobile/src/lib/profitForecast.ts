@@ -124,7 +124,7 @@ export function computeElapsedCalendarPct(
  * - **Blended completion** uses max(schedule, min(rawBurn, schedule+25)) to avoid absurd run-rates.
  * - **Calendar EAC** uses actual+committed; stress is **blended** in only when calendar signal
  *   and strain gates pass (elapsed, behind schedule vs calendar, or overburn vs progress).
- * - **Cap at planned budget** when still within budget and blend suggests overrun (hybrid).
+ * - Run-rate may exceed planned budget while you are still under budget (margin can move down).
  *
  * **Collections:** passed through for UI only; accrual margin is cost vs contract.
  */
@@ -204,11 +204,9 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
       forecastFinalCost = Math.max(actualPlusCommitted, runRateForecast);
       forecastMethod = 'run-rate';
 
-      const withinPlannedBudget = actualPlusCommitted <= adjustedBudget;
-      if (withinPlannedBudget && adjustedBudget > 0 && forecastFinalCost > adjustedBudget) {
-        forecastFinalCost = adjustedBudget;
-        forecastMethod = 'hybrid';
-      }
+      // Do not clamp run-rate down to the planned budget while you are still under budget.
+      // That behavior froze "projected margin at completion" whenever spend + schedule implied a
+      // mild overrun (common after logging material/labor) — the UI looked stale even as costs grew.
 
       const hasEnoughCalendarSignal = elapsedTimePct != null && elapsedTimePct >= 12;
       const isBehindScheduleVsCalendar =
@@ -233,8 +231,18 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
         }
       }
     } else {
-      forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
-      forecastMethod = 'budget-fallback';
+      // Blended schedule progress is still very low (<~3%). Without spend, keep the budget fallback.
+      // Once real burn exists, derive a minimum completion signal from cost vs cap so new expenses
+      // can move the forecast before milestones advance much (timeline edits alone rarely move %).
+      if (adjustedBudget > 0 && rawCostBudgetUsedPct >= 2) {
+        const impliedProgressRatio = Math.max(0.03, progressRatio, rawCostBudgetUsedPct / 100);
+        const runRateEarly = actualPlusCommitted / impliedProgressRatio;
+        forecastFinalCost = Math.max(actualPlusCommitted, runRateEarly);
+        forecastMethod = 'run-rate';
+      } else {
+        forecastFinalCost = Math.max(adjustedBudget, actualPlusCommitted);
+        forecastMethod = 'budget-fallback';
+      }
 
       const earlyCalendarStress =
         eacCalendar != null &&

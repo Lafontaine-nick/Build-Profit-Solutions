@@ -515,15 +515,20 @@ export default function AssistantScreen() {
               const project = [...activeProjects, ...estimates].find(p => p.id === action.projectId);
               if (project) {
                 // Map backend CO fields to the format expected by the change orders page
+                const mat = Number(co.materialsAmount);
+                const lab = Number(co.laborAmount);
+                const total =
+                  Number(co.clientPrice || co.cost || co.amount || 0) ||
+                  ((Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0));
                 const mappedCO = {
                   id: co.id || `co-${Date.now()}`,
                   title: co.description || co.title || 'Change Order',
-                  amount: co.clientPrice || co.cost || co.amount || 0,
+                  amount: total,
                   approved: true,
                   notes: co.vendor ? `Vendor: ${co.vendor}` : '',
                   status: 'Approved',
-                  materialsAmount: co.cost || co.amount || 0,
-                  laborAmount: 0,
+                  materialsAmount: Number.isFinite(mat) ? mat : 0,
+                  laborAmount: Number.isFinite(lab) ? lab : 0,
                   date: co.createdAt || new Date().toISOString(),
                 };
                 const existingCOs = project.projectData?.changeOrders || [];

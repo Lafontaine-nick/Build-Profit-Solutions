@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -21,6 +21,8 @@ export type BudgetProfitMixCardProps = {
   committedPOsTotal: number;
   adjustedCostBudget: number;
   profitForecast: ProfitForecastOutput;
+  originalEstimateMarginPct?: number | null;
+  originalEstimateProfit?: number | null;
   /** Budget tab: scroll to contract section; Overview: e.g. switch to Budget tab */
   onChipsPress?: () => void;
   /** Outer `sectionCard` vertical margin (default 0 — Budget first card / Overview under header) */
@@ -34,11 +36,14 @@ export default function BudgetProfitMixCard({
   committedPOsTotal,
   adjustedCostBudget,
   profitForecast,
+  originalEstimateMarginPct,
+  originalEstimateProfit,
   onChipsPress,
   marginTop = 0,
 }: BudgetProfitMixCardProps) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
+  const [footerExpanded, setFooterExpanded] = useState(false);
 
   const theme = darkMode
     ? {
@@ -70,6 +75,49 @@ export default function BudgetProfitMixCard({
   /** True margin stress vs contract (rare once run-rate is capped while under cost budget). */
   const showNegativeMarginNote =
     hasContractForMix && profitForecast.projectedMarginPct < 0;
+  const originalEstimateMarginPctResolved = useMemo(() => {
+    if (typeof originalEstimateMarginPct === 'number' && Number.isFinite(originalEstimateMarginPct)) {
+      return originalEstimateMarginPct;
+    }
+    if (!(adjustedContractValue > 0)) return 0;
+    return (profitForecast.estimatedProfit / adjustedContractValue) * 100;
+  }, [adjustedContractValue, originalEstimateMarginPct, profitForecast.estimatedProfit]);
+  const originalEstimateProfitResolved = useMemo(() => {
+    if (typeof originalEstimateProfit === 'number' && Number.isFinite(originalEstimateProfit)) {
+      return originalEstimateProfit;
+    }
+    return profitForecast.estimatedProfit;
+  }, [originalEstimateProfit, profitForecast.estimatedProfit]);
+  const marginDriftPts = profitForecast.projectedMarginPct - originalEstimateMarginPctResolved;
+  const profitDrift = profitForecast.projectedProfit - originalEstimateProfitResolved;
+  const estimateDriftColor =
+    Math.abs(marginDriftPts) < 0.15
+      ? pageSubtext
+      : marginDriftPts >= 0
+        ? '#22C55E'
+        : '#F97316';
+  const estimateDriftPillLabel =
+    Math.abs(marginDriftPts) < 0.15
+      ? 'On estimate'
+      : `${marginDriftPts > 0 ? '+' : ''}${marginDriftPts.toFixed(1)} pts`;
+  const estimateDriftDetail =
+    Math.abs(profitDrift) < 1
+      ? `Profit on estimate (${originalEstimateMarginPctResolved.toFixed(1)}% baseline)`
+      : `${profitDrift >= 0 ? '+' : '-'}${money(Math.abs(profitDrift), currency)} vs ${originalEstimateMarginPctResolved.toFixed(1)}% baseline`;
+  const burnVsPlanPts = costBudgetUsedPctDisplay - profitForecast.scheduleProgressPct;
+  const burnVsPlanColor =
+    Math.abs(burnVsPlanPts) < 3
+      ? pageSubtext
+      : burnVsPlanPts > 0
+        ? '#F97316'
+        : '#22C55E';
+  const burnVsPlanPillLabel =
+    Math.abs(burnVsPlanPts) < 3
+      ? 'On pace'
+      : burnVsPlanPts > 0
+        ? `+${burnVsPlanPts.toFixed(1)} pts`
+        : `-${Math.abs(burnVsPlanPts).toFixed(1)} pts`;
+  const spendVsScheduleDetail = `${costBudgetUsedPctDisplay.toFixed(1)}% budget used vs ${profitForecast.scheduleProgressPct.toFixed(1)}% schedule`;
 
   return (
     <View style={[styles.sectionCardContainer, { marginTop }]}>
@@ -99,84 +147,86 @@ export default function BudgetProfitMixCard({
               </Text>
             </View>
           </View>
-          <View
-            style={[
-              styles.budgetProfitMixMarginShell,
-              {
-                borderTopColor: darkMode ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.1)',
-                backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.04)',
-              },
-            ]}
-          >
-            <View style={styles.budgetProfitMixMarginRow}>
-              <Text
-                style={{
-                  color: pageSubtext,
-                  fontSize: 13,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                  letterSpacing: -0.2,
-                  textAlign: 'center',
-                  width: '100%',
-                }}
-              >
-                {hasContractForMix ? `${profitForecast.projectedMarginPct.toFixed(1)}% projected margin` : '—'}
-              </Text>
+          {hasContractForMix ? (
+            <View
+              style={[
+                styles.signalPillRow,
+                {
+                  borderTopColor: darkMode ? 'rgba(148,163,184,0.14)' : 'rgba(15,23,42,0.1)',
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(15,23,42,0.04)',
+                },
+              ]}
+            >
+              <View style={styles.signalPill}>
+                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
+                  Margin vs bid
+                </Text>
+                <Text style={[styles.signalPillValue, { color: estimateDriftColor }]} numberOfLines={1}>
+                  {estimateDriftPillLabel}
+                </Text>
+              </View>
+              <View style={styles.signalPillDivider} />
+              <View style={styles.signalPill}>
+                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
+                  Spend vs schedule
+                </Text>
+                <Text style={[styles.signalPillValue, { color: burnVsPlanColor }]} numberOfLines={1}>
+                  {burnVsPlanPillLabel}
+                </Text>
+              </View>
+              <View style={styles.signalPillDivider} />
+              <View style={styles.signalPill}>
+                <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
+                  Budget spent
+                </Text>
+                <Text style={[styles.signalPillValue, { color: pageSubtext }]} numberOfLines={1}>
+                  {`${costBudgetUsedPctDisplay.toFixed(1)}%`}
+                </Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.budgetProfitMixChipRow}>
-            <Pressable
-              onPress={onChipsPress}
-              style={({ pressed }) => [
-                styles.budgetProfitMixChip,
-                budgetMixChipSurface,
-                pressed && { opacity: 0.88 },
-              ]}
-            >
-              <Text
-                style={[styles.budgetProfitMixChipText, { color: pageCaption }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
+          ) : null}
+          {hasContractForMix ? (
+            <View style={styles.referenceChipRow}>
+              <Pressable
+                onPress={onChipsPress}
+                style={({ pressed }) => [
+                  styles.referenceChip,
+                  budgetMixChipSurface,
+                  pressed && { opacity: 0.82 },
+                ]}
               >
-                Budget spent {costBudgetUsedPctDisplay.toFixed(1)}%
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={onChipsPress}
-              style={({ pressed }) => [
-                styles.budgetProfitMixChip,
-                budgetMixChipSurface,
-                pressed && { opacity: 0.88 },
-              ]}
-            >
-              <Text
-                style={[styles.budgetProfitMixChipText, { color: pageCaption }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
+                <Text
+                  style={[styles.referenceChipText, { color: pageInstructional }]}
+                  numberOfLines={1}
+                >
+                  Contract {money(adjustedContractValue, currency)}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onChipsPress}
+                style={({ pressed }) => [
+                  styles.referenceChip,
+                  budgetMixChipSurface,
+                  pressed && { opacity: 0.82 },
+                ]}
               >
-                Cap {money(adjustedCostBudget, currency)}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={onChipsPress}
-              style={({ pressed }) => [
-                styles.budgetProfitMixChip,
-                budgetMixChipSurface,
-                pressed && { opacity: 0.88 },
-              ]}
-            >
-              <Text
-                style={[styles.budgetProfitMixChipText, { color: pageCaption }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
-              >
-                Contract {money(adjustedContractValue, currency)}
-              </Text>
-            </Pressable>
-          </View>
+                <Text
+                  style={[styles.referenceChipText, { color: pageInstructional }]}
+                  numberOfLines={1}
+                >
+                  Cap {money(adjustedCostBudget, currency)}
+                </Text>
+              </Pressable>
+              <View style={[styles.referenceChip, budgetMixChipSurface]}>
+                <Text
+                  style={[styles.referenceChipText, { color: pageInstructional }]}
+                  numberOfLines={1}
+                >
+                  Est. {originalEstimateMarginPctResolved.toFixed(1)}%
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </View>
         <View style={styles.budgetProfitMixDonutWrap}>
           {hasContractForMix ? (
@@ -207,24 +257,38 @@ export default function BudgetProfitMixCard({
         </View>
         <View style={styles.budgetProfitMixFooterBlock}>
           <Text style={[styles.budgetProfitMixFooterCaption, { color: pageInstructional }]}>
-            Projected margin estimates the profit percentage we expect at job completion based on current costs,
-            committed costs, and project progress.
+            Projected margin is estimated from current spend, commitments, and progress. Estimate only.
           </Text>
-          <Text
-            style={[
-              styles.budgetProfitMixFooterDisclaimer,
-              styles.budgetProfitMixFooterItalic,
-              { color: pageInstructional },
-            ]}
-          >
-            Estimate only. Actual final margin may change as costs, commitments, change orders, and project progress
-            are updated.
-          </Text>
-          {showNegativeMarginNote ? (
-            <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-              Negative margin here means expected final cost still exceeds contract value on current figures.
-              Open Budget for the full Contract & Cost breakdown.
-            </Text>
+          {hasContractForMix ? (
+            <Pressable
+              onPress={() => setFooterExpanded(prev => !prev)}
+              hitSlop={8}
+              style={styles.learnMoreToggle}
+            >
+              <Text style={[styles.learnMoreText, { color: pageCaption }]}>
+                {footerExpanded ? 'Hide details' : 'Learn more'}
+              </Text>
+            </Pressable>
+          ) : null}
+          {footerExpanded ? (
+            <View style={styles.footerDetailBlock}>
+              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
+                Margin vs bid compares the projected finish margin to your original bid baseline
+                ({originalEstimateMarginPctResolved.toFixed(1)}%).
+              </Text>
+              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
+                Spend vs schedule compares budget used (spend plus committed POs) to schedule progress
+                ({spendVsScheduleDetail}).
+              </Text>
+              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
+                {estimateDriftDetail}.
+              </Text>
+              {showNegativeMarginNote ? (
+                <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
+                  Negative margin means expected final cost still exceeds contract value on current figures.
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </View>
       </View>
@@ -266,42 +330,67 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     maxWidth: '100%',
   },
-  budgetProfitMixMarginShell: {
-    marginTop: 8,
+  signalPillRow: {
+    marginTop: 10,
     marginHorizontal: -2,
-    paddingTop: 10,
-    paddingBottom: 10,
-    paddingHorizontal: 4,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderRadius: 10,
+    gap: 6,
+  },
+  signalPill: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 38,
+  },
+  signalPillDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(148,163,184,0.18)',
     alignSelf: 'stretch',
   },
-  budgetProfitMixMarginRow: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
+  signalPillLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    lineHeight: 13,
+    textAlign: 'center',
+    marginBottom: 3,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
   },
-  budgetProfitMixChipRow: {
+  signalPillValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  referenceChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'stretch',
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-    marginTop: 10,
+    gap: 6,
+    marginTop: 8,
   },
-  budgetProfitMixChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    minHeight: 28,
+  referenceChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minHeight: 22,
     justifyContent: 'center',
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  budgetProfitMixChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    lineHeight: 14,
+  referenceChipText: {
+    fontSize: 10,
+    fontWeight: '500',
+    lineHeight: 13,
+    letterSpacing: 0.1,
   },
   budgetProfitMixDonutWrap: {
     paddingHorizontal: 8,
@@ -321,15 +410,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   budgetProfitMixFooterDisclaimer: {
-    marginTop: 10,
+    marginTop: 8,
     fontSize: 11,
     fontWeight: '500',
     lineHeight: 16,
     textAlign: 'center',
     paddingHorizontal: 8,
   },
-  budgetProfitMixFooterItalic: {
-    fontStyle: 'italic',
+  learnMoreToggle: {
+    marginTop: 6,
+    alignSelf: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  learnMoreText: {
+    fontSize: 11,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  footerDetailBlock: {
+    marginTop: 2,
+    paddingTop: 2,
   },
   totalsTitle: { fontSize: 18, fontWeight: '700', letterSpacing: 0.15 },
 });

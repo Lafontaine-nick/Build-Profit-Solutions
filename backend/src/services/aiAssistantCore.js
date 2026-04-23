@@ -1252,6 +1252,13 @@ function isCalendarMetaIntentOnlyMessage(text) {
   if (/\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/.test(t)) return false;
   if (/\b20\d{2}-\d{2}-\d{2}\b/.test(t)) return false;
   if (/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(t) && /\d/.test(t)) return false;
+  if (
+    /\b(?:add|create|schedule)\b/i.test(t) &&
+    /\b(?:event|calendar)\b/i.test(t) &&
+    /\b(?:my|the|project)\s+calendar\b/i.test(t)
+  ) {
+    return true;
+  }
   return /^(?:please\s+)?(?:let\'s\s+)?(?:can\s+(?:you|we)\s+)?(?:add|create|schedule)\s+(?:an?\s+)?(?:calendar\s+)?(?:event\b)?\s*\.?\s*$/i.test(t)
     || /^(?:can\s+we\s+)?(?:create|add|schedule)\s+(?:an?\s+)?(?:calendar\s+)?event\s*\.?\s*$/i.test(t)
     || /^(?:add|create|schedule)\s+(?:a\s+)?(?:calendar\s+)?event\s*\.?\s*$/i.test(t);
@@ -1263,6 +1270,7 @@ function isPlaceholderCalendarTitle(title, type) {
   if (isCalendarMetaIntentOnlyMessage(t)) return true;
   if (/^(for|on|the|a|an|at|to|and|or)$/i.test(t)) return true;
   if (/^calendar$/i.test(t)) return true;
+  if (/^20\d{2}$/i.test(t)) return true;
   const cap = type.charAt(0).toUpperCase() + type.slice(1);
   if (new RegExp(`^${cap}\\s*—\\s*calendar$`, 'i').test(t)) return true;
   return false;
@@ -1277,6 +1285,7 @@ function stripCalendarTitleNoise(raw) {
     .replace(/\b(?:on|for)\s+(?:the\s+)?\d{4}-\d{2}-\d{2}\b/g, '')
     .replace(/\b(?:for|on)\s+(?:the\s+)?tomorrow\b/gi, '')
     .replace(/\btomorrow\b/gi, '')
+    .replace(/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4}\b/gi, '')
     .replace(/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b/gi, '')
     .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/gi, '')
     .replace(/\b(?:for|on)\s+the\s+/gi, '')
@@ -1311,7 +1320,7 @@ function looksLikeDatePhrase(s) {
 
 /**
  * Parse "create calendar event" style messages. Returns { ok, projectId, event, needsMore }.
- * needsMore: 'date' | 'details' (name/type) | 'project' | null
+ * needsMore: 'details_and_date' | 'date' | 'details' (name/type) | 'project' | null
  * Pass `history` so follow-up lines ("March 25", "Rough-in") merge with earlier turns.
  */
 function parseCalendarEventCreate(message, { allProjects = [], parsedContext = {}, history = [] } = {}) {
@@ -1349,6 +1358,9 @@ function parseCalendarEventCreate(message, { allProjects = [], parsedContext = {
   }
 
   let titleSource = m;
+  if (looksLikeDatePhrase(m) && !/\b(inspection|delivery|framing|rough|trim|walkthrough|hvac|plumbing|electrical|concrete|pour|drywall|cabinet|roof|floor|meeting|permit)\b/i.test(m)) {
+    titleSource = '';
+  }
   if (Array.isArray(allProjects) && allProjects.length > 1) {
     const rOnly = resolveProjectByQuery(allProjects, m, { minScore: 42 });
     if (rOnly.project && m.length < 55) {
@@ -1401,7 +1413,7 @@ function parseCalendarEventCreate(message, { allProjects = [], parsedContext = {
   }
 
   const haveDate = !!dateStr;
-  const haveDetails = haveDate && !isPlaceholderCalendarTitle(title, type);
+  const haveDetails = !isPlaceholderCalendarTitle(title, type);
 
   if (!projectId && haveDetails && Array.isArray(allProjects) && allProjects.length > 1) {
     const r = resolveProjectByQuery(allProjects, m, { minScore: 35 });
@@ -1412,7 +1424,8 @@ function parseCalendarEventCreate(message, { allProjects = [], parsedContext = {
   }
 
   let needsMore = null;
-  if (!haveDate) needsMore = 'date';
+  if (!haveDate && !haveDetails) needsMore = 'details_and_date';
+  else if (!haveDate) needsMore = 'date';
   else if (!haveDetails) needsMore = 'details';
   else if (!projectId) needsMore = 'project';
 

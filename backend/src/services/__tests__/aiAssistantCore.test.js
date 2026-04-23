@@ -1,6 +1,7 @@
 const {
   analyzePortfolioProject,
   buildDailyCommandCenter,
+  parseCalendarEventCreate,
   runCompareProjectsPipeline,
 } = require('../aiAssistantCore');
 const {
@@ -59,5 +60,27 @@ describe('aiAssistantCore', () => {
     expect(pipeline.sorted[0].title).toBe('Beta');
     expect(pipeline.dailyBrief.topProfitRisks[0].projectTitle).toBe('Beta');
     expect(pipeline.dailyBrief.topActions.length).toBeGreaterThan(0);
+  });
+
+  test('generic calendar create requests ask for both event details and date', () => {
+    const parsed = parseCalendarEventCreate('Can you create an event for my calendar?', {
+      allProjects: [{ id: 'p1', title: 'Duplex Build' }],
+      parsedContext: { projectId: 'p1', currentProject: 'Duplex Build' },
+      history: [],
+    });
+
+    expect(parsed.needsMore).toBe('details_and_date');
+    expect(parsed.ok).toBe(false);
+  });
+
+  test('date-only follow-up does not become the calendar event title', () => {
+    const parsed = parseCalendarEventCreate('May 25, 2026', {
+      allProjects: [{ id: 'p1', title: 'Duplex Build' }],
+      parsedContext: { projectId: 'p1', currentProject: 'Duplex Build' },
+      history: [{ role: 'user', content: 'Can you create an event for my calendar?' }],
+    });
+
+    expect(parsed.needsMore).toBe('details');
+    expect(parsed.event.title).not.toBe('2026');
   });
 });

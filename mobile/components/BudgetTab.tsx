@@ -497,15 +497,47 @@ export default function BudgetTab({
     return total;
   }, [normalizedChangeOrders, projectData?.expenses]);
 
-  // CRITICAL: Use projectData.buckets directly (which comes from data.lines via convertToBudgetData)
-  // This ensures the Budget tab matches the Overview tab which uses materialsCart and estimate.laborLineItems
-  // DO NOT scale these buckets - they already match the Overview tab values
+  const approvedChangeOrderAllocations = useMemo(
+    () =>
+      normalizedChangeOrders.reduce(
+        (totals, co) => {
+          if (!(co.approved || co.status === 'Approved')) return totals;
+          return {
+            materials:
+              totals.materials + safe(co.materialsAmount ?? 0),
+            labor:
+              totals.labor + safe(co.laborAmount ?? 0),
+          };
+        },
+        { materials: 0, labor: 0 }
+      ),
+    [normalizedChangeOrders]
+  );
+
+  // Use projectData.buckets as the base estimate buckets, then apply approved CO breakdown
+  // only to the visible Material/Labor cards so approved AI change orders show up where
+  // users expect without changing the underlying financial cap calculations.
   const buckets = useMemo(() => {
-    // Use projectData.buckets directly (they're calculated from data.lines which matches Overview tab)
-    // These buckets are NOT scaled - they use the exact values from materialsCart and estimate.laborLineItems
     const list = projectData?.buckets || [];
-    return list; // Return buckets as-is without scaling
-  }, [projectData?.buckets]);
+    return list.map((bucket: any) => {
+      const bucketName = String(bucket?.name || '').toLowerCase();
+      const isMaterialsBucket =
+        bucketName.includes('material') || bucketName.includes('equipment');
+      const isLaborBucket = bucketName.includes('labor');
+      const approvedCoBudget =
+        isMaterialsBucket
+          ? approvedChangeOrderAllocations.materials
+          : isLaborBucket
+            ? approvedChangeOrderAllocations.labor
+            : 0;
+
+      return {
+        ...bucket,
+        budget: safe(bucket?.budget) + approvedCoBudget,
+        bidBudget: safe(bucket?.bidBudget ?? bucket?.budget) + approvedCoBudget,
+      };
+    });
+  }, [projectData?.buckets, approvedChangeOrderAllocations]);
   
   // Memoize buckets with stable IDs to prevent unnecessary re-renders
   const stableBuckets = useMemo(() => {

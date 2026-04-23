@@ -279,11 +279,103 @@ const STREAMING_ENABLED = String(
  * IMPORTANT: /stream does not run backend tools (get_project_health, etc.).
  * Health checks and similar PM intents must use POST so parsedContext.allProjects
  * and tool results are applied — otherwise the model may invent "project not found" errors.
+ *
+ * Calendar create is parsed on POST and returns `create_calendar_event` actions; follow-up turns
+ * like "Framing inspection" or "May 25 2026" do not match the action-intent regex but must still
+ * use POST — otherwise /stream streams a fake "I've scheduled it" with no persistence.
  */
-function isStreamSafeMessage(raw: string): boolean {
+type StreamHistoryTurn = { role?: string; content?: string };
+
+function getLastAssistantContent(history: StreamHistoryTurn[] | undefined): string {
+  if (!Array.isArray(history)) return "";
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (String(history[i]?.role || "") === "assistant") {
+      return String(history[i]?.content || "");
+    }
+  }
+  return "";
+}
+
+/** Last assistant was asking for calendar event details / confirmation (POST must run actions). */
+function assistantIndicatesCalendarCapturePending(assistantContent: string): boolean {
+  const s = String(assistantContent || "");
+  const sl = s.toLowerCase();
+  const hasQuestion = /[?？]/.test(s);
+  // Strong signals — do not require "?" (models sometimes omit it).
+  if (
+    /\bproject\s+calendar\b/i.test(s) ||
+    /\bto\s+(?:your\s+|the\s+)?calendar\b/i.test(sl) ||
+    /\bwhat\s+date\b/i.test(sl) ||
+    /confirm\s+below\s+to\s+save/i.test(sl) ||
+    /\bwhich\s+project\s+is\s+this\s+for\b/i.test(sl)
+  ) {
+    return true;
+  }
+  if (!hasQuestion) return false;
+  return (
+    /\bwhat\s+.*\bdate\b.*\b(use|schedule|for)\b/i.test(sl) ||
+    /\bevent\s+name\b/i.test(sl) ||
+    /\bwhat\s+event\b/i.test(sl) ||
+    /\badd\s+.*\bto\s+.*\bcalendar\b/i.test(sl)
+  );
+}
+
+/** Last assistant is in a write flow that needs POST (confirmation or required fields). */
+function assistantIndicatesWriteActionPending(assistantContent: string): boolean {
+  const s = String(assistantContent || "");
+  const sl = s.toLowerCase();
+  return (
+    /requires confirmation/i.test(s) ||
+    /before i create it/i.test(sl) ||
+    /reply\s+["']?yes,\s*create it["']?\s+to\s+confirm/i.test(sl) ||
+    /\bplease confirm\b/i.test(sl) ||
+    /\bconfirm below\b/i.test(sl) ||
+    /\bwhat is the amount, vendor, and category\b/i.test(sl) ||
+    /\bexpected delivery\b/i.test(sl) ||
+    /\bpurchase order\b/i.test(sl) && /\b(what is|which|confirm|before i create it|reply)\b/i.test(sl) ||
+    /\bwhat is the\b.*\b(change order|purchase order)\b/i.test(sl)
+  );
+}
+
+/** User reply that is probably a calendar date (POST so backend can emit create_calendar_event). */
+function messageLooksLikeCalendarDateReply(raw: string): boolean {
+  const t = raw.trim();
+  if (t.length > 90) return false;
+  if (/^\d{4}-\d{2}-\d{2}\s*$/.test(t)) return true;
+  if (/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(t)) return true;
+  if (
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b[\s,]*\d{1,2}(?:st|nd|rd|th)?[\s,]*\d{2,4}\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (/\b(tomorrow|today)\b/i.test(t) && t.length < 48) return true;
+  if (/\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|fri|sat|sun)\b/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** Short confirmation replies must use POST so backend can execute write tools. */
+function messageLooksLikeWriteConfirmationReply(raw: string): boolean {
+  const t = String(raw || "").trim().toLowerCase();
+  if (!t || t.length > 80) return false;
+  return /^(yes|yes create it|create it|confirm|confirmed|go ahead|do it|proceed|sounds good|ok create|okay create|approve|approved)\.?$/.test(t);
+}
+
+function isStreamSafeMessage(raw: string, history?: StreamHistoryTurn[]): boolean {
   if (!raw || typeof raw !== "string") return false;
   const msg = raw.trim().toLowerCase();
   if (msg.length === 0 || msg.length > 400) return false;
+
+  const lastAssistant = getLastAssistantContent(history);
+  if (assistantIndicatesCalendarCapturePending(lastAssistant)) return false;
+  if (assistantIndicatesWriteActionPending(lastAssistant)) return false;
+  if (messageLooksLikeCalendarDateReply(raw)) return false;
+  if (messageLooksLikeWriteConfirmationReply(raw)) return false;
+  if (/\bcalendar\b/.test(msg)) return false;
+
   const actionIntent = /\b(log|add|create|make|mark|record|scan|upload|invoice|send|approve|assign|schedule|book|pay|collect|generate|populate|build an?\s*estimate|run a scenario|what if|scenario|change order|purchase order|po\b)\b/;
   if (actionIntent.test(msg)) return false;
   try {
@@ -1203,6 +1295,20 @@ const AIAssistantModal: React.FC<Props> = ({
   const compactChipFlow = useMemo(() => {
     const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
     const content = (lastAssistant?.content || '').toLowerCase();
+    const recentUserText = [...messages]
+      .filter((m) => m.role === 'user')
+      .slice(-5)
+      .map((m) => String(m.content || '').toLowerCase())
+      .join(' ');
+    // Prefer recent USER wording over assistant text: the model may wrongly say "purchase order"
+    // while the user is clearly logging a materials expense (amount + store + material).
+    if (
+      /\b(materials?|for materials|it'?s\s+for\s+materials)\b/i.test(recentUserText) &&
+      /\$\s*[\d,]+|[\d,]+\s*(?:dollars|bucks)\b/i.test(recentUserText) &&
+      /\b(home\s*depot|lowe'?s|menards|ace|amazon|walmart|sherwin)\b/i.test(recentUserText)
+    ) {
+      return 'log_expense';
+    }
     if (content.includes('change order') && (content.includes('amount') || content.includes('vendor') || content.includes('what is the change order'))) return 'change_order';
     if (content.includes('payment') || content.includes('collected') || content.includes('which payment')) return 'payments';
     if (content.includes('daily log') || content.includes('job log') || content.includes('accomplish') || content.includes('what did you')) return 'daily_log';
@@ -2090,7 +2196,13 @@ const AIAssistantModal: React.FC<Props> = ({
         const coAmount = co.clientPrice || co.cost || co.amount || action.amount || 0;
         const coDesc = co.description || action.description || 'Change Order';
         const coVendor = co.vendor || action.vendor || '';
-        return `Approve Change Order?\n\nDo you want to approve this change order for $${Number(coAmount).toLocaleString()}?\n\n"${coDesc}"${coVendor ? ` from ${coVendor}` : ''}\n\nApproved change orders will be added to your budget.`;
+        const m = Number(co.materialsAmount);
+        const l = Number(co.laborAmount);
+        const breakdown =
+          Number.isFinite(m) || Number.isFinite(l)
+            ? `\n\nMaterials: $${(Number.isFinite(m) ? m : 0).toLocaleString()} · Labor: $${(Number.isFinite(l) ? l : 0).toLocaleString()}`
+            : '';
+        return `Approve Change Order?\n\nDo you want to approve this change order for $${Number(coAmount).toLocaleString()}?${breakdown}\n\n"${coDesc}"${coVendor ? ` (${coVendor})` : ''}\n\nTap Approve on this popup to add it to your budget. This step happens in the assistant—you don't need to open the Change Orders tab to approve it.`;
       }
       
       case 'add_material':
@@ -2213,6 +2325,7 @@ const AIAssistantModal: React.FC<Props> = ({
           if (milestone.scheduledDate) details.push(`on ${new Date(milestone.scheduledDate + 'T00:00:00').toLocaleDateString()}`);
           return `Add payment milestone "${milestone.name}"${details.length > 0 ? ` (${details.join(', ')})` : ''}?`;
         }
+        return `Add payment milestone?`;
 
       case 'create_calendar_event': {
         const ev = action.event || {};
@@ -2221,7 +2334,6 @@ const AIAssistantModal: React.FC<Props> = ({
         const tm = ev.time ? ` at ${ev.time}` : '';
         return `Add to **Project Calendar**?\n\n**${ev.title || 'Event'}** (${t}) — ${d}${tm}\nProject: **${action.projectName || 'Project'}**`;
       }
-        return `Add payment milestone?`;
       
       case 'add_weekly_payment':
         if (action.payment) {
@@ -3000,7 +3112,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Only used for conversational Q&A. Action messages and any streaming
       // error fall through to the existing POST path so tool calls, selection
       // cards, and action handlers continue to work exactly as before.
-      if (STREAMING_ENABLED && isStreamSafeMessage(newMessage.content)) {
+      if (STREAMING_ENABLED && isStreamSafeMessage(newMessage.content, messages)) {
         const streamPlaceholderId = `${Date.now()}-stream`;
         const streamPlaceholder: Message = {
           id: streamPlaceholderId,
@@ -3392,6 +3504,45 @@ const AIAssistantModal: React.FC<Props> = ({
               }, 100);
             } else if (parsedContext?.screen === 'Projects' && onProjectUpdated) {
               onProjectUpdated(projectId, data.projectUpdate);
+            } else if (onAction) {
+              // Project may exist in ProjectDataContext (e.g. open on Project Detail) but not yet in
+              // ProjectListContext — in that case getProjectById fails and we must still push server
+              // expenses so Budget / category modals update (project-detail merges via project_updated).
+              const incomingPOsFb = purchaseOrders || [];
+              const serverExpenses = expenses || [];
+              const calculatedCommittedPOsFb = incomingPOsFb
+                .filter((po: any) => po.status === 'Pending')
+                .reduce((sum: number, po: any) => sum + (Number(po.amount) || 0), 0);
+              console.warn('⚠️ AIAssistantModal: projectUpdate but project not in list — syncing via onAction', {
+                projectId,
+                screen: parsedContext?.screen,
+                expensesCount: serverExpenses.length,
+                purchaseOrdersCount: incomingPOsFb.length,
+              });
+              onAction({
+                type: 'project_updated',
+                projectId,
+                expenses: serverExpenses,
+                purchaseOrders: incomingPOsFb,
+                committedPOs: committedPOs !== undefined ? committedPOs : calculatedCommittedPOsFb,
+                totalSpent: actualCost || totalSpent || 0,
+              });
+              if (incomingPOsFb.length > 0) {
+                incomingPOsFb.forEach((incomingPO: any) => {
+                  onAction({
+                    type: 'add_purchase_order',
+                    projectId: projectId,
+                    amount: incomingPO.amount,
+                    vendor: incomingPO.vendor,
+                    category: incomingPO.category || 'Materials/Equipment',
+                    description:
+                      incomingPO.description ||
+                      `${incomingPO.category || 'Material'} from ${incomingPO.vendor}`,
+                    poNumber: incomingPO.poNumber,
+                    expectedDelivery: incomingPO.expectedDelivery || null,
+                  });
+                });
+              }
             }
           }
         } catch (error) {
@@ -3441,7 +3592,16 @@ const AIAssistantModal: React.FC<Props> = ({
         data.actions.forEach((action: any) => {
           // Create a unique key based on action type and key parameters
           const actionKey =
-            action.type === 'update_customer_info'
+            action.type === 'create_change_order'
+              ? (() => {
+                  const co = action.changeOrder || {};
+                  const amt = co.amount ?? co.clientPrice ?? co.cost ?? action.amount ?? '';
+                  const mat = co.materialsAmount ?? '';
+                  const lab = co.laborAmount ?? '';
+                  const desc = co.description || action.description || '';
+                  return `${action.type}-${action.projectId || action.projectName || ''}-${desc}-${amt}-${mat}-${lab}`;
+                })()
+              : action.type === 'update_customer_info'
               ? `${action.type}-${action.customerName || ''}-${action.phone || ''}-${action.address || ''}-${action.zip || ''}`
               : action.type === 'update_project_info'
                 ? `${action.type}-${action.title || ''}-${action.projectType || ''}-${action.scopeDescription || ''}-${action.sqft ?? ''}`

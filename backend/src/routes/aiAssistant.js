@@ -1040,7 +1040,9 @@ function inferExpectedDeliveryFromUserMessages(userMessages = []) {
 }
 
 function getPOFlowUserMessages(messages = []) {
-  const poIntentRegex = /\b(purchase order|create.*\bpo\b|create.*purchase order|add.*purchase order|create.*order)\b/i;
+  // Do NOT use `create.*order` — it matches "create a **change** order" and hijacks PO flow.
+  const poIntentRegex =
+    /\b(purchase\s+order|create\s+(?:a\s+)?(?:purchase\s+order|\bpo\b)|add\s+(?:a\s+)?purchase\s+order|new\s+po\b)\b/i;
   let startIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -1097,7 +1099,79 @@ function assistantMessageIsChangeOrderCollectionPrompt(content) {
   if (!/\bchange\s+orders?\b/.test(t)) return false;
   if (/\bwhat\s+is\s+(the\s+)?change\s+order\b/.test(t)) return true;
   if (t.includes('change order') && t.includes('amount') && t.includes('vendor')) return true;
+  if (/\bchange\s+order\b/.test(t) && /\b(material|labor)\b/.test(t) && /\b(cost|dollar|\$)\b/.test(t)) return true;
   return false;
+}
+
+/**
+ * Pull material $ and labor $ from a single user message (change order flow).
+ * Only sets keys that are confidently matched.
+ */
+function extractCOBreakdownFromText(raw) {
+  const text = String(raw || '').trim();
+  const out = {};
+  if (!text) return out;
+
+  const toNum = (s) => {
+    const n = parseFloat(String(s).replace(/,/g, ''));
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+
+  // "… for $1500 … material is $1000 … labor is 500" where 1500 is TOTAL (must run BEFORE generic material/labor pairing)
+  const totalThenParts = text.match(
+    /\bfor\s+\$?\s*([\d,]+(?:\.\d+)?)\b[\s\S]*?\b(?:materials?|material)\s*(?:is|cost|are|:)?\s*\$?\s*([\d,]+(?:\.\d+)?)[\s\S]*?\b(?:labor|labour)\s*(?:is|cost|are|:)?\s*\$?\s*([\d,]+(?:\.\d+)?)/i
+  );
+  if (totalThenParts) {
+    const tot = toNum(totalThenParts[1]);
+    const mat = toNum(totalThenParts[2]);
+    const lab = toNum(totalThenParts[3]);
+    if (
+      tot !== undefined &&
+      mat !== undefined &&
+      lab !== undefined &&
+      Math.abs(tot - mat - lab) <= Math.max(0.02, tot * 0.001)
+    ) {
+      out.materialsAmount = mat;
+      out.laborAmount = lab;
+      return out;
+    }
+  }
+
+  // "3000 for materials and 2000 for labor" / "$3,000 materials, $2k labor" (k not supported — use full number)
+  let paired = text.match(
+    /\$?\s*([\d,]+(?:\.\d+)?)\s*(?:dollars?)?\s*(?:for|,)?\s*materials?.*?\$?\s*([\d,]+(?:\.\d+)?)\s*(?:dollars?)?\s*(?:for|,)?\s*(?:labor|labour)\b/i
+  );
+  if (paired) {
+    const a = toNum(paired[1]);
+    const b = toNum(paired[2]);
+    if (a !== undefined) out.materialsAmount = a;
+    if (b !== undefined) out.laborAmount = b;
+    return out;
+  }
+
+  paired = text.match(
+    /\$?\s*([\d,]+(?:\.\d+)?)\s*(?:dollars?)?\s*(?:for|,)?\s*(?:labor|labour).*?\$?\s*([\d,]+(?:\.\d+)?)\s*(?:dollars?)?\s*(?:for|,)?\s*materials?\b/i
+  );
+  if (paired) {
+    const a = toNum(paired[1]);
+    const b = toNum(paired[2]);
+    if (a !== undefined) out.laborAmount = a;
+    if (b !== undefined) out.materialsAmount = b;
+    return out;
+  }
+
+  const ma = text.match(/\b(?:materials?|material)\s*(?:cost)?\s*[:\s=]*\$?\s*([\d,]+(?:\.\d+)?)\b/i);
+  if (ma) {
+    const v = toNum(ma[1]);
+    if (v !== undefined) out.materialsAmount = v;
+  }
+  const lb = text.match(/\b(?:labor|labour)\s*(?:cost)?\s*[:\s=]*\$?\s*([\d,]+(?:\.\d+)?)\b/i);
+  if (lb) {
+    const v = toNum(lb[1]);
+    if (v !== undefined) out.laborAmount = v;
+  }
+
+  return out;
 }
 
 function getCOFlowUserMessages(messages = []) {
@@ -1133,6 +1207,8 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
   let description = null;
   let amount = null;
   let vendor = null;
+  let materialsAmount;
+  let laborAmount;
 
   // Intent phrases that should NOT be treated as descriptions
   const intentPhrases = /^(create|add|make|i need|i want|give me|start)(\s+\w+)*\s+(change\s+(?:the\s+)?order|scope\s+change|extra\s+work)s?$/i;
@@ -1150,6 +1226,40 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     const raw = String(msg?.content || '').trim();
     if (!raw) continue;
     const text = raw.toLowerCase();
+
+    const breakdownFromLine = extractCOBreakdownFromText(raw);
+    if (typeof breakdownFromLine.materialsAmount === 'number') {
+      materialsAmount = breakdownFromLine.materialsAmount;
+    }
+    if (typeof breakdownFromLine.laborAmount === 'number') {
+      laborAmount = breakdownFromLine.laborAmount;
+    }
+
+    // "The change order is for Windows for $1500" (common phrasing — do NOT mis-route to vendor heuristics)
+    const coIsForTwice = raw.match(
+      /\b(?:the\s+)?change\s+order\s+is\s+for\s+(.+?)\s+for\s+\$?\s*([\d,]+(?:\.\d+)?)\s*$/i
+    );
+    if (coIsForTwice) {
+      const scope = coIsForTwice[1].trim();
+      if (scope.length > 0 && !isIntentOnly(scope)) {
+        description = scope;
+        const n = parseFloat(String(coIsForTwice[2]).replace(/,/g, ''));
+        if (Number.isFinite(n) && n >= 1) amount = n;
+      }
+      continue;
+    }
+    const coForOnce = raw.match(
+      /\b(?:the\s+)?change\s+order\s+for\s+(.+?)\s+[\$]?\s*([\d,]+(?:\.\d+)?)\s*$/i
+    );
+    if (coForOnce && !/\bchange\s+order\s+is\s+for\b/i.test(raw)) {
+      const scope = coForOnce[1].trim();
+      if (scope.length > 0 && !isIntentOnly(scope)) {
+        description = scope;
+        const n = parseFloat(String(coForOnce[2]).replace(/,/g, ''));
+        if (Number.isFinite(n) && n >= 1) amount = n;
+      }
+      continue;
+    }
 
     // Skip pure intent commands
     if (isIntentOnly(raw)) continue;
@@ -1196,7 +1306,7 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     // BUT: If X is a known vendor, treat it as vendor+amount, not description+amount
     if (!description && !vendor) {
       // "Concrete for 3000" or "Lowe's for 1000" pattern - PRIORITY: Check this FIRST
-      let match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
+      let match = raw.match(/^(.+?)\s+for\s+\$?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*$/i);
       if (match && match[1] && match[1].trim().length > 0) {
         let xPart = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
         if (xPart.length > 0 && !isIntentOnly(xPart)) {
@@ -1230,7 +1340,7 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
       }
       // Fallback pattern (without end anchor)
       if (!description && !vendor) {
-        match = raw.match(/^(.+?)\s+for\s+(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s|$)/i);
+        match = raw.match(/^(.+?)\s+for\s+\$?\s*(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s|$)/i);
         if (match && match[1] && match[1].trim().length > 0) {
           let xPart = match[1].trim().replace(/\s+(from|at)\s+.+$/i, '').trim();
           if (xPart.length > 0 && !isIntentOnly(xPart)) {
@@ -1347,12 +1457,16 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
       // If still no vendor and this looks like a vendor name (multi-word, not a number, not an intent)
       // This catches cases like "Floor and decor" when user is directly answering "What is the vendor?"
       if (!vendor && !isJustNumber && !isIntentOnly(raw) && raw.length > 3) {
-        // Check if it's a known vendor (now with word boundaries, so "Floor and decor" will match)
         if (knownVendors.test(raw)) {
           vendor = raw.trim();
-        } else if (raw.split(/\s+/).length >= 2 && !description) {
-          // Multi-word response that's not a description → likely a vendor name
-          // Only set as vendor if we don't already have a description (to avoid overwriting)
+        } else if (
+          raw.split(/\s+/).length >= 2 &&
+          !description &&
+          !/\bchange\s+order\b/i.test(raw) &&
+          !/\d/.test(raw) &&
+          raw.length <= 48
+        ) {
+          // Short multi-word vendor answer (e.g. "Floor and Decor") — never a full CO sentence
           vendor = raw.trim();
         }
       }
@@ -1388,25 +1502,54 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
     }
   }
 
-  // Final vendor cleanup: normalize common variations
+  // Final vendor cleanup: normalize common variations; drop bogus "vendor" = entire CO sentence
   if (vendor) {
-    // Normalize "Floor and decor" / "Floor & decor" / "floor and decor" to consistent format
     vendor = vendor.trim();
-    // Preserve original casing but normalize spacing
     vendor = vendor.replace(/\s+/g, ' ');
+    if (/\bchange\s+order\b/i.test(vendor) || vendor.length > 80) {
+      vendor = null;
+    }
+  }
+
+  // Short follow-up scope (e.g. assistant asked "what for?" → user says "Windows") when we already have amount
+  if (!description && amount && userMessages.length > 0) {
+    const lastRaw = String(userMessages[userMessages.length - 1]?.content || '').trim();
+    if (
+      lastRaw.length >= 2 &&
+      lastRaw.length <= 60 &&
+      /^[a-zA-Z]/.test(lastRaw) &&
+      !/^\d+(?:,\d{3})*(?:\.\d+)?$/.test(lastRaw) &&
+      !/^(yes|yep|yeah|no|nope|ok|sure|confirm|thanks)\b/i.test(lastRaw) &&
+      !isIntentOnly(lastRaw) &&
+      !knownVendors.test(lastRaw) &&
+      !/\bchange\s+order\b/i.test(lastRaw) &&
+      lastRaw.split(/\s+/).length <= 8
+    ) {
+      description = lastRaw;
+    }
   }
   
+  if (
+    typeof materialsAmount === 'number' &&
+    typeof laborAmount === 'number' &&
+    materialsAmount + laborAmount > 0
+  ) {
+    amount = materialsAmount + laborAmount;
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     console.log('🔍 inferCOFieldsFromUserMessages result:', { 
       description, 
       amount, 
-      vendor, 
+      vendor,
+      materialsAmount,
+      laborAmount,
       messageCount: userMessages.length,
       messages: userMessages.map(m => m.content)
     });
   }
   
-  return { description, amount, vendor };
+  return { description, amount, vendor, materialsAmount, laborAmount };
 }
 
 function writeAuditLog(entry) {
@@ -6613,6 +6756,14 @@ router.post('/stream', async (req, res) => {
     const wantsCalCreateStream = shouldUseCalendarCreateParser(msgCalCreateStream, histStream);
     if (wantsCalCreateStream && projectsCalStream.length > 0) {
       const pcc = parseCalendarEventCreate(msgCalCreateStream, { allProjects: projectsCalStream, parsedContext, history: histStream });
+      if (pcc.needsMore === 'details_and_date') {
+        const r = appendDataFreshness('I can add that to your **Project Calendar**. What is the **event name** and what **date** should I use? (Example: **Framing inspection on 2026-05-25** or **Dumpster delivery tomorrow**.)', parsedContext);
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
       if (pcc.needsMore === 'date') {
         const r = appendDataFreshness('I can add that to your **Project Calendar**. What **date** should I use? (Example: **2026-04-15** or **tomorrow**.)', parsedContext);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -7191,6 +7342,12 @@ router.post('/', async (req, res) => {
     }
     if (wantsCalendarCreate && projectsListForCalendar.length > 0) {
       const parsedCalCreate = parseCalendarEventCreate(msgForCalendar, { allProjects: projectsListForCalendar, parsedContext, history: hist });
+      if (parsedCalCreate.needsMore === 'details_and_date') {
+        return res.json({
+          reply: 'I can add that to your **Project Calendar**. What is the **event name** and what **date** should I use? (Example: **Framing inspection on 2026-05-25** or **Dumpster delivery tomorrow**.)',
+          actions: [],
+        });
+      }
       if (parsedCalCreate.needsMore === 'date') {
         return res.json({
           reply: 'I can add that to your **Project Calendar**. What **date** should I use? (Example: **2026-04-15** or **4/15/2026**, **March 25**, or say **tomorrow**.)',
@@ -8532,7 +8689,7 @@ router.post('/', async (req, res) => {
               },
               expectedDelivery: {
                 type: 'string',
-                description: 'Expected delivery date in ISO format (YYYY-MM-DD). REQUIRED - you MUST ask the user "What is the expected delivery or received date?" if not provided. Do not create the PO without this date.',
+                description: 'Expected delivery date in ISO format (YYYY-MM-DD). REQUIRED only for a real purchase order when the user explicitly wants a PO / committed order. If they are logging a material expense, spent money, or "material expense" — use add_material_expense instead; NEVER ask for delivery or pickup dates for expenses.',
               },
             },
             required: projectId ? ['amount', 'vendor', 'category', 'expectedDelivery', 'projectId'] : ['amount', 'vendor', 'category', 'expectedDelivery'],
@@ -8543,7 +8700,7 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'add_material_expense',
-          description: `Add a material expense transaction to a project. Use when user says "spent", "bought", "purchased", "paid", "expense". Creates an expense entry that appears in "Material Transactions". DO NOT use this for purchase orders - use add_purchase_order instead.`,
+          description: `Add a material expense transaction to a project. Use when user says "spent", "bought", "purchased", "paid", "expense", "material expense", "log/create an expense", or gives vendor + amount for work already purchased. Creates an entry in Material Transactions. NEVER ask for expected delivery, pickup date, or received date — those belong ONLY to add_purchase_order when the user explicitly wants a purchase order. DO NOT use add_purchase_order for expense logging.`,
           parameters: {
             type: 'object',
             properties: {
@@ -8617,18 +8774,20 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'create_change_order',
-          description: 'Create a change order for a **live/won project** when scope or price changes after the contract (e.g. "client wants to add...", "scope change", "add a change order"). **Do NOT use** for the **Estimate / bid builder**: changing **payment schedule**, **deposit percentage**, **weekly vs milestone**, or **payment amounts on an unsent bid** is not a change order — answer from estimate context or use estimate payment actions, not create_change_order. Change orders do NOT need delivery/received dates — NEVER ask for one.',
+          description: 'Create a change order for a **live/won project** when scope or price changes after the contract (e.g. "client wants to add...", "scope change", "add a change order"). **Before calling**, you MUST have: (1) what the change is for — `description`, (2) **material cost** and **labor cost** in dollars (`materialsAmount`, `laborAmount`; use **0** if one side does not apply). **Total** = materialsAmount + laborAmount. Do **not** call this tool until the user has given both breakdown numbers (0 allowed). **Do NOT use** for the **Estimate / bid builder**: changing **payment schedule**, **deposit percentage**, **weekly vs milestone**, or **payment amounts on an unsent bid** is not a change order — answer from estimate context or use estimate payment actions, not create_change_order. Change orders do NOT need delivery/received dates — NEVER ask for one. **After you call this tool successfully:** tell the user the app shows an **Approve Change Order** confirmation **in this assistant** (a popup over the chat) and they should tap **Approve** there to add it to the budget — do **not** tell them to open the Change Orders tab or another screen to approve this draft.',
           parameters: {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: `Project ID. ${projectId ? `Use "${projectId}".` : 'Required.'}` },
-              description: { type: 'string', description: 'Description of the scope change (e.g., "Concrete", "Add half bathroom to master suite"). REQUIRED.' },
-              amount: { type: 'number', description: 'Cost of the change order in dollars. REQUIRED. Extract ANY number from the user message as the amount.' },
-              vendor: { type: 'string', description: 'Vendor or supplier for the change order (e.g., "Home Depot", "ABC Supply"). REQUIRED — ask the user if not provided.' },
+              description: { type: 'string', description: 'What the change order is for — short title or scope (e.g., "Extra deck stairs", "Owner-added pantry"). REQUIRED.' },
+              materialsAmount: { type: 'number', description: 'Material cost portion in dollars (≥ 0). REQUIRED. Use 0 if this CO is labor-only.' },
+              laborAmount: { type: 'number', description: 'Labor cost portion in dollars (≥ 0). REQUIRED. Use 0 if this CO is materials-only.' },
+              amount: { type: 'number', description: 'Optional. Total sell/cost dollars; should equal materialsAmount + laborAmount. If omitted, the server uses the sum of material + labor.' },
+              vendor: { type: 'string', description: 'Optional vendor or supplier for the change order (e.g., "Home Depot", "ABC Supply"). Only include if the user provides it.' },
               addPaymentMilestone: { type: 'boolean', description: 'Whether to add a payment milestone for this CO. Default false. Only set to true if the user explicitly asks to add a payment milestone or payment schedule.' },
               markupPct: { type: 'number', description: 'Markup percentage to apply to the CO cost. Defaults to the project markup (e.g., 20%).' },
             },
-            required: ['description', 'amount', 'vendor'],
+            required: ['description', 'materialsAmount', 'laborAmount'],
           },
         },
       },
@@ -10147,10 +10306,20 @@ router.post('/', async (req, res) => {
     // Catch expense logging requests BEFORE router runs to prevent misclassification
     // BUT skip if user is in a daily log flow
     if (!inDailyLogContext) {
-      const combinedMessage = (messageLower + ' ' + lastUserContent).toLowerCase();
-      const hasLogKeyword = /\b(log|record|add)\b/i.test(combinedMessage);
-      const hasExpenseKeyword = /\bexpense/i.test(combinedMessage) || 
-                                /\b(spent|bought|purchased)\b/i.test(combinedMessage);
+      const recentUserTurns = allUserMessages
+        .slice(-8)
+        .map((m) => String(m?.content || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const combinedMessage = `${recentUserTurns} ${messageLower}`.replace(/\s+/g, ' ').trim();
+      const hasLogKeyword =
+        /\b(log|record|add|create|make|enter|submit)\b/i.test(combinedMessage) ||
+        /\b(login\s+expense|log\s+in\s+expense)\b/i.test(combinedMessage) ||
+        /\b(material|materials)\s+expense\b/i.test(combinedMessage);
+      const hasExpenseKeyword =
+        /\bexpense/i.test(combinedMessage) ||
+        /\b(spent|bought|purchased)\b/i.test(combinedMessage);
       const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
       const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
       
@@ -10379,7 +10548,12 @@ router.post('/', async (req, res) => {
     
     // Check if CO fields are already provided in the message
     const coFieldsInMessage = inferCOFieldsFromUserMessages([{ role: 'user', content: message }]);
-    const hasCOFields = !!(coFieldsInMessage.description && coFieldsInMessage.amount && coFieldsInMessage.vendor);
+    const hasCOFields = !!(
+      coFieldsInMessage.description &&
+      typeof coFieldsInMessage.materialsAmount === 'number' &&
+      typeof coFieldsInMessage.laborAmount === 'number' &&
+      Number(coFieldsInMessage.materialsAmount) + Number(coFieldsInMessage.laborAmount) > 0
+    );
     
     // If this is a change order request but fields are missing, let it go through to router
     // (router will ask for missing fields). If all fields present, also let it through to execute.
@@ -10416,9 +10590,13 @@ router.post('/', async (req, res) => {
       description: coFlowContext.description,
       amount: coFlowContext.amount,
       vendor: coFlowContext.vendor,
+      materialsAmount: coFlowContext.materialsAmount,
+      laborAmount: coFlowContext.laborAmount,
       hasDescription: !!coFlowContext.description,
       hasAmount: !!coFlowContext.amount,
       hasVendor: !!coFlowContext.vendor,
+      hasMaterialsAmount: typeof coFlowContext.materialsAmount === 'number' && !Number.isNaN(coFlowContext.materialsAmount),
+      hasLaborAmount: typeof coFlowContext.laborAmount === 'number' && !Number.isNaN(coFlowContext.laborAmount),
       userMessages: getCOFlowUserMessages([
         ...history.filter(m => m?.role && m?.content),
         { role: 'user', content: message },
@@ -10428,7 +10606,22 @@ router.post('/', async (req, res) => {
     // ── EXPLICIT EXPENSE LOGGING DETECTION (after router) ──────────────────
     // Re-use variables from pre-router check
     // BUT skip if user is in a daily log flow
-    const combinedMessageForExpense = (messageLower + ' ' + lastUserContent).toLowerCase();
+    const recentUserExpenseBlob = allUserMessages
+      .slice(-10)
+      .map((m) => String(m?.content || '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const recentAssistantExpenseBlob = messages
+      .filter((m) => m.role === 'assistant')
+      .slice(-4)
+      .map((m) => String(m?.content || '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const combinedMessageForExpense = `${recentUserExpenseBlob} ${messageLower} ${recentAssistantExpenseBlob}`
+      .replace(/\s+/g, ' ')
+      .trim();
     
     // Check if we're still in a daily log context (from pre-router check or recent messages)
     const recentMessagesForExpenseCheck = messages.slice(-6);
@@ -10441,9 +10634,13 @@ router.post('/', async (req, res) => {
     // More flexible detection - check for "log" + "expense" anywhere in the message
     // Handles patterns like "can you log an expense", "i need to log an expense", "log expense", etc.
     // BUT exclude if it's a daily log request
-    const hasLogKeywordForExpense = /\b(log|record|add)\b/i.test(combinedMessageForExpense);
-    const hasExpenseKeywordForExpense = /\bexpense/i.test(combinedMessageForExpense) || 
-                              /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
+    const hasLogKeywordForExpense =
+      /\b(log|record|add|create|make|enter|submit)\b/i.test(combinedMessageForExpense) ||
+      /\b(login\s+expense|log\s+in\s+expense)\b/i.test(combinedMessageForExpense) ||
+      /\b(material|materials)\s+expense\b/i.test(combinedMessageForExpense);
+    const hasExpenseKeywordForExpense =
+      /\bexpense/i.test(combinedMessageForExpense) ||
+      /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
     const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense && !inDailyLogContextForExpense;
     
     // Check if expense type is already specified (materials/labor) or from green-card selection
@@ -10557,6 +10754,8 @@ router.post('/', async (req, res) => {
             hasDescription: !!coFlowContext.description,
             hasAmount: !!coFlowContext.amount,
             hasVendor: !!coFlowContext.vendor,
+            hasMaterialsAmount: typeof coFlowContext.materialsAmount === 'number' && !Number.isNaN(coFlowContext.materialsAmount),
+            hasLaborAmount: typeof coFlowContext.laborAmount === 'number' && !Number.isNaN(coFlowContext.laborAmount),
           },
         }
       ), 12000, 'router_stage');
@@ -10693,6 +10892,117 @@ router.post('/', async (req, res) => {
       }
     } else if (isDailyLogDomain) {
       console.log('🛡️ Daily log protection: router says daily_log, blocking expense guard override');
+    }
+
+    // ── MATERIAL EXPENSE vs PURCHASE ORDER (router often misroutes follow-ups) ─
+    // Follow-ups like "It's for materials $1500 at Home Depot for tile" do not repeat the word
+    // "expense", so combinedMessageForExpense must include prior user turns (handled above).
+    const assistantAskedMaterialExpenseFlow =
+      /\bmaterial\s+expense\b/i.test(recentAssistantExpenseBlob) ||
+      /\bfor\s+the\s+material\s+expense\b/i.test(recentAssistantExpenseBlob) ||
+      (/\bamount, category, and vendor\b/i.test(recentAssistantExpenseBlob) && /\bmaterial/i.test(recentAssistantExpenseBlob)) ||
+      /\bfor\s+materials?,?\s+please\s+provide\b/i.test(recentAssistantExpenseBlob) ||
+      /\bwhat type of expense\b/i.test(recentAssistantExpenseBlob);
+    const inExpenseConversation =
+      /\b(log|record|add|create|make|enter|submit)\b.*\bexpense\b/i.test(combinedMessageForExpense) ||
+      /\b(login\s+expense|log\s+in\s+expense)\b/i.test(combinedMessageForExpense) ||
+      /\b(material|materials)\s+expense\b/i.test(combinedMessageForExpense) ||
+      /\bexpense\b.*\b(for\s+)?(material|materials)\b/i.test(combinedMessageForExpense) ||
+      assistantAskedMaterialExpenseFlow;
+    const userSaysMaterials =
+      /\b(for materials|it'?s\s+for\s+materials|materials?|material)\b/i.test(messageLower);
+    const expenseIntentIsMaterial =
+      userSaysMaterials ||
+      /\b(material|materials)\b/i.test(recentUserExpenseBlob) ||
+      /\b(material|materials)\s+expense\b/i.test(combinedMessageForExpense) ||
+      /^\s*materials?\s*[.!?,]?\s*$/i.test(String(message || '').trim()) ||
+      (Boolean(expenseTypeFromCards) && String(parsedContext?.selectedExpenseType || '').toLowerCase() === 'materials');
+    const userExplicitNotPO =
+      /\b(not\s+a\s+purchase\s+order|not\s+(a\s+)?po\b|isn'?t\s+a\s+po|this\s+is\s+not\s+a\s+po|just\s+(a\s+)?materials?\s+expense)\b/i.test(
+        `${messageLower} ${recentUserExpenseBlob}`
+      );
+    const hasExpenseMoney =
+      /\$\s*[\d,]+(?:\.\d{1,2})?|\b[\d,]+(?:\.\d{1,2})?\s*(?:dollars|bucks)\b/i.test(
+        `${String(message || '')} ${recentUserExpenseBlob}`
+      );
+    const hasExpenseStore =
+      /\b(home\s*depot|lowe'?s|menards|ace(?:\s*hardware)?|sherwin(?:\s*-?\s*williams)?|walmart|amazon|ferguson|hd\s*supply)\b/i.test(
+        `${messageLower} ${recentUserExpenseBlob}`
+      );
+    const materialNounInDetail =
+      /\b(tile|drywall|lumber|concrete|paint|flooring|windows|doors|plumbing|electrical|hardware|roofing|insulation|grout|cabinet|countertops?|trim|siding)\b/i.test(
+        `${String(message || '')} ${recentUserExpenseBlob}`
+      );
+    const userAskedPOExplicitly =
+      /\b(create|add|make|open|start)\s+(a\s+)?(purchase\s+order|\bpo\b|p\.o\.)\b/i.test(combinedMessageForExpense);
+    const looksMaterialExpenseFollowUp =
+      (expenseIntentIsMaterial || userExplicitNotPO) &&
+      hasExpenseMoney &&
+      (hasExpenseStore || materialNounInDetail) &&
+      !userAskedPOExplicitly;
+
+    if (
+      !inDailyLogContextForExpense &&
+      !isDailyLogDomain &&
+      inExpenseConversation &&
+      looksMaterialExpenseFollowUp &&
+      (routerResult.proposed_tool === 'add_purchase_order' || routerResult.domain === 'purchase_orders')
+    ) {
+      const parseBlob = `${String(message || '')} ${recentUserExpenseBlob}`;
+      const amtMatch = parseBlob.match(
+        /\$\s*([\d,]+(?:\.\d{1,2})?)|\b([\d,]+(?:\.\d{1,2})?)\s*(?:dollars|bucks)\b/i
+      );
+      const rawAmt = amtMatch ? (amtMatch[1] || amtMatch[2]) : null;
+      const amountParsed = rawAmt != null ? Number(String(rawAmt).replace(/,/g, '')) : NaN;
+      const matWords = [
+        'tile',
+        'drywall',
+        'lumber',
+        'concrete',
+        'paint',
+        'windows',
+        'doors',
+        'electrical',
+        'plumbing',
+        'hardware',
+        'roofing',
+        'insulation',
+        'flooring',
+      ];
+      let category = 'Materials';
+      for (const w of matWords) {
+        if (new RegExp(`\\b${w}\\b`, 'i').test(parseBlob)) {
+          category = w.charAt(0).toUpperCase() + w.slice(1);
+          break;
+        }
+      }
+      const vm = parseBlob.match(
+        /\b(home\s*depot|lowe'?s|menards|ace(?:\s*hardware)?|sherwin(?:\s*-?\s*williams)?|walmart|amazon|ferguson|hd\s*supply)\b/i
+      );
+      const vendorParsed = vm ? String(vm[0]).trim() : '';
+
+      console.log('🛡️ MATERIAL EXPENSE OVERRIDE: steering away from purchase order → add_material_expense', {
+        wasTool: routerResult.proposed_tool,
+        wasDomain: routerResult.domain,
+        amountParsed,
+        category,
+        vendorParsed,
+      });
+
+      routerResult.domain = 'expenses';
+      routerResult.proposed_tool = 'add_material_expense';
+      routerResult.required_fields_missing = [];
+      routerResult.clarification_question = null;
+      routerResult.action = 'execute';
+      routerResult.confidence = 0.99;
+      routerResult.tool_args_draft = {
+        ...(routerResult.tool_args_draft || {}),
+        projectId: routerResult.tool_args_draft?.projectId || projectId,
+        amount: Number.isFinite(amountParsed) && amountParsed > 0 ? amountParsed : routerResult.tool_args_draft?.amount,
+        category,
+        vendor: vendorParsed || routerResult.tool_args_draft?.vendor,
+      };
+      delete routerResult.tool_args_draft.expectedDelivery;
     }
 
     // ── SCENARIO-ANALYSIS GUARD ──────────────────────────────────────────────
@@ -10834,27 +11144,38 @@ router.post('/', async (req, res) => {
         routerResult.proposed_tool = 'create_change_order';
       }
 
-      // Enforce only CO-required fields: description, amount, vendor
-      // CRITICAL: Use extracted context, NOT the router's hallucinated fields
+      // Enforce CO fields: what it's for + material $ + labor $ (vendor optional). Total = material + labor.
       const hasDescription = !!coFlowContext.description && String(coFlowContext.description).trim().length > 0;
-      const hasAmount = !!coFlowContext.amount && Number(coFlowContext.amount) > 0;
-      const hasVendor = !!coFlowContext.vendor && String(coFlowContext.vendor).trim().length > 0;
-      
+      const hasMaterialsAmount =
+        typeof coFlowContext.materialsAmount === 'number' && !Number.isNaN(coFlowContext.materialsAmount);
+      const hasLaborAmount =
+        typeof coFlowContext.laborAmount === 'number' && !Number.isNaN(coFlowContext.laborAmount);
+      const breakdownSum =
+        (hasMaterialsAmount ? Number(coFlowContext.materialsAmount) : 0) +
+        (hasLaborAmount ? Number(coFlowContext.laborAmount) : 0);
+      const hasValidBreakdown = hasMaterialsAmount && hasLaborAmount && breakdownSum > 0;
+      const derivedAmount = hasValidBreakdown ? breakdownSum : null;
+
       console.log('🛡️ CO guard: checking extracted fields:', {
-        hasDescription, hasAmount, hasVendor,
+        hasDescription,
+        hasMaterialsAmount,
+        hasLaborAmount,
+        breakdownSum,
         description: coFlowContext.description,
-        amount: coFlowContext.amount,
+        materialsAmount: coFlowContext.materialsAmount,
+        laborAmount: coFlowContext.laborAmount,
         vendor: coFlowContext.vendor,
       });
-      
-      // Build missing fields list from actual extracted values only
+
       const coMissing = [];
       if (!hasDescription) coMissing.push('description');
-      if (!hasAmount) coMissing.push('amount');
-      if (!hasVendor) coMissing.push('vendor');
-      
-      // NEVER include delivery dates or PO-only fields
-      routerResult.required_fields_missing = coMissing;
+      if (!hasMaterialsAmount) coMissing.push('materialsAmount');
+      if (!hasLaborAmount) coMissing.push('laborAmount');
+      if (hasMaterialsAmount && hasLaborAmount && breakdownSum <= 0) {
+        coMissing.push('nonzero_breakdown');
+      }
+
+      routerResult.required_fields_missing = [...coMissing];
       console.log('🛡️ CO guard: final required_fields_missing:', routerResult.required_fields_missing);
 
       if (coMissing.length === 0) {
@@ -10863,31 +11184,35 @@ router.post('/', async (req, res) => {
         routerResult.confidence = 1.0;
         routerResult.tool_args_draft = routerResult.tool_args_draft || {};
         routerResult.tool_args_draft.description = coFlowContext.description;
-        routerResult.tool_args_draft.amount = coFlowContext.amount;
+        routerResult.tool_args_draft.materialsAmount = coFlowContext.materialsAmount;
+        routerResult.tool_args_draft.laborAmount = coFlowContext.laborAmount;
+        routerResult.tool_args_draft.amount = derivedAmount;
         routerResult.tool_args_draft.vendor = coFlowContext.vendor;
-        // Force the executor to call the tool immediately — no confirmation step needed
         routerResult.action = 'execute';
         console.log('🛡️ CO guard: all fields present → forcing execution, tool_args_draft:', routerResult.tool_args_draft);
       } else {
-        // Build a natural clarification question listing only missing fields
-        // CRITICAL: Only ask for fields that are actually missing, based on extracted context
-        if (coMissing.length === 3) {
-          routerResult.clarification_question = 'What is the change order for, the amount, and the vendor?';
-        } else if (coMissing.length === 2) {
-          // If description is missing but amount is present, ask specifically for description
-          if (coMissing.includes('description') && !coMissing.includes('amount')) {
-            routerResult.clarification_question = 'What is the change order for?';
-          } else if (coMissing.includes('amount') && !coMissing.includes('description')) {
-            routerResult.clarification_question = 'What is the amount?';
-          } else {
-            const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
-            const parts = coMissing.map(f => labels[f] || f);
-            routerResult.clarification_question = `What is ${parts[0]} and ${parts[1]}?`;
+        const buildCOClarificationQuestion = (missing) => {
+          const bits = [];
+          if (missing.includes('description')) {
+            bits.push('**what this change order is for** (a short title or scope)');
           }
-        } else {
-          const labels = { description: 'the change order for', amount: 'the amount', vendor: 'the vendor' };
-          routerResult.clarification_question = `What is ${labels[coMissing[0]] || coMissing[0]}?`;
-        }
+          if (missing.includes('materialsAmount')) {
+            bits.push('the **material cost** in dollars (use **0** if there is no material cost)');
+          }
+          if (missing.includes('laborAmount')) {
+            bits.push('the **labor cost** in dollars (use **0** if there is no labor cost)');
+          }
+          if (missing.includes('nonzero_breakdown')) {
+            bits.push(
+              'amounts that add up to **more than $0** total (you can use **0** on one side if it is all labor or all material)'
+            );
+          }
+          if (bits.length === 0) return 'Could you share a bit more detail for this change order?';
+          if (bits.length === 1) return `What is ${bits[0]}?`;
+          if (bits.length === 2) return `I still need ${bits[0]} and ${bits[1]}.`;
+          return `I still need ${bits.slice(0, -1).join(', ')}, and ${bits[bits.length - 1]}.`;
+        };
+        routerResult.clarification_question = buildCOClarificationQuestion(coMissing);
       }
     }
 
@@ -11240,6 +11565,19 @@ router.post('/', async (req, res) => {
       finalToolChoice = { type: 'function', function: { name: 'mark_purchase_order_received' } };
     }
 
+    // Material expense threads were sometimes forced to add_purchase_order by the model — correct before executor
+    if (
+      finalToolChoice?.function?.name === 'add_purchase_order' &&
+      !userAskedPOExplicitly &&
+      looksMaterialExpenseFollowUp &&
+      inExpenseConversation
+    ) {
+      console.log('🔴 Safety guard: correcting add_purchase_order → add_material_expense (material expense context)');
+      finalToolChoice = { type: 'function', function: { name: 'add_material_expense' } };
+      routerResult.domain = 'expenses';
+      routerResult.proposed_tool = 'add_material_expense';
+    }
+
     // Legacy compat: keep allAssistantMessages for post-processing checks below
     const allAssistantMessages = messages.filter(m => m.role === 'assistant');
     const lastAssistantMessage = allAssistantMessages[allAssistantMessages.length - 1];
@@ -11272,12 +11610,28 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
     }
     
     // If CO flow has all fields, inject a system hint to execute immediately without asking more questions
-    if (isChangeOrderFlowActive && coFlowContext.description && coFlowContext.amount && coFlowContext.vendor) {
+    const coReadyForTool =
+      isChangeOrderFlowActive &&
+      coFlowContext.description &&
+      typeof coFlowContext.materialsAmount === 'number' &&
+      typeof coFlowContext.laborAmount === 'number' &&
+      Number(coFlowContext.materialsAmount) + Number(coFlowContext.laborAmount) > 0;
+    if (coReadyForTool) {
+      const coTotal =
+        Number(coFlowContext.materialsAmount) + Number(coFlowContext.laborAmount);
       messages.push({
         role: 'system',
-        content: `CRITICAL INSTRUCTION: All change order fields are ready. Call create_change_order NOW with description="${coFlowContext.description}", amount=${coFlowContext.amount}, vendor="${coFlowContext.vendor}". Do NOT ask any more questions. Do NOT ask for a date. Change orders do NOT need dates. Just execute the tool.`,
+        content: `CRITICAL INSTRUCTION: All change order fields are ready. Call create_change_order NOW with description="${coFlowContext.description}", materialsAmount=${coFlowContext.materialsAmount}, laborAmount=${coFlowContext.laborAmount}, amount=${coTotal}${coFlowContext.vendor ? `, vendor="${coFlowContext.vendor}"` : ''}. Do NOT ask any more questions. Do NOT ask for a date. Change orders do NOT need dates. Just execute the tool.`,
       });
       console.log('🛡️ CO executor hint: injected system message to force immediate execution');
+    }
+
+    if (inExpenseConversation && (expenseIntentIsMaterial || userExplicitNotPO)) {
+      messages.push({
+        role: 'system',
+        content:
+          'CRITICAL: This thread is a MATERIAL (or general) EXPENSE — not a purchase order unless the user explicitly said they want a PO. Use add_material_expense when logging spend (vendor + amount + material). NEVER ask for expected delivery, pickup date, or received date here. Those dates apply ONLY to add_purchase_order when the user clearly requests creating a purchase order.',
+      });
     }
     
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
@@ -11328,7 +11682,8 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
     const isExpenseFlow = routerResult.domain === 'expenses' ||
                          routerResult.proposed_tool === 'add_material_expense' ||
                          routerResult.proposed_tool === 'add_labor_expense' ||
-                         toolCalls.some(tc => ['add_material_expense', 'add_labor_expense'].includes(tc.function?.name));
+                         toolCalls.some(tc => ['add_material_expense', 'add_labor_expense'].includes(tc.function?.name)) ||
+                         (inExpenseConversation && (expenseIntentIsMaterial || userExplicitNotPO));
     
     if (isChangeOrderFlow) {
       // ALWAYS strip delivery/received/pickup/generic date questions — change orders NEVER need dates
@@ -11349,10 +11704,10 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
       console.log('🛡️ CO filter: cleaned reply:', reply.substring(0, 120));
     } else if (isExpenseFlow) {
       // Strip delivery/pickup date questions — expenses (labor or material) NEVER need delivery date
-      if (/expected delivery|delivery date|received date|pickup date|what.*(?:date|when)/i.test(reply)) {
-        reply = reply.replace(/[^.!?\n]*(?:expected delivery|delivery date|received date|pickup date|delivery or received|what.*(?:date|when))[^.!?\n]*[.!?]?/gi, '');
+      if (/expected delivery|delivery or pickup|pickup or delivery|delivery date|received date|pickup date|what.*(?:date|when)/i.test(reply)) {
+        reply = reply.replace(/[^.!?\n]*(?:expected delivery|delivery or pickup|pickup or delivery|delivery date|received date|pickup date|delivery or received|what.*(?:date|when))[^.!?\n]*[.!?]?/gi, '');
         reply = reply.replace(/\n{2,}/g, '\n').trim();
-        if (/expected delivery|delivery date|received date|pickup date/i.test(reply)) {
+        if (/expected delivery|delivery or pickup|delivery date|received date|pickup date/i.test(reply)) {
           reply = reply.split(/(?<=[.!?])\s+/).filter(s => !/delivery|received date|pickup date/i.test(s)).join(' ').trim();
         }
         console.log('🛡️ Expense filter: stripped delivery date question from reply');
@@ -11649,9 +12004,29 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
             functionArgs.amount = inferredCO.amount;
             console.log('✅ CO backfill: set amount from context:', inferredCO.amount);
           }
+          if (
+            (functionArgs.materialsAmount === undefined || functionArgs.materialsAmount === null || functionArgs.materialsAmount === '') &&
+            typeof inferredCO.materialsAmount === 'number'
+          ) {
+            functionArgs.materialsAmount = inferredCO.materialsAmount;
+            console.log('✅ CO backfill: set materialsAmount from context:', inferredCO.materialsAmount);
+          }
+          if (
+            (functionArgs.laborAmount === undefined || functionArgs.laborAmount === null || functionArgs.laborAmount === '') &&
+            typeof inferredCO.laborAmount === 'number'
+          ) {
+            functionArgs.laborAmount = inferredCO.laborAmount;
+            console.log('✅ CO backfill: set laborAmount from context:', inferredCO.laborAmount);
+          }
           if ((!functionArgs.vendor || !String(functionArgs.vendor).trim()) && inferredCO.vendor) {
             functionArgs.vendor = inferredCO.vendor;
             console.log('✅ CO backfill: set vendor from context:', inferredCO.vendor);
+          }
+
+          const matN = Number(functionArgs.materialsAmount);
+          const labN = Number(functionArgs.laborAmount);
+          if (Number.isFinite(matN) && Number.isFinite(labN)) {
+            functionArgs.amount = matN + labN;
           }
           
           // CRITICAL: Default addPaymentMilestone to false unless explicitly set to true
@@ -11666,12 +12041,19 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           delete functionArgs.deliveryDate;
           delete functionArgs.pickupDate;
           
-          // PRE-VALIDATION: Check required CO fields (description, amount, vendor) — NOT delivery date
+          // PRE-VALIDATION: description + material/labor breakdown — vendor optional, NOT delivery date
           const coMissing = [];
-          if (!functionArgs.description || !String(functionArgs.description).trim()) coMissing.push('the change order for');
-          if (!functionArgs.amount || functionArgs.amount <= 0 || isNaN(functionArgs.amount)) coMissing.push('the amount');
-          if (!functionArgs.vendor || !String(functionArgs.vendor).trim()) coMissing.push('the vendor');
-          
+          if (!functionArgs.description || !String(functionArgs.description).trim()) {
+            coMissing.push('the change order for');
+          }
+          const matPre = Number(functionArgs.materialsAmount);
+          const labPre = Number(functionArgs.laborAmount);
+          if (!Number.isFinite(matPre) || matPre < 0) coMissing.push('the material cost in dollars (0 if none)');
+          if (!Number.isFinite(labPre) || labPre < 0) coMissing.push('the labor cost in dollars (0 if none)');
+          if (Number.isFinite(matPre) && Number.isFinite(labPre) && matPre + labPre <= 0) {
+            coMissing.push('a total greater than $0 (material + labor)');
+          }
+
           if (coMissing.length > 0) {
             const question = coMissing.length === 1
               ? `What is ${coMissing[0]}?`
@@ -11690,7 +12072,13 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
             continue;
           }
           
-          console.log('✅ CO pre-validation passed:', { description: functionArgs.description, amount: functionArgs.amount, vendor: functionArgs.vendor });
+          console.log('✅ CO pre-validation passed:', {
+            description: functionArgs.description,
+            materialsAmount: functionArgs.materialsAmount,
+            laborAmount: functionArgs.laborAmount,
+            amount: functionArgs.amount,
+            vendor: functionArgs.vendor || null,
+          });
         }
 
         // ── VALIDATION LAYER: run before any write tool ────────────────────
@@ -11734,7 +12122,9 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           const isCOFlowNow =
             coIntentRegex.test(String(message || '').toLowerCase()) ||
             !!inferredCO.description ||
-            !!inferredCO.amount;
+            !!inferredCO.amount ||
+            (typeof inferredCO.materialsAmount === 'number' &&
+              typeof inferredCO.laborAmount === 'number');
           if (isCOFlowNow) {
             console.warn('🛡️ Blocking add_purchase_order during active change-order flow');
             messages.push({
@@ -11745,7 +12135,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
                 status: 'error',
                 blocked: true,
                 error: 'This request is for a change order, not a purchase order.',
-                message: 'For this change order, I only need description and amount. What is missing?'
+                message: 'For this change order, I need what it is for, the material cost, and the labor cost (0 is OK on one side). What is missing?'
               })
             });
             continue;
@@ -11960,7 +12350,20 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           // Check if category is missing
           if (!functionArgs.category || !functionArgs.category.trim()) {
             const hasMaterial = lastUserContent.match(/\b(labor|lumber|tile|drywall|concrete|paint|electrical|plumbing|hardware|roofing|insulation|flooring|cabinets|appliances|windows|doors|siding|decking|fencing|landscaping|material|materials)\b/i);
-            if (!hasMaterial) {
+            if (hasMaterial?.[1]) {
+              const inferredCategoryRaw = String(hasMaterial[1]).toLowerCase();
+              if (inferredCategoryRaw === 'labor') {
+                functionArgs.category = 'Labor';
+              } else if (inferredCategoryRaw === 'material' || inferredCategoryRaw === 'materials') {
+                functionArgs.category = 'Materials';
+              } else {
+                functionArgs.category = inferredCategoryRaw.charAt(0).toUpperCase() + inferredCategoryRaw.slice(1);
+              }
+              console.log('✅ PRE-VALIDATION: Inferred category from user message:', {
+                inferredCategory: functionArgs.category,
+                source: inferredCategoryRaw,
+              });
+            } else {
               console.error('🚫 PRE-VALIDATION: No category provided and no material/labor mentioned - blocking function call');
               messages.push({
                 role: 'tool',
@@ -12815,19 +13218,24 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           const ctx = parsedContext || {};
           const currentProject = ctx.currentProject || ctx;
           const estimateData = currentProject.estimateData || currentProject.estimate || {};
-          // The user's amount is the final change order amount (what the client pays)
-          // Don't apply markup - use the amount exactly as specified
-          const coAmount = Number(functionArgs.amount);
+          const matCo = Number(functionArgs.materialsAmount);
+          const labCo = Number(functionArgs.laborAmount);
+          const sumCo = (Number.isFinite(matCo) ? matCo : 0) + (Number.isFinite(labCo) ? labCo : 0);
+          const explicit = Number(functionArgs.amount);
+          const coAmount =
+            Number.isFinite(explicit) && explicit > 0 && Math.abs(explicit - sumCo) <= 0.02
+              ? explicit
+              : sumCo;
           
-          // Build change order object
-          // Note: amount is what the user specified (final price), not cost + markup
           const changeOrder = {
             id: `co-${Date.now()}`,
             description: functionArgs.description,
             vendor: functionArgs.vendor || '',
-            cost: coAmount, // For display purposes, cost = amount (no separate markup calculation)
-            amount: coAmount, // The change order amount (what user specified)
-            clientPrice: coAmount, // Same as amount - user's amount is the final price
+            cost: coAmount,
+            amount: coAmount,
+            clientPrice: coAmount,
+            materialsAmount: Number.isFinite(matCo) ? matCo : 0,
+            laborAmount: Number.isFinite(labCo) ? labCo : 0,
             status: 'approved',
             createdAt: new Date().toISOString(),
             createdByAI: true,
@@ -12861,7 +13269,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
 
           functionResult = {
             success: true,
-            message: `✅ Change order created: "${functionArgs.description}" — Amount: $${coAmount.toLocaleString()}.`,
+            message: `✅ Change order created: "${functionArgs.description}" — Total: $${coAmount.toLocaleString()} (materials $${(Number.isFinite(matCo) ? matCo : 0).toLocaleString()}, labor $${(Number.isFinite(labCo) ? labCo : 0).toLocaleString()}). Next: an **Approve Change Order** popup appears in this assistant — tap **Approve** there to add it to the budget (or Not Now to leave it pending).`,
             changeOrder,
             budgetImpact: {
               previousBudget: currentBudget,
@@ -13077,7 +13485,7 @@ RULES:
             trade: functionArgs.trade,
           };
           const action = {
-            type: 'add_material',
+            type: 'add_labor_expense',
             projectId: targetPid,
             amount: functionArgs.amount,
             category: 'Labor',
@@ -13485,9 +13893,15 @@ RULES:
           const calendarEventsInstruction = (routerResult && routerResult._calendarEventsIntent && hasPaymentTool)
             ? ' CRITICAL: The user asked about "upcoming events on the calendar". The dashboard calendar = (1) UPCOMING EVENTS in your context (inspections, deliveries, deadlines) and (2) upcoming payments from compare_projects. List ALL across projects — do NOT limit to one project. If UPCOMING EVENTS was provided, list those first, then upcoming payments. If no calendar events in context, list upcoming payments from compare_projects as the calendar (payments, deadlines). Do NOT say "no events for [project name]" or direct to Timeline tab only — answer from dashboard calendar data and compare_projects.'
             : '';
+          const hasCreateChangeOrderSuccess = functionResultsSummary.some(
+            (r) => r.functionName === 'create_change_order' && r.success === true
+          );
+          const createChangeOrderInstruction = hasCreateChangeOrderSuccess
+            ? ' CRITICAL: create_change_order succeeded. The draft is NOT in the budget until the user confirms. Tell them clearly: an **Approve Change Order** dialog appears **on top of this AI assistant** — they must tap **Approve** in that popup to finalize (or Not Now to skip). Do NOT instruct them to approve by going to the Change Orders tab, Budget tab, or Orders screen for this step — that is wrong for this flow.'
+            : '';
           messages.push({
             role: 'system',
-            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}${losingMoneyInstruction}${completedProjectsInstruction}${overBudgetInstruction}${focusTodayInstruction}${paymentQuestionInstruction}${calendarEventsInstruction}`
+            content: `IMPORTANT: All function calls succeeded (success: true). The actions were completed successfully. Confirm what was done. DO NOT say there's an issue. DO NOT show budget overview or other project information unless the user specifically asked for it.${poReceivedInstruction}${teamMessageInstruction}${losingMoneyInstruction}${completedProjectsInstruction}${overBudgetInstruction}${focusTodayInstruction}${paymentQuestionInstruction}${calendarEventsInstruction}${createChangeOrderInstruction}`
           });
         } else if (allFailed) {
           const errors = functionResultsSummary.map(r => r.error || r.message).filter(Boolean);
@@ -13503,11 +13917,19 @@ RULES:
         }
       }
       
-      // If this was a change order, inject instruction to not ask about dates in the final response
-      if (isChangeOrderFlow) {
+      // Change order: date strip + (when applicable) remind model about in-assistant approval
+      const coToolSucceededForFinal = Array.isArray(functionResultsSummary) && functionResultsSummary.some(
+        (r) => r.functionName === 'create_change_order' && r.success === true
+      );
+      if (coToolSucceededForFinal) {
         messages.push({
           role: 'system',
-          content: 'CRITICAL: This was a change order. Do NOT ask about dates, delivery dates, or received dates. Change orders do not need dates. Just confirm what was created.',
+          content: 'CRITICAL: Change order was just drafted via create_change_order. Do NOT ask about dates. Your reply MUST mention the **Approve Change Order** popup in this assistant and tapping **Approve** to add it to the budget. Do NOT say to approve it from the Change Orders section/tab elsewhere.',
+        });
+      } else if (isChangeOrderFlow) {
+        messages.push({
+          role: 'system',
+          content: 'CRITICAL: This conversation is about a change order. Do NOT ask about dates, delivery dates, or received dates. Change orders do not need dates.',
         });
       }
       

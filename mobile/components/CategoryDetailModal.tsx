@@ -306,8 +306,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     // Handle Change Orders
     if (isChangeOrdersCategory) {
       const amount = Number(transaction.amount || 0);
+      const materialsAmount = Number(transaction.materialsAmount || 0);
+      const laborAmount = Number(transaction.laborAmount || 0);
       if (!transaction.vendor || amount <= 0) {
-        Alert.alert('Error', 'Please enter a change order name and amount.');
+        Alert.alert('Error', 'Please enter a change order title and material and/or labor amount.');
         return;
       }
 
@@ -323,6 +325,8 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                 id: `co-${Date.now()}`,
                 title: transaction.vendor,
                 amount: amount,
+                materialsAmount,
+                laborAmount,
                 notes: transaction.description || '',
                 approved: false,
                 status: 'Submitted',
@@ -339,6 +343,8 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                 id: `co-${Date.now()}`,
                 title: transaction.vendor,
                 amount: amount,
+                materialsAmount,
+                laborAmount,
                 notes: transaction.description || '',
                 approved: true,
                 status: 'Approved',
