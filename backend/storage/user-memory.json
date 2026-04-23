@@ -708,5 +708,277 @@
     "totalMessages": 12,
     "firstSeenAt": "2026-04-23T08:29:37.683Z",
     "updatedAt": "2026-04-23T08:39:56.192Z"
+  },
+  "session:session-1776978795040-2d6ns": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Home Depot": 18,
+      "Framing": 9,
+      "Roofing": 9,
+      "Roofer": 9
+    },
+    "tradesUsed": {
+      "Framing": 9,
+      "Roofer": 9
+    },
+    "projectAliases": {
+      "me": "Duplex Build",
+      "tile": "Duplex Build",
+      "plumbing": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 9,
+    "firstSeenAt": "2026-04-23T21:14:12.367Z",
+    "updatedAt": "2026-04-23T21:16:04.444Z"
+  },
+  "session:session-1776979512839-l9noq": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Home Depot": 6,
+      "Framing": 3,
+      "Roofing": 3,
+      "Roofer": 3
+    },
+    "tradesUsed": {
+      "Framing": 3,
+      "Roofer": 3
+    },
+    "projectAliases": {
+      "me": "Duplex Build",
+      "windows": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 3,
+    "firstSeenAt": "2026-04-23T21:25:23.720Z",
+    "updatedAt": "2026-04-23T21:25:40.059Z"
+  },
+  "session:session-1776979826237-gzrua": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Home Depot": 6,
+      "Framing": 3,
+      "Roofing": 3,
+      "Roofer": 3
+    },
+    "tradesUsed": {
+      "Framing": 3,
+      "Roofer": 3
+    },
+    "projectAliases": {
+      "me": "Duplex Build",
+      "plumbing": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 3,
+    "firstSeenAt": "2026-04-23T21:30:32.850Z",
+    "updatedAt": "2026-04-23T21:30:46.750Z"
+  },
+  "session:session-1776980037129-377h0": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Home Depot": 6,
+      "Framing": 3,
+      "Roofing": 3,
+      "Roofer": 3
+    },
+    "tradesUsed": {
+      "Framing": 3,
+      "Roofer": 3
+    },
+    "projectAliases": {
+      "me": "Duplex Build",
+      "plumbing": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 3,
+    "firstSeenAt": "2026-04-23T21:34:05.516Z",
+    "updatedAt": "2026-04-23T21:34:21.178Z"
+  },
+  "session:session-1776980667953-vxgr0": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Framing": 4,
+      "Roofing": 10,
+      "Roofer": 10,
+      "Home Depot": 20,
+      "Tile": 6
+    },
+    "tradesUsed": {
+      "Framing": 4,
+      "Roofer": 10,
+      "Tile": 6
+    },
+    "projectAliases": {
+      "tile": "Duplex Build",
+      "windows": "Duplex Build",
+      "me": "Duplex Build"
+    },
+    "lastTopics": [
+      "payments",
+      "costs"
+    ],
+    "totalMessages": 10,
+    "firstSeenAt": "2026-04-23T21:44:35.068Z",
+    "updatedAt": "2026-04-23T21:47:57.109Z"
+  },
+  "session:session-1776980890090-63sxh": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofing": 3,
+      "Roofer": 3,
+      "Home Depot": 6,
+      "Tile": 3
+    },
+    "tradesUsed": {
+      "Roofer": 3,
+      "Tile": 3
+    },
+    "projectAliases": {},
+    "lastTopics": [
+      "payments"
+    ],
+    "totalMessages": 3,
+    "firstSeenAt": "2026-04-23T21:48:23.440Z",
+    "updatedAt": "2026-04-23T21:48:47.759Z"
+  },
+  "session:session-1776981050051-43qtw": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofing": 3,
+      "Roofer": 3,
+      "Home Depot": 6,
+      "Tile": 3
+    },
+    "tradesUsed": {
+      "Roofer": 3,
+      "Tile": 3
+    },
+    "projectAliases": {
+      "window": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 3,
+    "firstSeenAt": "2026-04-23T21:50:55.197Z",
+    "updatedAt": "2026-04-23T21:51:34.992Z"
+  },
+  "session:session-1776981388580-ggt40": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofer": 7,
+      "Home Depot": 14,
+      "Tile": 7
+    },
+    "tradesUsed": {
+      "Roofer": 7,
+      "Tile": 7
+    },
+    "projectAliases": {
+      "tile": "Duplex Build",
+      "june": "Duplex Build"
+    },
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 7,
+    "firstSeenAt": "2026-04-23T21:56:33.387Z",
+    "updatedAt": "2026-04-23T21:59:27.139Z"
+  },
+  "session:session-1776981941515-pm6o7": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofer": 4,
+      "Home Depot": 8,
+      "Tile": 4
+    },
+    "tradesUsed": {
+      "Roofer": 4,
+      "Tile": 4
+    },
+    "projectAliases": {
+      "me": "Duplex Build"
+    },
+    "lastTopics": [
+      "payments"
+    ],
+    "totalMessages": 4,
+    "firstSeenAt": "2026-04-23T22:05:57.567Z",
+    "updatedAt": "2026-04-23T22:06:48.182Z"
+  },
+  "session:session-1776983871062-wl8pl": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofer": 1,
+      "Home Depot": 2,
+      "Tile": 1
+    },
+    "tradesUsed": {
+      "Roofer": 1,
+      "Tile": 1
+    },
+    "projectAliases": {},
+    "lastTopics": [
+      "profitability"
+    ],
+    "totalMessages": 1,
+    "firstSeenAt": "2026-04-23T22:38:25.949Z",
+    "updatedAt": "2026-04-23T22:38:25.949Z"
+  },
+  "session:session-1776983939858-eh3ab": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofer": 1,
+      "Home Depot": 2,
+      "Tile": 1
+    },
+    "tradesUsed": {
+      "Roofer": 1,
+      "Tile": 1
+    },
+    "projectAliases": {},
+    "lastTopics": [
+      "costs"
+    ],
+    "totalMessages": 1,
+    "firstSeenAt": "2026-04-23T22:39:05.276Z",
+    "updatedAt": "2026-04-23T22:39:05.277Z"
+  },
+  "session:session-1776985371576-yxegb": {
+    "preferredMarginPct": null,
+    "preferredMarkupPct": null,
+    "favoriteVendors": {
+      "Roofer": 1,
+      "Home Depot": 2,
+      "Tile": 1
+    },
+    "tradesUsed": {
+      "Roofer": 1,
+      "Tile": 1
+    },
+    "projectAliases": {},
+    "lastTopics": [],
+    "totalMessages": 1,
+    "firstSeenAt": "2026-04-23T23:02:58.901Z",
+    "updatedAt": "2026-04-23T23:02:58.902Z"
   }
 }

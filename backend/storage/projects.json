@@ -376,8 +376,8 @@
     "totalBudget": 583338.7055,
     "estimatedCost": 441015.57,
     "bidPrice": 583338.7055,
-    "totalSpent": 135979.03999999998,
-    "remaining": 447359.66550000006,
+    "totalSpent": 155979.03999999998,
+    "remaining": 427359.66550000006,
     "progress": 0,
     "status": "won",
     "description": "",
@@ -459,12 +459,48 @@
         "amount": 2000,
         "date": "2026-04-23",
         "notes": "Tile from Home Depot",
-        "createdAt": "2026-04-23T08:33:14.317Z"
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1776980064758",
+        "category": "Materials/Equipment",
+        "vendor": "Home Depot",
+        "amount": 5000,
+        "date": "2026-04-23",
+        "notes": "Plumbing from Home Depot",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1776980704030",
+        "category": "Labor",
+        "vendor": "Tile",
+        "amount": 5000,
+        "date": "2026-04-23",
+        "notes": "",
+        "receiptUri": null
+      },
+      {
+        "id": "exp-1776981103110",
+        "category": "Labor",
+        "vendor": "",
+        "amount": 5000,
+        "date": "2026-04-23T21:51:43.110Z",
+        "notes": "window install: window install",
+        "receiptUri": null
+      },
+      {
+        "id": "expense-1776981406132",
+        "category": "Labor",
+        "vendor": "labor",
+        "amount": 5000,
+        "date": "2026-04-23",
+        "notes": "",
+        "createdAt": "2026-04-23T21:56:46.132Z"
       }
     ],
     "phases": [],
     "budgetItems": [],
     "createdAt": "2026-04-23T08:33:14.315Z",
-    "updatedAt": "2026-04-23T08:33:14.317Z"
+    "updatedAt": "2026-04-23T21:56:46.133Z"
   }
 ]
