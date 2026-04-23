@@ -256,13 +256,23 @@ const STREAMING_ENABLED = String(
  * Returns true only if the message looks like pure conversational Q&A.
  * Any command-like intent falls back to the POST path so tool execution,
  * selection cards, and action callbacks continue to work unchanged.
+ *
+ * IMPORTANT: /stream does not run backend tools (get_project_health, etc.).
+ * Health checks and similar PM intents must use POST so parsedContext.allProjects
+ * and tool results are applied — otherwise the model may invent "project not found" errors.
  */
 function isStreamSafeMessage(raw: string): boolean {
-  if (!raw || typeof raw !== 'string') return false;
+  if (!raw || typeof raw !== "string") return false;
   const msg = raw.trim().toLowerCase();
   if (msg.length === 0 || msg.length > 400) return false;
   const actionIntent = /\b(log|add|create|make|mark|record|scan|upload|invoice|send|approve|assign|schedule|book|pay|collect|generate|populate|build an?\s*estimate|run a scenario|what if|scenario|change order|purchase order|po\b)\b/;
   if (actionIntent.test(msg)) return false;
+  try {
+    const intent = detectProjectIntent(raw);
+    if (intent.type === "project_health") return false;
+  } catch {
+    /* keep streaming eligibility */
+  }
   return true;
 }
 
