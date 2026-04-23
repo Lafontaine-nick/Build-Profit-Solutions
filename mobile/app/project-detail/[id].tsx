@@ -995,27 +995,22 @@ function ProjectDetailContent() {
   // Convert project data to BudgetData format for BudgetTab
   const convertToBudgetData = (project: any) => {
     console.log('🔍 Converting project to budget data:', project);
-    
-    if (!project?.estimateData) {
-      console.log('⚠️ No estimate data found, returning empty budget data');
-      return {
-        projectId: project?.id || id as string,
-        currency: 'USD',
-        lines: [],
-        expenses: [],
-        changeOrders: [],
-        committedPOs: 0,
-      };
-    }
 
-    const estimate = project.estimateData;
-    const lines = [];
+    const sharedListFields = () => ({
+      expenses: contextProjectData?.expenses || [],
+      changeOrders: contextProjectData?.changeOrders || [],
+      committedPOs: contextProjectData?.committedPOs || 0,
+    });
 
-    console.log('📊 Estimate data:', estimate);
-    console.log('📦 Materials cart:', materialsCart);
+    // Prefer live buckets on the merged project, then context (Orders/POs still work when estimate payload is missing)
+    const getBucketList = () => {
+      const fromProject = Array.isArray(project?.buckets) ? project.buckets : [];
+      if (fromProject.length > 0) return fromProject;
+      return contextProjectData?.buckets || [];
+    };
 
     const findBucket = (...keywords: string[]) => {
-      const buckets = contextProjectData?.buckets || [];
+      const buckets = getBucketList();
       const match = buckets.find((b: any) => {
         const name = (b?.name || '').toLowerCase();
         return keywords.some((kw) => name.includes(kw));
@@ -1043,6 +1038,64 @@ function ProjectDetailContent() {
       }
       return 0;
     };
+
+    /** When estimateData is missing or produced no lines — keep Materials/Labor cards from bucket + spend */
+    const appendBucketFallbackLines = (targetLines: any[]) => {
+      const hasMat = targetLines.some((l) => String(l?.category || '').toLowerCase().includes('material'));
+      const hasLab = targetLines.some((l) => String(l?.category || '').toLowerCase() === 'labor');
+      const matB = findBucket('material', 'equip');
+      const matBudget = getBucketBudget('material', 'equip');
+      const matSpent = getBucketSpend('materials', 'equip');
+      if (!hasMat && (matBudget > 0 || matSpent > 0 || Boolean(matB))) {
+        const unitCost = Math.max(matBudget, matSpent);
+        targetLines.push({
+          id: 'materials',
+          category: 'Materials/Equipment',
+          description: 'Materials & Equipment',
+          qty: 1,
+          unit: 'lump sum',
+          unitCost,
+          markupPct: 0,
+          spent: matSpent,
+          aiSuggested: false,
+        });
+      }
+      const labB = findBucket('labor');
+      const labBudget = getBucketBudget('labor');
+      const labSpent = getBucketSpend('labor');
+      if (!hasLab && (labBudget > 0 || labSpent > 0 || Boolean(labB))) {
+        const unitCost = Math.max(labBudget, labSpent);
+        targetLines.push({
+          id: 'labor',
+          category: 'Labor',
+          description: 'Labor & Installation',
+          qty: 1,
+          unit: 'lump sum',
+          unitCost,
+          markupPct: 0,
+          spent: labSpent,
+          aiSuggested: false,
+        });
+      }
+    };
+
+    if (!project?.estimateData) {
+      console.log('⚠️ No estimate data — building budget category lines from buckets / spend');
+      const lines: any[] = [];
+      appendBucketFallbackLines(lines);
+      return {
+        projectId: project?.id || id as string,
+        currency: 'USD',
+        lines,
+        ...sharedListFields(),
+      };
+    }
+
+    const estimate = project.estimateData;
+    const lines = [];
+
+    console.log('📊 Estimate data:', estimate);
+    console.log('📦 Materials cart:', materialsCart);
 
     const sumLineItems = (items: any[] = []) =>
       items.reduce((sum, item) => {
@@ -1198,6 +1251,11 @@ function ProjectDetailContent() {
 
     // Note: Overhead and Markup cards removed from BudgetTab as requested
     // These categories are still included in the OverviewScreen for complete budget visibility
+
+    if (lines.length === 0) {
+      console.log('⚠️ Estimate path produced no category lines — applying bucket fallback');
+      appendBucketFallbackLines(lines);
+    }
 
     const budgetData = {
       projectId: project?.id || id as string,
@@ -2555,7 +2613,11 @@ function ProjectDetailContent() {
             // Handle AI actions
             console.log('AI Action:', action);
             
-            if (action.type === 'add_material' || action.type === 'add_material_purchase') {
+            if (
+              action.type === 'add_material' ||
+              action.type === 'add_material_purchase' ||
+              action.type === 'add_material_expense'
+            ) {
               try {
                 // First, ensure Clerk token is synced to AsyncStorage
                 const clerkToken = await getToken();

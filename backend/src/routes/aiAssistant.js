@@ -3827,6 +3827,12 @@ function runProfitLeakDetection(parsedContext) {
 // ─────────────────────────────────────────────────────────────────────────────
 function runTodayBrief(parsedContext) {
   const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const getBriefProjectStatus = (p) =>
+    (p?.status ?? p?.projectData?.status ?? '').toString().toLowerCase().replace(/\s+/g, '_');
+  /** Command Center "today" signals: in-flight jobs only (not completed / draft / lost). */
+  const isPortfolioActiveForTodayBrief = (p) =>
+    ['won', 'active', 'in_progress', 'in-progress'].includes(getBriefProjectStatus(p));
+  const portfolioForBrief = allProjects.filter(isPortfolioActiveForTodayBrief);
   const now = new Date();
   const normalize = (v) => {
     if (v == null) return 0;
@@ -3846,9 +3852,9 @@ function runTodayBrief(parsedContext) {
   const recommendedActions = [];
   const projectNames = new Set();
 
-  // Aggregate missing receipts across all projects
+  // Aggregate missing receipts across active projects only
   let totalMissingReceipts = 0;
-  allProjects.forEach((p) => {
+  portfolioForBrief.forEach((p) => {
     const expenses = p?.expenses || p?.projectData?.expenses || [];
     const withoutReceipt = expenses.filter((e) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
     totalMissingReceipts += withoutReceipt;
@@ -3858,8 +3864,8 @@ function runTodayBrief(parsedContext) {
     recommendedActions.push({ label: 'Upload missing receipts', prompt: 'Which projects have missing receipts? I want to upload them.' });
   }
 
-  // Lowest margin, most profitable
-  const withMargin = allProjects
+  // Lowest margin, most profitable (active jobs only — completed archive skews "biggest risk")
+  const withMargin = portfolioForBrief
     .map((p) => {
       const title = p?.title || p?.name || 'Project';
       const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
@@ -3887,7 +3893,7 @@ function runTodayBrief(parsedContext) {
 
   // Upcoming inspections / milestones (tomorrow or within 7 days)
   let upcomingCount = 0;
-  allProjects.forEach((p) => {
+  portfolioForBrief.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
     const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
     const upcoming = milestonesRaw.find((m) => {
@@ -3909,7 +3915,7 @@ function runTodayBrief(parsedContext) {
   }
 
   // Labor / material overruns — use larger of bucket vs estimate; skip when project within budget overall
-  allProjects.forEach((p) => {
+  portfolioForBrief.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
     const buckets = p?.buckets || p?.projectData?.buckets || [];
     const ed = p?.estimateData || p?.projectData?.estimateData || {};
@@ -3954,7 +3960,7 @@ function runTodayBrief(parsedContext) {
   });
 
   // Overdue items
-  allProjects.forEach((p) => {
+  portfolioForBrief.forEach((p) => {
     const title = p?.title || p?.name || 'Project';
     const milestonesRaw = p?.milestones || p?.weeklyPayments || [];
     const overdue = milestonesRaw.filter((m) => {
@@ -3969,8 +3975,8 @@ function runTodayBrief(parsedContext) {
     }
   });
 
-  // Profit leak detection — contractor-friendly insights
-  const profitLeaks = runProfitLeakDetection(parsedContext);
+  // Profit leak detection — contractor-friendly insights (active portfolio only)
+  const profitLeaks = runProfitLeakDetection({ ...parsedContext, allProjects: portfolioForBrief });
   profitLeaks.forEach((leak) => {
     if (!insights.includes(leak.message)) insights.push(leak.message);
     if (!recommendedActions.find((a) => a.prompt === leak.prompt)) {
@@ -4169,6 +4175,23 @@ function getPendingPaymentMilestones(parsedContext = {}) {
 
     return isPayment && isNotCollected;
   });
+}
+
+/** True only for client draw / payment schedule items — not generic phases that happen to have a budget amount. */
+function isStrictPaymentTimelineMilestone(m) {
+  if (!m) return false;
+  if (m.type === 'payment') return true;
+  if (m.type && m.type !== 'payment') return false;
+  const title = String(m?.title || m?.name || m?.description || '').trim();
+  if (!title) return false;
+  return (
+    /\bweekly\s+payment\b/i.test(title) ||
+    /\bweek\s+\d+\s+payment\b/i.test(title) ||
+    /\bpayment\s*\d+\b/i.test(title) ||
+    /^deposit$/i.test(title) ||
+    /\b(final|progress|client)\s+payment\b/i.test(title) ||
+    (/\bpayment\b/i.test(title) && /\b(week|weekly|milestone|progress|deposit|final)\b/i.test(title))
+  );
 }
 
 /**
@@ -8796,7 +8819,10 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'mark_payment_collected',
-          description: 'Mark a payment milestone as collected from the client. Use when user says "got paid", "payment collected", "client paid", "received payment", "collected deposit", "mark payment as collected". CRITICAL: First check available milestones from context.milestones or call get_timeline_items to see pending payment milestones. Match by milestone name (e.g., "Week 1 Payment", "Deposit") - use partial/fuzzy matching. If user doesn\'t specify which milestone, list available pending milestones and ask them to choose.',
+          description:
+            'Mark a **client payment / draw** milestone as collected (completed). Use when the user indicates a scheduled payment was received: "got paid", "payment collected", "mark weekly payment 4 complete", "week 3 paid", etc. ' +
+            'CRITICAL workflow: (1) If multiple pending draws exist, list them or show options and have the user pick one. (2) **Always ask for explicit confirmation** with the exact title and dollar amount ("Mark \'Weekly Payment 4\' ($46,667) as completed for [project]?") before calling this tool. (3) Only call after the user confirms with yes/ok/etc. ' +
+            'Match names with partial/fuzzy matching ("week 4" → "Week 4 Payment"). Prefer context milestones or get_timeline_items.',
           parameters: {
             type: 'object',
             properties: {
@@ -8947,7 +8973,10 @@ router.post('/', async (req, res) => {
         type: 'function',
         function: {
           name: 'mark_timeline_item_complete',
-          description: 'Mark a milestone as complete OR update its progress percentage. Use when user says "mark [item] complete", "done with [phase]", "framing is 50% done", "update progress to 75%".',
+          description:
+            'Mark a **work phase** milestone complete OR update its progress (e.g. framing, inspection). ' +
+            'Do **NOT** use this for **client payment / draw** milestones (titles like "Weekly Payment 4", "Week 4 Payment", "Deposit", "Payment 3") — those MUST use **mark_payment_collected** after the user confirms in chat. ' +
+            'If you are unsure whether an item is a payment draw vs a work task, call get_timeline_items first.',
           parameters: {
             type: 'object',
             properties: {
@@ -11005,6 +11034,110 @@ router.post('/', async (req, res) => {
       delete routerResult.tool_args_draft.expectedDelivery;
     }
 
+    // ── LABOR EXPENSE vs CHANGE ORDER (router/CO guard can hijack follow-ups) ──
+    const assistantAskedLaborExpenseFlow =
+      /\blabor\s+expense\b/i.test(recentAssistantExpenseBlob) ||
+      /\bfor\s+the\s+labor\s+expense\b/i.test(recentAssistantExpenseBlob) ||
+      /\bamount,\s*trade,\s*and\s*description\b/i.test(recentAssistantExpenseBlob) ||
+      /\bwhat type of expense\b/i.test(recentAssistantExpenseBlob);
+    const laborExpenseConversation =
+      isExpenseLoggingRequest ||
+      assistantAskedLaborExpenseFlow ||
+      /\bexpense\b.*\b(labor|labour)\b/i.test(combinedMessageForExpense) ||
+      /\b(labor|labour)\s+expense\b/i.test(combinedMessageForExpense) ||
+      (Boolean(expenseTypeFromCards) && String(parsedContext?.selectedExpenseType || '').toLowerCase() === 'labor');
+    const explicitNotChangeOrder =
+      /\b(not\s+a\s+change\s+order|not\s+change\s+order|isn'?t\s+a\s+change\s+order|this\s+is\s+not\s+a\s+change\s+order)\b/i.test(
+        `${messageLower} ${recentUserExpenseBlob}`
+      ) ||
+      /\b(it'?s|its)\s+a\s+labor\s+(cost|expense)\b/i.test(`${messageLower} ${recentUserExpenseBlob}`);
+    const laborIntentSignal =
+      /\b(labor|labour)\b/i.test(combinedMessageForExpense) ||
+      explicitNotChangeOrder;
+    const laborAmountMatch = `${String(message || '')} ${recentUserExpenseBlob}`.match(
+      /\$\s*([\d,]+(?:\.\d{1,2})?)|\b([\d,]+(?:\.\d{1,2})?)\s*(?:dollars|bucks)?\b/i
+    );
+    const laborAmountParsed = laborAmountMatch
+      ? Number(String(laborAmountMatch[1] || laborAmountMatch[2] || '').replace(/,/g, ''))
+      : NaN;
+    const laborTradeHints = [
+      'framing',
+      'tile',
+      'drywall',
+      'painting',
+      'paint',
+      'electrical',
+      'plumbing',
+      'roofing',
+      'concrete',
+      'demolition',
+      'demo',
+      'finish carpentry',
+      'carpentry',
+      'window install',
+      'window installation',
+      'installation',
+      'general labor',
+      'labor',
+    ];
+    let parsedLaborTrade = '';
+    for (const hint of laborTradeHints) {
+      if (new RegExp(`\\b${hint.replace(/\s+/g, '\\s+')}\\b`, 'i').test(`${messageLower} ${recentUserExpenseBlob}`)) {
+        parsedLaborTrade = hint;
+        break;
+      }
+    }
+    let parsedLaborDescription = '';
+    const laborForMatch = String(message || '').match(/\bfor\s+(.+?)\s*$/i);
+    if (laborForMatch) {
+      parsedLaborDescription = laborForMatch[1].trim();
+    } else if (parsedLaborTrade) {
+      parsedLaborDescription = parsedLaborTrade;
+    }
+
+    if (
+      !inDailyLogContextForExpense &&
+      !isDailyLogDomain &&
+      laborExpenseConversation &&
+      laborIntentSignal
+    ) {
+      routerResult.domain = 'expenses';
+      routerResult.proposed_tool = 'add_labor_expense';
+      routerResult.tool_args_draft = {
+        ...(routerResult.tool_args_draft || {}),
+        projectId: routerResult.tool_args_draft?.projectId || projectId,
+        amount: Number.isFinite(laborAmountParsed) && laborAmountParsed > 0 ? laborAmountParsed : routerResult.tool_args_draft?.amount,
+        trade: parsedLaborTrade || routerResult.tool_args_draft?.trade,
+        description: parsedLaborDescription || routerResult.tool_args_draft?.description,
+      };
+      const laborMissing = [];
+      if (!(Number.isFinite(Number(routerResult.tool_args_draft.amount)) && Number(routerResult.tool_args_draft.amount) > 0)) laborMissing.push('amount');
+      if (!String(routerResult.tool_args_draft.trade || '').trim()) laborMissing.push('trade');
+      if (!String(routerResult.tool_args_draft.description || '').trim()) laborMissing.push('description');
+      routerResult.required_fields_missing = laborMissing;
+      routerResult.clarification_question =
+        laborMissing.length === 0
+          ? null
+          : laborMissing.includes('trade') && laborMissing.includes('description')
+            ? 'What trade is this labor for, and what work was done?'
+            : laborMissing.includes('trade')
+              ? 'What trade is this labor cost for?'
+              : laborMissing.includes('description')
+                ? 'What work was done for this labor cost?'
+                : 'How much is the labor expense?';
+      if (laborMissing.length === 0) {
+        routerResult.action = 'execute';
+        routerResult.confidence = 0.99;
+      }
+      console.log('🛡️ LABOR EXPENSE OVERRIDE: steering away from change order → add_labor_expense', {
+        explicitNotChangeOrder,
+        laborAmountParsed,
+        parsedLaborTrade,
+        parsedLaborDescription,
+        requiredFieldsMissing: laborMissing,
+      });
+    }
+
     // ── SCENARIO-ANALYSIS GUARD ──────────────────────────────────────────────
     // For generic "what if" requests, ask user to pick one preset scenario.
     // If user picks one, run immediately with no extra questions.
@@ -11119,11 +11252,22 @@ router.post('/', async (req, res) => {
     // CRITICAL: Never treat "scan for missing costs" as a change order follow-up — user switched intent
     const isMissingCostScanMsg = (msgLower.includes('missing cost') || msgLower.includes('missing costs') ||
       (msgLower.includes('scan') && msgLower.includes('cost')) || msgLower.includes('cost gaps') || msgLower.includes('what am i missing'));
+    const explicitlyExitedCOFlow =
+      explicitNotChangeOrder ||
+      (
+        laborExpenseConversation &&
+        /\b(labor|labour)\b/i.test(`${messageLower} ${recentUserExpenseBlob}`) &&
+        !changeOrderIntentRegex.test(String(message || '').toLowerCase())
+      );
     let isChangeOrderFlowActive = !isMissingCostScanMsg && (
       changeOrderIntentRegex.test(String(message || '').toLowerCase()) ||
       lastAssistantCOPrompt ||
       hasCOIntentInHistory
     );
+    if (isChangeOrderFlowActive && explicitlyExitedCOFlow) {
+      console.log('🛡️ CO guard: disabled because user explicitly said this is not a change order / is a labor expense');
+      isChangeOrderFlowActive = false;
+    }
 
     if (
       isChangeOrderFlowActive &&
@@ -11234,6 +11378,11 @@ router.post('/', async (req, res) => {
         : parsedContext;
     const pendingPaymentMilestones = getPendingPaymentMilestones(paymentContextForGuard);
     const paymentCollectIntentRegex = /\b(mark|set|record|make).*(payment|deposit|milestone).*(collected|complete|paid)|\b(payment collected|collected payment|mark a payment as collected|make a payment as completed|got paid|received payment|mark collected)\b/i;
+    // "mark week 4 complete" / "weekly 3 done" — no word "payment" but clearly a draw week
+    const paymentWeekDrawIntentRegex =
+      /\b(mark|set|record|make)\b[\s\S]{0,80}\b(?:week|weekly)\s*\d+[\s\S]{0,40}\b(?:complete|completed|done|collected|paid)\b/i.test(
+        String(message || '').toLowerCase()
+      );
     const lastAssistantPaymentMsg = String(
       [...history].reverse().find((m) => m?.role === 'assistant')?.content || ''
     ).toLowerCase();
@@ -11253,6 +11402,7 @@ router.post('/', async (req, res) => {
     const isPaymentCollectionFlowActive =
       paymentSelectionResumeHint ||
       paymentCollectIntentRegex.test(String(message || '').toLowerCase()) ||
+      paymentWeekDrawIntentRegex ||
       routerResult?.proposed_tool === 'mark_payment_collected' ||
       lastAssistantAskedWhichPayment ||
       lastAssistantAskedPaymentConfirmation;
@@ -11871,6 +12021,158 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
       } else {
         console.log('🛡️ Daily log fallback: skipping (initial request, will ask for notes first)');
       }
+    }
+
+    const replaceToolCallsWithSingleFallback = (toolName, fallbackArgs, reason) => {
+      toolCalls = [
+        {
+          id: `call_manual_${toolName}_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: toolName,
+            arguments: JSON.stringify(fallbackArgs),
+          },
+        },
+      ];
+      console.log(`🛡️ ${reason}: forcing ${toolName} tool call`, fallbackArgs);
+    };
+
+    const draftArgs = routerResult?.tool_args_draft || {};
+
+    const routerWantsMaterialExpense =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'add_material_expense' &&
+      Number(draftArgs.amount) > 0 &&
+      typeof draftArgs.category === 'string' &&
+      draftArgs.category.trim();
+    const aiDidNotCallMaterialExpense = !toolCalls.some(tc => tc.function?.name === 'add_material_expense');
+    if (routerWantsMaterialExpense && aiDidNotCallMaterialExpense) {
+      const isLaborCategory = String(draftArgs.category || '').toLowerCase().trim() === 'labor';
+      const hasVendorOrTrade = Boolean(String(draftArgs.vendor || draftArgs.notes || '').trim());
+      if (isLaborCategory || hasVendorOrTrade) {
+        replaceToolCallsWithSingleFallback(
+          'add_material_expense',
+          {
+            projectId: draftArgs.projectId || projectId,
+            amount: Number(draftArgs.amount),
+            category: draftArgs.category,
+            vendor: draftArgs.vendor,
+            notes: draftArgs.notes,
+          },
+          'Expense fallback'
+        );
+      }
+    }
+
+    const routerWantsLaborExpense =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'add_labor_expense' &&
+      Number(draftArgs.amount) > 0;
+    const aiDidNotCallLaborExpense = !toolCalls.some(tc => tc.function?.name === 'add_labor_expense');
+    if (routerWantsLaborExpense && aiDidNotCallLaborExpense) {
+      const laborTrade = String(draftArgs.trade || draftArgs.vendor || draftArgs.workerName || draftArgs.notes || '').trim();
+      const laborDescription = String(draftArgs.description || draftArgs.notes || laborTrade || 'Labor').trim();
+      if (laborTrade || laborDescription) {
+        replaceToolCallsWithSingleFallback(
+          'add_labor_expense',
+          {
+            projectId: draftArgs.projectId || projectId,
+            amount: Number(draftArgs.amount),
+            trade: laborTrade || 'Labor',
+            description: laborDescription,
+            workerName: draftArgs.workerName || draftArgs.vendor || '',
+            date: draftArgs.date || new Date().toISOString().split('T')[0],
+          },
+          'Labor fallback'
+        );
+      }
+    }
+
+    const routerWantsTimelinePayment =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'add_timeline_payment' &&
+      String(draftArgs.title || '').trim() &&
+      Number(draftArgs.amount) > 0;
+    const aiDidNotCallTimelinePayment = !toolCalls.some(tc => tc.function?.name === 'add_timeline_payment');
+    if (routerWantsTimelinePayment && aiDidNotCallTimelinePayment) {
+      replaceToolCallsWithSingleFallback(
+        'add_timeline_payment',
+        {
+          projectId: draftArgs.projectId || projectId,
+          title: String(draftArgs.title).trim(),
+          amount: Number(draftArgs.amount),
+          dueDate: draftArgs.dueDate || new Date().toISOString().split('T')[0],
+        },
+        'Timeline payment fallback'
+      );
+    }
+
+    const routerWantsEstimateLineItem =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'add_estimate_line_item' &&
+      String(draftArgs.name || '').trim() &&
+      Number(draftArgs.unitCost) > 0;
+    const aiDidNotCallEstimateLineItem = !toolCalls.some(tc => tc.function?.name === 'add_estimate_line_item');
+    if (routerWantsEstimateLineItem && aiDidNotCallEstimateLineItem) {
+      replaceToolCallsWithSingleFallback(
+        'add_estimate_line_item',
+        {
+          projectId: draftArgs.projectId || projectId,
+          name: String(draftArgs.name).trim(),
+          qty: Number(draftArgs.qty) > 0 ? Number(draftArgs.qty) : 1,
+          unitCost: Number(draftArgs.unitCost),
+          category: draftArgs.category || 'Materials/Equipment',
+        },
+        'Estimate line item fallback'
+      );
+    }
+
+    const routerWantsTimelineComplete =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'mark_timeline_item_complete' &&
+      (draftArgs.itemId || String(draftArgs.itemName || '').trim());
+    const aiDidNotCallTimelineComplete = !toolCalls.some(tc => tc.function?.name === 'mark_timeline_item_complete');
+    if (routerWantsTimelineComplete && aiDidNotCallTimelineComplete) {
+      replaceToolCallsWithSingleFallback(
+        'mark_timeline_item_complete',
+        {
+          projectId: draftArgs.projectId || projectId,
+          itemId: draftArgs.itemId || null,
+          itemName: draftArgs.itemName || null,
+          progressPct: Number.isFinite(Number(draftArgs.progressPct)) ? Number(draftArgs.progressPct) : 100,
+          completedAt: draftArgs.completedAt || new Date().toISOString(),
+        },
+        'Timeline completion fallback'
+      );
+    }
+
+    const routerWantsChangeOrder =
+      routerResult.action === 'execute' &&
+      routerResult.proposed_tool === 'create_change_order';
+    const aiDidNotCallChangeOrder = !toolCalls.some(tc => tc.function?.name === 'create_change_order');
+    const materialsAmountNum = Number(draftArgs.materialsAmount);
+    const laborAmountNum = Number(draftArgs.laborAmount);
+    const hasChangeOrderBreakdown = Number.isFinite(materialsAmountNum) && Number.isFinite(laborAmountNum);
+    if (
+      routerWantsChangeOrder &&
+      aiDidNotCallChangeOrder &&
+      String(draftArgs.description || '').trim() &&
+      hasChangeOrderBreakdown
+    ) {
+      replaceToolCallsWithSingleFallback(
+        'create_change_order',
+        {
+          projectId: draftArgs.projectId || projectId,
+          description: String(draftArgs.description).trim(),
+          materialsAmount: materialsAmountNum,
+          laborAmount: laborAmountNum,
+          amount: Number.isFinite(Number(draftArgs.amount))
+            ? Number(draftArgs.amount)
+            : materialsAmountNum + laborAmountNum,
+          vendor: draftArgs.vendor || '',
+        },
+        'Change order fallback'
+      );
     }
     
     // Safety guard: block add_purchase_order if user's message is about marking as received
@@ -12881,24 +13183,71 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           const progressPct = functionArgs.progressPct != null ? Number(functionArgs.progressPct) : 100;
           const isComplete = progressPct >= 100;
           const completedAt = isComplete ? (functionArgs.completedAt || new Date().toISOString()) : null;
-          try {
-            const axios = require('axios');
-            const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
-            const response = await axios.patch(
-              `${baseUrl}/api/projects/${targetPid}/milestones/complete`,
-              { itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct },
-              { headers: { Authorization: `Bearer ${authToken}` } }
-            );
-            const label = functionArgs.itemName || functionArgs.itemId || 'Milestone';
-            functionResult = response.data?.success
-              ? { success: true, message: isComplete ? `✅ Marked "${label}" as complete.` : `✅ Updated "${label}" to ${progressPct}% progress.`, projectId: targetPid }
-              : { success: false, error: response.data?.error || 'Failed to update milestone.' };
-          } catch (e) {
-            // Fallback: return an action for the mobile app to handle
-            const action = { type: 'mark_timeline_complete', projectId: targetPid, itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct };
-            actions.push(action);
-            const label = functionArgs.itemName || 'Milestone';
-            functionResult = { success: true, message: isComplete ? `✅ "${label}" marked complete.` : `✅ "${label}" updated to ${progressPct}%.`, action };
+
+          // Payment draws must not complete via this tool without the same confirm step as mark_payment_collected
+          const itemLabel = String(functionArgs.itemName || '').trim();
+          let skipTimelineMutation = false;
+          if (isComplete && itemLabel) {
+            const paymentExecutorContext = currentProjectData
+              ? { ...parsedContext, currentProject: currentProjectData, projectId }
+              : parsedContext;
+            const strictPending = getPendingPaymentMilestones(paymentExecutorContext).filter(isStrictPaymentTimelineMilestone);
+            const payMatch = matchPendingPaymentByName(strictPending, itemLabel);
+            if (payMatch) {
+              const lastAssistantPaymentMsg = String(
+                [...(messages || [])].reverse().find((m) => m?.role === 'assistant')?.content || ''
+              ).toLowerCase();
+              const lastAssistantAskedPaymentConfirmation =
+                (lastAssistantPaymentMsg.includes('mark ') &&
+                  (lastAssistantPaymentMsg.includes('as collected') ||
+                    lastAssistantPaymentMsg.includes('as completed') ||
+                    lastAssistantPaymentMsg.includes('as paid'))) ||
+                lastAssistantPaymentMsg.includes('as collected?') ||
+                lastAssistantPaymentMsg.includes('as completed?') ||
+                lastAssistantPaymentMsg.includes('as paid?');
+              const userText = String(message || '').trim();
+              const isConfirmation = /^(yes|yep|ok|okay|confirm|proceed|go ahead|do it|mark it)$/i.test(userText);
+              if (!lastAssistantAskedPaymentConfirmation || !isConfirmation) {
+                const projName =
+                  (typeof parsedContext?.currentProject === 'object' && parsedContext?.currentProject?.title) ||
+                  (typeof parsedContext?.currentProject === 'object' && parsedContext?.currentProject?.name) ||
+                  currentProjectData?.title ||
+                  currentProjectData?.name ||
+                  'this project';
+                const displayName = formatPaymentNameForDisplay(payMatch.title || payMatch.name);
+                const amt = Number(payMatch.amount || 0);
+                functionResult = {
+                  success: false,
+                  error:
+                    'Payment milestones require explicit user confirmation before completion. Ask the user: ' +
+                    `Mark "${displayName}" ($${amt.toLocaleString()}) as completed for ${projName}? — then call mark_payment_collected after they reply yes.`,
+                  requiresPaymentConfirmation: true,
+                };
+                skipTimelineMutation = true;
+              }
+            }
+          }
+
+          if (!skipTimelineMutation) {
+            try {
+              const axios = require('axios');
+              const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+              const response = await axios.patch(
+                `${baseUrl}/api/projects/${targetPid}/milestones/complete`,
+                { itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct },
+                { headers: { Authorization: `Bearer ${authToken}` } }
+              );
+              const label = functionArgs.itemName || functionArgs.itemId || 'Milestone';
+              functionResult = response.data?.success
+                ? { success: true, message: isComplete ? `✅ Marked "${label}" as complete.` : `✅ Updated "${label}" to ${progressPct}% progress.`, projectId: targetPid }
+                : { success: false, error: response.data?.error || 'Failed to update milestone.' };
+            } catch (e) {
+              // Fallback: return an action for the mobile app to handle
+              const action = { type: 'mark_timeline_complete', projectId: targetPid, itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct };
+              actions.push(action);
+              const label = functionArgs.itemName || 'Milestone';
+              functionResult = { success: true, message: isComplete ? `✅ "${label}" marked complete.` : `✅ "${label}" updated to ${progressPct}%.`, action };
+            }
           }
 
         } else if (functionName === 'add_timeline_payment') {
@@ -13473,32 +13822,43 @@ RULES:
 
         // ── EXPENSE + LOG TOOL EXECUTORS ────────────────────────────────────────
         } else if (functionName === 'add_labor_expense') {
-          // Reuse add_material_expense logic but with labor-specific fields
           const targetPid = functionArgs.projectId || projectId;
-          const laborExpense = {
-            id: `exp-${Date.now()}`,
-            category: 'Labor',
-            vendor: functionArgs.workerName || '',
-            amount: functionArgs.amount,
-            date: functionArgs.date || new Date().toISOString().split('T')[0],
-            notes: `${functionArgs.trade}: ${functionArgs.description}`,
-            trade: functionArgs.trade,
-          };
-          const action = {
-            type: 'add_labor_expense',
-            projectId: targetPid,
-            amount: functionArgs.amount,
-            category: 'Labor',
-            vendor: functionArgs.workerName || '',
-            notes: laborExpense.notes,
-          };
-          actions.push(action);
-          functionResult = {
-            success: true,
-            message: `✅ Recorded $${functionArgs.amount.toLocaleString()} labor expense for ${functionArgs.trade} — "${functionArgs.description}"`,
-            projectId: targetPid,
-            action,
-          };
+          const trade = String(functionArgs.trade || '').trim();
+          const description = String(functionArgs.description || '').trim();
+          const worker = String(functionArgs.workerName || '').trim();
+          if (!trade || !description) {
+            functionResult = {
+              success: false,
+              error:
+                'For labor expenses, trade and description are required. Ask: "What trade and what work was done?"',
+            };
+          } else {
+            logPhase('tool_start', { functionName });
+            functionResult = await withTimeout(
+              executeAddMaterialExpense(
+                {
+                  projectId: targetPid,
+                  amount: functionArgs.amount,
+                  category: 'Labor',
+                  vendor: trade,
+                  notes: worker ? `${description} (${worker})` : description,
+                },
+                req
+              ),
+              TOOL_EXEC_TIMEOUT_MS,
+              `${functionName}`
+            ).catch((e) => ({
+              success: false,
+              error: e.message,
+              status: 'timeout_error',
+            }));
+            logPhase('tool_done', { functionName, success: !!functionResult?.success });
+            if (functionResult?.success) {
+              functionResult.message =
+                functionResult.message ||
+                `✅ Recorded $${Number(functionArgs.amount).toLocaleString()} labor expense for ${trade} — "${description}"`;
+            }
+          }
 
         } else if (functionName === 'mark_payment_collected') {
           const targetPid = functionArgs.projectId || projectId;
@@ -13965,7 +14325,160 @@ RULES:
         console.warn('⚠️ User message:', userMessage?.content);
         console.warn('⚠️ AI reply:', reply);
       }
-      
+
+      // SAFETY NET: LLM sometimes hallucinates "✅ Recorded $X" copying the prompt example
+      // without actually calling add_material_expense. Detect that case and either retry the
+      // tool with the router's draft args, or rewrite the reply so the user doesn't see a
+      // false confirmation.
+      const replyLowerForExpense = (reply || '').toLowerCase();
+      const claimsRecordedExpense =
+        /\brecorded\b/.test(replyLowerForExpense) &&
+        /\$/.test(reply || '') &&
+        !replyLowerForExpense.includes('purchase order') &&
+        !/\bpo[- ]?\d/.test(replyLowerForExpense);
+      const expenseDomain =
+        routerResult?.domain === 'expenses' ||
+        routerResult?.proposed_tool === 'add_material_expense' ||
+        routerResult?.proposed_tool === 'add_labor_expense';
+      const noToolRan = !projectUpdateData && toolCallsAfter.length === 0;
+      if (claimsRecordedExpense && expenseDomain && noToolRan) {
+        console.warn('🔴 SAFETY NET: AI said "Recorded" for expense but no persisted projectUpdate. Attempting recovery...', {
+          proposedTool: routerResult?.proposed_tool,
+          toolArgsDraft: routerResult?.tool_args_draft,
+          replyPreview: (reply || '').slice(0, 120),
+        });
+        let recovered = false;
+        try {
+          const draft = routerResult?.tool_args_draft || {};
+          const amountNum = Number(draft.amount);
+          const isLaborTool = routerResult?.proposed_tool === 'add_labor_expense';
+          const tradeStr = String(draft.trade || draft.vendor || draft.workerName || '').trim();
+          const descStr = String(draft.description || draft.notes || '').trim();
+          const haveLaborCore =
+            isLaborTool &&
+            Number.isFinite(amountNum) &&
+            amountNum > 0 &&
+            tradeStr &&
+            descStr;
+          const haveMaterialCore =
+            Number.isFinite(amountNum) &&
+            amountNum > 0 &&
+            typeof draft.category === 'string' &&
+            draft.category.trim() &&
+            (
+              String(draft.category).toLowerCase().trim() === 'labor' ||
+              (typeof draft.vendor === 'string' && draft.vendor.trim())
+            );
+          if (haveLaborCore) {
+            const retryArgs = {
+              projectId: draft.projectId || projectId,
+              amount: amountNum,
+              category: 'Labor',
+              vendor: tradeStr,
+              notes: descStr,
+            };
+            const retryResult = await executeAddMaterialExpense(retryArgs, req).catch((e) => ({
+              success: false,
+              error: e?.message || 'recovery_failed',
+            }));
+            if (retryResult?.success && retryResult.projectUpdate) {
+              projectUpdateData = retryResult.projectUpdate;
+              recovered = true;
+              console.log('✅ SAFETY NET: Recovered labor expense via executeAddMaterialExpense', {
+                expensesCount: projectUpdateData.expenses?.length,
+                totalSpent: projectUpdateData.totalSpent,
+              });
+            } else {
+              console.warn('⚠️ SAFETY NET: Labor retry did not succeed', {
+                error: retryResult?.error,
+              });
+            }
+          } else if (haveMaterialCore) {
+            const retryArgs = {
+              projectId: draft.projectId || projectId,
+              amount: amountNum,
+              category: draft.category,
+              vendor: draft.vendor,
+              notes: draft.notes,
+            };
+            const retryResult = await executeAddMaterialExpense(retryArgs, req).catch((e) => ({
+              success: false,
+              error: e?.message || 'recovery_failed',
+            }));
+            if (retryResult?.success && retryResult.projectUpdate) {
+              projectUpdateData = retryResult.projectUpdate;
+              recovered = true;
+              console.log('✅ SAFETY NET: Recovered expense via retry', {
+                expensesCount: projectUpdateData.expenses?.length,
+                totalSpent: projectUpdateData.totalSpent,
+              });
+            } else {
+              console.warn('⚠️ SAFETY NET: Retry did not succeed', {
+                error: retryResult?.error,
+              });
+            }
+          } else {
+            console.warn('⚠️ SAFETY NET: Missing fields for retry — draft did not match labor or material shape', {
+              draft,
+              isLaborTool,
+            });
+          }
+        } catch (recoveryErr) {
+          console.error('❌ SAFETY NET: recovery threw', recoveryErr);
+        }
+        if (!recovered) {
+          reply =
+            "I wasn't able to save that expense just now. Please resend with amount + what it was for — for labor: \"$5,000 for window install\" (or \"$5,000 framing — hung drywall\"). For materials: store, amount, and what you bought.";
+        }
+      }
+
+      const projectWriteDomains = new Set([
+        'expenses',
+        'payments',
+        'timeline',
+        'daily_log',
+        'change_order',
+        'team',
+        'estimate',
+      ]);
+      const projectWriteTools = new Set([
+        'add_material_expense',
+        'add_labor_expense',
+        'add_purchase_order',
+        'mark_purchase_order_received',
+        'mark_timeline_item_complete',
+        'add_timeline_payment',
+        'mark_payment_collected',
+        'add_estimate_line_item',
+        'add_daily_log',
+        'create_change_order',
+        'assign_pm',
+        'add_team_member',
+        'update_team_member_status',
+      ]);
+      const replyClaimsMutation =
+        /\b(recorded|created|added|queued|updated|marked|approved|assigned|saved)\b/i.test(reply || '');
+      const expectedWriteArtifactMissing =
+        replyClaimsMutation &&
+        !projectUpdateData &&
+        (!Array.isArray(actions) || actions.length === 0) &&
+        toolCallsAfter.length === 0;
+      const looksLikeProjectWriteIntent =
+        Boolean(projectId) &&
+        (
+          projectWriteDomains.has(String(routerResult?.domain || '')) ||
+          projectWriteTools.has(String(routerResult?.proposed_tool || '')) ||
+          routerResult?.action === 'execute'
+        );
+      if (expectedWriteArtifactMissing && looksLikeProjectWriteIntent) {
+        console.warn('🔴 SAFETY NET: Blocking ghost write confirmation with no persisted artifact', {
+          domain: routerResult?.domain,
+          proposedTool: routerResult?.proposed_tool,
+          replyPreview: (reply || '').slice(0, 120),
+        });
+        reply = "I wasn't able to save that change just now. Please try again and I'll confirm it once it's actually recorded.";
+      }
+
       // Final validation: if we have projectUpdateData, the function succeeded - ensure reply reflects this
       if (projectUpdateData && reply.toLowerCase().includes('issue')) {
         console.warn('⚠️ AI said "issue" but function succeeded - this is a contradiction');

@@ -218,9 +218,10 @@ Required: amount + vendor + category + expectedDelivery + ${hasProject ? `projec
   const timelineBlock = aiPmMode ? `
 TIMELINE/MILESTONE RULES:
 → "what's on the timeline?" / "show milestones" → call get_timeline_items
-→ "mark [item] complete" / "done with [phase]" → call mark_timeline_item_complete
+→ "mark [work phase] complete" / "done with [phase]" (framing, inspection, etc.) → call mark_timeline_item_complete — NOT for client payment/draw rows
+→ Client draws / scheduled payments ("Weekly Payment 4", "Week 3 Payment", "Deposit", "mark week 2 paid") → mark_payment_collected only: list pending if needed, ask **confirm with exact title + $ amount**, then after user says yes call the tool
 → "add payment" / "schedule payment" → call add_timeline_payment
-→ "payment collected" / "got paid" → call mark_payment_collected
+→ "payment collected" / "got paid" → same payment flow as above (confirm before marking)
 → Format timeline as numbered checklist: ✅ complete, ⏳ pending, 🔴 overdue` : '';
 
   // Projects list screen domain (Global AI Assistant + Projects screen)

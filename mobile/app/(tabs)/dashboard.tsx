@@ -326,6 +326,26 @@ function buildFallbackDailyBrief(
   };
 }
 
+/**
+ * Target **job** completion date for schedule signals — same sources as unified project mapping.
+ * Intentionally does **not** use top-level `dueDate` (often a bid deadline, deposit date, or legacy field).
+ */
+function getProjectJobEndDateRaw(projectRecord: any): string | null | undefined {
+  if (!projectRecord) return null;
+  const est = projectRecord.estimateData || {};
+  const pd = projectRecord.projectData || {};
+  return (
+    est.projectEndDate ||
+    est.endDate ||
+    est.endISO ||
+    projectRecord.endDate ||
+    projectRecord.endISO ||
+    pd.endDate ||
+    pd.endISO ||
+    null
+  );
+}
+
 /** One subtle operational line per dashboard project card */
 const getDashboardProjectOperationalSignal = (project: {
   rawProject: any;
@@ -338,7 +358,7 @@ const getDashboardProjectOperationalSignal = (project: {
   const raw = project.rawProject || {};
   const isCompleted = project.status === "Completed";
 
-  const endRaw = raw.endDate || raw.projectData?.endDate || raw.dueDate;
+  const endRaw = getProjectJobEndDateRaw(raw);
   if (endRaw && !isCompleted) {
     const d = new Date(endRaw);
     if (!Number.isNaN(d.getTime()) && d.getTime() < Date.now()) {
@@ -3215,6 +3235,7 @@ const DashboardScreen: React.FC = () => {
         const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
         const rawProgress = progressPct / 100; // Convert to 0-1
         const finalProgress = status === 'completed' ? 1.0 : rawProgress;
+        const scheduleEnd = getProjectJobEndDateRaw(p);
 
         return {
           id: p.id,
@@ -3225,10 +3246,10 @@ const DashboardScreen: React.FC = () => {
           amount: revenue,
           margin: marginRatio * 100,
           marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
-          dateLabel: p.endDate
+          dateLabel: scheduleEnd
             ? status === "completed"
-              ? `Completed ${formatDateShort(p.endDate)}`
-              : `Due ${formatDateShort(p.endDate)}`
+              ? `Completed ${formatDateShort(scheduleEnd)}`
+              : `Due ${formatDateShort(scheduleEnd)}`
             : "No due date",
           rawProject: p,
         };

@@ -32,6 +32,7 @@ import SubcontractorSearchModal from "./SubcontractorSearchModal";
 import { useAIManagerMode } from "@/state/useAIManagerMode";
 import { Switch, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareFlatList } from "react-native-keyboard-aware-scroll-view";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
@@ -331,10 +332,69 @@ function assistantIndicatesWriteActionPending(assistantContent: string): boolean
     /\bplease confirm\b/i.test(sl) ||
     /\bconfirm below\b/i.test(sl) ||
     /\bwhat is the amount, vendor, and category\b/i.test(sl) ||
+    // Models vary word order ("amount, category, and vendor") — same write flow
+    /\bwhat is the amount,\s*category,\s*and vendor\b/i.test(sl) ||
+    /\bprovide the amount\b/i.test(sl) &&
+      /\b(vendor|category)\b/i.test(sl) &&
+      /\b(material|expense|labor)\b/i.test(sl) ||
     /\bexpected delivery\b/i.test(sl) ||
     /\bpurchase order\b/i.test(sl) && /\b(what is|which|confirm|before i create it|reply)\b/i.test(sl) ||
     /\bwhat is the\b.*\b(change order|purchase order)\b/i.test(sl)
   );
+}
+
+/**
+ * Expense logging clarifications must use POST — /stream does not run tools or return projectUpdate,
+ * so streaming would show a fake "recorded" message without persisting to budget / transactions.
+ */
+function assistantIndicatesExpenseCapturePending(assistantContent: string): boolean {
+  const s = String(assistantContent || "").toLowerCase();
+  if (!s) return false;
+  if (/what type of expense/i.test(s)) return true;
+  if (/\b(materials|labor)\s+or\s+(labor|materials)\b/i.test(s) && /\?/.test(s)) return true;
+  if (
+    (/\bplease\b/i.test(s) || /\bprovide\b/i.test(s) || /\benter\b/i.test(s)) &&
+    /\bamount\b/i.test(s) &&
+    /\bcategory\b/i.test(s) &&
+    /\bvendor\b/i.test(s)
+  ) {
+    return true;
+  }
+  if (/\b(provide|need|share)\b.*\b(amount|vendor|category)\b/i.test(s) && /\bexpense\b/i.test(s)) {
+    return true;
+  }
+  if (
+    /\b(amount|category|vendor)\b/i.test(s) &&
+    /\b(material|expense)\b/i.test(s) &&
+    (/\bprovide\b/i.test(s) || /\bplease\b/i.test(s))
+  ) {
+    return true;
+  }
+  if (/\b(labor expense|material expense)\b/i.test(s) && /\b(amount|trade|vendor|category)\b/i.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+/** Structured replies like "Home Depot for plumbing for 5000" should never stream. */
+function messageLooksLikeExpenseDetailReply(raw: string): boolean {
+  const t = String(raw || "").trim();
+  const lower = t.toLowerCase();
+  if (!t || t.length > 160) return false;
+
+  const hasAmount =
+    /\$\s*\d[\d,]*(?:\.\d{1,2})?\b/.test(t) ||
+    /\b\d[\d,]*(?:\.\d{1,2})?\b/.test(t);
+  const hasForPattern = /\bfor\b/.test(lower);
+  const hasVendorishText = /^[a-z0-9&.' -]+(?:\s+[a-z0-9&.' -]+){0,5}\s+for\s+/i.test(t);
+  const hasCategoryWord =
+    /\b(plumbing|electrical|framing|roofing|tile|drywall|lumber|paint|concrete|labor|materials?|equipment)\b/i.test(lower);
+
+  if (hasAmount && hasForPattern && (hasVendorishText || hasCategoryWord)) {
+    return true;
+  }
+
+  return false;
 }
 
 /** User reply that is probably a calendar date (POST so backend can emit create_calendar_event). */
@@ -372,11 +432,14 @@ function isStreamSafeMessage(raw: string, history?: StreamHistoryTurn[]): boolea
   const lastAssistant = getLastAssistantContent(history);
   if (assistantIndicatesCalendarCapturePending(lastAssistant)) return false;
   if (assistantIndicatesWriteActionPending(lastAssistant)) return false;
+  if (assistantIndicatesExpenseCapturePending(lastAssistant)) return false;
   if (messageLooksLikeCalendarDateReply(raw)) return false;
+  if (messageLooksLikeExpenseDetailReply(raw)) return false;
   if (messageLooksLikeWriteConfirmationReply(raw)) return false;
   if (/\bcalendar\b/.test(msg)) return false;
 
-  const actionIntent = /\b(log|add|create|make|mark|record|scan|upload|invoice|send|approve|assign|schedule|book|pay|collect|generate|populate|build an?\s*estimate|run a scenario|what if|scenario|change order|purchase order|po\b)\b/;
+  const actionIntent =
+    /\b(log|add|create|make|mark|record|scan|upload|invoice|send|approve|assign|schedule|book|pay|collect|generate|populate|build an?\s*estimate|run a scenario|what if|scenario|change order|purchase order|po\b|spent|bought|purchased|paid)\b/;
   if (actionIntent.test(msg)) return false;
   try {
     const intent = detectProjectIntent(raw);
@@ -490,6 +553,12 @@ function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 
 /** Client-side Today Brief — fallback when API hasn't returned; ensures insight-first UI always shows */
 function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string | null) {
   const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+  const getBriefProjectStatus = (p: any) =>
+    (p?.status ?? p?.projectData?.status ?? "").toString().toLowerCase().replace(/\s+/g, "_");
+  /** In-flight jobs only — exclude completed / draft / submitted bids for "today" operational signals */
+  const isPortfolioActiveForTodayBrief = (p: any) =>
+    ["won", "active", "in_progress", "in-progress"].includes(getBriefProjectStatus(p));
+  const portfolioForBrief = allProjects.filter(isPortfolioActiveForTodayBrief);
   const now = new Date();
   const normalize = (v: any) => {
     if (v == null) return 0;
@@ -514,7 +583,7 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
   const projectNames = new Set<string>();
 
   let totalMissingReceipts = 0;
-  allProjects.forEach((p: any) => {
+  portfolioForBrief.forEach((p: any) => {
     const expenses = p?.expenses || p?.projectData?.expenses || [];
     totalMissingReceipts += expenses.filter((e: any) => !e?.receiptUri || !String(e.receiptUri).trim()).length;
   });
@@ -523,7 +592,7 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
     recommendedActions.push({ label: 'Upload missing receipts', prompt: 'Which projects have missing receipts? I want to upload them.' });
   }
 
-  const withMargin = allProjects
+  const withMargin = portfolioForBrief
     .map((p: any) => {
       const title = p?.title || p?.name || 'Project';
       const revenue = normalize(p?.bidPrice ?? p?.contractValue ?? p?.total ?? 0);
@@ -744,7 +813,10 @@ const AIAssistantModal: React.FC<Props> = ({
   const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const flatListRef = useRef<FlatList<Message>>(null);
+  const flatListRef = useRef<FlatList<Message> | null>(null);
+  const setFlatListRef = useCallback((ref: FlatList<Message> | null) => {
+    flatListRef.current = ref;
+  }, []);
   const { enabled: aiManagerEnabled, loading: aiModeLoading, toggleEnabled } = useAIManagerMode();
   const insets = useSafeAreaInsets();
   const dotAnim1 = useRef(new Animated.Value(0.4)).current;
@@ -2206,6 +2278,7 @@ const AIAssistantModal: React.FC<Props> = ({
       }
       
       case 'add_material':
+      case 'add_material_expense':
         return `Record material purchase: $${action.amount.toLocaleString()} from ${action.vendor}?`;
       
       case 'add_labor_expense':
@@ -3109,10 +3182,25 @@ const AIAssistantModal: React.FC<Props> = ({
       }
 
       // ── Streaming fast-path (opt-in, auto-fallback) ────────────────────
-      // Only used for conversational Q&A. Action messages and any streaming
-      // error fall through to the existing POST path so tool calls, selection
-      // cards, and action handlers continue to work exactly as before.
-      if (STREAMING_ENABLED && isStreamSafeMessage(newMessage.content, messages)) {
+      // Project assistants should prefer the full POST path so every write-capable
+      // flow can resolve tools / actions / projectUpdate reliably. Streaming is
+      // still fine for the standalone assistant tab and other read-only contexts.
+      const isProjectScopedAssistant =
+        parsedContext?.screen === 'Projects' ||
+        parsedContext?.screen === 'Project Detail' ||
+        parsedContext?.screen === 'Estimate Generator' ||
+        Boolean(
+          parsedContext?.projectId ||
+          parsedContext?.activeProjectId ||
+          parsedContext?.selectedProjectId ||
+          parsedContext?.resolvedProjectId ||
+          parsedContext?.currentProject
+        );
+      if (
+        STREAMING_ENABLED &&
+        !isProjectScopedAssistant &&
+        isStreamSafeMessage(newMessage.content, messages)
+      ) {
         const streamPlaceholderId = `${Date.now()}-stream`;
         const streamPlaceholder: Message = {
           id: streamPlaceholderId,
@@ -4526,12 +4614,17 @@ const AIAssistantModal: React.FC<Props> = ({
 
             {/* Messages - Everything scrolls together */}
             <View style={{ flex: 1, minHeight: 0 }}>
-            <FlatList
-              ref={flatListRef}
+            <KeyboardAwareFlatList
+              innerRef={setFlatListRef}
               style={styles.messageList}
               data={messages}
               keyExtractor={(item) => item.id}
               renderItem={renderMessage}
+                enableOnAndroid
+                enableAutomaticScroll
+                extraScrollHeight={Platform.OS === 'ios' ? 28 : 96}
+                extraHeight={Platform.OS === 'ios' ? 110 : 140}
+                keyboardOpeningTime={0}
                 contentContainerStyle={[
                   styles.messagesContainer,
                   {
@@ -5137,7 +5230,7 @@ const AIAssistantModal: React.FC<Props> = ({
               left: 0,
               right: 0,
               paddingBottom: Math.max(insets.bottom, 10) + 6,
-              paddingTop: 10,
+              paddingTop: 6,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }, light({ borderTopColor: ThemeColors.line, shadowOpacity: 0.05 })]}>
               {/* Global AI & Projects: Smart Quick Actions */}
@@ -5907,15 +6000,15 @@ const styles = StyleSheet.create({
   inputRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
   },
   inputInnerWrapper: {
     flex: 1,
   },
   inputInnerBorder: {
     flex: 1,
-    borderRadius: 24,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
@@ -5923,24 +6016,24 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 23,
+    borderRadius: 21,
     backgroundColor: "#05070A",
-    minHeight: 52,
-    paddingVertical: Platform.OS === "ios" ? 12 : 10,
+    minHeight: 44,
+    paddingVertical: Platform.OS === "ios" ? 6 : 5,
   },
   inputLeadIcon: {
-    marginLeft: 16,
-    marginRight: 10,
+    marginLeft: 12,
+    marginRight: 8,
     opacity: 0.88,
   },
   input: {
     flex: 1,
     color: Colors.text,
     fontSize: 15,
-    paddingRight: 10,
+    paddingRight: 8,
     paddingVertical: 0,
     maxHeight: 100,
-    lineHeight: 21,
+    lineHeight: 20,
   },
   recordingRow: {
     flex: 1,
@@ -5966,8 +6059,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   micButton: {
-    padding: 10,
-    marginRight: 10,
+    padding: 8,
+    marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -5975,17 +6068,17 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
   sendButtonBorder: {
-    borderRadius: 26,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
-    width: 52,
-    height: 52,
+    width: 44,
+    height: 44,
   },
   sendButtonInner: {
     width: "100%",
     height: "100%",
     backgroundColor: "#05070A",
-    borderRadius: 25,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
   },
