@@ -151,6 +151,10 @@ export function computeSpendingTrendCostStatus(params: {
   if (actualPlus > cap || forecast > cap) {
     return { text: "Over budget", color: "#ef4444" };
   }
+  // No spend / committed POs yet — forecast is often a full-budget fallback; avoid "At risk" false positives.
+  if (actualPlus <= 0) {
+    return { text: "On track", color: "#22c55e" };
+  }
   if (forecast >= cap * 0.95) {
     return { text: "At risk", color: "#f59e0b" };
   }
