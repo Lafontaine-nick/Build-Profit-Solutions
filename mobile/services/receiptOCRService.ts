@@ -40,7 +40,7 @@ const isLikelyMockReceiptData = (data: any, confidence?: number): boolean => {
     vendor === 'home depot' &&
     Math.abs(amount - 127.49) < 0.01 &&
     Math.abs(conf - 87) <= 1 &&
-    itemDescriptions.some((d) => d.includes('2x4 lumber'));
+    itemDescriptions.some((d: string) => d.includes('2x4 lumber'));
 
   return looksLikeKnownDemoPayload;
 };

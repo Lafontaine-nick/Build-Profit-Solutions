@@ -441,7 +441,7 @@ export default function BudgetActions({
           <AnimatedInput
             label='Amount'
             value={f.amount?.toString() || ''}
-            onChangeText={text => setF({ ...f, amount: text })}
+            onChangeText={text => setF({ ...f, amount: Number(text) || 0 })}
             placeholder='0.00'
             keyboardType='numeric'
           />
@@ -549,7 +549,7 @@ export default function BudgetActions({
           <AnimatedInput
             label='Amount'
             value={co.amount?.toString() || ''}
-            onChangeText={text => setCo({ ...co, amount: text })}
+            onChangeText={text => setCo({ ...co, amount: Number(text) || 0 })}
             placeholder='0.00 (positive for additions, negative for credits)'
             keyboardType='numeric'
           />

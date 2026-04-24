@@ -10,7 +10,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   Alert,
   Linking,
   ScrollView,
@@ -31,7 +30,7 @@ import * as FileSystemLegacy from "expo-file-system/legacy";
 import SubcontractorSearchModal from "./SubcontractorSearchModal";
 import { useAIManagerMode } from "@/state/useAIManagerMode";
 import { Switch, ActivityIndicator } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareFlatList } from "react-native-keyboard-aware-scroll-view";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -214,7 +213,7 @@ async function fetchWithFallback(urls: string[], options: RequestInit, timeout =
   const errors: Error[] = [];
   
   for (const url of urls) {
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const startTime = Date.now();
     try {
       const controller = new AbortController();
@@ -861,7 +860,7 @@ const AIAssistantModal: React.FC<Props> = ({
   } | null>(null);
   const [teamMembersData, setTeamMembersData] = useState<any[] | null>(null);
   const autoRefreshInFlightRef = useRef(false);
-  const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoRefreshIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAutoRefreshSnapshotRef = useRef<string>("");
   const hasAutoExpandedProjectsRef = useRef(false);
   const portfolioScopeOverrideRef = useRef(false);
@@ -880,7 +879,7 @@ const AIAssistantModal: React.FC<Props> = ({
   const pendingScenarioResumeRef = useRef<{ scenario: string } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const isUserScrollingRef = useRef(false);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Minimum list content height when keyboard is closed (short threads still scroll).
   // When keyboard is open, do NOT set minHeight — KeyboardAvoidingView already shrinks the list; a large minHeight + extra paddingBottom created huge dead scroll space.
@@ -899,7 +898,7 @@ const AIAssistantModal: React.FC<Props> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const recordingDurationRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordingStartTimeRef = useRef<number>(0);
   
   // Load last opened project ID on mount
@@ -993,7 +992,7 @@ const AIAssistantModal: React.FC<Props> = ({
       if (recording) {
         // Check if recording is still active before trying to stop/unload
         recording.getStatusAsync().then(status => {
-          if (status.isLoaded && status.isRecording) {
+          if ((status as any)?.isLoaded !== false && status.isRecording) {
             recording.stopAndUnloadAsync().catch(console.error);
           }
         }).catch(() => {
@@ -2686,6 +2685,10 @@ const AIAssistantModal: React.FC<Props> = ({
           messageToSend
         );
 
+      /** Command Center / Projects list sends large context + multi-step LLM; 45s was marginal for compare_projects + synthesis */
+      const assistantPostTimeoutMs =
+        isProjectsScreenContext || isGlobalAssistantContext ? 120000 : AI_REQUEST_TIMEOUT_MS;
+
       // Smart URL detection:
       // - Web: use localhost
       // - All mobile (simulator/device): use Mac's LAN IP (most reliable)
@@ -2948,6 +2951,9 @@ const AIAssistantModal: React.FC<Props> = ({
         const targetProjectId =
           resolvedProjectId || ctxObj?.resolvedProjectId || ctxObj?.projectId || ctxObj?.activeProjectId || ctxObj?.lastOpenedProjectId || null;
         if (targetProjectId) {
+          const contextProject = Array.isArray(ctxObj?.allProjects)
+            ? ctxObj.allProjects.find((p: any) => String(p?.id) === String(targetProjectId)) || null
+            : null;
           const storageRaw = await AsyncStorage.getItem(`bps.project.${targetProjectId}`);
           const timelineRaw = await AsyncStorage.getItem(`bps.timeline.v2.${targetProjectId}`);
           const timelineItems = timelineRaw ? JSON.parse(timelineRaw) : [];
@@ -3024,35 +3030,58 @@ const AIAssistantModal: React.FC<Props> = ({
             ]);
             const mergedMilestones = dedupeSchedule([
               ...(Array.isArray(ctxObj?.milestones) ? ctxObj.milestones : []),
+              ...(Array.isArray(contextProject?.milestones) ? contextProject.milestones : []),
               ...(Array.isArray(storageProject?.milestones) ? storageProject.milestones : []),
               ...(Array.isArray(ctxObj?.weeklyPayments) ? ctxObj.weeklyPayments : []),
               ...(Array.isArray(ctxObj?.paymentMilestones) ? ctxObj.paymentMilestones : []),
+              ...(Array.isArray(contextProject?.weeklyPayments) ? contextProject.weeklyPayments : []),
+              ...(Array.isArray(contextProject?.paymentMilestones) ? contextProject.paymentMilestones : []),
               ...(Array.isArray(storageProject?.weeklyPayments) ? storageProject.weeklyPayments : []),
               ...(Array.isArray(storageProject?.paymentMilestones) ? storageProject.paymentMilestones : []),
+              ...(Array.isArray(contextProject?.estimateData?.weeklyPayments) ? contextProject.estimateData.weeklyPayments : []),
+              ...(Array.isArray(contextProject?.estimateData?.paymentMilestones) ? contextProject.estimateData.paymentMilestones : []),
               ...(Array.isArray(storageProject?.estimateData?.weeklyPayments) ? storageProject.estimateData.weeklyPayments : []),
               ...(Array.isArray(storageProject?.estimateData?.paymentMilestones) ? storageProject.estimateData.paymentMilestones : []),
               ...(Array.isArray(timelineItems) ? timelineItems : []),
             ]);
-            const mergedEstimateData = storageProject?.estimateData || ctxObj?.estimateData || null;
+            const mergedEstimateData = contextProject?.estimateData || storageProject?.estimateData || ctxObj?.estimateData || null;
             const mergedTotalSpent = mergedExpenses.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
 
-            const contractVal = storageProject?.budgeted || storageProject?.bidPrice || ctxObj?.contractValue || ctxObj?.bidPrice || ctxObj?.bidTotal || 0;
+            const contractVal =
+              contextProject?.contractValue ||
+              contextProject?.adjustedContractValue ||
+              ctxObj?.contractValue ||
+              storageProject?.budgeted ||
+              storageProject?.bidPrice ||
+              contextProject?.bidPrice ||
+              ctxObj?.bidPrice ||
+              ctxObj?.bidTotal ||
+              0;
             const spendToDatePct = contractVal > 0 && mergedTotalSpent >= 0
               ? Math.round(((contractVal - mergedTotalSpent) / contractVal) * 1000) / 10
               : (ctxObj?.spendToDateMarginPct ?? null);
-            const progressPct = Number(storageProject?.overallProgressPct ?? storageProject?.progress ?? ctxObj?.progress ?? 0) || 0;
-            const committedPOs = Array.isArray(storageProject?.purchaseOrders)
-              ? storageProject.purchaseOrders.filter((po: any) => (po?.status || '').toLowerCase() === 'pending').reduce((s: number, po: any) => s + Number(po?.amount || 0), 0)
+            const progressPct = Number(
+              contextProject?.progress ??
+              storageProject?.overallProgressPct ??
+              storageProject?.progress ??
+              ctxObj?.progress ??
+              0
+            ) || 0;
+            const effectivePurchaseOrders = Array.isArray(contextProject?.purchaseOrders)
+              ? contextProject.purchaseOrders
+              : (Array.isArray(storageProject?.purchaseOrders) ? storageProject.purchaseOrders : []);
+            const committedPOs = Array.isArray(effectivePurchaseOrders)
+              ? effectivePurchaseOrders.filter((po: any) => (po?.status || '').toLowerCase() === 'pending').reduce((s: number, po: any) => s + Number(po?.amount || 0), 0)
               : 0;
-            const overviewAdjustedBudget = Number(ctxObj?.adjustedCostBudget || 0) || 0;
-            const overviewForecastFinalCost = Number(ctxObj?.forecastFinalCost || 0) || 0;
+            const overviewAdjustedBudget = Number(ctxObj?.adjustedCostBudget ?? contextProject?.adjustedCostBudget ?? 0) || 0;
+            const overviewForecastFinalCost = Number(ctxObj?.forecastFinalCost ?? contextProject?.forecastFinalCost ?? 0) || 0;
             const hasOverviewForecast =
-              Number.isFinite(Number(ctxObj?.projectedMarginPct)) &&
-              Number.isFinite(Number(ctxObj?.projectedProfit));
+              Number.isFinite(Number(ctxObj?.projectedMarginPct ?? contextProject?.projectedMarginPct)) &&
+              Number.isFinite(Number(ctxObj?.projectedProfit ?? contextProject?.projectedProfit));
             const estCostBaseline =
               overviewAdjustedBudget ||
               overviewForecastFinalCost ||
-              getEstimatedCostBaseline({ ...storageProject, ...ctxObj }, mergedEstimateData) ||
+              getEstimatedCostBaseline({ ...storageProject, ...contextProject, ...ctxObj }, mergedEstimateData) ||
               contractVal;
             const pf = !hasOverviewForecast && contractVal > 0 ? computeProfitForecast({
               contractValue: contractVal,
@@ -3085,27 +3114,28 @@ const AIAssistantModal: React.FC<Props> = ({
                     : pf?.spendToDateMarginPct,
               adjustedCostBudget: overviewAdjustedBudget || estCostBaseline,
               forecastFinalCost: overviewForecastFinalCost || pf?.forecastFinalCost,
-              projectedMarginPct: ctxObj?.projectedMarginPct ?? pf?.projectedMarginPct,
-              projectedProfit: ctxObj?.projectedProfit ?? pf?.projectedProfit,
+              projectedMarginPct: ctxObj?.projectedMarginPct ?? contextProject?.projectedMarginPct ?? pf?.projectedMarginPct,
+              projectedProfit: ctxObj?.projectedProfit ?? contextProject?.projectedProfit ?? pf?.projectedProfit,
               hasLiveProjectContext: mergedTotalSpent > 0 || ctxObj?.hasLiveProjectContext === true,
-              bidPrice: storageProject?.bidPrice || ctxObj?.bidPrice || 0,
+              bidPrice: contextProject?.bidPrice || storageProject?.bidPrice || ctxObj?.bidPrice || 0,
               estimatedCost:
                 overviewAdjustedBudget ||
                 getEstimatedCostBaseline(
-                  { ...storageProject, ...ctxObj },
+                  { ...storageProject, ...contextProject, ...ctxObj },
                   mergedEstimateData
                 ) ||
+                contextProject?.estimatedCost ||
                 storageProject?.estimatedCost ||
                 ctxObj?.estimatedCost ||
                 0,
               laborTotal: Number(
-                mergedEstimateData?.laborTotal || storageProject?.laborTotal || ctxObj?.laborTotal || 0
+                mergedEstimateData?.laborTotal || contextProject?.laborTotal || storageProject?.laborTotal || ctxObj?.laborTotal || 0
               ),
               materialTotal: Number(
-                mergedEstimateData?.materialTotal || storageProject?.materialTotal || ctxObj?.materialTotal || 0
+                mergedEstimateData?.materialTotal || contextProject?.materialTotal || storageProject?.materialTotal || ctxObj?.materialTotal || 0
               ),
-              bidMarginPct: getBidMarginPct(mergedEstimateData, storageProject?.bidPrice || ctxObj?.bidPrice || 0),
-              currentMarginPct: getCurrentMarginPct(storageProject?.bidPrice || ctxObj?.bidPrice || 0, mergedTotalSpent),
+              bidMarginPct: getBidMarginPct(mergedEstimateData, contextProject?.bidPrice || storageProject?.bidPrice || ctxObj?.bidPrice || 0),
+              currentMarginPct: getCurrentMarginPct(contextProject?.bidPrice || storageProject?.bidPrice || ctxObj?.bidPrice || 0, mergedTotalSpent),
             };
             finalContext = JSON.stringify(hydratedContext);
           }
@@ -3229,7 +3259,7 @@ const AIAssistantModal: React.FC<Props> = ({
             url: streamUrl,
             headers,
             body: streamBody,
-            timeoutMs: AI_REQUEST_TIMEOUT_MS,
+            timeoutMs: assistantPostTimeoutMs,
             onEvent: (ev) => {
               if (ev.type === 'token') {
                 streamedReply += ev.content;
@@ -3285,7 +3315,7 @@ const AIAssistantModal: React.FC<Props> = ({
           sessionId,
         }),
         },
-        AI_REQUEST_TIMEOUT_MS
+        assistantPostTimeoutMs
       );
 
       const data = await response.json();
@@ -4540,12 +4570,14 @@ const AIAssistantModal: React.FC<Props> = ({
         enabled={true}
       >
         <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg })]}>
-          <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+          <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
             {/* Header — full title strip when idle; back-only when keyboard is open */}
             <View
               style={[
                 styles.header,
-                keyboardOpen && styles.headerKeyboardCompact,
+                keyboardOpen
+                  ? styles.headerKeyboardCompact
+                  : { paddingTop: Math.max(insets.top, 14) },
                 light({ backgroundColor: ThemeColors.bg }),
               ]}
             >
@@ -5356,6 +5388,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
                     // Default project quick actions
                     return [
+                      { label: 'What If', prompt: 'Run a scenario analysis for this project.' },
+                      { label: 'Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
                       { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
                       { label: 'Change Order', prompt: 'Create me a change order' },
                       { label: 'Create PO', prompt: 'Create a purchase order' },
@@ -5363,8 +5397,6 @@ const AIAssistantModal: React.FC<Props> = ({
                       { label: 'Daily Log', prompt: 'Add a daily job log for today' },
                       { label: 'Budget Check', prompt: 'Give me a project health check.' },
                       { label: 'Team', prompt: 'can you help me with team management' },
-                      { label: 'What If', prompt: 'Run a scenario analysis for this project.' },
-                      { label: 'Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
                     ].map((chip) => (
                     <TouchableOpacity
                       key={chip.label}
@@ -5436,7 +5468,9 @@ const AIAssistantModal: React.FC<Props> = ({
                         case 'log_expense':
                         default:
                           return [
-                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?', primary: true },
+                            { label: 'What If', prompt: 'Run a scenario analysis for this project.', primary: true },
+                            { label: 'Forecast Profit', prompt: 'Forecast the final cost and profit for this project.' },
+                            { label: 'Log Expense', prompt: 'Can you log an expense for this project?' },
                             { label: 'Create PO', prompt: 'Create a purchase order' },
                             { label: 'Change Order', prompt: 'Create me a change order' },
                             { label: 'Mark Payment', prompt: 'Mark a payment as collected' },
@@ -5584,15 +5618,15 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
   },
   header: {
-    paddingTop: 18,
+    paddingTop: 6,
     paddingBottom: 14,
     paddingHorizontal: 20,
     flexDirection: "row",
     justifyContent: "flex-start",
-    alignItems: "flex-start",
+    alignItems: "center",
     zIndex: 10,
     backgroundColor: Colors.bg,
   },
@@ -5603,7 +5637,7 @@ const styles = StyleSheet.create({
   headerContent: {
     flex: 1,
     alignItems: "center",
-    paddingTop: 2,
+    paddingTop: 0,
     minWidth: 0,
   },
   headerContextStack: {
@@ -5657,7 +5691,7 @@ const styles = StyleSheet.create({
   },
   backButtonWrapper: {
     marginRight: 12,
-    marginTop: 4,
+    marginTop: 0,
     zIndex: 10,
     elevation: 10, // Android
   },
@@ -6089,7 +6123,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
     marginBottom: 26,
-    paddingHorizontal: 10,
+    width: "100%",
+    paddingHorizontal: 0,
     backgroundColor: Colors.bg,
   },
   greetingIconCircleWrapper: {
@@ -6113,18 +6148,20 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     textAlign: "center",
+    width: "100%",
     marginTop: 4,
     marginBottom: 10,
+    paddingHorizontal: 8,
     letterSpacing: -0.2,
-    maxWidth: 340,
   },
   greetingSubtitle: {
     color: "rgba(186, 198, 215, 0.96)",
     fontSize: 14,
     lineHeight: 23,
     textAlign: "center",
+    width: "100%",
     marginTop: 2,
-    maxWidth: 340,
+    paddingHorizontal: 8,
   },
   greetingHighlight: {
     fontWeight: "700",

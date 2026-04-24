@@ -32,6 +32,7 @@ export type ProjectOverview = {
   endISO: string;
   crewCount: number;
   lastUpdated: string;
+  updatedAt?: string;
   buckets: {
     id: string;
     name: string;
@@ -73,9 +74,10 @@ export type ProjectOverview = {
     description?: string;
     orderDate: string;
     expectedDelivery: string;
-    status: 'Pending' | 'Received' | 'Cancelled';
+    status: 'Pending' | 'Received' | 'Cancelled' | 'Archived';
     notes?: string;
   }[];
+  paymentMilestones?: any[];
   committedPOs?: number;
   currency?: string;
   health: {

@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -68,7 +70,6 @@ export async function requestNotificationPermissions(): Promise<NotificationPerm
         allowAlert: true,
         allowBadge: true,
         allowSound: true,
-        allowAnnouncements: false,
       },
     });
 

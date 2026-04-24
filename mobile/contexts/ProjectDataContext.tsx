@@ -142,6 +142,25 @@ interface ProjectDataProviderProps {
   projectId?: string;
 }
 
+/** Union by expense id; list entries override saved with the same id (AI often updates the list first). */
+function mergeProjectExpensesFromSources(
+  savedExpenses: any[] | undefined,
+  listExpenses: any[] | undefined
+): any[] {
+  const byId = new Map<string, any>();
+  for (const e of savedExpenses || []) {
+    if (e?.id != null && String(e.id) !== '') {
+      byId.set(String(e.id), e);
+    }
+  }
+  for (const e of listExpenses || []) {
+    if (e?.id != null && String(e.id) !== '') {
+      byId.set(String(e.id), e);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export function ProjectDataProvider({ children, projectId }: ProjectDataProviderProps) {
   // Initialize with project-specific data based on ID
   const getInitialProjectData = (id?: string): ProjectOverview => {
@@ -596,17 +615,66 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
               spent: (bucket.spent || 0) + expense.amount,
             };
           }
+
+          const isLaborBucket = bucketName.includes('labor');
+          const isLaborCategory =
+            expenseCategory.includes('labor') ||
+            expenseCategory.includes('labour') ||
+            expenseCategory === 'subs' ||
+            expenseCategory.includes('subcontract') ||
+            expenseCategory.includes('crew');
+          if (isLaborBucket && isLaborCategory) {
+            return {
+              ...bucket,
+              spent: (bucket.spent || 0) + expense.amount,
+            };
+          }
         }
         return bucket;
       });
 
       // If no matching category found, add to "Other" or create a new bucket
       let finalBuckets = updatedBuckets;
+      const cat = String(expense.category || '').trim().toLowerCase();
       const hasMatchingCategory =
         expense.category &&
-        updatedBuckets.some(
-          bucket => bucket.name.toLowerCase() === expense.category?.toLowerCase()
-        );
+        updatedBuckets.some((bucket) => {
+          const bn = bucket.name.toLowerCase();
+          if (bn === cat) return true;
+          const isMat =
+            (bn.includes('materials') || bn.includes('equipment')) &&
+            (cat.includes('materials') ||
+              cat.includes('equipment') ||
+              [
+                'tile',
+                'drywall',
+                'lumber',
+                'concrete',
+                'paint',
+                'electrical',
+                'plumbing',
+                'hardware',
+                'roofing',
+                'insulation',
+                'flooring',
+                'cabinets',
+                'appliances',
+                'windows',
+                'doors',
+                'siding',
+                'decking',
+                'fencing',
+                'landscaping',
+              ].includes(cat));
+          const isLab =
+            bn.includes('labor') &&
+            (cat.includes('labor') ||
+              cat.includes('labour') ||
+              cat === 'subs' ||
+              cat.includes('subcontract') ||
+              cat.includes('crew'));
+          return isMat || isLab;
+        });
 
       if (!hasMatchingCategory && expense.category) {
         finalBuckets = updatedBuckets.map((bucket, index) => {
@@ -1229,14 +1297,16 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
       const projectFromList = getProjectById(projectId || '1');
       const listPOs = projectFromList?.projectData?.purchaseOrders || [];
       const listCommittedPOs = projectFromList?.projectData?.committedPOs || 0;
+      const listExpenses = projectFromList?.projectData?.expenses || [];
       
       if (saved) {
         const parsedData = JSON.parse(saved);
+        const mergedExpensesSaved = mergeProjectExpensesFromSources(parsedData.expenses, listExpenses);
         
-        // Check if expenses changed
+        // Compare in-memory expenses to merged AsyncStorage + list (list can have AI-added rows first)
         const currentExpenseIds = (projectData.expenses || []).map((e: any) => e.id).sort().join(',');
-        const savedExpenseIds = (parsedData.expenses || []).map((e: any) => e.id).sort().join(',');
-        const expensesChanged = currentExpenseIds !== savedExpenseIds;
+        const mergedExpenseIds = mergedExpensesSaved.map((e: any) => e.id).sort().join(',');
+        const expensesChanged = currentExpenseIds !== mergedExpenseIds;
         
         // Check if buckets changed (compare spent amounts)
         const currentBucketsSpent = (projectData.buckets || []).map((b: any) => `${b.name}:${b.spent || 0}`).sort().join(',');
@@ -1260,8 +1330,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         const listHasNewerPOs = listPOs.length > (parsedData.purchaseOrders || []).length;
         const listPOsChanged = listPOIds !== currentPOIds;
         
-        // If ProjectListContext has newer data, merge it with AsyncStorage data
-        let dataToUse = parsedData;
+        // Merge list expenses into saved snapshot (same pattern as POs) so Budget stays in sync with AI
+        let dataToUse: any = { ...parsedData, expenses: mergedExpensesSaved };
         if (listHasNewerPOs || (listPOs.length > 0 && listPOsChanged)) {
           // Merge purchase orders from both sources (prefer ProjectListContext for POs)
           const mergedPOs = [...listPOs];
@@ -1272,7 +1342,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             }
           });
           dataToUse = {
-            ...parsedData,
+            ...dataToUse,
             purchaseOrders: mergedPOs,
             committedPOs: listCommittedPOs > 0 ? listCommittedPOs : parsedData.committedPOs || 0
           };
@@ -1305,14 +1375,15 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             // }, 100);
           }
         }
-      } else if (listPOs.length > 0) {
+      } else if (listPOs.length > 0 || listExpenses.length > 0) {
         // No AsyncStorage data, but ProjectListContext has data - use it
         const listData = projectFromList?.projectData || {};
         const dataToUse = {
           ...projectData,
           ...listData,
-          purchaseOrders: listPOs,
-          committedPOs: listCommittedPOs
+          purchaseOrders: listPOs.length ? listPOs : listData.purchaseOrders || projectData.purchaseOrders || [],
+          committedPOs: listCommittedPOs || listData.committedPOs || projectData.committedPOs || 0,
+          expenses: mergeProjectExpensesFromSources(projectData.expenses, listExpenses),
         };
         replaceProjectDataState(dataToUse);
       } else {

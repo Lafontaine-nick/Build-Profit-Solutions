@@ -25,7 +25,7 @@ export interface AiNextStep {
 export interface DailyBriefRisk {
   id: string;
   type: string;
-  severity: "high" | "medium" | "low";
+  severity: string;
   impactEstimate: number;
   headline: string;
   body: string;

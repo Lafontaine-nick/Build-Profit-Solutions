@@ -225,7 +225,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
         // Trigger OCR processing
-        processOCR(uri, asset.base64);
+        processOCR(uri, asset.base64 ?? undefined);
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -255,7 +255,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
         // Trigger OCR processing
-        processOCR(uri, asset.base64);
+        processOCR(uri, asset.base64 ?? undefined);
       }
     } catch (error) {
       console.error('Error picking image:', error);

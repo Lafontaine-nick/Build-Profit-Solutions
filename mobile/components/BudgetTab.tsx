@@ -314,11 +314,19 @@ export default function BudgetTab({
         // Calculate actual spent amount from expenses for this category
         // Match both "Materials/Equipment" and "Materials" categories
         const categoryExpenses = (contextProjectData?.expenses || []).filter(exp => {
-          const expCategory = (exp.category || '').toLowerCase();
-          const lineCategory = line.category.toLowerCase();
-          return expCategory === lineCategory ||
-                 (expCategory.includes('materials') && lineCategory.includes('materials')) ||
-                 (expCategory.includes('equipment') && lineCategory.includes('equipment'));
+          const expCategory = String(exp.category || '').trim().toLowerCase();
+          const lineCategory = String(line.category || '').trim().toLowerCase();
+          return (
+            expCategory === lineCategory ||
+            (expCategory.includes('materials') && lineCategory.includes('materials')) ||
+            (expCategory.includes('equipment') && lineCategory.includes('equipment')) ||
+            (lineCategory.includes('labor') &&
+              (expCategory.includes('labor') ||
+                expCategory.includes('labour') ||
+                expCategory === 'subs' ||
+                expCategory.includes('subcontract') ||
+                expCategory.includes('crew')))
+          );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
         
@@ -913,24 +921,28 @@ export default function BudgetTab({
             </LinearGradient>
           </View>
 
-          {/* Tabs */}
+          {/* Tabs — each pill sits in an equal flex slot so width is 50/50 regardless of label / gradient */}
           <View style={styles.tabContainer}>
-            <TabPill
-              label='Line Items'
-              active={tab === 'lines'}
-              onPress={() => setTab('lines')}
-              theme={theme}
-              colors={Colors}
-              darkMode={darkMode}
-            />
-            <TabPill
-              label='Orders'
-              active={tab === 'cos'}
-              onPress={() => setTab('cos')}
-              theme={theme}
-              colors={Colors}
-              darkMode={darkMode}
-            />
+            <View style={styles.tabPillSlot}>
+              <TabPill
+                label='Line Items'
+                active={tab === 'lines'}
+                onPress={() => setTab('lines')}
+                theme={theme}
+                colors={Colors}
+                darkMode={darkMode}
+              />
+            </View>
+            <View style={styles.tabPillSlot}>
+              <TabPill
+                label='Orders'
+                active={tab === 'cos'}
+                onPress={() => setTab('cos')}
+                theme={theme}
+                colors={Colors}
+                darkMode={darkMode}
+              />
+            </View>
           </View>
 
           {tab === 'lines' && (
@@ -1924,15 +1936,16 @@ function TabPill({
   const activeLabelColor = darkMode ? '#050B13' : '#071018';
   if (active) {
     return (
-      <Pressable onPress={onPress} style={styles.tabPillWrap}>
+      <Pressable onPress={onPress} style={styles.tabPillPressable}>
         <LinearGradient
           colors={['#22c55e', '#22d3ee']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.tabPillGradient}
-        >
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.tabPillLabelRow} pointerEvents="none">
           <Text style={[styles.tabPillText, { color: activeLabelColor }]}>{label}</Text>
-        </LinearGradient>
+        </View>
       </Pressable>
     );
   }
@@ -1940,7 +1953,7 @@ function TabPill({
     <Pressable
       onPress={onPress}
       style={[
-        styles.tabPillWrap,
+        styles.tabPillPressable,
         styles.tabPillInactive,
         {
           backgroundColor: darkMode ? 'rgba(30, 41, 59, 0.6)' : colors.surface2,
@@ -2295,20 +2308,35 @@ const styles = StyleSheet.create({
   },
   remainingText: { fontSize: 13, fontWeight: '700', marginTop: 8, textAlign: 'right', maxWidth: '100%' },
   actionButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  tabContainer: { flexDirection: 'row', gap: 8, marginTop: 20, marginBottom: 14 },
-  tabPillWrap: {
+  tabContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 20,
+    marginBottom: 14,
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  /** Fixed 50% width each — children use width:100% so gradient/text can’t skew flex measurement */
+  tabPillSlot: {
     flex: 1,
+    minWidth: 0,
+  },
+  tabPillPressable: {
+    width: '100%',
     minHeight: 40,
     borderRadius: 999,
     overflow: 'hidden',
-  },
-  tabPillGradient: {
-    flex: 1,
-    minHeight: 40,
-    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
+  },
+  tabPillLabelRow: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  tabPillActiveShadow: {
     shadowColor: '#22c55e',
     shadowOpacity: 0.28,
     shadowRadius: 10,
@@ -2317,9 +2345,6 @@ const styles = StyleSheet.create({
   },
   tabPillInactive: {
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
   },
   tabPillText: { fontSize: 13, fontWeight: '600' },
   tabContent: { borderRadius: 24, borderWidth: 1 },

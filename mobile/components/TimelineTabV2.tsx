@@ -130,7 +130,7 @@ function MilestoneCardV2({
           <View style={styles.mAmountRow}>
             {hasAmount ? (
               <View style={styles.amountPill}>
-                <Text style={styles.amountText}>${item.amount.toLocaleString()}</Text>
+                <Text style={styles.amountText}>${Number(item.amount ?? 0).toLocaleString()}</Text>
               </View>
             ) : (
               <View style={{ flex: 1 }} />

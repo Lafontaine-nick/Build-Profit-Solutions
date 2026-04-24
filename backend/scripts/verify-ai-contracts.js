@@ -2,13 +2,16 @@ const assert = require('node:assert/strict');
 
 const {
   isPortfolioCompareActiveQuery,
+  isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   isPortfolioLosingMoneyQuery,
 } = require('../src/services/aiAssistantCore');
 const { buildRouterPrompt, buildSystemPrompt } = require('../src/routes/promptSystem');
 const { promptCases } = require('../test-fixtures/aiEvalFixtures');
 
-assert.equal(isPortfolioCompareActiveQuery('What should I focus on today?'), false, 'Focus-today still depends on router instructions, not regex-only compare-active intent.');
+assert.equal(isPortfolioCompareActiveQuery('What should I focus on today?'), false, 'Compare-active pattern stays narrow; focus-today uses isPortfolioFocusTodayQuery.');
+assert.equal(isPortfolioFocusTodayQuery('What should I focus on today?'), true);
+assert.equal(isPortfolioFocusTodayQuery('What needs attention?'), true);
 assert.equal(isPortfolioLosingMoneyQuery('Show me the biggest profit leak'), true);
 assert.equal(isPortfolioWorstProjectQuery('Which project is the worst?'), true);
 

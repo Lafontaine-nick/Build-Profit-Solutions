@@ -17,6 +17,7 @@ const {
   isPortfolioOverBudgetListQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
+  isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   sortCompareProjectsResults,
   runCompareProjectsPipeline,
@@ -48,6 +49,8 @@ assert.equal(isPortfolioOverBudgetListQuery('Show projects over budget'), true);
 assert.equal(isSimpleProjectBudgetStatusQuery('Am I over budget on this job?'), true);
 assert.equal(isSimpleProjectBudgetStatusQuery('Which projects are over budget?'), false, 'Portfolio list should not use single-project budget reply');
 assert.equal(isPortfolioCompareActiveQuery('Compare my active projects'), true);
+assert.equal(isPortfolioFocusTodayQuery('What should I focus on today?'), true);
+assert.equal(isPortfolioFocusTodayQuery('What needs attention'), true);
 assert.equal(isPortfolioWorstProjectQuery('Which project is the worst?'), true);
 assert.equal(isPortfolioWorstProjectQuery('Which job has the lowest margin?'), true);
 assert.equal(isPortfolioWorstProjectQuery('Show me a worst-case scenario'), false, 'Worst-case estimate scenario is not portfolio worst-project intent');
@@ -245,6 +248,6 @@ assert.equal(afterDateOnly.needsMore, 'details', 'Do not use prior "create an ev
 assert.ok(!String(afterDateOnly.event?.title || '').toLowerCase().includes('create an event'));
 
 const metaOnly = parseCalendarEventCreate("Let's create an event", { allProjects: twoProjects, parsedContext: {}, history: [] });
-assert.equal(metaOnly.needsMore, 'date', 'Meta-only first message needs date first');
+assert.equal(metaOnly.needsMore, 'details_and_date', 'Meta-only first message should ask for both details and date');
 
 console.log('AI assistant core verification passed.');

@@ -14,7 +14,7 @@ import {
 class DataSyncService {
   private syncInProgress = false;
   private lastSyncTime: Date | null = null;
-  private syncInterval: NodeJS.Timeout | null = null;
+  private syncInterval: ReturnType<typeof setTimeout> | null = null;
 
   // Cache keys
   private readonly CACHE_KEYS = {

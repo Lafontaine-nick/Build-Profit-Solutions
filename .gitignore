@@ -108,3 +108,4 @@ SESSION_SUMMARY_*.md
 # Runtime data files
 backend/data/ai-audit-log.jsonl
 backend/storage/projects.json
+backend/storage/user-memory.json

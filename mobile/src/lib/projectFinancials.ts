@@ -40,11 +40,31 @@ function isApprovedChangeOrder(co: any): boolean {
   );
 }
 
+function resolveApprovedChangeOrderRevenue(co: any, fallbackMarkupPct = 0): number {
+  const clientPrice = safeNum(co?.clientPrice ?? 0);
+  if (clientPrice > 0) return clientPrice;
+
+  const amount = safeNum(co?.amount ?? 0);
+  const mat = co?.materialsAmount != null ? Number(co.materialsAmount) : NaN;
+  const lab = co?.laborAmount != null ? Number(co.laborAmount) : NaN;
+  const explicitCost =
+    (Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0);
+  const markupPct = safeNum(co?.markupPct ?? fallbackMarkupPct);
+
+  if (explicitCost > 0) {
+    if (amount > explicitCost + 0.02) return amount;
+    if (markupPct > 0) return explicitCost * (1 + (markupPct / 100));
+    return Math.max(amount, explicitCost);
+  }
+
+  return amount;
+}
+
 /** Client-facing change order total (sell dollars). */
-export function sumApprovedChangeOrderRevenue(changeOrders: any[]): number {
+export function sumApprovedChangeOrderRevenue(changeOrders: any[], fallbackMarkupPct = 0): number {
   return changeOrders.reduce((sum, co) => {
     if (!isApprovedChangeOrder(co)) return sum;
-    const amount = safeNum(co.amount ?? co.clientPrice ?? 0);
+    const amount = resolveApprovedChangeOrderRevenue(co, fallbackMarkupPct);
     return sum + amount;
   }, 0);
 }
@@ -182,7 +202,13 @@ export function computeProjectFinancials(
     const o = toPositiveNumber(options.contractValueOverride);
     if (o != null) contractValueBase = o;
   }
-  const approvedChangeOrderRevenue = sumApprovedChangeOrderRevenue(changeOrders);
+  const fallbackMarkupPct = safeNum(
+    ed?.markupPct ??
+    ed?.markup ??
+    project?.markupPct ??
+    project?.markup
+  );
+  const approvedChangeOrderRevenue = sumApprovedChangeOrderRevenue(changeOrders, fallbackMarkupPct);
   const adjustedContractValue = contractValueBase + approvedChangeOrderRevenue;
 
   let baseBid = firstPositiveNumber(

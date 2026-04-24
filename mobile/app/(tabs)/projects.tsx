@@ -167,6 +167,149 @@ const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgr
   return final;
 };
 
+function milestoneRowLooksComplete(m: any): boolean {
+  const p = Number(m?.progressPct ?? m?.progress ?? 0);
+  if (Number.isFinite(p) && p >= 100) return true;
+
+  const s = String(m?.status || '').toLowerCase().trim();
+  if (!s) return false;
+  if (
+    /\b(incomplete|unpaid|not[_\s-]?paid|pending|scheduled|open|draft|upcoming)\b/.test(s)
+  ) {
+    return false;
+  }
+  if (/\b(completed|complete|collected|closed|done)\b/.test(s)) return true;
+  if (/\bpaid\b/.test(s)) return true;
+
+  return false;
+}
+
+function maxPlannedMsFromMilestoneList(milestones: any[]): number | null {
+  if (!Array.isArray(milestones) || milestones.length === 0) return null;
+  let maxMs: number | null = null;
+  for (const m of milestones) {
+    if (milestoneRowLooksComplete(m)) continue;
+    const raw = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.dateISO || m?.date;
+    if (!raw) continue;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) continue;
+    const t = d.getTime();
+    if (maxMs == null || t > maxMs) maxMs = t;
+  }
+  return maxMs;
+}
+
+function resolveTimelineLatestPlannedMsFromMap(
+  projectRecord: any,
+  latestMap: Record<string, number>
+): number | null {
+  if (!projectRecord || !latestMap || typeof latestMap !== 'object') return null;
+  const normalizeTimelineKey = (v: string) =>
+    String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
+  const pid = String(projectRecord?.id ?? '').trim();
+  const titleRaw = String(projectRecord?.title ?? projectRecord?.name ?? '').trim().toLowerCase();
+  const titleSlug = normalizeTimelineKey(titleRaw);
+  const titleCompact = titleRaw.replace(/\s+/g, '');
+  const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+  let best: number | null = null;
+  for (const c of candidates) {
+    const ms = latestMap[c] ?? latestMap[normalizeTimelineKey(c)];
+    if (ms != null && Number.isFinite(ms) && (!best || ms > best)) best = ms;
+  }
+  return best;
+}
+
+function collectTruthyDateStrings(...vals: unknown[]): string[] {
+  const out: string[] = [];
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+function getLatestJobEndPick(projectRecord: any): { raw: string; date: Date } | null {
+  if (!projectRecord) return null;
+  const est = projectRecord.estimateData || {};
+  const pd = projectRecord.projectData || {};
+  const ped = pd.estimateData || {};
+  const raws = collectTruthyDateStrings(
+    projectRecord.projectEndDate,
+    est.projectEndDate,
+    est.endDate,
+    est.endISO,
+    ped.projectEndDate,
+    ped.endDate,
+    ped.endISO,
+    projectRecord.endDate,
+    projectRecord.endISO,
+    pd.endDate,
+    pd.endISO
+  );
+  let best: { raw: string; date: Date } | null = null;
+  for (const raw of raws) {
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) continue;
+    if (!best || date.getTime() > best.date.getTime()) best = { raw, date };
+  }
+  return best;
+}
+
+function getLatestPendingSchedulePick(projectRecord: any): { raw: string; date: Date } | null {
+  if (!projectRecord) return null;
+  const est = projectRecord.estimateData || {};
+  const pd = projectRecord.projectData || {};
+  const ped = pd.estimateData || {};
+  const arrays = [
+    projectRecord.milestones,
+    projectRecord.weeklyPayments,
+    projectRecord.paymentMilestones,
+    est.milestones,
+    est.paymentMilestones,
+    est.weeklyPayments,
+    ped.paymentMilestones,
+    ped.weeklyPayments,
+    pd.milestones,
+    pd.weeklyPayments,
+    pd.paymentMilestones,
+  ];
+  let best: { raw: string; date: Date } | null = null;
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (milestoneRowLooksComplete(m)) continue;
+      const raw = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.dateISO || m?.date;
+      if (!raw) continue;
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) continue;
+      if (!best || date.getTime() > best.date.getTime()) best = { raw: String(raw), date };
+    }
+  }
+  return best;
+}
+
+function getEffectiveScheduleEndPick(
+  projectRecord: any,
+  timelineLatestPlannedMs?: number | null
+): { raw: string; date: Date } | null {
+  const job = getLatestJobEndPick(projectRecord);
+  const sched = getLatestPendingSchedulePick(projectRecord);
+  let chosen: { raw: string; date: Date } | null = null;
+  if (!job && !sched) chosen = null;
+  else if (!sched) chosen = job;
+  else if (!job) chosen = sched;
+  else chosen = job.date.getTime() >= sched.date.getTime() ? job : sched;
+
+  if (timelineLatestPlannedMs != null && Number.isFinite(timelineLatestPlannedMs)) {
+    const t = timelineLatestPlannedMs;
+    if (!chosen || t > chosen.date.getTime()) {
+      return { raw: new Date(t).toISOString(), date: new Date(t) };
+    }
+  }
+  return chosen;
+}
+
 const getProjectRevenue = (project: any): number => {
   if (!project) return 0;
 
@@ -259,7 +402,7 @@ const getProjectRevenue = (project: any): number => {
 
 // Palette aligned with key metric cards
 const projectCardGradient = ['#070f1e', '#0b1f31', '#0c2f35', '#0fb493'];
-const progressGradient = ['#22c55e', '#14b8a6', '#0ea5e9'];
+const progressGradient = ['#22c55e', '#14b8a6', '#0ea5e9'] as const;
 const getStatusTheme = (darkMode: boolean) => ({
   Active: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
   Completed: { bg: 'rgba(34, 197, 94, 0.22)', border: 'rgba(34, 197, 94, 0.45)', color: '#34d399' },
@@ -396,6 +539,7 @@ export default function ProjectsScreen() {
 
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
+  const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
   const skipNextRefreshRef = React.useRef(false);
 
   const loadProjectDataOverrides = React.useCallback(async () => {
@@ -403,6 +547,7 @@ export default function ProjectsScreen() {
     const all = [...activeProjects, ...estimates];
     const next: Record<string, any> = {};
     const progressMap: Record<string, number> = {};
+    const latestPlannedMap: Record<string, number> = {};
 
     const normalizeKey = (v: string) =>
       String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
@@ -435,6 +580,11 @@ export default function ProjectsScreen() {
 
       // Pre-scan ALL timeline keys → suffix→progress (matches useProjectsCompareData exactly)
       const suffixToProgress: Record<string, number> = {};
+      const suffixToLatestPlanned: Record<string, number> = {};
+      const bumpLatest = (key: string, ms: number) => {
+        const prev = suffixToLatestPlanned[key];
+        suffixToLatestPlanned[key] = prev == null ? ms : Math.max(prev, ms);
+      };
       for (const k of timelineKeys) {
         const suffix = k.startsWith('bps.timeline.v2.')
           ? k.replace('bps.timeline.v2.', '')
@@ -446,13 +596,19 @@ export default function ProjectsScreen() {
           const raw = await AsyncStorage.getItem(k);
           if (raw) {
             const milestones = JSON.parse(raw);
-            if (Array.isArray(milestones)?.length) {
+            if (Array.isArray(milestones) && milestones.length > 0) {
               const pct = computeOverallPctFromItems(milestones);
               const suffixLower = suffix.toLowerCase();
               const suffixNorm = normalizeKey(suffix);
               suffixToProgress[suffixLower] = pct;
               suffixToProgress[suffixNorm] = pct;
               suffixToProgress[suffix] = pct;
+              const latestMs = maxPlannedMsFromMilestoneList(milestones);
+              if (latestMs != null) {
+                bumpLatest(suffixLower, latestMs);
+                bumpLatest(suffixNorm, latestMs);
+                bumpLatest(suffix, latestMs);
+              }
             }
           }
         } catch {
@@ -491,6 +647,19 @@ export default function ProjectsScreen() {
           }
         }
 
+        let foundLatestMs: number | undefined;
+        for (const c of candidates) {
+          const ms = suffixToLatestPlanned[c] ?? suffixToLatestPlanned[normalizeKey(c)];
+          if (ms != null && Number.isFinite(ms)) {
+            foundLatestMs = foundLatestMs == null ? ms : Math.max(foundLatestMs, ms);
+          }
+        }
+        if (foundLatestMs !== undefined) {
+          latestPlannedMap[pid] = foundLatestMs;
+          if (titleRaw) latestPlannedMap[titleRaw] = foundLatestMs;
+          if (titleSlug) latestPlannedMap[titleSlug] = foundLatestMs;
+        }
+
         // Load project data override
         const titleKey = String(project?.title ?? '').trim().toLowerCase();
         const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
@@ -502,6 +671,7 @@ export default function ProjectsScreen() {
 
     setProjectDataOverrides(next);
     setTimelineProgress(progressMap);
+    setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
   useEffect(() => {
@@ -761,6 +931,9 @@ export default function ProjectsScreen() {
 
       // Only show revenue for submitted/active/completed projects, show $0 for drafts
       const displayAmount = (displayStatus === 'Draft' || statusSlug === 'estimate') ? 0 : revenue;
+      const scheduleTimelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
+      const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, scheduleTimelineMs);
+      const scheduleEnd = scheduleEndPick?.raw;
 
       return {
         id: p.id,
@@ -775,16 +948,16 @@ export default function ProjectsScreen() {
             ? `${displayMargin.toFixed(1)}% margin · $${Math.round(displayProfit).toLocaleString()} profit`
             : `${displayMargin.toFixed(1)}% margin`,
         projectedProfit: displayProfit,
-        dateLabel: p.endDate
+        dateLabel: scheduleEnd
           ? slugForUi === 'completed'
-            ? `Completed ${formatDateShort(p.endDate)}`
-            : `Due ${formatDateShort(p.endDate)}`
-          : 'No due date',
+            ? `Completed ${formatDateShort(scheduleEnd)}`
+            : `Schedule ${formatDateShort(scheduleEnd)}`
+          : 'No schedule',
         rawProject: mergedProject,
         rawStatus: slugForUi,
       };
     });
-  }, [activeProjects, estimates, projectDataOverrides, timelineProgress]);
+  }, [activeProjects, estimates, projectDataOverrides, timelineLatestPlannedMs, timelineProgress]);
 
   // Filter projects by active tab
   const projects = useMemo(() => {
@@ -1130,7 +1303,7 @@ export default function ProjectsScreen() {
       >
         {/* HEADER */}
         <TabScreenHeader
-          style={[styles.wideContainer, styles.projectsHeaderWrap]}
+          style={StyleSheet.flatten([styles.wideContainer, styles.projectsHeaderWrap])}
           title={t('projects.allProjects')}
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
           titleColor={darkMode ? '#F5F7FA' : Colors.text}
@@ -1254,7 +1427,9 @@ export default function ProjectsScreen() {
                 <View style={{ marginTop: 12 }}>
                   {projects.map((project) => {
                     const statusThemeMap = getStatusTheme(darkMode);
-                    const pill = statusThemeMap[project.status] ?? statusThemeMap.Draft;
+                    const statusKey =
+                      (project.status in statusThemeMap ? project.status : 'Draft') as keyof typeof statusThemeMap;
+                    const pill = statusThemeMap[statusKey];
                     return (
                     <Pressable
                       key={project.id}
@@ -1332,10 +1507,20 @@ export default function ProjectsScreen() {
                       </View>
                       <View style={styles.projectDateBlock}>
                         <Text style={styles.projectMetaLabel}>
-                          {project.dateLabel.includes('Due') ? 'Due' : 'Completed'}
+                          {project.dateLabel.startsWith('Completed ')
+                            ? 'Completed'
+                            : project.dateLabel.startsWith('Schedule ')
+                              ? 'Schedule'
+                              : ''}
                         </Text>
                         <Text style={styles.projectMetaText} numberOfLines={1}>
-                          {project.dateLabel.replace(/^(Due |Completed )/, '')}
+                          {project.dateLabel.startsWith('Completed ')
+                            ? project.dateLabel.slice('Completed '.length)
+                            : project.dateLabel.startsWith('Schedule ')
+                              ? project.dateLabel.slice('Schedule '.length)
+                              : project.dateLabel === 'No schedule'
+                                ? '—'
+                                : project.dateLabel}
                         </Text>
                       </View>
                     </View>

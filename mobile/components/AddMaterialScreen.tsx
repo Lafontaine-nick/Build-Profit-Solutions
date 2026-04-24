@@ -47,6 +47,7 @@ interface AddMaterialScreenProps {
   onSave?: (payload: {
     vendor: string;
     amount: number;
+    scope?: string;
     description: string;
     poNumber: string;
   }) => void;
@@ -147,7 +148,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         const asset = result.assets[0];
         setReceiptUri(asset.uri);
         // Trigger OCR processing with URI and base64 if available
-        processOCR(asset.uri, asset.base64);
+        processOCR(asset.uri, asset.base64 ?? undefined);
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -173,7 +174,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         const asset = result.assets[0];
         setReceiptUri(asset.uri);
         // Trigger OCR processing with URI and base64 if available
-        processOCR(asset.uri, asset.base64);
+        processOCR(asset.uri, asset.base64 ?? undefined);
       }
     } catch (error) {
       console.error('Error uploading receipt:', error);
@@ -373,7 +374,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <Text style={styles.label}>Vendor / Supplier *</Text>
                 <View style={styles.inputWrapper}>
                   <Feather
-                    name="store"
+                    name="shopping-bag"
                     size={16}
                     color="#8DA0B8"
                     style={styles.inputIcon}

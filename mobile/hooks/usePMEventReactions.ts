@@ -88,7 +88,7 @@ export function usePMEventReactions(
 ) {
   const { enabled: aiManagerEnabled } = useAIManagerMode();
   const previousDataRef = useRef<any>(null);
-  const reactionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Generate PM reaction based on event
   const generateReaction = useCallback(async (event: PMEvent) => {

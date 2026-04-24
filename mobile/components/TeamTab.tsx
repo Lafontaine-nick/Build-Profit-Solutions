@@ -69,6 +69,7 @@ interface Member {
   tasksOpen: number;
   tasksTotal: number;
   skills: string[];
+  licenseNumber?: string;
   licenseVerified?: boolean;
   licenseExpiryISO?: string;
   avatarUrl?: string;
@@ -1299,10 +1300,11 @@ export default function TeamTab({
             id: `pm-${pmName}-${Date.now()}`,
             name: pmName,
             role: 'Project Manager',
-            trade: 'Project Manager',
             status: 'active',
             phone: '',
             email: '',
+            tasksOpen: 0,
+            tasksTotal: 0,
             licenseNumber: '',
             licenseExpiryISO: '',
             skills: [],
@@ -1333,11 +1335,12 @@ export default function TeamTab({
           const crewMember: Member = {
             id: `crew-${crewName}-${Date.now()}`,
             name: crewName,
-            role: 'Crew Member',
-            trade: 'General Labor',
+            role: 'General Labor',
             status: 'active',
             phone,
             email: '',
+            tasksOpen: 0,
+            tasksTotal: 0,
             licenseNumber: '',
             licenseExpiryISO: '',
             skills: [],
@@ -1675,7 +1678,7 @@ export default function TeamTab({
                     }}
                     style={styles.filterChipClose}
                   >
-                    <MaterialIcons name="close" size={14} color={tradeFilter === "All" ? "#0d1b2a" : supportMuted} />
+                    <MaterialIcons name="close" size={14} color={supportMuted} />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>

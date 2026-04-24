@@ -17,7 +17,7 @@ type Props = {
   projectBudget?: number;
   paymentMilestones?: any[]; // Estimate payment milestones for reference
   onClose: () => void;
-  onSave: (milestone: Milestone) => void;
+  onSave: (milestone: Milestone) => void | boolean | Promise<unknown>;
   onDelete?: (id: string) => void;
 };
 
@@ -102,7 +102,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       
       // Check if onSave returned a value indicating it's handling the save (like a promise or boolean)
       // If it did, don't close the modal - let the confirmation dialog handle it
-      if (result === false || (result && typeof result === 'object' && result.then)) {
+      if (result === false || (result && typeof result === 'object' && 'then' in result)) {
         console.log('⏸️ onSave is handling the save flow - not closing modal');
         return; // Don't close modal, let the confirmation dialog handle it
       }

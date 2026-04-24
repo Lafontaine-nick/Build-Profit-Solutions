@@ -280,6 +280,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     position: 'relative',
     overflow: 'visible',
   },
+  scrollView: {
+    flex: 1,
+  },
   wideContainer: {
     marginHorizontal: -20,
     paddingHorizontal: 8,

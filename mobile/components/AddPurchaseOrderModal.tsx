@@ -245,7 +245,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
               <Text style={styles.label}>Vendor / Supplier *</Text>
               <View style={styles.inputWrapper}>
                 <Feather
-                  name="store"
+                  name="shopping-bag"
                   size={16}
                   color="#8DA0B8"
                   style={styles.inputIcon}

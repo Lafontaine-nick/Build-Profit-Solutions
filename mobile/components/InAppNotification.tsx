@@ -48,7 +48,7 @@ export default function InAppNotification({
   const { darkMode, theme } = useTheme();
   const slideAnim = useRef(new Animated.Value(-NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
-  const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (notification) {
@@ -106,41 +106,45 @@ export default function InAppNotification({
   if (!notification) return null;
 
   // Get notification type colors
-  const getTypeColors = () => {
+  const getTypeColors = (): {
+    gradient: readonly [string, string];
+    iconBg: string;
+    iconColor: string;
+  } => {
     switch (notification.type) {
       case 'success':
         return {
-          gradient: ['#22c55e', '#16a34a'],
+          gradient: ['#22c55e', '#16a34a'] as const,
           iconBg: 'rgba(34, 197, 94, 0.2)',
           iconColor: '#22c55e',
         };
       case 'warning':
         return {
-          gradient: ['#f59e0b', '#d97706'],
+          gradient: ['#f59e0b', '#d97706'] as const,
           iconBg: 'rgba(245, 158, 11, 0.2)',
           iconColor: '#f59e0b',
         };
       case 'error':
         return {
-          gradient: ['#ef4444', '#dc2626'],
+          gradient: ['#ef4444', '#dc2626'] as const,
           iconBg: 'rgba(239, 68, 68, 0.2)',
           iconColor: '#ef4444',
         };
       case 'lead':
         return {
-          gradient: ['#3b82f6', '#2563eb'],
+          gradient: ['#3b82f6', '#2563eb'] as const,
           iconBg: 'rgba(59, 130, 246, 0.2)',
           iconColor: '#3b82f6',
         };
       case 'project':
         return {
-          gradient: ['#8b5cf6', '#7c3aed'],
+          gradient: ['#8b5cf6', '#7c3aed'] as const,
           iconBg: 'rgba(139, 92, 246, 0.2)',
           iconColor: '#8b5cf6',
         };
       default: // info
         return {
-          gradient: ['#43cea2', '#2d5a3d'],
+          gradient: ['#43cea2', '#2d5a3d'] as const,
           iconBg: 'rgba(67, 206, 162, 0.2)',
           iconColor: '#43cea2',
         };

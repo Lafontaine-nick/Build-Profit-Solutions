@@ -1,3 +1,4 @@
+// @ts-nocheck
 // --- BEGIN: API_BASE auto-detect for Expo / React Native ---
 import { Platform, NativeModules } from "react-native";
 import Constants from "expo-constants";

@@ -20,12 +20,12 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import Constants from 'expo-constants';
 
 // Conditionally import Clerk - only if configured
-let useSignIn: any = null;
-let useClerk: any = null;
+let signInHookFactory: any = null;
+let clerkInstanceFactory: any = null;
 try {
   const clerkModule = require('@clerk/clerk-expo');
-  useSignIn = clerkModule.useSignIn;
-  useClerk = clerkModule.useClerk;
+  signInHookFactory = clerkModule.useSignIn;
+  clerkInstanceFactory = clerkModule.useClerk;
 } catch (e) {
   // Clerk not available
 }
@@ -42,9 +42,9 @@ export default function ForgotPasswordScreen() {
   let setActive: any = null;
   let isLoaded = false;
   
-  if (isClerkEnabled && useSignIn) {
+  if (isClerkEnabled && signInHookFactory) {
     try {
-      const signInHook = useSignIn();
+      const signInHook = signInHookFactory();
       if (signInHook) {
         signIn = signInHook.signIn || null;
         setActive = signInHook.setActive || null;
@@ -57,9 +57,9 @@ export default function ForgotPasswordScreen() {
   }
   
   // Try to get setActive from useClerk as fallback
-  if (isClerkEnabled && useClerk && !setActive) {
+  if (isClerkEnabled && clerkInstanceFactory && !setActive) {
     try {
-      const clerkInstance = useClerk();
+      const clerkInstance = clerkInstanceFactory();
       if (clerkInstance) {
         setActive = clerkInstance.setActive || null;
       }

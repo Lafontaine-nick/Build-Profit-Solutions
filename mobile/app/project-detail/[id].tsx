@@ -769,7 +769,12 @@ function ProjectDetailContent() {
     // CRITICAL: Use originalBudget (without change orders) for OverviewScreen
     // OverviewScreen will add change orders separately to get adjusted budget
     // budgetedValue includes change orders, which would cause double-counting
-    budgeted: originalBudget,
+    budgeted: firstPositiveNumber(
+      (realProjectData as any)?.estimateData?.grandTotal,
+      (realProjectData as any)?.estimateData?.total,
+      (realProjectData as any)?.bidPrice,
+      (realProjectData as any)?.estimatedCost,
+    ),
     spent: Number(realProjectData.actualCost) || contextProjectData?.spent || 0,
     overallProgressPct: Number(realProjectData.progress) || 0,
     startISO: realProjectData.estimateData?.projectStartDate || realProjectData.startDate || new Date().toISOString().split('T')[0],
@@ -888,7 +893,7 @@ function ProjectDetailContent() {
           title: m.name || m.title || `Payment ${i + 1}`,
           description: m.description || m.workDescription || '',
           dueDate: raw,
-          status: (m.status as const) || 'pending',
+          status: typeof m.status === 'string' ? m.status : 'pending',
           amount: Number(m.paymentAmount ?? m.amount) || 0,
           percentage: Number(m.percentage) || 0,
         };
@@ -909,7 +914,7 @@ function ProjectDetailContent() {
                 w.dueDate ||
                 inferredWeekDate ||
                 new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              status: (w.status as const) || 'pending',
+              status: typeof w.status === 'string' ? w.status : 'pending',
               amount: Number(w.amount) || 0,
               percentage: Number(w.percentage) || 0,
             };
@@ -940,7 +945,7 @@ function ProjectDetailContent() {
                 title: w.description || `Week ${w.weekNumber ?? i + 1} Payment`,
                 description: w.description || '',
                 dueDate: w.scheduledDate || w.dueDate || fallbackDate || new Date(Date.now() + (i + 1) * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                status: (w.status as const) || 'pending',
+                status: typeof w.status === 'string' ? w.status : 'pending',
                 amount: Number(w.amount) || 0,
                 percentage: Number(w.percentage) || 0,
               };
@@ -1063,8 +1068,13 @@ function ProjectDetailContent() {
       const labB = findBucket('labor');
       const labBudget = getBucketBudget('labor');
       const labSpent = getBucketSpend('labor');
-      if (!hasLab && (labBudget > 0 || labSpent > 0 || Boolean(labB))) {
-        const unitCost = Math.max(labBudget, labSpent);
+      const labExpCtx = (contextProjectData?.expenses || []).reduce((sum: number, e: any) => {
+        const c = String(e?.category || '').trim().toLowerCase();
+        if (c.includes('labor') || c.includes('labour')) return sum + (Number(e?.amount) || 0);
+        return sum;
+      }, 0);
+      if (!hasLab && (labBudget > 0 || labSpent > 0 || Boolean(labB) || labExpCtx > 0)) {
+        const unitCost = Math.max(labBudget, labSpent, labExpCtx);
         targetLines.push({
           id: 'labor',
           category: 'Labor',
@@ -1224,6 +1234,11 @@ function ProjectDetailContent() {
     const laborBucket = findBucket('labor');
     const laborBucketBudget = getBucketBudget('labor');
     const laborSpent = getBucketSpend('labor');
+    const laborExpensesFromContext = (contextProjectData?.expenses || []).reduce((sum: number, e: any) => {
+      const c = String(e?.category || '').trim().toLowerCase();
+      if (c.includes('labor') || c.includes('labour')) return sum + (Number(e?.amount) || 0);
+      return sum;
+    }, 0);
     
     // Calculate from estimate (same source as Overview tab)
     const laborFromEstimate = estimate.laborLineItems && estimate.laborLineItems.length > 0
@@ -1233,14 +1248,15 @@ function ProjectDetailContent() {
     // PREFER estimate.laborLineItems (matches Overview tab), then bucket budget
     const laborBudget = laborFromEstimate > 0 ? laborFromEstimate : (laborBucketBudget > 0 ? laborBucketBudget : 0);
     
-    if (laborBudget > 0 || laborSpent > 0 || Boolean(laborBucket)) {
+    if (laborBudget > 0 || laborSpent > 0 || Boolean(laborBucket) || laborExpensesFromContext > 0) {
+      const laborLineBudget = Math.max(laborBudget, laborExpensesFromContext);
       lines.push({
         id: 'labor',
         category: 'Labor',
         description: 'Labor & Installation',
         qty: 1,
         unit: 'lump sum',
-        unitCost: laborBudget, // Use estimate.laborLineItems (matches Overview tab)
+        unitCost: laborLineBudget, // Planned labor from estimate, or at least recorded spend so the row scales
         markupPct: 0, // No markup for spending tracking
         spent: laborSpent,
         aiSuggested: false,
@@ -1330,52 +1346,54 @@ function ProjectDetailContent() {
   console.log('📋 Real Project Data:', realProjectData);
   console.log('📋 Estimate Start Date:', realProjectData?.estimateData?.projectStartDate);
   console.log('📋 Estimate End Date:', realProjectData?.estimateData?.projectEndDate);
-  console.log('📋 Final Start ISO:', projectData.startISO);
-  console.log('📋 Final End ISO:', projectData.endISO);
+  console.log('📋 Final Start ISO:', projectData?.startISO);
+  console.log('📋 Final End ISO:', projectData?.endISO);
   console.log('📋 Final Project Data:', projectData);
   console.log('📋 Budget Data:', budgetData);
   
-  // Validate all critical data before rendering
-  if (!projectData) {
-    console.error('❌ Project data is undefined!');
-    return (
-      <View style={{ flex: 1, backgroundColor: '#0b1c38', justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={{ color: 'white', fontSize: 18, textAlign: 'center' }}>
-          Error: Project data not found
-        </Text>
-      </View>
-    );
-  }
+  const missingProjectData = !projectData;
+  const projectDataBase: any = projectData ?? {
+    title: 'Untitled Project',
+    status: 'In Progress',
+    spent: 0,
+    health: {},
+    team: {},
+    buckets: [],
+    milestones: [],
+    expenses: [],
+    changeOrders: [],
+    purchaseOrders: [],
+  };
   
   // Ensure all critical properties are defined
   // CRITICAL: Use originalBudget (without change orders) for safeProjectData
   // This ensures OverviewScreen and other components see the correct original budget
-  const safeProjectData = {
-    ...projectData,
-    title: String(projectData.title || 'Untitled Project'),
-    status: String(projectData.status || 'In Progress'),
+  const safeProjectData: any = {
+    ...projectDataBase,
+    title: String(projectDataBase.title || 'Untitled Project'),
+    status: String(projectDataBase.status || 'In Progress'),
     budgeted: originalBudget, // Use originalBudget (without COs), not projectData.budgeted (may include COs)
     // Ensure bid/estimate available for profit forecast (contextProjectData may not have these)
-    bidPrice: (realProjectData as any)?.bidPrice ?? (projectData as any)?.bidPrice,
-    estimateData: (realProjectData as any)?.estimateData ?? (projectData as any)?.estimateData,
-    margin: (realProjectData as any)?.margin ?? (projectData as any)?.margin,
-    spent: Number(projectData.spent || 0),
+    bidPrice: (realProjectData as any)?.bidPrice ?? projectDataBase?.bidPrice,
+    estimateData: (realProjectData as any)?.estimateData ?? projectDataBase?.estimateData,
+    margin: (realProjectData as any)?.margin ?? projectDataBase?.margin,
+    spent: Number(projectDataBase.spent || 0),
     // Ensure all nested objects are defined
     health: {
-      costEfficiency: String(projectData.health?.costEfficiency || 'Good'),
-      scheduleEfficiency: String(projectData.health?.scheduleEfficiency || 'Good'),
-      projectStatus: String(projectData.health?.projectStatus || 'On Track'),
+      costEfficiency: String(projectDataBase.health?.costEfficiency || 'Good'),
+      scheduleEfficiency: String(projectDataBase.health?.scheduleEfficiency || 'Good'),
+      projectStatus: String(projectDataBase.health?.projectStatus || 'On Track'),
     },
     team: {
-      pmAssigned: Boolean(projectData.team?.pmAssigned || false),
-      pmName: String(((projectData as any).team?.pmName) || ''),
+      pmAssigned: Boolean(projectDataBase.team?.pmAssigned || false),
+      pmName: String((projectDataBase as any).team?.pmName || ''),
     },
     // Ensure all arrays are defined
-    buckets: projectData.buckets || [],
-    milestones: projectData.milestones || [],
-    expenses: projectData.expenses || [],
-    changeOrders: projectData.changeOrders || [],
-    purchaseOrders: projectData.purchaseOrders || [],
+    buckets: projectDataBase.buckets || [],
+    milestones: projectDataBase.milestones || [],
+    expenses: projectDataBase.expenses || [],
+    changeOrders: projectDataBase.changeOrders || [],
+    purchaseOrders: projectDataBase.purchaseOrders || [],
   };
 
   // Calculate project metrics for Overview tab
@@ -2113,6 +2131,17 @@ function ProjectDetailContent() {
     [activeTab, styles, handleTabPress]
   );
 
+  if (missingProjectData) {
+    console.error('❌ Project data is undefined!');
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0b1c38', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 18, textAlign: 'center' }}>
+          Error: Project data not found
+        </Text>
+      </View>
+    );
+  }
+
   try {
     return (
       <SafeAreaView style={styles.root}>
@@ -2695,10 +2724,13 @@ function ProjectDetailContent() {
                 addExpense({
                   id: `exp-${Date.now()}`,
                   category: 'Labor',
-                  vendor: action.vendor || action.laborType || '',
+                  vendor: action.vendor || action.trade || action.laborType || '',
                   amount: action.amount || 0,
                   date: new Date().toISOString(),
-                  notes: action.notes || `${action.laborType || 'Labor'} expense`,
+                  notes:
+                    action.notes ||
+                    (action.description ? String(action.description) : '') ||
+                    `${action.trade || action.laborType || 'Labor'} expense`,
                   receiptUri: null,
                 });
                 
@@ -2706,8 +2738,11 @@ function ProjectDetailContent() {
                 const expenseData = {
                   amount: action.amount || 0,
                   category: 'Labor',
-                  vendor: action.vendor || action.laborType || '',
-                  notes: action.notes || `${action.laborType || 'Labor'} expense`,
+                  vendor: action.vendor || action.trade || action.laborType || '',
+                  notes:
+                    action.notes ||
+                    (action.description ? String(action.description) : '') ||
+                    `${action.trade || action.laborType || 'Labor'} expense`,
                   date: new Date().toISOString().split('T')[0],
                 };
                 
@@ -3149,9 +3184,14 @@ function ProjectDetailContent() {
                 // Context expects: title, amount, approved, notes, status
                 const mat = Number(co.materialsAmount);
                 const lab = Number(co.laborAmount);
-                const total =
-                  Number(co.clientPrice || co.cost || co.amount || 0) ||
+                const costTotal =
+                  Number(co.cost || 0) ||
                   ((Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0));
+                const total =
+                  Number(co.clientPrice || co.amount || 0) ||
+                  (Number(co.markupPct || 0) > 0
+                    ? Math.round(costTotal * (1 + (Number(co.markupPct || 0) / 100)) * 100) / 100
+                    : costTotal);
                 const mappedCO = {
                   id: co.id || `co-${Date.now()}`,
                   title: co.description || co.title || 'Change Order',
@@ -3160,6 +3200,9 @@ function ProjectDetailContent() {
                   notes: co.vendor ? `Vendor: ${co.vendor}` : '',
                   status: 'Approved',
                   date: co.createdAt || new Date().toISOString(),
+                  cost: costTotal,
+                  clientPrice: total,
+                  markupPct: Number(co.markupPct || 0) || undefined,
                   materialsAmount: Number.isFinite(mat) ? mat : 0,
                   laborAmount: Number.isFinite(lab) ? lab : 0,
                 };

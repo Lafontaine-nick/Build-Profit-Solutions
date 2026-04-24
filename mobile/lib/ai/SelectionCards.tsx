@@ -47,7 +47,7 @@ export default function SelectionCards({
   const labelColor = darkMode ? '#F3F4F6' : '#64748b';
   const textColor = darkMode ? '#F9FAFB' : '#1e293b';
   const subtextColor = darkMode ? '#F3F4F6' : '#64748b';
-  const gradientColors = darkMode
+  const gradientColors: readonly [string, string] = darkMode
     ? ['rgba(45, 255, 196, 0.15)', 'rgba(0, 166, 255, 0.15)']
     : ['rgba(45, 255, 196, 0.1)', 'rgba(0, 166, 255, 0.1)'];
 

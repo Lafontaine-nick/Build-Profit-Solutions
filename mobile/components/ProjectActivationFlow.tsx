@@ -138,7 +138,7 @@ export default function ProjectActivationFlow({
       setEndDateObj(endDateValue);
 
       // Load payment schedule from estimate (hybrid: paymentMilestones + weeklyPayments)
-      const ed = project.estimateData || {};
+      const ed: any = project.estimateData || {};
       const paymentMs = ed.paymentMilestones || [];
       const weekly = ed.weeklyPayments || [];
       const hasBoth = paymentMs.length > 0 && weekly.length > 0;

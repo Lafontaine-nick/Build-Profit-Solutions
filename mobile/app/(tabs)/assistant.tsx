@@ -10,6 +10,12 @@ import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
+import { computeProjectFinancials, sumPlannedCostFromBuckets } from '@/src/lib/projectFinancials';
+import {
+  computeProfitForecast,
+  contractCollectedPctFromMilestones,
+  computeElapsedCalendarPct,
+} from '@/src/lib/profitForecast';
 import {
   applyMarkPaymentCollectedFromAction,
   computeOverallProgressExcludingDeposit,
@@ -42,6 +48,7 @@ export default function AssistantScreen() {
   const [isReady, setIsReady] = useState(false);
   const [dailyLogsByProjectId, setDailyLogsByProjectId] = useState<Record<string, any[]>>({});
   const [calendarEventsByProjectId, setCalendarEventsByProjectId] = useState<Record<string, any[]>>({});
+  const [projectSnapshotsById, setProjectSnapshotsById] = useState<Record<string, any>>({});
 
   // Load daily logs and calendar events from AsyncStorage for all projects
   useEffect(() => {
@@ -49,13 +56,15 @@ export default function AssistantScreen() {
       const allList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
       const logsMap: Record<string, any[]> = {};
       const eventsMap: Record<string, any[]> = {};
+      const snapshotsMap: Record<string, any> = {};
       for (const p of allList) {
         const pid = String(p?.id ?? '');
         if (!pid) continue;
         try {
-          const [logsRaw, eventsRaw] = await Promise.all([
+          const [logsRaw, eventsRaw, snapshotRaw] = await Promise.all([
             AsyncStorage.getItem(`daily_logs_${pid}`),
             AsyncStorage.getItem(`calendar_events_${pid}`),
+            AsyncStorage.getItem(`bps.project.${pid}`),
           ]);
           if (logsRaw) {
             const parsed = JSON.parse(logsRaw);
@@ -66,10 +75,14 @@ export default function AssistantScreen() {
             const parsed = JSON.parse(eventsRaw);
             eventsMap[pid] = Array.isArray(parsed) ? parsed : [];
           }
+          if (snapshotRaw) {
+            snapshotsMap[pid] = JSON.parse(snapshotRaw);
+          }
         } catch {}
       }
       setDailyLogsByProjectId(logsMap);
       setCalendarEventsByProjectId(eventsMap);
+      setProjectSnapshotsById(snapshotsMap);
     };
     loadExtraProjectData();
   }, [projects, activeProjects, estimates]);
@@ -88,56 +101,162 @@ export default function AssistantScreen() {
   // Build context and project options for AI Assistant — use full projects list for chips (includes all statuses)
   const { context, projectOptions } = React.useMemo(() => {
     const allProjectsList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+    const safeNum = (value: unknown) => {
+      const n = Number(value || 0);
+      return Number.isFinite(n) ? n : 0;
+    };
     const mappedProjects = allProjectsList.map((p: any) => {
-      const bidPrice = p.bidPrice || p.projectData?.bidPrice || p.estimateData?.bidPrice || 0;
-      const changeOrders = p.changeOrders || p.projectData?.changeOrders || [];
+      const pid = String(p?.id ?? '');
+      const snapshot = projectSnapshotsById[pid] || null;
+      const mergedProjectData = {
+        ...(snapshot?.projectData || {}),
+        ...(p.projectData || {}),
+      };
+      const mergedProject = {
+        ...(snapshot || {}),
+        ...(p || {}),
+        projectData: mergedProjectData,
+      };
+      const title =
+        mergedProject.title ||
+        mergedProject.name ||
+        p.title ||
+        p.name ||
+        'Untitled Project';
+      const bidPrice =
+        mergedProject.bidPrice ||
+        mergedProject.projectData?.bidPrice ||
+        mergedProject.estimateData?.bidPrice ||
+        0;
+      const changeOrders = mergedProject.projectData?.changeOrders || mergedProject.changeOrders || [];
       const approvedCOs = changeOrders.reduce((s: number, co: any) => {
         const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
         return ok ? s + (Number(co?.amount) || 0) : s;
       }, 0);
       const contractValue = bidPrice + approvedCOs;
+      const estimateData = mergedProject.estimateData || mergedProject.projectData?.estimateData || {};
+      const buckets = mergedProject.projectData?.buckets || mergedProject.buckets || [];
+      const expenses = mergedProject.expenses || mergedProject.projectData?.expenses || [];
+      const purchaseOrders = mergedProject.projectData?.purchaseOrders || mergedProject.purchaseOrders || [];
       // Use timeline progress (progressByProjectId or compareProjectsData) so backend and fallback match Projects page.
       // progressByProjectId is set as soon as timeline loads; compareProjectsData may still be [] on first paint.
-      const pid = String(p?.id ?? '');
-      const titleKey = String(p?.title || p?.name || '').trim().toLowerCase();
+      const titleKey = String(title).trim().toLowerCase();
       const titleSlug = titleKey.replace(/\s+/g, '-');
       const compareItem = compareProjectsData.find(
-        (c: any) => (c.title || '').toLowerCase() === (p.title || p.name || '').toLowerCase().trim()
+        (c: any) => (c.title || '').toLowerCase() === titleKey
       );
       const progress = progressByProjectId[pid] ??
         progressByProjectId[titleKey] ??
         progressByProjectId[titleSlug] ??
         compareItem?.progress ??
-        (p.progress ?? p.overallProgressPct ?? p.projectData?.progress ?? 0);
-      const st = (p.status || '').toLowerCase();
+        (mergedProject.progress ?? mergedProject.overallProgressPct ?? mergedProject.projectData?.progress ?? 0);
+      const milestones =
+        timelineMilestonesByProjectId[pid] ||
+        timelineMilestonesByProjectId[titleKey] ||
+        timelineMilestonesByProjectId[titleSlug] ||
+        mergedProject.milestones ||
+        mergedProject.projectData?.milestones ||
+        mergedProject.projectData?.weeklyPayments ||
+        mergedProject.estimateData?.milestones ||
+        mergedProject.estimateData?.paymentMilestones ||
+        mergedProject.estimateData?.weeklyPayments ||
+        [];
+      const expenseLineTotal = expenses.reduce((sum: number, e: any) => sum + safeNum(e?.amount), 0);
+      const bucketSpentTotal = Array.isArray(buckets)
+        ? buckets.reduce((sum: number, b: any) => sum + safeNum(b?.spent), 0)
+        : 0;
+      // Do not use projectData.spent as a primary source here. Some saved project snapshots
+      // store the planned cost budget in that field, which makes Command Center read budget as spend.
+      const actualCost =
+        expenseLineTotal ||
+        mergedProject.actualCost ||
+        mergedProject.totalSpent ||
+        mergedProject.projectData?.actualCost ||
+        bucketSpentTotal;
+      const committedPOs =
+        safeNum(mergedProject.committedPOs) ||
+        purchaseOrders
+          .filter((po: any) => String(po?.status || '').toLowerCase() === 'pending')
+          .reduce((sum: number, po: any) => sum + safeNum(po?.amount), 0);
+      const plannedCostBucketSum = sumPlannedCostFromBuckets(buckets);
+      const financials = computeProjectFinancials(
+        {
+          ...mergedProject,
+          title,
+          estimateData,
+          buckets,
+          changeOrders,
+          purchaseOrders,
+        },
+        {
+          plannedFromBuckets: plannedCostBucketSum,
+          plannedCostBucketSum,
+        }
+      );
+      const contractCollectedPct = contractCollectedPctFromMilestones(
+        milestones,
+        financials.adjustedContractValue
+      );
+      const elapsedTimePct = computeElapsedCalendarPct(
+        mergedProject.startISO || mergedProject.projectData?.startISO || mergedProject.startDate || mergedProject.projectData?.startDate,
+        mergedProject.endISO || mergedProject.projectData?.endISO || mergedProject.endDate || mergedProject.projectData?.endDate
+      );
+      const profitForecast = computeProfitForecast({
+        contractValue: financials.adjustedContractValue,
+        adjustedBudget: financials.adjustedCostBudget || financials.adjustedContractValue,
+        estimatedCostBaseline:
+          financials.plannedCostBudget || financials.adjustedCostBudget,
+        actualExpenses: actualCost,
+        committedPOs,
+        progressPct: safeNum(progress),
+        contractCollectedPct,
+        elapsedTimePct,
+        isCompleted: String(mergedProject.status || '').toLowerCase() === 'completed',
+      });
+      const st = String(mergedProject.status || '').toLowerCase();
       const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);
       const isCompleted = st === 'completed';
       return {
-      id: p.id,
-      title: p.title,
-      customerName: p.client || p.title,
-      status: p.status,
+      id: mergedProject.id,
+      title,
+      customerName: mergedProject.client || title,
+      status: mergedProject.status,
       isActive,
       isCompleted,
       bidPrice,
-      contractValue: contractValue > 0 ? contractValue : bidPrice,
-      estimatedCost: p.estimatedCost || 0,
-      actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
-      totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
-      expenses: p.expenses || p.projectData?.expenses || [],
-      expensesCount: (p.expenses || p.projectData?.expenses || []).length,
-      totalBudget: p.estimatedCost || p.bidPrice || 0,
-      margin: p.margin || 0,
-      markup: p.markup || 0,
-      buckets: p.projectData?.buckets || p.buckets || [],
-      changeOrders: p.projectData?.changeOrders || p.changeOrders || [],
-      milestones: timelineMilestonesByProjectId[pid] || timelineMilestonesByProjectId[titleKey] || timelineMilestonesByProjectId[titleSlug] || p.milestones || p.projectData?.milestones || p.projectData?.weeklyPayments || p.estimateData?.milestones || p.estimateData?.paymentMilestones || p.estimateData?.weeklyPayments || [],
-      estimateData: p.projectData?.estimateData || p.estimateData || {},
-      purchaseOrders: p.projectData?.purchaseOrders || p.purchaseOrders || [],
+      contractValue:
+        financials.adjustedContractValue > 0
+          ? financials.adjustedContractValue
+          : (contractValue > 0 ? contractValue : bidPrice),
+      adjustedContractValue: financials.adjustedContractValue,
+      estimatedCost: financials.adjustedCostBudget || mergedProject.estimatedCost || 0,
+      adjustedCostBudget: financials.adjustedCostBudget,
+      plannedCostBudget: financials.plannedCostBudget,
+      actualCost,
+      totalSpent: actualCost,
+      expenses,
+      expensesCount: expenses.length,
+      totalBudget: financials.adjustedCostBudget || mergedProject.estimatedCost || mergedProject.bidPrice || 0,
+      margin: mergedProject.margin || estimateData?.marginPct || estimateData?.margin || 0,
+      markup: mergedProject.markup || mergedProject.markupPct || estimateData?.markupPct || estimateData?.markup || 0,
+      buckets,
+      changeOrders,
+      milestones,
+      estimateData,
+      purchaseOrders,
+      committedPOs,
       dailyLogs: dailyLogsByProjectId[pid] || [],
-      updatedAt: p.projectData?.lastUpdated || p.updatedAt || p.lastUpdated,
+      updatedAt: mergedProject.projectData?.lastUpdated || mergedProject.updatedAt || mergedProject.lastUpdated,
       progress,
-      calendarEvents: calendarEventsByProjectId[pid] || p.projectData?.calendarEvents || p.calendarEvents || [],
+      forecastFinalCost: profitForecast.forecastFinalCost,
+      projectedProfit: profitForecast.projectedProfit,
+      projectedMarginPct: profitForecast.projectedMarginPct,
+      spendToDateMarginPct: profitForecast.spendToDateMarginPct,
+      estimatedMarginPct:
+        financials.adjustedContractValue > 0 && financials.plannedCostBudget > 0
+        ? ((financials.adjustedContractValue - financials.plannedCostBudget) / financials.adjustedContractValue) * 100
+        : undefined,
+      calendarEvents: calendarEventsByProjectId[pid] || mergedProject.projectData?.calendarEvents || mergedProject.calendarEvents || [],
     };
     });
     
@@ -160,6 +279,9 @@ export default function AssistantScreen() {
         ['estimate', 'draft', 'bid_submitted', 'submitted'].includes((p.status || '').toLowerCase())
       ) || allProjectsList[0];
     }
+    const currentProjectSnapshot = currentProject
+      ? mappedProjects.find((p: any) => String(p.id) === String(currentProject.id)) || currentProject
+      : null;
     
     const contextObj: any = {
       screen: "AI Assistant Tab",
@@ -181,18 +303,23 @@ export default function AssistantScreen() {
     }
     
     // Include current project info if available
-    if (currentProject) {
-      contextObj.projectName = currentProject.title;
-      contextObj.projectId = currentProject.id;
-      contextObj.currentProject = currentProject.title;
-      contextObj.bidTitle = currentProject.title;
-      contextObj.status = currentProject.status;
-      contextObj.bidTotal = currentProject.bidPrice || currentProject.estimatedCost || 0;
-      contextObj.total = currentProject.bidPrice || currentProject.estimatedCost || 0;
-      contextObj.estimatedCost = currentProject.estimatedCost || 0;
-      contextObj.actualCost = (currentProject as any).actualCost || (currentProject as any).totalSpent || (currentProject.projectData?.actualCost || currentProject.projectData?.spent || 0);
-      contextObj.margin = currentProject.margin || 0;
-      contextObj.markup = currentProject.markup || 0;
+    if (currentProjectSnapshot) {
+      contextObj.projectName = currentProjectSnapshot.title;
+      contextObj.projectId = currentProjectSnapshot.id;
+      contextObj.currentProject = currentProjectSnapshot.title;
+      contextObj.bidTitle = currentProjectSnapshot.title;
+      contextObj.status = currentProjectSnapshot.status;
+      contextObj.bidTotal = currentProjectSnapshot.bidPrice || currentProjectSnapshot.estimatedCost || 0;
+      contextObj.total = currentProjectSnapshot.bidPrice || currentProjectSnapshot.estimatedCost || 0;
+      contextObj.estimatedCost = currentProjectSnapshot.estimatedCost || 0;
+      contextObj.actualCost = currentProjectSnapshot.actualCost || currentProjectSnapshot.totalSpent || 0;
+      contextObj.contractValue = currentProjectSnapshot.contractValue || currentProjectSnapshot.bidPrice || 0;
+      contextObj.adjustedCostBudget = currentProjectSnapshot.adjustedCostBudget;
+      contextObj.forecastFinalCost = currentProjectSnapshot.forecastFinalCost;
+      contextObj.projectedProfit = currentProjectSnapshot.projectedProfit;
+      contextObj.projectedMarginPct = currentProjectSnapshot.projectedMarginPct;
+      contextObj.margin = currentProjectSnapshot.margin || 0;
+      contextObj.markup = currentProjectSnapshot.markup || 0;
       contextObj.overheadPct = 12; // Default
     }
     
@@ -206,7 +333,7 @@ export default function AssistantScreen() {
       context: JSON.stringify(contextObj),
       projectOptions,
     };
-  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId]);
+  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId, projectSnapshotsById]);
 
   // Do not allow compare actions until we have loaded for the CURRENT project set.
   // This prevents stale ProjectListContext progress (e.g. old 60%) from being used.
@@ -416,32 +543,81 @@ export default function AssistantScreen() {
               console.warn('⚠️ Project not found:', action.projectId);
             }
           } else if (action.type === 'add_labor_expense' && action.projectId && action.projectName) {
-            // Handle labor expenses
+            // Handle labor expenses (align with add_material: buckets + AsyncStorage; backend sends trade/description)
             const allProjects = [...activeProjects, ...estimates];
             const project = allProjects.find(p => p.id === action.projectId);
             
             if (project) {
               const existingExpenses = (project.projectData?.expenses || []);
+              const tradeLabel =
+                String(action.vendor || action.trade || action.laborType || '').trim() || 'Labor';
               const newExpense = {
                 id: `exp-${Date.now()}`,
                 category: 'Labor',
-                vendor: action.vendor || action.laborType || '',
+                vendor: tradeLabel,
                 amount: action.amount || 0,
                 date: new Date().toISOString(),
-                notes: action.notes || `${action.laborType || 'Labor'} expense`,
+                notes:
+                  String(action.notes || action.description || '').trim() ||
+                  `${tradeLabel} expense`,
                 receiptUri: null,
               };
               
               const updatedExpenses = [...existingExpenses, newExpense];
               const newSpent = (project.projectData?.spent || 0) + (action.amount || 0);
               
+              const expenseCategoryLower = 'labor';
+              const updatedBuckets = (project.projectData?.buckets || []).map((bucket: any) => {
+                const bucketName = (bucket.name || '').toLowerCase();
+                if (bucketName === expenseCategoryLower) {
+                  return { ...bucket, spent: (bucket.spent || 0) + (action.amount || 0) };
+                }
+                if (bucketName.includes('labor') && expenseCategoryLower.includes('labor')) {
+                  return { ...bucket, spent: (bucket.spent || 0) + (action.amount || 0) };
+                }
+                return bucket;
+              });
+              
               updateProject(action.projectId, {
                 projectData: {
                   ...project.projectData,
                   expenses: updatedExpenses,
                   spent: newSpent,
+                  buckets: updatedBuckets,
+                  lastUpdated: new Date().toISOString(),
                 },
               });
+              
+              try {
+                const storageKey = `bps.project.${action.projectId}`;
+                const existingDataStr = await AsyncStorage.getItem(storageKey);
+                let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
+                const currentExpensesFromStorage = existingProjectData.expenses || [];
+                const updatedExpensesFromStorage = [...currentExpensesFromStorage, newExpense];
+                const newSpentFromStorage = (existingProjectData.spent || 0) + (action.amount || 0);
+                const updatedBucketsFromStorage = (existingProjectData.buckets || []).map((bucket: any) => {
+                  const bucketName = (bucket.name || '').toLowerCase();
+                  if (bucketName === expenseCategoryLower) {
+                    return { ...bucket, spent: (bucket.spent || 0) + (action.amount || 0) };
+                  }
+                  if (bucketName.includes('labor') && expenseCategoryLower.includes('labor')) {
+                    return { ...bucket, spent: (bucket.spent || 0) + (action.amount || 0) };
+                  }
+                  return bucket;
+                });
+                await AsyncStorage.setItem(
+                  storageKey,
+                  JSON.stringify({
+                    ...existingProjectData,
+                    expenses: updatedExpensesFromStorage,
+                    spent: newSpentFromStorage,
+                    buckets: updatedBucketsFromStorage,
+                    lastUpdated: new Date().toISOString(),
+                  })
+                );
+              } catch (error) {
+                console.error('Error saving labor expense to AsyncStorage:', error);
+              }
               
               console.log('✅ Added labor expense to project:', action.projectName, action.amount);
             }

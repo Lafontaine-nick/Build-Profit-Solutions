@@ -1,18 +1,32 @@
 import { config } from 'dotenv';
 import path from 'path';
 
-// Load order: base → production file → .env.local last with override so local dev always wins.
-// (Previously .env.production ran after .env.local and could set EXPO_PUBLIC_APP_ENV=production,
-// which turned EAS Update back on and left Expo Go stuck on "downloading…".)
+// Load order: base → production file → .env.local last.
+// For local development, .env.local should win. For production EAS builds, do not let
+// a local override flip EXPO_PUBLIC_APP_ENV back to development during config evaluation.
 const dotenvOpts = { quiet: true };
 config({ path: path.resolve(__dirname, '.env'), ...dotenvOpts });
 config({ path: path.resolve(__dirname, '.env.production'), ...dotenvOpts });
-config({ path: path.resolve(__dirname, '.env.local'), override: true, ...dotenvOpts });
+config({
+  path: path.resolve(__dirname, '.env.local'),
+  override: process.env.EXPO_PUBLIC_APP_ENV !== 'production',
+  ...dotenvOpts,
+});
 
 // Store / EAS production sets EXPO_PUBLIC_APP_ENV=production (see eas.json).
 // Do NOT infer dev from NODE_ENV here: when Expo evaluates this file, NODE_ENV is often unset,
 // which made isDevelopment false, re-enabled EAS Update, and left Expo Go stuck on "downloading…".
 const isDevelopment = process.env.EXPO_PUBLIC_APP_ENV !== 'production';
+const appDisplayName = isDevelopment
+  ? 'Build Profit Solutions (Dev)'
+  : 'Build Profit Solutions';
+const appScheme = isDevelopment ? 'buildprofitsolutions-dev' : 'buildprofitsolutions';
+const iosBundleIdentifier = isDevelopment
+  ? 'com.buildprofitsolutions.mobile.dev'
+  : 'com.buildprofitsolutions.mobile';
+const androidPackage = isDevelopment
+  ? 'com.buildprofitsolutions.mobile.dev'
+  : 'com.buildprofitsolutions.mobile';
 
 // OTA only during EAS cloud/local builds where we ship production env (see eas.json).
 // Local `expo start` does not set EAS_BUILD, so Expo Go won't hang on "downloading…"
@@ -22,9 +36,7 @@ const enableProductionEASUpdate =
 
 export default {
   expo: {
-    name: isDevelopment
-      ? 'Build Profit Solutions (Dev)'
-      : 'Build Profit Solutions',
+    name: appDisplayName,
     slug: 'build-profit-solutions-mobile',
     version: '1.0.0',
     // Required whenever expo-updates / Expo.plist sets EXUpdatesRuntimeVersion (EAS builds, prebuild).
@@ -32,7 +44,7 @@ export default {
     sdkVersion: '54.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
-    scheme: 'buildprofitsolutions',
+    scheme: appScheme,
     userInterfaceStyle: 'automatic',
     splash: {
       image: './assets/images/splash-icon.png',
@@ -42,7 +54,7 @@ export default {
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.buildprofitsolutions.mobile',
+      bundleIdentifier: iosBundleIdentifier,
       // Must increase for every App Store Connect upload (TestFlight). EAS can auto-increment; see eas.json.
       buildNumber: '2',
       // Reanimated 4+ requires New Architecture; required for EAS iOS pod install.
@@ -64,7 +76,7 @@ export default {
         foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
-      package: 'com.buildprofitsolutions.mobile',
+      package: androidPackage,
       // Match iOS: PDF export POST to http://<dev-machine>:3001 on a physical device.
       usesCleartextTraffic: true,
       jsEngine: 'hermes',

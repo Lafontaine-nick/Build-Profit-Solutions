@@ -6,10 +6,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Conditionally import Clerk - only if configured
-let useSignIn: any = null;
+let signInHookFactory: any = null;
 try {
   const clerkModule = require('@clerk/clerk-expo');
-  useSignIn = clerkModule.useSignIn;
+  signInHookFactory = clerkModule.useSignIn;
 } catch (e) {
   // Clerk not available
 }
@@ -32,9 +32,9 @@ export default function LoginScreen() {
   let isLoaded = false;
   let hasClerk = false;
   
-  if (useSignIn) {
+  if (signInHookFactory) {
     try {
-      const signInHook = useSignIn();
+      const signInHook = signInHookFactory();
       if (signInHook) {
         clerkSignIn = signInHook.signIn || null;
         clerkSetActive = signInHook.setActive || null;

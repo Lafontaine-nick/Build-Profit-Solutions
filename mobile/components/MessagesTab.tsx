@@ -333,6 +333,7 @@ interface MessagesTabProps {
   project?: any;
   theme?: 'dark' | 'light';
   onNavigateToTab?: (tab: string) => void;
+  onClose?: () => void;
 }
 
 export default function MessagesTab({ onNavigateToTab, onClose }: MessagesTabProps = {}) {

@@ -111,13 +111,14 @@ export default function BudgetProfitMixCard({
       : burnVsPlanPts > 0
         ? '#F97316'
         : '#22C55E';
+  /** Same number as before (budget used % minus job progress %); wording aimed at non-finance users. */
   const burnVsPlanPillLabel =
     Math.abs(burnVsPlanPts) < 3
       ? 'On pace'
       : burnVsPlanPts > 0
-        ? `+${burnVsPlanPts.toFixed(1)} pts`
-        : `-${Math.abs(burnVsPlanPts).toFixed(1)} pts`;
-  const spendVsScheduleDetail = `${costBudgetUsedPctDisplay.toFixed(1)}% budget used vs ${profitForecast.scheduleProgressPct.toFixed(1)}% schedule`;
+        ? `${burnVsPlanPts.toFixed(1)}% over`
+        : `${Math.abs(burnVsPlanPts).toFixed(1)}% under`;
+  const spendVsScheduleDetail = `${costBudgetUsedPctDisplay.toFixed(1)}% of cost budget used · ${profitForecast.scheduleProgressPct.toFixed(1)}% done on the schedule`;
 
   return (
     <View style={[styles.sectionCardContainer, { marginTop }]}>
@@ -168,7 +169,7 @@ export default function BudgetProfitMixCard({
               <View style={styles.signalPillDivider} />
               <View style={styles.signalPill}>
                 <Text style={[styles.signalPillLabel, { color: pageCaption }]} numberOfLines={1}>
-                  Spend vs schedule
+                  Spend vs progress
                 </Text>
                 <Text style={[styles.signalPillValue, { color: burnVsPlanColor }]} numberOfLines={1}>
                   {burnVsPlanPillLabel}
@@ -277,8 +278,13 @@ export default function BudgetProfitMixCard({
                 ({originalEstimateMarginPctResolved.toFixed(1)}%).
               </Text>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
-                Spend vs schedule compares budget used (spend plus committed POs) to schedule progress
-                ({spendVsScheduleDetail}).
+                Spend vs progress compares two percentages: how much of your cost budget is used (money out
+                the door plus open POs) vs how far along the job is on the schedule ({spendVsScheduleDetail}).
+              </Text>
+              <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
+                If the middle number is under, you have used less budget than the schedule suggests for this
+                point in the job (usually good). If it is over, you have used more budget than the schedule
+                suggests (worth a look). On pace means the two are within a few percent.
               </Text>
               <Text style={[styles.budgetProfitMixFooterDisclaimer, { color: pageInstructional }]}>
                 {estimateDriftDetail}.

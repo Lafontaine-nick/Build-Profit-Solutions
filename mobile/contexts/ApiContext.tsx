@@ -498,7 +498,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
     preferences: Partial<User['preferences']>
   ): Promise<boolean> => {
     try {
-      const updatedSettings = await apiService.updatePreferences(preferences);
+      const normalizedPreferences = preferences ?? {};
+      const updatedSettings = await apiService.updatePreferences(normalizedPreferences);
       if (updatedSettings) {
         // Update user preferences in local state
         setUser(prev => {
@@ -507,7 +508,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
             ...prev,
             preferences: {
               ...prev.preferences,
-              ...preferences,
+              ...normalizedPreferences,
             },
           };
         });

@@ -22,10 +22,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Try to import Clerk hooks
-let useUser: any = null;
+let clerkUserFactory: any = null;
 try {
   const clerkModule = require('@clerk/clerk-expo');
-  useUser = clerkModule.useUser;
+  clerkUserFactory = clerkModule.useUser;
 } catch (e) {
   // Clerk not available
 }
@@ -35,7 +35,8 @@ export default function ProfileSetupScreen() {
   const { darkMode } = useTheme();
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const clerkUser = useUser ? useUser()?.user : null;
+  const clerkUserState = clerkUserFactory ? clerkUserFactory() : null;
+  const clerkUser = clerkUserState?.user ?? null;
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -43,6 +44,18 @@ export default function ProfileSetupScreen() {
     phone: '',
     location: '',
   });
+  type ContractorProfile = {
+    name: string;
+    company: string;
+    phone: string;
+    location: string;
+    email: string;
+    avatar: string;
+    insurance: { generalLiability: boolean; autoInsurance: boolean };
+    licenses: string[];
+    companyBio: string;
+    projectPortfolio: any[];
+  };
 
   // Load existing profile data on mount
   useEffect(() => {
@@ -143,13 +156,17 @@ export default function ProfileSetupScreen() {
 
       // Save full contractor profile to AsyncStorage
       const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`.trim();
-      const contractorProfile = {
+      const contractorProfile: ContractorProfile = {
         name: fullName,
         company: formData.company.trim(),
         phone: formData.phone.trim() || '',
         location: formData.location.trim() || '',
         email: clerkUser?.emailAddresses?.[0]?.emailAddress || clerkUser?.primaryEmailAddress?.emailAddress || '',
-        // Preserve existing fields if they exist
+        avatar: '',
+        insurance: { generalLiability: false, autoInsurance: false },
+        licenses: [],
+        companyBio: '',
+        projectPortfolio: [],
       };
 
       // Load existing profile to preserve other fields

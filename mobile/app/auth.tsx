@@ -20,7 +20,12 @@ import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { OAuthButtons } from '@/components/OAuthButtons';
-import { useClerk, useAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
+import {
+  useClerk as clerkInstanceHook,
+  useAuth as clerkAuthHook,
+  useSignIn as clerkSignInHook,
+  useSignUp as clerkSignUpHook,
+} from '@clerk/clerk-expo';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -139,14 +144,14 @@ const AuthScreen: React.FC = () => {
   let signUpHook: any = null;
   
   try {
-    clerkInstance = useClerk();
-    clerkAuth = useAuth();
+    clerkInstance = clerkInstanceHook();
+    clerkAuth = clerkAuthHook();
     
     // Get signIn and signUp hooks for email/password authentication
     // These hooks must be called unconditionally (React hooks rule)
     try {
-      signInHook = useSignIn();
-      signUpHook = useSignUp();
+      signInHook = clerkSignInHook();
+      signUpHook = clerkSignUpHook();
     } catch (e) {
       console.log('useSignIn/useSignUp hooks not available:', e);
     }

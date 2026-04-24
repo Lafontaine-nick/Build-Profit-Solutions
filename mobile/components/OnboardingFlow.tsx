@@ -61,7 +61,7 @@ function OnboardingFlowCore({
 
   // Always use dark mode colors for onboarding
   const colors = {
-    background: ['#000000', '#000000'],
+    background: ['#000000', '#000000'] as const,
     card: '#1a1a1a',
     cardElevated: '#242424',
     text: '#f9fafb',
@@ -69,7 +69,7 @@ function OnboardingFlowCore({
     muted: '#E5E7EB',
     accent: '#22c55e',
     accentCyan: '#22d3ee',
-    accentGradient: ['#22c55e', '#22d3ee'],
+    accentGradient: ['#22c55e', '#22d3ee'] as const,
     border: 'rgba(148,163,184,0.20)',
     borderLight: 'rgba(148,163,184,0.10)',
   };

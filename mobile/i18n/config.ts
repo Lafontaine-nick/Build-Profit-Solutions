@@ -47,7 +47,6 @@ i18n
   .use(languageDetector)
   .use(initReactI18next)
   .init({
-    compatibilityJSON: 'v3',
     resources: {
       en: { translation: en },
       es: { translation: es },

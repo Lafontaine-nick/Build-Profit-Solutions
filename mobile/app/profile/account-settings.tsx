@@ -389,7 +389,7 @@ export default function AccountSettingsScreen() {
               styles.iosButton,
               styles.logoutButton,
               {
-                backgroundColor: darkMode ? '#2a2a2a' : theme.cardDark,
+                backgroundColor: darkMode ? '#2a2a2a' : (theme as any).cardDark ?? theme.card,
                 shadowOpacity: darkMode ? 0.3 : 0.1,
                 borderColor: darkMode
                   ? 'rgba(255, 255, 255, 0.1)'
@@ -476,7 +476,7 @@ export default function AccountSettingsScreen() {
                   styles.modalButton,
                   styles.cancelButton,
                   {
-                    backgroundColor: darkMode ? '#2a2a2a' : theme.cardDark,
+                    backgroundColor: darkMode ? '#2a2a2a' : (theme as any).cardDark ?? theme.card,
                   },
                 ]}
                 onPress={() => setShowLogoutModal(false)}

@@ -48,7 +48,6 @@ export const TRADE_ALIASES: Record<string, string> = {
   'drywall installer': 'drywall',
   drywall: 'drywall',
   'drywaller': 'drywall',
-  'sheetrock': 'drywall',
   sheetrock: 'drywall',
   
   // Tile

@@ -20,6 +20,10 @@ const PORTFOLIO_OVER_BUDGET_LIST_PATTERN =
 const PORTFOLIO_COMPARE_ACTIVE_PATTERN =
   /\bcompare\s+(?:my\s+)?active\s+(?:projects?|jobs?)\b|\bcompare\s+all\s+my\s+active\s+(?:projects?|jobs?)\b|\bcompare\s+my\s+active\s+work\b/i;
 
+/** Command Center “What needs attention” / priorities — same tool path as focus-today (compare_projects activeOnly) */
+const PORTFOLIO_FOCUS_TODAY_PATTERN =
+  /\bwhat\s+should\s+i\s+focus(?:\s+on)?(?:\s+today)?\b|\bwhat\s+needs\s+attention\b|\bgive\s+me\s+my\s+top\s+priorities\b|\bwhat\s+are\s+my\s+top\s+priorities\b|\bneeds\s+my\s+attention\b|\bfocus\s+on\s+today\b/i;
+
 // Exclude "worst-case" (estimate scenario) — use worst(?!-) where relevant
 const PORTFOLIO_WORST_PROJECT_PATTERN =
   /\b(?:which|what)\s+(?:job|project)\s+is\s+(?:the\s+)?worst(?!-)\b|\b(?:what|which)\s+is\s+(?:the\s+)?worst(?!-)\s+(?:job|project)\b|\b(?:worst(?!-)|lowest\s+margin)\s+(?:job|project)\b|\bwhich\s+(?:one|job|project)\s+has\s+(?:the\s+)?lowest\s+margin\b|\blowest\s+margin\s+(?:job|project|across)\b/i;
@@ -41,6 +45,10 @@ function isSimpleProjectBudgetStatusQuery(message = '') {
 
 function isPortfolioCompareActiveQuery(message = '') {
   return PORTFOLIO_COMPARE_ACTIVE_PATTERN.test(normalizeAiMessageForIntent(message));
+}
+
+function isPortfolioFocusTodayQuery(message = '') {
+  return PORTFOLIO_FOCUS_TODAY_PATTERN.test(normalizeAiMessageForIntent(message));
 }
 
 function isPortfolioWorstProjectQuery(message = '') {
@@ -157,16 +165,14 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     project?.projectData?.buckets ??
     [];
   const plannedCostFromBuckets = sumPlannedCostFromBuckets(costBuckets);
-  const projectAdjustedCostBudget = normalizeMoneyValue(
+  const rawProjectAdjustedCostBudget =
     project?.adjustedCostBudget ??
-    project?.projectData?.adjustedCostBudget ??
-    0
-  );
-  const projectForecastFinalCost = normalizeMoneyValue(
+    project?.projectData?.adjustedCostBudget;
+  const projectAdjustedCostBudget = normalizeMoneyValue(rawProjectAdjustedCostBudget);
+  const rawProjectForecastFinalCost =
     project?.forecastFinalCost ??
-    project?.projectData?.forecastFinalCost ??
-    0
-  );
+    project?.projectData?.forecastFinalCost;
+  const projectForecastFinalCost = normalizeMoneyValue(rawProjectForecastFinalCost);
   const approvedChangeOrders = parsedContext?.approvedChangeOrdersTotal != null
     ? normalizeMoneyValue(parsedContext.approvedChangeOrdersTotal)
     : getApprovedChangeOrdersTotal(changeOrders);
@@ -184,8 +190,8 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     parsedContext?.adjustedCostBudget ??
     parsedContext?.forecastFinalCost ??
     (plannedCostFromBuckets > 0 ? plannedCostFromBuckets : null) ??
-    projectAdjustedCostBudget ??
-    projectForecastFinalCost ??
+    (rawProjectAdjustedCostBudget != null ? projectAdjustedCostBudget : null) ??
+    (rawProjectForecastFinalCost != null ? projectForecastFinalCost : null) ??
     parsedContext?.estimatedCost ??
     project?.estimatedCost ??
     project?.estimateData?.totalCost ??
@@ -1685,6 +1691,7 @@ module.exports = {
   isPortfolioOverBudgetListQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
+  isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   isCalendarEventCreateQuery,
   isCalendarCreateFollowUp,

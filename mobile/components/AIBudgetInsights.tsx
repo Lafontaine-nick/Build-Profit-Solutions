@@ -109,7 +109,7 @@ export default function AIBudgetInsights() {
 
     try {
       const result =
-        await aiBudgetForecastingService.analyzeBudgetRisk(projectData);
+        await aiBudgetForecastingService.analyzeBudgetRisk(projectData as any);
       
       // Clamp projected total to realistic range (prevents $793649M insanity)
       const plannedBudget = projectData.budgeted || 100000; // Use actual budget or sensible default

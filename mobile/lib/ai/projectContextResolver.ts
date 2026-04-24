@@ -32,9 +32,20 @@ export type UIState = {
 export type RecentProject = {
   id: string;
   title: string;
+  name?: string;
   status?: string;
   lastOpened?: string;
   isActive?: boolean;
+  bidPrice?: number;
+  estimatedCost?: number;
+  actualCost?: number;
+  totalSpent?: number;
+  expenses?: any[];
+  expensesCount?: number;
+  buckets?: any[];
+  changeOrders?: any[];
+  purchaseOrders?: any[];
+  [key: string]: any;
 };
 
 export type ProjectIntent = {
@@ -284,6 +295,7 @@ export function resolveProjectContext(
     
     // Use selectableProjects only (no fallback to all) so we never show completed in generic clarification
     return {
+      projectId: null,
       needsClarification: true,
       clarificationType: 'project_selection',
       options: getTopProjectsForClarification(selectableProjects, selectableProjects),

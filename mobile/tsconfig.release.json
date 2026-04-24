@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "app/_layout.tsx",
+    "app/(tabs)/_layout.tsx",
+    "app/(tabs)/dashboard.tsx",
+    "app/(tabs)/projects.tsx",
+    "app/(tabs)/assistant.tsx",
+    "app/project-detail/[id].tsx",
+    "app/auth.tsx",
+    "app/auth/**/*.tsx",
+    "app/onboarding.tsx",
+    "components/AIAssistantModal.tsx",
+    "components/ProjectCalendar.tsx",
+    "components/BudgetActions.tsx",
+    "components/BudgetProfitMixCard.tsx",
+    "components/BudgetTab.tsx",
+    "components/AddMaterialScreen.tsx",
+    "components/AddTransactionModal.tsx",
+    "components/AddPurchaseOrderModal.tsx"
+  ],
+  "exclude": [
+    "__tests__/**"
+  ]
+}

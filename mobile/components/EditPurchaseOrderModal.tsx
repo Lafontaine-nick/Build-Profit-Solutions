@@ -189,7 +189,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Vendor / Supplier *</Text>
               <View style={[styles.inputWrapper, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <Feather
-                  name="store"
+                  name="shopping-bag"
                   size={16}
                   color={darkMode ? "#8DA0B8" : "#6B7280"}
                   style={styles.inputIcon}

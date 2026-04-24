@@ -326,45 +326,200 @@ function buildFallbackDailyBrief(
   };
 }
 
+function collectTruthyDateStrings(...vals: unknown[]): string[] {
+  const out: string[] = [];
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) out.push(s);
+  }
+  return out;
+}
+
 /**
- * Target **job** completion date for schedule signals — same sources as unified project mapping.
- * Intentionally does **not** use top-level `dueDate` (often a bid deadline, deposit date, or legacy field).
+ * Latest **job completion** instant among estimate + project fields.
+ * Picks the maximum valid date so a stale `estimateData.endDate` does not override a current `endDate`.
+ * Does not use top-level `dueDate` (often bid / milestone noise).
  */
-function getProjectJobEndDateRaw(projectRecord: any): string | null | undefined {
+function getLatestJobEndPick(projectRecord: any): { raw: string; date: Date } | null {
   if (!projectRecord) return null;
   const est = projectRecord.estimateData || {};
   const pd = projectRecord.projectData || {};
-  return (
-    est.projectEndDate ||
-    est.endDate ||
-    est.endISO ||
-    projectRecord.endDate ||
-    projectRecord.endISO ||
-    pd.endDate ||
-    pd.endISO ||
-    null
+  const ped = pd.estimateData || {};
+  const raws = collectTruthyDateStrings(
+    projectRecord.projectEndDate,
+    est.projectEndDate,
+    est.endDate,
+    est.endISO,
+    ped.projectEndDate,
+    ped.endDate,
+    ped.endISO,
+    projectRecord.endDate,
+    projectRecord.endISO,
+    pd.endDate,
+    pd.endISO
   );
+  let best: { raw: string; date: Date } | null = null;
+  for (const raw of raws) {
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) continue;
+    if (!best || date.getTime() > best.date.getTime()) best = { raw, date };
+  }
+  return best;
+}
+
+function milestoneRowLooksComplete(m: any): boolean {
+  const p = Number(m?.progressPct ?? m?.progress ?? 0);
+  if (Number.isFinite(p) && p >= 100) return true;
+
+  const s = String(m?.status || '').toLowerCase().trim();
+  if (!s) return false;
+
+  // Never use naive `includes('complete')` / `includes('paid')`: "incomplete" contains
+  // "complete" and "unpaid" contains "paid", which would drop real pending dates from schedule.
+  if (
+    /\b(incomplete|unpaid|not[_\s-]?paid|pending|scheduled|open|draft|upcoming)\b/.test(s)
+  ) {
+    return false;
+  }
+  if (/\b(completed|complete|collected|closed|done)\b/.test(s)) return true;
+  if (/\bpaid\b/.test(s)) return true;
+
+  return false;
+}
+
+/** Latest planned instant among non-complete rows (AsyncStorage timeline + embedded milestones). */
+function maxPlannedMsFromMilestoneList(milestones: any[]): number | null {
+  if (!Array.isArray(milestones) || milestones.length === 0) return null;
+  let maxMs: number | null = null;
+  for (const m of milestones) {
+    if (milestoneRowLooksComplete(m)) continue;
+    const raw = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.dateISO || m?.date;
+    if (!raw) continue;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) continue;
+    const t = d.getTime();
+    if (maxMs == null || t > maxMs) maxMs = t;
+  }
+  return maxMs;
+}
+
+function resolveTimelineLatestPlannedMsFromMap(
+  projectRecord: any,
+  latestMap: Record<string, number>
+): number | null {
+  if (!projectRecord || !latestMap || typeof latestMap !== 'object') return null;
+  const normalizeTimelineKey = (v: string) =>
+    String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
+  const pid = String(projectRecord?.id ?? '').trim();
+  const titleRaw = String(projectRecord?.title ?? projectRecord?.name ?? '').trim().toLowerCase();
+  const titleSlug = normalizeTimelineKey(titleRaw);
+  const titleCompact = titleRaw.replace(/\s+/g, '');
+  const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+  let best: number | null = null;
+  for (const c of candidates) {
+    const ms = latestMap[c] ?? latestMap[normalizeTimelineKey(c)];
+    if (ms != null && Number.isFinite(ms) && (!best || ms > best)) best = ms;
+  }
+  return best;
+}
+
+/** Latest planned date among pending timeline / payment rows (extends schedule past stale job end). */
+function getLatestPendingSchedulePick(projectRecord: any): { raw: string; date: Date } | null {
+  if (!projectRecord) return null;
+  const est = projectRecord.estimateData || {};
+  const pd = projectRecord.projectData || {};
+  const ped = pd.estimateData || {};
+  const arrays = [
+    projectRecord.milestones,
+    projectRecord.weeklyPayments,
+    projectRecord.paymentMilestones,
+    est.milestones,
+    est.paymentMilestones,
+    est.weeklyPayments,
+    ped.paymentMilestones,
+    ped.weeklyPayments,
+    pd.milestones,
+    pd.weeklyPayments,
+    pd.paymentMilestones,
+  ];
+  let best: { raw: string; date: Date } | null = null;
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (milestoneRowLooksComplete(m)) continue;
+      const raw = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.dateISO || m?.date;
+      if (!raw) continue;
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) continue;
+      if (!best || date.getTime() > best.date.getTime()) best = { raw: String(raw), date };
+    }
+  }
+  return best;
+}
+
+/**
+ * Schedule “through” date: latest of (job target end, embedded pending milestones, optional live timeline from storage).
+ * `timelineLatestPlannedMs` comes from `bps.timeline.v2.*` — same source as progress %.
+ */
+function getEffectiveScheduleEndPick(
+  projectRecord: any,
+  timelineLatestPlannedMs?: number | null
+): { raw: string; date: Date } | null {
+  const job = getLatestJobEndPick(projectRecord);
+  const sched = getLatestPendingSchedulePick(projectRecord);
+  let chosen: { raw: string; date: Date } | null = null;
+  if (!job && !sched) chosen = null;
+  else if (!sched) chosen = job;
+  else if (!job) chosen = sched;
+  else chosen = job.date.getTime() >= sched.date.getTime() ? job : sched;
+
+  if (timelineLatestPlannedMs != null && Number.isFinite(timelineLatestPlannedMs)) {
+    const t = timelineLatestPlannedMs;
+    if (!chosen || t > chosen.date.getTime()) {
+      return { raw: new Date(t).toISOString(), date: new Date(t) };
+    }
+  }
+  return chosen;
+}
+
+/** Earliest valid job start (for rejecting end < start bad pairs). */
+function getEarliestJobStartDate(projectRecord: any): Date | null {
+  if (!projectRecord) return null;
+  const est = projectRecord.estimateData || {};
+  const pd = projectRecord.projectData || {};
+  const ped = pd.estimateData || {};
+  const raws = collectTruthyDateStrings(
+    est.projectStartDate,
+    est.startDate,
+    ped.projectStartDate,
+    ped.startDate,
+    projectRecord.startDate,
+    pd.startDate
+  );
+  let best: Date | null = null;
+  for (const raw of raws) {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) continue;
+    if (!best || d.getTime() < best.getTime()) best = d;
+  }
+  return best;
 }
 
 /** One subtle operational line per dashboard project card */
-const getDashboardProjectOperationalSignal = (project: {
-  rawProject: any;
-  margin: number;
-  progress: number;
-  status: string;
-  amount: number;
-  marginDisplay: string;
-}): { text: string; variant: "risk" | "watch" | "muted" } => {
+const getDashboardProjectOperationalSignal = (
+  project: {
+    rawProject: any;
+    margin: number;
+    progress: number;
+    status: string;
+    amount: number;
+    marginDisplay: string;
+  },
+  timelineLatestPlannedMs?: number | null
+): { text: string; variant: "risk" | "watch" | "muted" } => {
   const raw = project.rawProject || {};
   const isCompleted = project.status === "Completed";
-
-  const endRaw = getProjectJobEndDateRaw(raw);
-  if (endRaw && !isCompleted) {
-    const d = new Date(endRaw);
-    if (!Number.isNaN(d.getTime()) && d.getTime() < Date.now()) {
-      return { text: "Schedule overdue", variant: "risk" };
-    }
-  }
 
   const spent = Number(
     raw.actualCost ||
@@ -2664,9 +2819,12 @@ const DashboardScreen: React.FC = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
-  
+  /** Max planned date (ms) from live timeline storage — extends schedule anchor past stale project endDate. */
+  const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
+  const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
+
   // Debounce refs for project changes
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProjectsHashRef = useRef<string>('');
   const clerkAuthEnabled = useMemo(() => isClerkAuthEnabledForDashboard(), []);
   const [dashboardGreeting, setDashboardGreeting] = useState<DashboardGreeting>({
@@ -2678,17 +2836,43 @@ const DashboardScreen: React.FC = () => {
   const loadTimelineProgress = useCallback(async () => {
     const all = [...activeProjects, ...estimates];
     const progressMap: Record<string, number> = {};
+    const latestPlannedMap: Record<string, number> = {};
+    const nextOverrides: Record<string, any> = {};
     const normalizeKey = (v: string) =>
       String(v || '').trim().toLowerCase().replace(/\s+/g, '-');
 
     try {
       const allKeys = await AsyncStorage.getAllKeys();
+      const projectKeys = allKeys.filter((k) => k.startsWith('bps.project.'));
       const timelineKeys = allKeys.filter(
         (k) => k.startsWith('bps.timeline.v2.') || k.startsWith('timeline_')
       );
+      const projectEntries = await AsyncStorage.multiGet(projectKeys);
+      const byId: Record<string, any> = {};
+      const byTitle: Record<string, any> = {};
 
-      // Pre-scan ALL timeline keys → suffix→progress (deposit excluded)
+      for (const [key, value] of projectEntries) {
+        if (!value) continue;
+        try {
+          const parsed = JSON.parse(value);
+          const idFromKey = key.replace('bps.project.', '');
+          const idFromData = String(parsed?.id ?? '');
+          const title = String(parsed?.title ?? '').trim().toLowerCase();
+          if (idFromKey) byId[idFromKey] = parsed;
+          if (idFromData) byId[idFromData] = parsed;
+          if (title) byTitle[title] = parsed;
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Pre-scan ALL timeline keys → suffix→progress (deposit excluded) and suffix→latest planned date
       const suffixToProgress: Record<string, number> = {};
+      const suffixToLatestPlanned: Record<string, number> = {};
+      const bumpLatest = (key: string, ms: number) => {
+        const prev = suffixToLatestPlanned[key];
+        suffixToLatestPlanned[key] = prev == null ? ms : Math.max(prev, ms);
+      };
       for (const k of timelineKeys) {
         const suffix = k.startsWith('bps.timeline.v2.')
           ? k.replace('bps.timeline.v2.', '')
@@ -2700,13 +2884,20 @@ const DashboardScreen: React.FC = () => {
           const raw = await AsyncStorage.getItem(k);
           if (raw) {
             const milestones = JSON.parse(raw);
-            if (Array.isArray(milestones)?.length) {
+            if (Array.isArray(milestones) && milestones.length > 0) {
               const pct = computeOverallPctFromItems(milestones);
               const suffixLower = suffix.toLowerCase();
               const suffixNorm = normalizeKey(suffix);
               suffixToProgress[suffixLower] = pct;
               suffixToProgress[suffixNorm] = pct;
               suffixToProgress[suffix] = pct;
+
+              const latestMs = maxPlannedMsFromMilestoneList(milestones);
+              if (latestMs != null) {
+                bumpLatest(suffixLower, latestMs);
+                bumpLatest(suffixNorm, latestMs);
+                bumpLatest(suffix, latestMs);
+              }
             }
           }
         } catch {
@@ -2714,7 +2905,7 @@ const DashboardScreen: React.FC = () => {
         }
       }
 
-      // Resolve progress for each project (pid, title, slug)
+      // Resolve progress and latest planned instant for each project (pid, title, slug)
       for (const project of all) {
         const pid = String(project?.id ?? '');
         if (!pid) continue;
@@ -2732,12 +2923,30 @@ const DashboardScreen: React.FC = () => {
           if (titleRaw) progressMap[titleRaw] = foundProgress;
           if (titleSlug) progressMap[titleSlug] = foundProgress;
         }
+
+        let foundLatestMs: number | undefined;
+        for (const c of candidates) {
+          const ms = suffixToLatestPlanned[c] ?? suffixToLatestPlanned[normalizeKey(c)];
+          if (ms != null && Number.isFinite(ms)) {
+            foundLatestMs = foundLatestMs == null ? ms : Math.max(foundLatestMs, ms);
+          }
+        }
+        if (foundLatestMs !== undefined) {
+          latestPlannedMap[pid] = foundLatestMs;
+          if (titleRaw) latestPlannedMap[titleRaw] = foundLatestMs;
+          if (titleSlug) latestPlannedMap[titleSlug] = foundLatestMs;
+        }
+
+        const override = byId[pid] || (titleRaw ? byTitle[titleRaw] : undefined);
+        if (override) nextOverrides[pid] = override;
       }
     } catch {
       // Keep UI responsive if storage read fails
     }
 
+    setProjectDataOverrides(nextOverrides);
     setTimelineProgress(progressMap);
+    setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
   useEffect(() => {
@@ -3218,7 +3427,31 @@ const DashboardScreen: React.FC = () => {
                 status === 'completed');
       })
       .map((p) => {
-        const status = p.status || "draft";
+        const pid = String(p?.id ?? '');
+        const override = projectDataOverrides[pid];
+        const mergedProject = override
+          ? {
+              ...p,
+              milestones: Array.isArray(override?.milestones)
+                ? override.milestones
+                : (Array.isArray(p?.milestones) ? p.milestones : []),
+              weeklyPayments: Array.isArray(override?.weeklyPayments)
+                ? override.weeklyPayments
+                : (Array.isArray(p?.weeklyPayments) ? p.weeklyPayments : []),
+              paymentMilestones: Array.isArray(override?.paymentMilestones)
+                ? override.paymentMilestones
+                : (Array.isArray((p as any)?.paymentMilestones) ? (p as any).paymentMilestones : []),
+              estimateData: override?.estimateData
+                ? { ...(p?.estimateData || {}), ...override.estimateData }
+                : p?.estimateData,
+              projectData: {
+                ...(p?.projectData || {}),
+                ...override,
+              },
+            }
+          : p;
+
+        const status = mergedProject.status || "draft";
         let displayStatus = "Draft";
         if (status === "estimate") displayStatus = "Draft";
         else if (status === "bid_submitted") displayStatus = "Submitted";
@@ -3227,21 +3460,22 @@ const DashboardScreen: React.FC = () => {
         else if (status === "completed") displayStatus = "Completed";
         else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
 
-        const revenue = getProjectRevenue(p);
-        const margin = p.margin || 0;
+        const revenue = getProjectRevenue(mergedProject);
+        const margin = mergedProject.margin || 0;
         const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
 
-        const pid = String(p?.id ?? '');
-        const progressPct = deriveUnifiedProgressPct(p, pid, timelineProgress);
+        const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
         const rawProgress = progressPct / 100; // Convert to 0-1
         const finalProgress = status === 'completed' ? 1.0 : rawProgress;
-        const scheduleEnd = getProjectJobEndDateRaw(p);
+        const timelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
+        const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, timelineMs);
+        const scheduleEnd = scheduleEndPick?.raw;
 
         return {
-          id: p.id,
-          name: p.title || "Untitled Project",
+          id: mergedProject.id,
+          name: mergedProject.title || "Untitled Project",
           status: displayStatus,
-          location: p.location || "Unknown, Unknown",
+          location: mergedProject.location || "Unknown, Unknown",
           progress: finalProgress,
           amount: revenue,
           margin: marginRatio * 100,
@@ -3249,12 +3483,12 @@ const DashboardScreen: React.FC = () => {
           dateLabel: scheduleEnd
             ? status === "completed"
               ? `Completed ${formatDateShort(scheduleEnd)}`
-              : `Due ${formatDateShort(scheduleEnd)}`
-            : "No due date",
-          rawProject: p,
+              : `Schedule ${formatDateShort(scheduleEnd)}`
+            : "No schedule",
+          rawProject: mergedProject,
         };
       });
-  }, [activeProjects, estimates, timelineProgress]);
+  }, [activeProjects, estimates, projectDataOverrides, timelineProgress, timelineLatestPlannedMs]);
 
   // Calculate metrics
   // NOTE: This recalculates whenever activeProjects or estimates change
@@ -3481,6 +3715,7 @@ const DashboardScreen: React.FC = () => {
             aiError={aiError}
             filteredInsights={filteredInsights}
             filteredNextSteps={filteredNextSteps}
+            timelineLatestPlannedMs={timelineLatestPlannedMs}
           />
         )}
         {activeTab === "analytics" && (
@@ -3986,6 +4221,7 @@ interface OverviewSectionProps {
   aiError: string | null;
   filteredInsights: any[];
   filteredNextSteps: any[];
+  timelineLatestPlannedMs: Record<string, number>;
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({
@@ -4000,6 +4236,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   aiError,
   filteredInsights,
   filteredNextSteps,
+  timelineLatestPlannedMs,
 }) => {
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
@@ -4238,7 +4475,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         }: {
           project: any;
         }) => {
-          const op = getDashboardProjectOperationalSignal(project);
+          const timelineMs = resolveTimelineLatestPlannedMsFromMap(project.rawProject, timelineLatestPlannedMs);
+          const op = getDashboardProjectOperationalSignal(project, timelineMs);
           const signalStyle =
             op.variant === "risk"
               ? styles.projectSummarySignalRisk
@@ -4695,7 +4933,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       (p) =>
         (p.status === "Active" || p.status === "In Progress") &&
         p.progress < 0.3 &&
-        p.dateLabel.includes("Due")
+        p.dateLabel.includes("Schedule")
     );
   }, [projects]);
 

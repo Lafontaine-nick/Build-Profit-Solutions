@@ -218,7 +218,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
         hasEnoughCalendarSignal &&
         (isBehindScheduleVsCalendar || isOverburningVsProgress);
 
-      if (shouldApplyCalendarStress && eacCalendar > forecastFinalCost) {
+      if (shouldApplyCalendarStress && eacCalendar != null && eacCalendar > forecastFinalCost) {
         const severeStress = isBehindScheduleVsCalendar && isOverburningVsProgress;
         const calendarWeight = severeStress ? 0.75 : 0.45;
 
@@ -250,7 +250,7 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
         elapsedTimePct >= 15 &&
         rawCostBudgetUsedPct > Math.max(20, scheduleProgressPct + 15);
 
-      if (earlyCalendarStress && eacCalendar > forecastFinalCost) {
+      if (earlyCalendarStress && eacCalendar != null && eacCalendar > forecastFinalCost) {
         forecastFinalCost =
           forecastFinalCost + (eacCalendar - forecastFinalCost) * 0.35;
         forecastMethod = 'calendar-run-rate';

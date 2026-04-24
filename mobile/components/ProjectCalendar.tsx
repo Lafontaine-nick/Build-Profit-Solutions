@@ -30,6 +30,8 @@ export type CalendarEvent = {
   id: string;
   title: string;
   date: string; // ISO date string (YYYY-MM-DD)
+  projectId?: string;
+  projectName?: string;
   time?: string; // HH:MM format
   type: 'inspection' | 'delivery' | 'work' | 'payment' | 'deadline' | 'other';
   notes?: string;
@@ -41,6 +43,8 @@ export type CalendarEvent = {
   inspectionResult?: 'passed' | 'failed'; // For inspection events
   deliveryReceived?: boolean; // For delivery events — true when marked as received
   linkedMilestoneId?: string; // Link to timeline milestone
+  isUserCreated?: boolean;
+  isCompletedProject?: boolean;
   calendarCategory?:
     | 'payment'
     | 'inspection'

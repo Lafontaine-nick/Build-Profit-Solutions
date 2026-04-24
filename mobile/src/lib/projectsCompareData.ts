@@ -159,7 +159,19 @@ export function computeProjectsCompareData(
     seen.add(key);
 
     const override = projectDataOverrides[pid];
-    const merged = override ? { ...p, projectData: { ...(p?.projectData || {}), ...override } } : p;
+    const merged = override
+      ? {
+          ...(override || {}),
+          ...(p || {}),
+          // Prefer the live in-memory project/projectData for financial fields.
+          // AsyncStorage overrides are useful as fallback context, but they can be stale.
+          projectData: {
+            ...(override?.projectData || {}),
+            ...(override || {}),
+            ...(p?.projectData || {}),
+          },
+        }
+      : p;
     const status = String(merged?.status || merged?.projectData?.status || '').toLowerCase();
 
     const revenue = getProjectRevenue(merged);
@@ -169,17 +181,28 @@ export function computeProjectsCompareData(
     const rawProgress = finalProgress / 100;
 
     const pd = merged?.projectData ?? merged;
-    const expensesTotal = sanitizePositive(pd?.spent) ||
-      (Array.isArray(pd?.expenses) && pd.expenses.length
+    const expenseLineTotal =
+      Array.isArray(pd?.expenses) && pd.expenses.length
         ? pd.expenses.reduce((s: number, e: any) => s + toFinite(e?.amount ?? 0), 0)
-        : Array.isArray(pd?.buckets)
-          ? pd.buckets.reduce((s: number, b: any) => s + toFinite(b?.spent ?? 0), 0)
-          : 0);
+        : 0;
+    const bucketSpentTotal =
+      Array.isArray(pd?.buckets)
+        ? pd.buckets.reduce((s: number, b: any) => s + toFinite(b?.spent ?? 0), 0)
+        : 0;
+    // Do NOT trust pd.spent as a primary source here. In some saved project snapshots it
+    // represents the planned cost budget, which makes Command Center think the whole job is spent.
+    const explicitActualCost = toFinite(merged?.actualCost ?? merged?.totalSpent ?? pd?.actualCost ?? 0);
+    const expensesTotal =
+      expenseLineTotal > 0
+        ? expenseLineTotal
+        : (explicitActualCost > 0
+          ? explicitActualCost
+          : bucketSpentTotal);
     const rawPOs = pd?.purchaseOrders ?? merged?.purchaseOrders ?? [];
     const receivedPOs = Array.isArray(rawPOs)
       ? rawPOs.filter((po: any) => String(po?.status || '').toLowerCase() === 'received').reduce((s: number, po: any) => s + toFinite(po?.amount ?? 0), 0)
       : 0;
-    const actualCost = expensesTotal + receivedPOs || toFinite(merged?.actualCost ?? merged?.totalSpent ?? pd?.actualCost ?? 0);
+    const actualCost = expensesTotal + receivedPOs || explicitActualCost;
     const estimatedCost = toFinite(merged?.estimatedCost ?? merged?.projectData?.estimatedCost ?? merged?.estimateData?.totalCost ?? merged?.estimateData?.estimatedCost ?? 0);
     const committedPOs = Array.isArray(rawPOs)
       ? rawPOs.filter((po: any) => String(po?.status || '').toLowerCase() !== 'received').reduce((s: number, po: any) => s + toFinite(po?.amount ?? 0), 0)

@@ -55,6 +55,7 @@ const {
   isPortfolioOverBudgetListQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
+  isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   sortCompareProjectsResults,
   normalizeAiMessageForIntent,
@@ -141,6 +142,67 @@ function buildAssistantProfitLeakBlock({ parsedContext = {}, allProjects = [], p
   } catch (_err) {
     return '';
   }
+}
+
+function formatFocusTodayDate(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function buildFocusTodayDirectReply({ compareResult = {}, parsedContext = {}, allProjects = [] } = {}) {
+  const dailyBrief = compareResult?.dailyBrief || {};
+  const portfolioSummary = dailyBrief?.portfolioSummary || {};
+  const topProfitRisks = Array.isArray(dailyBrief?.topProfitRisks) ? dailyBrief.topProfitRisks : [];
+  const upcomingPayments = Array.isArray(dailyBrief?.upcomingPayments) ? dailyBrief.upcomingPayments : [];
+  const upcomingScheduleItems =
+    Array.isArray(dailyBrief?.upcomingScheduleItems) && dailyBrief.upcomingScheduleItems.length > 0
+      ? dailyBrief.upcomingScheduleItems
+      : collectUpcomingCalendarEvents({
+          allProjects: Array.isArray(allProjects) ? allProjects : [],
+          now: new Date(),
+          daysAhead: 7,
+        });
+
+  const priorities = [];
+
+  topProfitRisks.slice(0, 3).forEach((risk) => {
+    if (!risk?.headline) return;
+    const action = risk?.recommendedAction?.label ? ` ${risk.recommendedAction.label}.` : '';
+    priorities.push(`**Project:** ${risk.headline}.${action}`.trim());
+  });
+
+  upcomingPayments.slice(0, 2).forEach((payment) => {
+    const dateStr = formatFocusTodayDate(payment?.date);
+    const amount = Math.round(Number(payment?.amount || 0)).toLocaleString();
+    priorities.push(`**Payment:** ${payment?.projectTitle || 'Project'} — ${payment?.name || 'Payment'} for $${amount}${dateStr ? ` due ${dateStr}` : ''}.`);
+  });
+
+  upcomingScheduleItems.slice(0, 2).forEach((item) => {
+    const dateStr = formatFocusTodayDate(item?.date);
+    const typeStr = item?.type ? ` (${String(item.type).toLowerCase()})` : '';
+    priorities.push(`**Calendar:** ${item?.projectTitle || 'Project'} — ${item?.title || 'Event'}${typeStr}${dateStr ? ` on ${dateStr}` : ''}.`);
+  });
+
+  if (priorities.length === 0) {
+    const activeCount = Number(portfolioSummary?.activeProjectCount || compareResult?.comparedCount || 0);
+    const quietReply = activeCount > 0
+      ? `Here are your top priorities today.\n\nNo urgent project or calendar issues are showing across your ${activeCount} active project${activeCount === 1 ? '' : 's'} right now.`
+      : 'Here are your top priorities today.\n\nYou do not have any active projects needing attention right now.';
+    return appendDataFreshness(quietReply, parsedContext);
+  }
+
+  const activeCount = Number(portfolioSummary?.activeProjectCount || compareResult?.comparedCount || 0);
+  let reply = 'Here are your top priorities today.\n\n';
+  if (activeCount > 0) {
+    reply += `You have **${activeCount} active project${activeCount === 1 ? '' : 's'}** in view.\n\n`;
+  }
+  priorities.slice(0, 6).forEach((line, index) => {
+    reply += `${index + 1}. ${line}\n`;
+  });
+  return appendDataFreshness(reply.trimEnd(), parsedContext);
 }
 
 // Initialize AI client + centralized model config
@@ -6838,6 +6900,7 @@ router.post('/stream', async (req, res) => {
       if (isPortfolioLosingMoneyQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioOverBudgetListQuery(portfolioMsgStream)) streamCompareArgs = { sortBy: 'overBudget' };
       else if (isPortfolioCompareActiveQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
+      else if (isPortfolioFocusTodayQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioWorstProjectQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true, sortBy: 'lowMargin' };
       if (streamCompareArgs) {
         const cr = runCompareProjectsPipeline({ allProjects, parsedContext, args: streamCompareArgs });
@@ -7095,7 +7158,9 @@ router.post('/', async (req, res) => {
     // ── RUN-FIRST: "Yes" after scenario choice → return all three scenarios immediately (bypass router entirely)
     const hist = Array.isArray(history) ? history : [];
     const lastAsst = String([...hist].reverse().find((m) => m?.role === 'assistant')?.content || [...hist].reverse().find((m) => m?.role === 'assistant')?.text || '').toLowerCase();
-    const asstAskedScenario = lastAsst.includes('typical friction') && lastAsst.includes('bad remodel') && lastAsst.includes('smooth job');
+    const asstAskedScenario =
+      (lastAsst.includes('typical friction') && lastAsst.includes('bad remodel') && lastAsst.includes('smooth job')) ||
+      lastAsst.includes('want me to run a what-if scenario');
     const userMsgTrim = String(req.body?.message ?? message ?? '').trim();
     const lettersOnlyScenario = userMsgTrim.toLowerCase().replace(/\W/g, '');
     const isYesWord = ['yes', 'yeah', 'yep', 'yup', 'ok', 'okay', 'sure', 'please', 'all'].includes(lettersOnlyScenario) ||
@@ -8314,18 +8379,87 @@ router.post('/', async (req, res) => {
     const isProfitOrForecastRequest = isExplicitForecastRequest && !isSimpleMarginQ;
 
     if (isProfitOrForecastRequest) {
+      const forecastTargetProject = currentProjectData ||
+        (projectName ? resolveProjectByQuery(allProjects, projectName, { minScore: 35 }).project : null);
+      const forecastEstimateData =
+        forecastTargetProject?.estimateData ||
+        forecastTargetProject?.projectData?.estimateData ||
+        estimateData ||
+        {};
+      const forecastChangeOrders =
+        forecastTargetProject?.changeOrders ||
+        forecastTargetProject?.projectData?.changeOrders ||
+        [];
+      const forecastApprovedChangeOrdersTotal = Array.isArray(forecastChangeOrders)
+        ? forecastChangeOrders.reduce((s, co) => {
+            const amt = Number(co?.amount || co?.clientPrice || 0);
+            const approved = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status.toLowerCase() === 'approved');
+            return approved ? s + amt : s;
+          }, 0)
+        : 0;
+      const forecastBidTotal =
+        forecastTargetProject?.bidTotal ||
+        forecastTargetProject?.bidPrice ||
+        forecastTargetProject?.projectData?.bidPrice ||
+        bidTotal ||
+        forecastEstimateData?.totalBid ||
+        0;
+      const forecastContractValueDirect = Number(
+        forecastTargetProject?.contractValue ??
+        forecastTargetProject?.projectData?.contractValue ??
+        parsedContext.contractValue ??
+        0
+      );
+      const forecastContractValue =
+        forecastContractValueDirect > 0
+          ? forecastContractValueDirect
+          : (Number(forecastBidTotal || 0) + Number(forecastApprovedChangeOrdersTotal || 0));
+      const forecastEstimatedCost =
+        forecastTargetProject?.estimatedCost ??
+        forecastTargetProject?.projectData?.estimatedCost ??
+        estimatedCost ??
+        forecastEstimateData?.totalCost ??
+        forecastEstimateData?.baseCost ??
+        0;
+      const forecastRawExpenses =
+        forecastTargetProject?.expenses ||
+        forecastTargetProject?.projectData?.expenses ||
+        rawExpenses ||
+        [];
+      const forecastComputedActualCost = Array.isArray(forecastRawExpenses)
+        ? forecastRawExpenses.reduce((s, e) => s + Number(e?.amount || 0), 0)
+        : 0;
+      const forecastActualCost =
+        forecastTargetProject?.actualCost ??
+        forecastTargetProject?.totalSpent ??
+        forecastTargetProject?.projectData?.actualCost ??
+        forecastTargetProject?.projectData?.spent ??
+        actualCost ??
+        forecastComputedActualCost ??
+        0;
+      const forecastProgress =
+        forecastTargetProject?.progress ??
+        forecastTargetProject?.overallProgressPct ??
+        forecastTargetProject?.projectData?.progress ??
+        forecastTargetProject?.projectData?.overallProgressPct ??
+        progress ??
+        0;
+      const precomputedBelongsToTarget =
+        forecastTargetProject?.id != null &&
+        parsedContext?.projectId != null &&
+        String(forecastTargetProject.id) === String(parsedContext.projectId);
       // Contract value = bid + approved COs (revenue we get paid)
-      const contractValueFinal = Number(contractValue || 0) || (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
+      const contractValueFinal = Number(forecastContractValue || 0) || (Number(forecastBidTotal || 0) + Number(forecastApprovedChangeOrdersTotal || 0));
       // Pre-computed profit from mobile (matches Financial Health / Budget Totals UI) — use as primary when available
-      const precomputedProfit = parsedContext.projectedProfit;
-      const precomputedMargin = parsedContext.projectedMarginPct;
-      const precomputedForecastCost = parsedContext.forecastFinalCost;
+      const precomputedProfit = precomputedBelongsToTarget ? parsedContext.projectedProfit : null;
+      const precomputedMargin = precomputedBelongsToTarget ? parsedContext.projectedMarginPct : null;
+      const precomputedForecastCost = precomputedBelongsToTarget ? parsedContext.forecastFinalCost : null;
       const hasPrecomputed = precomputedProfit != null && Number.isFinite(Number(precomputedProfit));
       // baseEstimate = our cost to complete. If estimatedCost >= contractValue it's wrong (revenue, not cost)
-      let baseEstimate = Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0);
+      let baseEstimate = Number(forecastEstimatedCost || forecastEstimateData?.totalCost || forecastEstimateData?.baseCost || 0);
       if (baseEstimate >= contractValueFinal * 0.95) baseEstimate = 0; // Wrong: estimatedCost was set to revenue
-      const actual = Number(actualCost || 0);
-      const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
+      const actual = Number(forecastActualCost || 0);
+      const progressPct = Math.max(0, Math.min(100, Number(forecastProgress || 0)));
       const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
       
       // Check for completed schedule/payment entries from all known timeline sources.
@@ -9442,9 +9576,29 @@ router.post('/', async (req, res) => {
           const n = Number(v); return Number.isFinite(n) ? n : 0;
         };
         let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
+        const dedupeProjects = (projects = []) => {
+          const ranked = new Map();
+          for (const p of projects) {
+            const idKey = p?.id != null ? `id:${String(p.id)}` : '';
+            const titleKey = normalizeProjectSearchText(p?.title || p?.name || '');
+            const key = idKey || (titleKey ? `title:${titleKey}` : '');
+            if (!key) continue;
+            const score =
+              (Array.isArray(p?.changeOrders || p?.projectData?.changeOrders) ? 1 : 0) +
+              (Array.isArray(p?.expenses || p?.projectData?.expenses) ? 1 : 0) +
+              (normalize(p?.actualCost ?? p?.totalSpent ?? p?.projectData?.actualCost ?? p?.projectData?.spent ?? 0) > 0 ? 1 : 0) +
+              (normalize(p?.contractValue ?? p?.bidPrice ?? p?.projectData?.bidPrice ?? 0) > 0 ? 1 : 0) +
+              (normalize(p?.progress ?? p?.overallProgressPct ?? p?.projectData?.progress ?? p?.projectData?.overallProgressPct ?? 0) > 0 ? 1 : 0);
+            const prev = ranked.get(key);
+            if (!prev || score > prev.score) ranked.set(key, { score, project: p });
+          }
+          return Array.from(ranked.values()).map((x) => x.project);
+        };
+        candidates = dedupeProjects(candidates);
         const searchName = String(args.projectName || '').toLowerCase().trim();
         if (searchName) {
-          candidates = candidates.filter(p => resolveProjectByQuery([p], searchName, { minScore: 35 }).project);
+          const resolved = resolveProjectByQuery(candidates, searchName, { minScore: 35 });
+          candidates = resolved?.project ? [resolved.project] : [];
         }
         if (candidates.length === 0) return { success: false, error: searchName ? `No project found matching "${args.projectName}".` : 'No projects available.' };
 
@@ -10752,6 +10906,17 @@ router.post('/', async (req, res) => {
         confidence: 0.99,
         _worstProjectIntent: true,
       };
+    } else if (isPortfolioFocusTodayQuery(messageLower)) {
+      console.log('🛡️ PRE-ROUTER: Focus today / what needs attention → skipping router, forcing compare_projects (activeOnly)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: { activeOnly: true },
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _focusTodayIntent: true,
+      };
     } else if (/\b(upcoming\s+events?\s+on\s+the\s+calendar|events?\s+on\s+the\s+calendar|what'?s\s+on\s+the\s+calendar|calendar\s+events?|upcoming\s+calendar)\b/i.test(messageLower)) {
       console.log('🛡️ PRE-ROUTER: Calendar / upcoming events intent → forcing compare_projects (dashboard calendar = inspections, deadlines, payments)');
       routerResult = {
@@ -11039,7 +11204,9 @@ router.post('/', async (req, res) => {
       /\blabor\s+expense\b/i.test(recentAssistantExpenseBlob) ||
       /\bfor\s+the\s+labor\s+expense\b/i.test(recentAssistantExpenseBlob) ||
       /\bamount,\s*trade,\s*and\s*description\b/i.test(recentAssistantExpenseBlob) ||
-      /\bwhat type of expense\b/i.test(recentAssistantExpenseBlob);
+      /\bwhat type of expense\b/i.test(recentAssistantExpenseBlob) ||
+      /\bwhat type of labor\b/i.test(recentAssistantExpenseBlob) ||
+      /\bhow much (was|is) the labor\b/i.test(recentAssistantExpenseBlob);
     const laborExpenseConversation =
       isExpenseLoggingRequest ||
       assistantAskedLaborExpenseFlow ||
@@ -11060,6 +11227,7 @@ router.post('/', async (req, res) => {
     const laborAmountParsed = laborAmountMatch
       ? Number(String(laborAmountMatch[1] || laborAmountMatch[2] || '').replace(/,/g, ''))
       : NaN;
+    // Do NOT include plain "labor"/"labour" — user says that for expense *type*, not trade (would skip asking type).
     const laborTradeHints = [
       'framing',
       'tile',
@@ -11078,7 +11246,11 @@ router.post('/', async (req, res) => {
       'window installation',
       'installation',
       'general labor',
-      'labor',
+      'hvac',
+      'masonry',
+      'excavation',
+      'siding',
+      'flooring',
     ];
     let parsedLaborTrade = '';
     for (const hint of laborTradeHints) {
@@ -11086,6 +11258,10 @@ router.post('/', async (req, res) => {
         parsedLaborTrade = hint;
         break;
       }
+    }
+    const genericLaborTrade = /^(labor|labour|labor expense|labour expense)$/i;
+    if (parsedLaborTrade && genericLaborTrade.test(String(parsedLaborTrade).trim())) {
+      parsedLaborTrade = '';
     }
     let parsedLaborDescription = '';
     const laborForMatch = String(message || '').match(/\bfor\s+(.+?)\s*$/i);
@@ -11110,21 +11286,26 @@ router.post('/', async (req, res) => {
         trade: parsedLaborTrade || routerResult.tool_args_draft?.trade,
         description: parsedLaborDescription || routerResult.tool_args_draft?.description,
       };
+      const tradeTrim = String(routerResult.tool_args_draft.trade || '').trim();
+      if (tradeTrim && !String(routerResult.tool_args_draft.description || '').trim()) {
+        routerResult.tool_args_draft.description = tradeTrim;
+      }
       const laborMissing = [];
-      if (!(Number.isFinite(Number(routerResult.tool_args_draft.amount)) && Number(routerResult.tool_args_draft.amount) > 0)) laborMissing.push('amount');
       if (!String(routerResult.tool_args_draft.trade || '').trim()) laborMissing.push('trade');
       if (!String(routerResult.tool_args_draft.description || '').trim()) laborMissing.push('description');
+      if (!(Number.isFinite(Number(routerResult.tool_args_draft.amount)) && Number(routerResult.tool_args_draft.amount) > 0)) {
+        laborMissing.push('amount');
+      }
       routerResult.required_fields_missing = laborMissing;
+      // Ask type of labor (trade) before amount; description defaults to trade when trade is known
       routerResult.clarification_question =
         laborMissing.length === 0
           ? null
-          : laborMissing.includes('trade') && laborMissing.includes('description')
-            ? 'What trade is this labor for, and what work was done?'
-            : laborMissing.includes('trade')
-              ? 'What trade is this labor cost for?'
-              : laborMissing.includes('description')
-                ? 'What work was done for this labor cost?'
-                : 'How much is the labor expense?';
+          : laborMissing.includes('trade')
+            ? 'What type of labor is this (e.g., framing, plumbing, electrical, tile work, general labor)?'
+            : laborMissing.includes('description')
+              ? 'What work was done for this labor cost?'
+              : 'How much was the labor expense?';
       if (laborMissing.length === 0) {
         routerResult.action = 'execute';
         routerResult.confidence = 0.99;
@@ -13571,18 +13752,37 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           const labCo = Number(functionArgs.laborAmount);
           const sumCo = (Number.isFinite(matCo) ? matCo : 0) + (Number.isFinite(labCo) ? labCo : 0);
           const explicit = Number(functionArgs.amount);
-          const coAmount =
-            Number.isFinite(explicit) && explicit > 0 && Math.abs(explicit - sumCo) <= 0.02
+          const markupPctRaw = Number(
+            functionArgs.markupPct ??
+            ctx.markupPct ??
+            currentProject.markupPct ??
+            currentProject.markup ??
+            estimateData.markupPct ??
+            estimateData.markup ??
+            0
+          );
+          const markupPct = Number.isFinite(markupPctRaw) && markupPctRaw >= 0 ? markupPctRaw : 0;
+          const coCost =
+            sumCo > 0
+              ? sumCo
+              : (Number.isFinite(explicit) && explicit > 0 ? explicit : 0);
+          const explicitLooksLikeSellPrice =
+            Number.isFinite(explicit) && explicit > (coCost + 0.02);
+          const clientPrice =
+            explicitLooksLikeSellPrice
               ? explicit
-              : sumCo;
+              : (markupPct > 0
+                ? Math.round(coCost * (1 + (markupPct / 100)) * 100) / 100
+                : coCost);
           
           const changeOrder = {
             id: `co-${Date.now()}`,
             description: functionArgs.description,
             vendor: functionArgs.vendor || '',
-            cost: coAmount,
-            amount: coAmount,
-            clientPrice: coAmount,
+            cost: coCost,
+            amount: clientPrice,
+            clientPrice,
+            markupPct,
             materialsAmount: Number.isFinite(matCo) ? matCo : 0,
             laborAmount: Number.isFinite(labCo) ? labCo : 0,
             status: 'approved',
@@ -13973,8 +14173,13 @@ RULES:
           functionResult = { success: false, error: `Unknown function: ${functionName}` };
         }
 
-        // Store project updates/actions for PO flows too (these branches return them but previously were not persisted).
-        if ((functionName === 'add_purchase_order' || functionName === 'mark_purchase_order_received') && functionResult) {
+        // Store project updates/actions for PO flows and add_labor_expense (returns projectUpdate via executeAddMaterialExpense; was missing → Budget never synced).
+        if (
+          (functionName === 'add_purchase_order' ||
+            functionName === 'mark_purchase_order_received' ||
+            functionName === 'add_labor_expense') &&
+          functionResult
+        ) {
           if (functionResult.projectUpdate) {
             if (projectUpdateData) {
               projectUpdateData = {
@@ -14296,16 +14501,42 @@ RULES:
       // PERF FIX: Don't send tools/functions on the final LLM call — we only need
       // a text summary of tool results, not another tool invocation.  Removing the
       // tools list cuts thousands of prompt tokens and prevents OpenAI from hanging.
-      logPhase('final_llm_start');
-      completion = await withTimeout(openai.chat.completions.create({
-        model: aiModels.assistant.response,
-        messages: messages,
-        temperature: aiRuntime.assistant.final.temperature,
-        max_tokens: aiRuntime.assistant.final.maxTokens,
-      }), 30000, 'final_llm');
-      logPhase('final_llm_done');
+      const compareProjectsToolCall = toolCalls.find((tc) => tc?.function?.name === 'compare_projects');
+      const compareProjectsToolResult = compareProjectsToolCall
+        ? messages.find((m) => m.role === 'tool' && m.tool_call_id === compareProjectsToolCall.id)
+        : null;
+      let deterministicFocusTodayReply = null;
+      if (routerResult?._focusTodayIntent && compareProjectsToolResult?.content) {
+        try {
+          const parsedCompareResult = JSON.parse(compareProjectsToolResult.content);
+          if (parsedCompareResult?.success) {
+            deterministicFocusTodayReply = buildFocusTodayDirectReply({
+              compareResult: parsedCompareResult,
+              parsedContext,
+              allProjects,
+            });
+          }
+        } catch (_err) {
+          deterministicFocusTodayReply = null;
+        }
+      }
 
-      reply = completion.choices[0].message.content || 'Sorry, I could not generate a response.';
+      if (deterministicFocusTodayReply) {
+        reply = deterministicFocusTodayReply;
+        completion = { choices: [{ message: { content: reply, tool_calls: [] } }] };
+        console.log('🛡️ Focus-today: returned deterministic reply, skipped final_llm');
+      } else {
+        logPhase('final_llm_start');
+        completion = await withTimeout(openai.chat.completions.create({
+          model: aiModels.assistant.response,
+          messages: messages,
+          temperature: aiRuntime.assistant.final.temperature,
+          max_tokens: aiRuntime.assistant.final.maxTokens,
+        }), 30000, 'final_llm');
+        logPhase('final_llm_done');
+
+        reply = completion.choices[0].message.content || 'Sorry, I could not generate a response.';
+      }
 
       // CRITICAL: When we ran scenario analysis (all three presets), use the tool's message so user sees Typical Friction / Bad Remodel / Smooth Job — not the LLM's generic summary
       if (scenarioAnalysisReply) {
@@ -15204,6 +15435,7 @@ router.__testUtils = {
   isPortfolioOverBudgetListQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
+  isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   sortCompareProjectsResults,
   runCompareProjectsPipeline,

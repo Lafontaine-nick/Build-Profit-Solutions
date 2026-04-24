@@ -8,6 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "development",
         "EXPO_NO_CAPABILITY_SYNC": "1"
       },
       "ios": {

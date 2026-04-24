@@ -9,6 +9,7 @@ const STORAGE_KEY = UNIFIED_PROJECTS_STORAGE_KEY;
 export interface UnifiedProject {
   id: string;
   title: string;
+  name?: string;
   
   // Status lifecycle
   status: 'estimate' | 'bid_submitted' | 'won' | 'in_progress' | 'completed' | 'lost';
@@ -17,8 +18,10 @@ export interface UnifiedProject {
   estimatedCost: number;
   bidPrice: number;
   actualCost?: number;
+  totalSpent?: number;
   margin: number;
   markup: number;
+  budgeted?: number;
   /** Net profit from estimate (gross profit − overhead); used so Projects page can show estimate margin */
   profit?: number;
   
@@ -35,7 +38,9 @@ export interface UnifiedProject {
   overallProgressPct?: number; // Timeline-based progress
   milestones?: any[];
   weeklyPayments?: any[];
+  paymentMilestones?: any[];
   paymentSchedule?: string;
+  buckets?: any[];
   
   // Client
   client: string;
@@ -52,6 +57,10 @@ export interface UnifiedProject {
   // Project data (if converted to project)
   projectData?: any;
   projectType?: string;
+  expenses?: any[];
+  changeOrders?: any[];
+  purchaseOrders?: any[];
+  squareFootage?: number;
 }
 
 interface ProjectListContextType {
@@ -468,6 +477,7 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
     overallProgressPct: finalProgress,
     milestones: Array.isArray(project?.milestones) ? project.milestones : [],
     weeklyPayments: Array.isArray(project?.weeklyPayments) ? project.weeklyPayments : [],
+    paymentMilestones: Array.isArray(project?.paymentMilestones) ? project.paymentMilestones : [],
     paymentSchedule: project?.paymentSchedule,
     client: project?.client || project?.projectData?.client || 'Unknown Client',
     clientEmail: project?.clientEmail,
