@@ -2312,6 +2312,10 @@ export default function ProfileScreen() {
         {/* Business */}
         {renderSection('Business', (
           <>
+            {renderSettingItem('tax-center', 'request-quote', 'Tax Center', () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push('/tax-center');
+            })}
             <View style={styles.settingItemWithSubtext}>
               <TouchableOpacity
                 style={styles.settingItemContent}

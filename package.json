@@ -14,6 +14,8 @@
     "build:dev:android": "cd mobile && npm run build:dev:android",
     "dev": "cd mobile && npm run dev",
     "dev:clear": "cd mobile && npm run dev:clear",
-    "dev:reset": "cd mobile && npm run dev:reset"
+    "dev:reset": "cd mobile && npm run dev:reset",
+    "start:app:dev": "bash start-app-dev-client.sh",
+    "type-check": "cd mobile && npm run type-check"
   }
 }

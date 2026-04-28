@@ -31,6 +31,8 @@ import {
 } from '../contexts/WalkthroughStateContext';
 import '../i18n/config'; // Initialize i18n
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
+import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapper';
+import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';
 
 // Component to apply theme-aware styling and StatusBar
 function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
@@ -399,19 +401,21 @@ export default function RootLayout() {
           <WalkthroughStateProviderLegacy>
             <UserRoleProvider>
               <ProjectListProvider>
-                <ProjectProvider>
-                  <ChatProvider>
-                  <ThemeProvider>
-                    <LanguageProvider>
-                      <NotificationProvider>
-                        <ThemeAwareLayout>
-                          <AuthGate useClerk={false} />
-                        </ThemeAwareLayout>
-                      </NotificationProvider>
-                    </LanguageProvider>
-                  </ThemeProvider>
-                </ChatProvider>
-              </ProjectProvider>
+                <VendorDirectoryProviderLocal>
+                  <ProjectProvider>
+                    <ChatProvider>
+                      <ThemeProvider>
+                        <LanguageProvider>
+                          <NotificationProvider>
+                            <ThemeAwareLayout>
+                              <AuthGate useClerk={false} />
+                            </ThemeAwareLayout>
+                          </NotificationProvider>
+                        </LanguageProvider>
+                      </ThemeProvider>
+                    </ChatProvider>
+                  </ProjectProvider>
+                </VendorDirectoryProviderLocal>
               </ProjectListProvider>
             </UserRoleProvider>
           </WalkthroughStateProviderLegacy>
@@ -429,23 +433,25 @@ export default function RootLayout() {
             <WalkthroughStateProvider>
               <UserRoleProvider>
                 <ProjectListProvider>
-                  <ProjectProvider>
-                    <ChatProvider>
-                    <ThemeProvider>
-                      <LanguageProvider>
-                        <NotificationProvider>
-                          <BetaFeedbackProvider>
-                            <ThemeAwareLayout>
-                              <AuthGate useClerk={true} />
-                            </ThemeAwareLayout>
-                          </BetaFeedbackProvider>
-                        </NotificationProvider>
-                      </LanguageProvider>
-                    </ThemeProvider>
-                  </ChatProvider>
-                </ProjectProvider>
-              </ProjectListProvider>
-            </UserRoleProvider>
+                  <ClerkVendorDirectoryWrapper>
+                    <ProjectProvider>
+                      <ChatProvider>
+                        <ThemeProvider>
+                          <LanguageProvider>
+                            <NotificationProvider>
+                              <BetaFeedbackProvider>
+                                <ThemeAwareLayout>
+                                  <AuthGate useClerk={true} />
+                                </ThemeAwareLayout>
+                              </BetaFeedbackProvider>
+                            </NotificationProvider>
+                          </LanguageProvider>
+                        </ThemeProvider>
+                      </ChatProvider>
+                    </ProjectProvider>
+                  </ClerkVendorDirectoryWrapper>
+                </ProjectListProvider>
+              </UserRoleProvider>
             </WalkthroughStateProvider>
           </ClerkProvider>
         </ApiProvider>

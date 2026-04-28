@@ -1,0 +1,641 @@
+export type TaxCategory =
+  | 'Materials'
+  | 'Labor'
+  | 'Subcontractors'
+  | 'Equipment Rental'
+  | 'Permits / Plans'
+  | 'Insurance'
+  | 'Vehicle / Mileage'
+  | 'Software / Tools'
+  | 'Office / Admin'
+  | 'Other';
+
+export const TAX_CATEGORIES: TaxCategory[] = [
+  'Materials',
+  'Labor',
+  'Subcontractors',
+  'Equipment Rental',
+  'Permits / Plans',
+  'Insurance',
+  'Vehicle / Mileage',
+  'Software / Tools',
+  'Office / Admin',
+  'Other',
+];
+
+export type TaxExpense = {
+  id?: string;
+  projectId?: string;
+  projectName?: string;
+  category?: string;
+  vendor?: string;
+  /** Optional link to Vendor directory (Phase 2). */
+  vendorId?: string;
+  /** Denormalized vendor label when not linked by id. */
+  vendorName?: string;
+  amount?: number | string;
+  date?: string;
+  orderDate?: string;
+  paidAt?: string;
+  receiptUri?: string | null;
+  notes?: string;
+  status?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  /** Informational flag for 1099-readiness review (not a legal determination). */
+  requires1099Review?: boolean;
+  /** Internal: purchase order line (only counted when paid per tax rules) */
+  __isPurchaseOrder?: boolean;
+};
+
+export type TaxPayment = {
+  id?: string;
+  projectId?: string;
+  projectName?: string;
+  amount?: number | string;
+  paymentAmount?: number | string;
+  collectedAmount?: number | string;
+  collectedAt?: string;
+  paidAt?: string;
+  paymentDate?: string;
+  scheduledDate?: string;
+  dueDate?: string;
+  plannedDate?: string;
+  status?: string;
+  paid?: boolean;
+  collected?: boolean;
+  isPaid?: boolean;
+  title?: string;
+  name?: string;
+  description?: string;
+};
+
+export type TaxReceipt = {
+  id?: string;
+  projectId?: string;
+  uri?: string;
+  receiptUri?: string;
+  date?: string;
+  createdAt?: string;
+};
+
+export type TaxCenterSummary = {
+  /** Collected client / progress payments in the tax year */
+  grossIncomeCollected: number;
+  outstandingReceivables: number;
+  /** Expenses + only POs that are paid for tax purposes */
+  totalExpenses: number;
+  /** Unpaid purchase orders (committed, not tax-deductible yet) */
+  committedCosts: number;
+  netProfit: number;
+  /** Net Income / Revenue Collected; null when no collected revenue */
+  netMargin: number | null;
+  subcontractorPayments: number;
+  receiptCount: number;
+};
+
+export type TaxCategoryRow = {
+  category: TaxCategory;
+  amount: number;
+  count: number;
+};
+
+export type ProjectTaxSummary = {
+  projectId: string;
+  projectName: string;
+  revenueCollected: number;
+  outstandingInvoices: number;
+  expensesPaid: number;
+  netIncome: number;
+  margin: number | null;
+  receiptCount: number;
+};
+
+export type SubcontractorPaymentSummary = {
+  name: string;
+  totalPaid: number;
+  projects: string[];
+  missingW9: boolean;
+  potential1099Review: boolean;
+  w9Uploaded: boolean;
+  einPlaceholder: string;
+  addressPlaceholder: string;
+};
+
+export function getTaxYearRange(year: number) {
+  return {
+    start: new Date(year, 0, 1, 0, 0, 0, 0),
+    end: new Date(year, 11, 31, 23, 59, 59, 999),
+  };
+}
+
+const toNumber = (value: unknown): number => {
+  if (value == null) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value).replace(/[$,\s]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const asArray = <T = any>(value: unknown): T[] => (Array.isArray(value) ? value : []);
+
+const parseDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const dateInYear = (value: unknown, year: number): boolean => {
+  const date = parseDate(value);
+  return !!date && date.getFullYear() === year;
+};
+
+const projectOverlapsYear = (project: any, year: number): boolean => {
+  const candidates = [
+    project?.startDate,
+    project?.endDate,
+    project?.createdAt,
+    project?.updatedAt,
+    project?.projectData?.startISO,
+    project?.projectData?.endISO,
+    project?.estimateData?.projectStartDate,
+    project?.estimateData?.projectEndDate,
+  ];
+  return candidates.some((candidate) => dateInYear(candidate, year));
+};
+
+export const expenseDate = (expense: any): string | undefined =>
+  expense?.date || expense?.paidAt || expense?.orderDate || expense?.createdAt || expense?.updatedAt;
+
+const poDate = (po: any): string | undefined =>
+  po?.orderDate || po?.expectedDelivery || po?.date || po?.createdAt || po?.updatedAt;
+
+const paymentDate = (payment: any): string | undefined =>
+  payment?.collectedAt ||
+  payment?.paidAt ||
+  payment?.paymentDate ||
+  payment?.scheduledDate ||
+  payment?.dueDate ||
+  payment?.plannedDate ||
+  payment?.date;
+
+const isExpenseInYear = (expense: any, year: number, project?: any): boolean => {
+  const date = expense.__isPurchaseOrder ? poDate(expense) : expenseDate(expense);
+  if (date) return dateInYear(date, year);
+  return project ? projectOverlapsYear(project, year) : false;
+};
+
+const isPaymentCollected = (payment: any): boolean => {
+  const status = String(payment?.status || '').toLowerCase();
+  return (
+    payment?.paid === true ||
+    payment?.collected === true ||
+    payment?.isPaid === true ||
+    status === 'paid' ||
+    status === 'collected' ||
+    status === 'completed' ||
+    status === 'complete'
+  );
+};
+
+const paymentAmount = (payment: any): number =>
+  toNumber(payment?.collectedAmount ?? payment?.paidAmount ?? payment?.amount ?? payment?.paymentAmount);
+
+export const expenseAmount = (expense: any): number => toNumber(expense?.amount ?? expense?.total ?? expense?.cost);
+
+const normalizeProjectName = (project: any): string =>
+  String(project?.title || project?.name || project?.projectData?.title || project?.estimateData?.title || 'Untitled Project');
+
+const uniqueByKey = <T>(items: T[], getKey: (item: T, index: number) => string): T[] => {
+  const seen = new Set<string>();
+  return items.filter((item, index) => {
+    const key = getKey(item, index);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+/** Only POs that represent paid/spent amounts for tax expense purposes */
+export function isPoPaidForTax(po: any): boolean {
+  if (po?.isPaid === true) return true;
+  const status = String(po?.status || '').toLowerCase();
+  return status === 'paid' || status === 'completed' || status === 'complete';
+}
+
+export function mapExpenseToTaxCategory(expense: Partial<TaxExpense> | string | undefined): TaxCategory {
+  const raw =
+    typeof expense === 'string'
+      ? expense
+      : `${expense?.category || ''} ${expense?.vendor || ''} ${expense?.notes || ''}`;
+  const text = raw.toLowerCase();
+
+  if (/sub|1099|contractor|crew|trade partner/.test(text)) return 'Subcontractors';
+  if (/labor|payroll|wage|hour|employee/.test(text)) return 'Labor';
+  if (/material|lumber|concrete|drywall|paint|tile|roof|supply|hardware|homedepot|home depot|lowe/.test(text)) return 'Materials';
+  if (/equipment|rental|scaffold|lift|excavator|bobcat|tool rental/.test(text)) return 'Equipment Rental';
+  if (/permit|plan|inspection|engineering|architect|drawing/.test(text)) return 'Permits / Plans';
+  if (/insurance|liability|bond|workers comp|worker/.test(text)) return 'Insurance';
+  if (/vehicle|mileage|fuel|gas|truck|parking|toll/.test(text)) return 'Vehicle / Mileage';
+  if (/software|subscription|app|saas|tool|license/.test(text)) return 'Software / Tools';
+  if (/office|admin|postage|paper|printer|bookkeeping|accounting|phone|internet/.test(text)) return 'Office / Admin';
+  return 'Other';
+}
+
+function collectProjectExpenseLinesOnly(project: any): TaxExpense[] {
+  const projectId = String(project?.id || '');
+  const projectName = normalizeProjectName(project);
+  const sources = [project?.expenses, project?.projectData?.expenses, project?.estimateData?.expenses];
+  const expenses = sources.flatMap((source) => asArray<TaxExpense>(source));
+
+  return uniqueByKey(expenses, (expense, index) => {
+    const id = expense?.id;
+    return id ? `${projectId}:exp:${id}` : `${projectId}:exp:${index}:${expense?.vendor || ''}:${expenseAmount(expense)}:${expenseDate(expense) || ''}`;
+  }).map((expense) => ({
+    ...expense,
+    __isPurchaseOrder: false,
+    projectId,
+    projectName,
+    amount: expenseAmount(expense),
+    date: expenseDate(expense),
+  }));
+}
+
+function collectProjectPurchaseOrderLines(project: any): TaxExpense[] {
+  const projectId = String(project?.id || '');
+  const projectName = normalizeProjectName(project);
+  const sources = [project?.purchaseOrders, project?.projectData?.purchaseOrders];
+  const pos = sources.flatMap((source) => asArray<any>(source));
+
+  return uniqueByKey(pos, (po, index) => {
+    const id = po?.id || po?.poNumber;
+    return id ? `${projectId}:po:${id}` : `${projectId}:po:${index}:${po?.vendor || ''}:${expenseAmount(po)}:${poDate(po) || ''}`;
+  }).map((po) => ({
+    ...po,
+    id: String(po?.id || po?.poNumber || ''),
+    category: po?.category,
+    vendor: po?.vendor,
+    amount: expenseAmount(po),
+    date: poDate(po),
+    notes: po?.notes,
+    receiptUri: po?.receiptUri ?? null,
+    status: po?.status,
+    __isPurchaseOrder: true,
+    projectId,
+    projectName,
+  }));
+}
+
+/** Taxable expense lines: regular expenses + only paid POs */
+export function collectTaxableExpenseLines(project: any): TaxExpense[] {
+  const regular = collectProjectExpenseLinesOnly(project);
+  const pos = collectProjectPurchaseOrderLines(project).filter((po) => isPoPaidForTax(po));
+  return [...regular, ...pos];
+}
+
+/** Uncommitted (unpaid) PO value for committed-costs reporting */
+export function collectUnpaidPurchaseOrderLines(project: any): TaxExpense[] {
+  return collectProjectPurchaseOrderLines(project).filter((po) => !isPoPaidForTax(po));
+}
+
+function collectProjectInvoices(project: any): any[] {
+  const sources = [project?.invoices, project?.projectData?.invoices, project?.estimateData?.invoices];
+  return uniqueByKey(sources.flatMap((s) => asArray<any>(s)), (inv, i) =>
+    inv?.id ? String(inv.id) : `inv:${i}:${inv?.number || ''}`
+  );
+}
+
+/**
+ * Outstanding receivables for a project in a tax year.
+ * Prefers invoice balances (issue/created in year, not cancelled).
+ * If no invoices, falls back to scheduled milestone amounts dated in year minus collected in year.
+ */
+export function calculateOutstandingInvoices(project: any, selectedYear: number): number {
+  const invoices = collectProjectInvoices(project).filter((inv) => {
+    if (String(inv?.status || '').toLowerCase() === 'cancelled') return false;
+    const d = inv?.issueDate || inv?.createdAt;
+    return dateInYear(d, selectedYear);
+  });
+
+  if (invoices.length > 0) {
+    const billed = invoices.reduce((sum, inv) => {
+      const total = toNumber(inv.total ?? inv.subtotal);
+      const paidOnInvoice = toNumber(inv.paidAmount);
+      const balance =
+        inv.balance != null && inv.balance !== ''
+          ? Math.max(0, toNumber(inv.balance))
+          : Math.max(0, total - paidOnInvoice);
+      return sum + balance;
+    }, 0);
+    return Math.max(0, billed);
+  }
+
+  // No invoice records: use scheduled payments dated in year that are not yet collected.
+  const openSchedule = collectProjectPayments(project).filter(
+    (p) => dateInYear(paymentDate(p), selectedYear) && !isPaymentCollected(p)
+  );
+  return openSchedule.reduce((s, p) => s + paymentAmount(p), 0);
+}
+
+function collectProjectPayments(project: any): TaxPayment[] {
+  const projectId = String(project?.id || '');
+  const projectName = normalizeProjectName(project);
+  const sources = [
+    project?.payments,
+    project?.paymentMilestones,
+    project?.weeklyPayments,
+    project?.milestones,
+    project?.projectData?.payments,
+    project?.projectData?.paymentMilestones,
+    project?.projectData?.weeklyPayments,
+    project?.projectData?.milestones,
+    project?.estimateData?.paymentMilestones,
+    project?.estimateData?.weeklyPayments,
+  ];
+  const payments = sources.flatMap((source) => asArray<TaxPayment>(source));
+
+  return uniqueByKey(payments, (payment, index) => {
+    const id = payment?.id;
+    const label = payment?.title || payment?.name || payment?.description || '';
+    return id ? `${projectId}:${id}` : `${projectId}:${index}:${label}:${paymentAmount(payment)}:${paymentDate(payment) || ''}`;
+  }).map((payment) => ({
+    ...payment,
+    projectId,
+    projectName,
+  }));
+}
+
+export function getTaxCenterDataInputs(
+  projects: any[],
+  expenses: TaxExpense[] = [],
+  payments: TaxPayment[] = [],
+  receipts: TaxReceipt[] = []
+) {
+  const projectTaxable = asArray<any>(projects).flatMap(collectTaxableExpenseLines);
+  const projectPayments = asArray<any>(projects).flatMap(collectProjectPayments);
+  return {
+    expenses: [...projectTaxable, ...asArray<TaxExpense>(expenses)],
+    payments: [...projectPayments, ...asArray<TaxPayment>(payments)],
+    receipts: asArray<TaxReceipt>(receipts),
+  };
+}
+
+export function groupExpensesByTaxCategory(expenses: TaxExpense[]): TaxCategoryRow[] {
+  const rows = new Map<TaxCategory, TaxCategoryRow>();
+  TAX_CATEGORIES.forEach((category) => rows.set(category, { category, amount: 0, count: 0 }));
+
+  asArray<TaxExpense>(expenses).forEach((expense) => {
+    const category = mapExpenseToTaxCategory(expense);
+    const current = rows.get(category) || { category, amount: 0, count: 0 };
+    current.amount += expenseAmount(expense);
+    current.count += 1;
+    rows.set(category, current);
+  });
+
+  return TAX_CATEGORIES.map((category) => rows.get(category)!).filter((row) => row.amount > 0 || row.count > 0);
+}
+
+export function buildProjectTaxSummaries(projects: any[], selectedYear: number): ProjectTaxSummary[] {
+  return asArray<any>(projects)
+    .map((project) => {
+      const projectId = String(project?.id || '');
+      const taxable = collectTaxableExpenseLines(project).filter((e) => isExpenseInYear(e, selectedYear, project));
+      const expensesPaid = taxable.reduce((sum, e) => sum + expenseAmount(e), 0);
+      const payments = collectProjectPayments(project).filter(
+        (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+      );
+      const revenueCollected = payments.reduce((sum, payment) => sum + paymentAmount(payment), 0);
+      const outstandingInvoices = calculateOutstandingInvoices(project, selectedYear);
+      const netIncome = revenueCollected - expensesPaid;
+      const receiptCount = taxable.filter((e) => !!e.receiptUri).length;
+
+      return {
+        projectId,
+        projectName: normalizeProjectName(project),
+        revenueCollected,
+        outstandingInvoices,
+        expensesPaid,
+        netIncome,
+        margin: revenueCollected > 0 ? netIncome / revenueCollected : null,
+        receiptCount,
+      };
+    })
+    .filter(
+      (summary) =>
+        summary.revenueCollected > 0 ||
+        summary.outstandingInvoices > 0 ||
+        summary.expensesPaid > 0 ||
+        summary.receiptCount > 0
+    )
+    .sort((a, b) => Math.abs(b.netIncome) - Math.abs(a.netIncome));
+}
+
+export function buildSubcontractorPaymentSummary(
+  expenses: TaxExpense[],
+  selectedYear: number
+): SubcontractorPaymentSummary[] {
+  const byVendor = new Map<string, SubcontractorPaymentSummary>();
+
+  asArray<TaxExpense>(expenses)
+    .filter((expense) => dateInYear(expenseDate(expense), selectedYear))
+    .filter((expense) => mapExpenseToTaxCategory(expense) === 'Subcontractors')
+    .forEach((expense) => {
+      const name = String(expense.vendor || 'Unknown subcontractor').trim() || 'Unknown subcontractor';
+      const current =
+        byVendor.get(name) ||
+        ({
+          name,
+          totalPaid: 0,
+          projects: [],
+          missingW9: true,
+          potential1099Review: false,
+          w9Uploaded: false,
+          einPlaceholder: '—',
+          addressPlaceholder: '—',
+        } satisfies SubcontractorPaymentSummary);
+
+      current.totalPaid += expenseAmount(expense);
+      if (expense.projectName && !current.projects.includes(expense.projectName)) {
+        current.projects.push(expense.projectName);
+      }
+      current.potential1099Review = current.totalPaid >= 600;
+      byVendor.set(name, current);
+    });
+
+  return Array.from(byVendor.values()).sort((a, b) => b.totalPaid - a.totalPaid);
+}
+
+export function computeTaxCenterSummary(
+  projects: any[],
+  expenses: TaxExpense[] = [],
+  payments: TaxPayment[] = [],
+  receipts: TaxReceipt[] = [],
+  selectedYear: number
+): TaxCenterSummary {
+  const inputs = getTaxCenterDataInputs(projects, expenses, payments, receipts);
+  const yearExpenses = inputs.expenses.filter((expense) => dateInYear(expenseDate(expense), selectedYear));
+  const yearPayments = inputs.payments.filter(
+    (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+  );
+  const yearReceipts = inputs.receipts.filter((receipt) =>
+    dateInYear(receipt.date || receipt.createdAt, selectedYear)
+  );
+
+  const grossIncomeCollected = yearPayments.reduce((sum, payment) => sum + paymentAmount(payment), 0);
+  const outstandingReceivables = asArray<any>(projects).reduce(
+    (sum, project) => sum + calculateOutstandingInvoices(project, selectedYear),
+    0
+  );
+  const committedCosts = asArray<any>(projects).reduce((sum, project) => {
+    return (
+      sum +
+      collectUnpaidPurchaseOrderLines(project)
+        .filter((po) => isExpenseInYear(po, selectedYear, project))
+        .reduce((s, po) => s + expenseAmount(po), 0)
+    );
+  }, 0);
+
+  const totalExpenses = yearExpenses.reduce((sum, expense) => sum + expenseAmount(expense), 0);
+  const netProfit = grossIncomeCollected - totalExpenses;
+  const subcontractorPayments = yearExpenses
+    .filter((expense) => mapExpenseToTaxCategory(expense) === 'Subcontractors')
+    .reduce((sum, expense) => sum + expenseAmount(expense), 0);
+  const receiptsFromExpenses = yearExpenses.filter((expense) => !!expense.receiptUri).length;
+
+  return {
+    grossIncomeCollected,
+    outstandingReceivables,
+    totalExpenses,
+    committedCosts,
+    netProfit,
+    netMargin: grossIncomeCollected > 0 ? netProfit / grossIncomeCollected : null,
+    subcontractorPayments,
+    receiptCount: receiptsFromExpenses + yearReceipts.length,
+  };
+}
+
+export function getTaxYearOptions(projects: any[], currentYear = new Date().getFullYear()): number[] {
+  const years = new Set<number>([currentYear, currentYear - 1, currentYear - 2, currentYear - 3]);
+
+  asArray<any>(projects).forEach((project) => {
+    [
+      project?.startDate,
+      project?.endDate,
+      project?.createdAt,
+      project?.updatedAt,
+      project?.projectData?.startISO,
+      project?.projectData?.endISO,
+      project?.estimateData?.projectStartDate,
+      project?.estimateData?.projectEndDate,
+      ...collectTaxableExpenseLines(project).map((e) => expenseDate(e)),
+      ...collectProjectPayments(project).map(paymentDate),
+      ...collectProjectInvoices(project).map((inv) => inv?.issueDate || inv?.createdAt),
+    ].forEach((value) => {
+      const date = parseDate(value);
+      if (date) years.add(date.getFullYear());
+    });
+  });
+
+  return Array.from(years).sort((a, b) => b - a);
+}
+
+/** Taxable expense lines for the year (paid POs + regular expenses) */
+export function getYearExpenses(projects: any[], selectedYear: number, expenses: TaxExpense[] = []): TaxExpense[] {
+  const inputs = getTaxCenterDataInputs(projects, expenses);
+  return inputs.expenses.filter((expense) => dateInYear(expenseDate(expense), selectedYear));
+}
+
+export type ReceiptExportLine = {
+  id?: string;
+  projectId: string;
+  projectName: string;
+  monthKey: string;
+  category: TaxCategory;
+  amount: number;
+  date?: string;
+  receiptUri?: string | null;
+  vendor?: string;
+  notes?: string;
+};
+
+export type ReceiptExportBundle = {
+  byProject: Record<string, ReceiptExportLine[]>;
+  byMonth: Record<string, ReceiptExportLine[]>;
+  byCategory: Partial<Record<TaxCategory, ReceiptExportLine[]>>;
+};
+
+/**
+ * Prepare receipt lines grouped for future export (by project, month, category).
+ */
+export function groupReceiptsForExport(
+  projects: any[],
+  selectedYear: number,
+  extraExpenses: TaxExpense[] = []
+): ReceiptExportBundle {
+  const taxable = [
+    ...asArray<any>(projects).flatMap(collectTaxableExpenseLines),
+    ...asArray<TaxExpense>(extraExpenses),
+  ].filter((e) => dateInYear(expenseDate(e), selectedYear) && !!e.receiptUri);
+
+  const byProject: Record<string, ReceiptExportLine[]> = {};
+  const byMonth: Record<string, ReceiptExportLine[]> = {};
+  const byCategory: Partial<Record<TaxCategory, ReceiptExportLine[]>> = {};
+
+  taxable.forEach((e) => {
+    const cat = mapExpenseToTaxCategory(e);
+    const d = parseDate(expenseDate(e));
+    const monthKey = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'unknown';
+    const pid = String(e.projectId || 'unassigned');
+    const pname = String(e.projectName || 'Unassigned');
+    const line: ReceiptExportLine = {
+      id: e.id,
+      projectId: pid,
+      projectName: pname,
+      monthKey,
+      category: cat,
+      amount: expenseAmount(e),
+      date: expenseDate(e),
+      receiptUri: e.receiptUri,
+      vendor: e.vendor,
+      notes: e.notes,
+    };
+    if (!byProject[pid]) byProject[pid] = [];
+    byProject[pid].push(line);
+    if (!byMonth[monthKey]) byMonth[monthKey] = [];
+    byMonth[monthKey].push(line);
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat]!.push(line);
+  });
+
+  return { byProject, byMonth, byCategory };
+}
+
+export function buildRuleBasedTaxInsights(
+  summary: TaxCenterSummary,
+  categoryRows: TaxCategoryRow[],
+  subcontractors: SubcontractorPaymentSummary[]
+): string[] {
+  const lines: string[] = [];
+  if (summary.netProfit > 0) {
+    const reserve = Math.round(summary.netProfit * 0.25);
+    lines.push(
+      `Based on net profit in this summary, some businesses set aside approximately ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(reserve)} for estimated taxes. This is not tax advice—confirm with your CPA or tax professional.`
+    );
+  }
+  const review = subcontractors.filter((s) => s.potential1099Review);
+  if (review.length > 0) {
+    const total = review.reduce((s, v) => s + v.totalPaid, 0);
+    lines.push(
+      `You paid ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(total)} to vendors flagged for Potential 1099 review. Confirm vendor eligibility, payment method, W-9 status, and filing requirements with your CPA or tax professional.`
+    );
+  }
+  const top = [...categoryRows].sort((a, b) => b.amount - a.amount)[0];
+  if (top && top.amount > 0) {
+    lines.push(
+      `Your largest recorded expense category this year was ${top.category}. Review deductibility and tax treatment with your CPA or tax professional.`
+    );
+  }
+  if (lines.length === 0) {
+    lines.push('Add collected payments and paid expenses to unlock more year-end insights.');
+  }
+  return lines.slice(0, 3);
+}

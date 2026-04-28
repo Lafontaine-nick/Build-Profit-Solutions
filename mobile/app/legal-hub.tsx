@@ -19,12 +19,13 @@ import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 
-type TabType = 'terms' | 'privacy' | 'refund' | 'attrib';
+type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 
 /**
  * Legal Hub Screen
  * - Terms of Use with specific sections for Yelp, Home Depot, Lowes
  * - Privacy Policy placeholder
+ * - Tax Center disclosure (exports, AI insight, CPA review)
  * - Data Sources & Attributions
  * - Deep linkable sections for compliance
  */
@@ -50,7 +51,7 @@ export default function LegalHubScreen() {
   useEffect(() => {
     if (params.tab) {
       const tabParam = params.tab.toLowerCase();
-      if (['terms', 'privacy', 'refund', 'attrib'].includes(tabParam)) {
+      if (['terms', 'privacy', 'refund', 'tax', 'attrib'].includes(tabParam)) {
         setActiveTab(tabParam as TabType);
       }
     }
@@ -109,8 +110,14 @@ export default function LegalHubScreen() {
           <View style={styles.backButtonWrapper} />
         </View>
 
-        {/* Tabs */}
-        <View style={styles.tabsContainer}>
+        {/* Tabs: horizontal scroll so long labels stay on one line (no flex squeeze). */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsRow}
+          contentContainerStyle={styles.tabsRowContent}
+          bounces
+        >
           <TouchableOpacity
             style={[
               styles.tab,
@@ -118,7 +125,10 @@ export default function LegalHubScreen() {
             ]}
             onPress={() => handleTabChange('terms')}
           >
-            <Text style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
+            >
               Terms
             </Text>
           </TouchableOpacity>
@@ -129,7 +139,10 @@ export default function LegalHubScreen() {
             ]}
             onPress={() => handleTabChange('privacy')}
           >
-            <Text style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
+            >
               Privacy
             </Text>
           </TouchableOpacity>
@@ -140,8 +153,25 @@ export default function LegalHubScreen() {
             ]}
             onPress={() => handleTabChange('refund')}
           >
-            <Text style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
+            >
               Refund Policy
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.tab,
+              { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
+            ]}
+            onPress={() => handleTabChange('tax')}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
+            >
+              Tax Disclosure
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -151,11 +181,14 @@ export default function LegalHubScreen() {
             ]}
             onPress={() => handleTabChange('attrib')}
           >
-            <Text style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
+            >
               Attributions
             </Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
 
         {/* Content Card */}
         <LinearGradient
@@ -174,6 +207,7 @@ export default function LegalHubScreen() {
               {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
               {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
               {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
+              {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
               {activeTab === 'attrib' && (
                 <AttributionsContent
                   onNavigate={navigateToSection}
@@ -682,6 +716,154 @@ function RefundPolicyContent({ theme }: { theme: any }) {
   );
 }
 
+// ========== TAX CENTER DISCLOSURE ==========
+function TaxCenterDisclosureContent({ theme }: { theme: any }) {
+  return (
+    <View>
+      <SectionHeader title="Tax Center Disclosure" subtitle="Effective: November 2025" theme={theme} />
+
+      <Section theme={theme}>
+        <H2 theme={theme}>1. Bookkeeping and Tax-Preparation Support Only</H2>
+        <P theme={theme}>
+          The Tax Center, Year-End Tax Summary, Receipt Backup Manifest, subcontractor payment
+          summaries, AI Tax Insight, and related exports provided by Build Profit Solutions are
+          intended for bookkeeping, internal business review, and tax-preparation support only.
+        </P>
+        <P theme={theme}>
+          Build Profit Solutions does not provide tax, legal, accounting, payroll, or financial
+          advice. The Tax Center does not replace a certified public accountant, tax preparer,
+          attorney, bookkeeper, payroll provider, or other licensed professional.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>2. Not an Official Tax Filing or 1099 Service</H2>
+        <P theme={theme}>
+          The Tax Center does not file tax returns, prepare official tax forms, submit documents to
+          the IRS or state tax authorities, or issue official Forms 1099.
+        </P>
+        <P theme={theme}>
+          {
+            'Any labels such as "tax-ready," "CPA-ready," "Potential 1099 Review," or similar wording are informational only and do not mean that a tax document is complete, accurate, legally sufficient, IRS-approved, or ready to file without professional review.'
+          }
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>3. User Responsibility for Accuracy</H2>
+        <P theme={theme}>
+          All Tax Center reports are generated from user-entered or user-connected data, including
+          project information, payments, expenses, purchase orders, subcontractor/vendor records,
+          receipts, and related financial entries.
+        </P>
+        <P theme={theme}>
+          Users are solely responsible for reviewing, verifying, correcting, and maintaining all
+          amounts, categories, dates, receipts, vendor information, W-9 information, payment
+          status, and tax treatment before using any report for bookkeeping, accounting, tax
+          preparation, or filing purposes.
+        </P>
+        <P theme={theme}>
+          Missing, incomplete, duplicated, incorrectly categorized, or incorrectly dated entries may
+          affect the accuracy of Tax Center summaries and exports.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>4. Supporting Records and Source Documents</H2>
+        <P theme={theme}>
+          Tax Center reports are summaries and do not replace original records or supporting
+          documentation.
+        </P>
+        <P theme={theme}>
+          Users are responsible for retaining receipts, invoices, bank records, payment
+          confirmations, contracts, purchase orders, W-9s, 1099s, mileage logs, payroll records, and
+          any other documents required by their CPA, tax professional, business, lender, or taxing
+          authority.
+        </P>
+        <P theme={theme}>
+          Receipt Backup Manifest exports may list receipt records entered in Build Profit
+          Solutions, but they do not by themselves guarantee that the original receipt image, PDF,
+          or source document is complete, accurate, accessible, or sufficient for tax filing.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>5. Expense Categories and Deductibility</H2>
+        <P theme={theme}>
+          Expense categories shown in the Tax Center are for organization and bookkeeping support
+          only. Build Profit Solutions does not determine whether an expense is deductible, ordinary,
+          necessary, capitalized, depreciable, reimbursable, taxable, or otherwise reportable.
+        </P>
+        <P theme={theme}>
+          Users must confirm deductibility, classification, capitalization, depreciation, sales tax
+          treatment, payroll treatment, subcontractor treatment, and all other tax matters with
+          their CPA or tax professional.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>6. Subcontractor Payments and Potential 1099 Review</H2>
+        <P theme={theme}>
+          {
+            'The Tax Center may identify vendors or subcontractors for "Potential 1099 Review" based on available payment data. This is only an informational flag.'
+          }
+        </P>
+        <P theme={theme}>
+          Build Profit Solutions does not determine whether a vendor legally requires a Form 1099,
+          whether a payment is reportable, whether a payment method is excluded, whether a W-9 is
+          valid, or whether a filing threshold has been met.
+        </P>
+        <P theme={theme}>
+          Users are responsible for confirming vendor eligibility, payment method, W-9 status, filing
+          requirements, deadlines, and all federal, state, and local reporting obligations with their
+          CPA or tax professional.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>7. AI Tax Insight</H2>
+        <P theme={theme}>
+          AI Tax Insight and rules-based tax-related prompts are informational only and are not tax
+          advice. AI Tax Insight may identify patterns in recorded data, such as large expense
+          categories, missing records, or items for review.
+        </P>
+        <P theme={theme}>
+          Users should not rely on AI Tax Insight to make tax filing decisions, claim deductions,
+          classify expenses, determine 1099 obligations, or calculate tax liability without review by
+          a qualified tax professional.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>8. No Guarantee</H2>
+        <P theme={theme}>
+          Build Profit Solutions does not guarantee that Tax Center reports, summaries, exports,
+          categories, AI insights, calculations, or receipt manifests are complete, accurate,
+          current, compliant, or suitable for any specific tax, accounting, legal, lending, audit, or
+          regulatory purpose.
+        </P>
+        <P theme={theme}>
+          {"Use of the Tax Center is at the user's own discretion and risk."}
+        </P>
+        <P theme={theme}>
+          Accountant workbook (XLSX) exports, W-9 tracking, QuickBooks mapping prep, and vendor directory
+          features are for bookkeeping and internal review only. They are not official tax filings, are not
+          IRS-approved, and do not replace your CPA, enrolled agent, bookkeeper, or payroll provider.
+        </P>
+      </Section>
+
+      <Section theme={theme}>
+        <H2 theme={theme}>9. Professional Review Required</H2>
+        <P theme={theme}>
+          Before using any Tax Center report or export for tax preparation, bookkeeping, financial
+          reporting, loan applications, audits, investor reporting, or official filings, users should
+          review the information with a CPA, tax professional, attorney, or qualified advisor.
+        </P>
+      </Section>
+    </View>
+  );
+}
+
 // ========== ATTRIBUTIONS CONTENT ==========
 function AttributionsContent({
   onNavigate,
@@ -953,21 +1135,27 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
     textAlign: 'center',
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
+  tabsRow: {
     marginBottom: 16,
+    flexGrow: 0,
+  },
+  tabsRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 16,
+    paddingRight: 20,
   },
   tab: {
-    flex: 1,
+    flexShrink: 0,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 12,
     backgroundColor: 'rgba(67, 206, 162, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(67, 206, 162, 0.2)',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   tabActive: {
     backgroundColor: 'rgba(67, 206, 162, 0.25)',
@@ -979,7 +1167,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.6)',
   },
