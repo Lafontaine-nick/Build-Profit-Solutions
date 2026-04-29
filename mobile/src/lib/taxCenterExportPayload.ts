@@ -2,6 +2,7 @@ import type {
   ProjectTaxSummary,
   ReceiptExportBundle,
   SubcontractorPaymentSummary,
+  TaxCategory,
   TaxCategoryRow,
   TaxCenterSummary,
 } from '@/src/lib/taxCenter';
@@ -29,9 +30,13 @@ export type TaxSummaryExportPayload = {
   };
   expenseCategories: Array<{
     category: string;
+    /** User mapping label, or empty when unmapped (exports may show "Unmapped"). */
+    accountingOrQuickBooksCategory: string;
     amount: number;
     itemCount: number;
   }>;
+  /** Category → accounting label for workbook-only tabs (includes unmapped categories). */
+  quickBooksCategoryMap: Partial<Record<TaxCategory, string>>;
   projectSummaries: Array<{
     projectName: string;
     revenueCollected: number;
@@ -57,6 +62,8 @@ export type TaxSummaryExportPayload = {
     amount: number;
     receiptUri: string;
   }>;
+  /** From Profile → Edit Profile (bps.contractorProfile); shown on tax exports when set. */
+  contractorContactEmail?: string | null;
   aiTaxInsight: string;
 };
 
@@ -85,13 +92,22 @@ export function buildTaxSummaryExportPayload(input: {
   selectedYear: number;
   summary: TaxCenterSummary;
   expenseCategories: TaxCategoryRow[];
+  quickBooksCategoryMap: Partial<Record<TaxCategory, string>>;
   projectSummaries: ProjectTaxSummary[];
   subcontractorSummary: SubcontractorPaymentSummary[];
   receiptGroups: ReceiptExportBundle;
   aiTaxInsight: string | string[];
 }): TaxSummaryExportPayload {
-  const { selectedYear, summary, expenseCategories, projectSummaries, subcontractorSummary, receiptGroups, aiTaxInsight } =
-    input;
+  const {
+    selectedYear,
+    summary,
+    expenseCategories,
+    quickBooksCategoryMap,
+    projectSummaries,
+    subcontractorSummary,
+    receiptGroups,
+    aiTaxInsight,
+  } = input;
   const dateRangeLabel = `Jan 1 - Dec 31, ${selectedYear}`;
   const generatedAtDisplay = formatTaxExportGeneratedAtDisplay();
   const insightText = Array.isArray(aiTaxInsight) ? aiTaxInsight.join('\n') : aiTaxInsight;
@@ -110,11 +126,16 @@ export function buildTaxSummaryExportPayload(input: {
       subcontractorPayments: summary.subcontractorPayments,
       receiptCount: summary.receiptCount,
     },
-    expenseCategories: expenseCategories.map((row) => ({
-      category: row.category,
-      amount: row.amount,
-      itemCount: row.count,
-    })),
+    expenseCategories: expenseCategories.map((row) => {
+      const raw = row.accountingLabel?.trim() || '';
+      return {
+        category: row.category,
+        accountingOrQuickBooksCategory: raw,
+        amount: row.amount,
+        itemCount: row.count,
+      };
+    }),
+    quickBooksCategoryMap,
     projectSummaries: projectSummaries.map((p) => ({
       projectName: p.projectName,
       revenueCollected: p.revenueCollected,

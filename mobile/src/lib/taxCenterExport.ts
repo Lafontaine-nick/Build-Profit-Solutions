@@ -127,6 +127,10 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   const p = payload.portfolioSummary;
   const year = payload.selectedYear;
   const genDisplay = escapeHtml(payload.generatedAtDisplay);
+  const contactEmail = String(payload.contractorContactEmail || '').trim();
+  const contactMetaRow = contactEmail
+    ? `<div><span class="meta-k">Contractor contact:</span> ${escapeHtml(contactEmail)}</div>`
+    : '';
 
   const execCards = [
     { label: 'Revenue Collected', value: money(p.revenueCollected), cls: cardValueClass('revenue', p.revenueCollected) },
@@ -174,13 +178,17 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     })
     .join('');
 
+  const accountingCell = (raw: string) => {
+    const t = String(raw || '').trim();
+    return t ? t : 'Unmapped';
+  };
   const catRows =
     payload.expenseCategories.length === 0
       ? ''
       : payload.expenseCategories
           .map(
             (c, i) =>
-              `<tr class="${i % 2 === 0 ? 'stripe' : 'stripe-alt'}"><td>${escapeHtml(c.category)}</td><td class="num money ${moneyCellClass(c.amount)}">${escapeHtml(money(c.amount))}</td><td class="num">${c.itemCount}</td></tr>`
+              `<tr class="${i % 2 === 0 ? 'stripe' : 'stripe-alt'}"><td>${escapeHtml(c.category)}</td><td>${escapeHtml(accountingCell(c.accountingOrQuickBooksCategory))}</td><td class="num money ${moneyCellClass(c.amount)}">${escapeHtml(money(c.amount))}</td><td class="num">${c.itemCount}</td></tr>`
           )
           .join('');
 
@@ -210,7 +218,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   const emptyCat =
     payload.expenseCategories.length === 0
       ? '<p class="empty-msg">No expense category data found for this tax year.</p>'
-      : `<table class="data-table" aria-label="Expense categories"><thead><tr><th>Category</th><th class="num">Amount</th><th class="num">Item Count</th></tr></thead><tbody>${catRows}</tbody></table>`;
+      : `<table class="data-table" aria-label="Expense categories"><thead><tr><th>BPS Category</th><th>Accounting / QuickBooks Category</th><th class="num">Amount</th><th class="num">Item Count</th></tr></thead><tbody>${catRows}</tbody></table>`;
 
   const emptyProj =
     payload.projectSummaries.length === 0
@@ -220,7 +228,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   const emptySub =
     payload.subcontractors.length === 0
       ? '<p class="empty-msg">No subcontractor payments found for this tax year.</p>'
-      : `<table class="data-table" aria-label="Subcontractors"><thead><tr><th>Vendor / Subcontractor</th><th class="num">Total Paid</th><th>Projects</th><th>W-9 Status</th><th>Potential 1099 Review</th></tr></thead><tbody>${subRows}</tbody></table>`;
+      : `<table class="data-table" aria-label="Subcontractors"><thead><tr><th>Vendor / Subcontractor</th><th class="num">Total Paid</th><th>Projects</th><th>W-9 tracking (informational)</th><th>Potential 1099 Review</th></tr></thead><tbody>${subRows}</tbody></table>`;
 
   const portfolioBlock = `<div class="section keep-together section-first">
     <div class="section-title">Portfolio Summary</div>
@@ -497,6 +505,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       <div><span class="meta-k">Tax Year:</span> ${year}</div>
       <div><span class="meta-k">Date Range:</span> ${escapeHtml(payload.dateRangeLabel)}</div>
       <div><span class="meta-k">Generated:</span> ${genDisplay}</div>
+      ${contactMetaRow}
     </div>
   </header>
 
@@ -556,6 +565,8 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
   kv('Tax Year', y);
   kv('Date Range', dateRangeCsv);
   kv('Generated', genShort);
+  const ce = String(payload.contractorContactEmail || '').trim();
+  if (ce) kv('Contractor contact', ce);
   push('');
   push(escapeCsvCell('PORTFOLIO SUMMARY'));
   push(`${escapeCsvCell('Metric')},${escapeCsvCell('Amount')}`);
@@ -569,13 +580,16 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
   kv('Receipt Count', p.receiptCount);
   push('');
   push(escapeCsvCell('EXPENSE CATEGORIES'));
-  push(`${escapeCsvCell('Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`);
+  push(
+    `${escapeCsvCell('BPS Category')},${escapeCsvCell('Accounting / QuickBooks Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`
+  );
   if (payload.expenseCategories.length === 0) {
     push(csvLongTextSecondColumn('No expense category data found for this tax year.'));
   } else {
     payload.expenseCategories.forEach((c) => {
+      const acct = String(c.accountingOrQuickBooksCategory || '').trim();
       push(
-        `${escapeCsvCell(c.category)},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
+        `${escapeCsvCell(c.category)},${escapeCsvCell(acct || 'Unmapped')},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
       );
     });
   }
@@ -604,7 +618,7 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
   push('');
   push(escapeCsvCell('SUBCONTRACTOR PAYMENT SUMMARY'));
   push(
-    `${escapeCsvCell('Vendor/Subcontractor')},${escapeCsvCell('Total Paid')},${escapeCsvCell('Projects')},${escapeCsvCell('W9 Status')},${escapeCsvCell('Potential 1099 Review')}`
+    `${escapeCsvCell('Vendor/Subcontractor')},${escapeCsvCell('Total Paid')},${escapeCsvCell('Projects')},${escapeCsvCell('W-9 tracking (informational)')},${escapeCsvCell('Potential 1099 Review')}`
   );
   if (payload.subcontractors.length === 0) {
     push(csvLongTextSecondColumn('No subcontractor payments found for this tax year.'));
@@ -662,6 +676,9 @@ export function generateReceiptManifestCsv(payload: TaxSummaryExportPayload): st
     `${escapeCsvCell('Tax Year')},${escapeCsvCell(y)}`,
     `${escapeCsvCell('Date Range')},${escapeCsvCell(dateRangeManifest)}`,
     `${escapeCsvCell('Generated')},${escapeCsvCell(genManifest)}`,
+    ...(String(payload.contractorContactEmail || '').trim()
+      ? [`${escapeCsvCell('Contractor contact')},${escapeCsvCell(String(payload.contractorContactEmail).trim())}`]
+      : []),
     '',
     escapeCsvCell('RECEIPT LINES'),
     ['Project Name', 'Expense Date', 'Month', 'Category', 'Vendor', 'Amount', 'Receipt Attached']

@@ -74,6 +74,7 @@ import { useKeyboard } from '@/services/MobileOptimization';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
 import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
+import { applyDocumentContactEmailToProfile, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 import { useProjectList } from '../../contexts/ProjectListContext';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
@@ -4280,7 +4281,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
 });
 
-/** Latest contractor row for PDF: merge AsyncStorage (profile saves) + Clerk account fallbacks. */
+/** Latest contractor row for PDF: merge AsyncStorage (profile saves) + document contact email (profile beats Clerk). */
 async function resolveProfileForContractExport(baseProfile, clerkUser) {
   let fromDisk = {};
   try {
@@ -4293,23 +4294,24 @@ async function resolveProfileForContractExport(baseProfile, clerkUser) {
     /* ignore */
   }
   const merged = { ...(baseProfile || {}), ...fromDisk };
-  if (!clerkUser) return merged;
 
-  const email = clerkUser.primaryEmailAddress?.emailAddress?.trim();
-  if (email && !String(merged.email || '').trim()) merged.email = email;
+  if (clerkUser) {
+    const phone = clerkUser.primaryPhoneNumber?.phoneNumber?.trim();
+    if (phone && !String(merged.phone || '').trim()) merged.phone = phone;
 
-  const phone = clerkUser.primaryPhoneNumber?.phoneNumber?.trim();
-  if (phone && !String(merged.phone || '').trim()) merged.phone = phone;
+    const fullName =
+      String(clerkUser.fullName || '').trim() ||
+      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim();
+    if (fullName && !String(merged.name || '').trim()) merged.name = fullName;
 
-  const fullName =
-    String(clerkUser.fullName || '').trim() ||
-    [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim();
-  if (fullName && !String(merged.name || '').trim()) merged.name = fullName;
+    const pubCo = clerkUser.publicMetadata && clerkUser.publicMetadata.company;
+    const unsafeCo = clerkUser.unsafeMetadata && clerkUser.unsafeMetadata.company;
+    const clerkCo = pubCo || unsafeCo;
+    if (clerkCo && !String(merged.company || '').trim()) merged.company = String(clerkCo);
+  }
 
-  const pubCo = clerkUser.publicMetadata && clerkUser.publicMetadata.company;
-  const unsafeCo = clerkUser.unsafeMetadata && clerkUser.unsafeMetadata.company;
-  const clerkCo = pubCo || unsafeCo;
-  if (clerkCo && !String(merged.company || '').trim()) merged.company = String(clerkCo);
+  const canonicalEmail = await getDocumentContactEmailAsync(clerkUser);
+  applyDocumentContactEmailToProfile(merged, canonicalEmail);
 
   return merged;
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { SubcontractorPaymentSummary } from '@/src/lib/taxCenter';
+import { taxCenterPanelCard } from '@/src/components/tax/taxPanelCardStyle';
 
 type Props = {
   vendors: SubcontractorPaymentSummary[];
@@ -36,10 +37,12 @@ export default function SubcontractorTaxReport({ vendors, formatMoney }: Props) 
             </View>
 
             <View style={styles.flags}>
-              <View style={styles.flag}>
-                <MaterialIcons name="assignment-late" size={14} color="#FBBF24" />
-                <Text style={styles.flagText}>Missing W-9 placeholder</Text>
-              </View>
+              {vendor.missingW9 ? (
+                <View style={styles.flag}>
+                  <MaterialIcons name="assignment-late" size={14} color="#FBBF24" />
+                  <Text style={styles.flagText}>W-9 not on file (informational)</Text>
+                </View>
+              ) : null}
               {vendor.potential1099Review ? (
                 <View style={[styles.flag, styles.reviewFlag]}>
                   <MaterialIcons name="fact-check" size={14} color="#2DFFC4" />
@@ -56,10 +59,8 @@ export default function SubcontractorTaxReport({ vendors, formatMoney }: Props) 
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 0,
-    padding: 18,
-    paddingBottom: 4,
-    backgroundColor: 'transparent',
+    ...taxCenterPanelCard,
+    paddingBottom: 12,
   },
   title: {
     color: '#FFFFFF',

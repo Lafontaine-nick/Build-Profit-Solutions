@@ -165,3 +165,4 @@ export function useVendorDirectory(): VendorDirectoryContextValue {
 }
 
 export type { Vendor, VendorType, W9Status };
+export { isReviewableVendorType } from '@/src/lib/vendorTypes';

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { TaxCategory } from '@/src/lib/taxCenter';
-import type { AccountingIntegration, Vendor } from '@/src/lib/vendorTypes';
+import type { AccountingIntegration, Vendor, W9Status } from '@/src/lib/vendorTypes';
+import { defaultW9StatusForVendorType } from '@/src/lib/vendorTypes';
 
 const STORAGE_KEY = 'bps.vendorDirectory.v1';
 
@@ -27,10 +28,19 @@ export async function loadVendorDirectorySnapshot(): Promise<VendorDirectorySnap
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultVendorDirectorySnapshot();
     const parsed = JSON.parse(raw) as Partial<VendorDirectorySnapshot>;
+    const vendorsRaw = Array.isArray(parsed.vendors) ? (parsed.vendors as Vendor[]) : [];
+    const vendorsMigrated = vendorsRaw.map((v) => {
+      const vt = v.vendorType ?? 'supplier';
+      let w9 = (v.w9Status ?? 'missing') as W9Status;
+      if (vt === 'supplier' && (w9 === 'missing' || !v.w9Status)) {
+        w9 = defaultW9StatusForVendorType('supplier');
+      }
+      return { ...v, vendorType: vt, w9Status: w9 };
+    });
     return {
       ...defaultVendorDirectorySnapshot(),
       ...parsed,
-      vendors: Array.isArray(parsed.vendors) ? parsed.vendors : [],
+      vendors: vendorsMigrated,
       quickBooksCategoryMap:
         parsed.quickBooksCategoryMap && typeof parsed.quickBooksCategoryMap === 'object'
           ? parsed.quickBooksCategoryMap

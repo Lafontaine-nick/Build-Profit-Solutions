@@ -5,14 +5,20 @@
 import {
   expenseAmount,
   expenseDate,
+  inferVendorTypeFromTaxCategory,
   isPoPaidForTax,
   mapExpenseToTaxCategory,
+  normalizeVendorNameKey,
   type TaxExpense,
   type TaxPayment,
 } from '@/src/lib/taxCenter';
 import type { Vendor, VendorType, W9Status } from '@/src/lib/vendorTypes';
+import { defaultW9StatusForVendorType } from '@/src/lib/vendorTypes';
 
 const REVIEW_THRESHOLD = 600;
+
+const WORKBOOK_INFO_NOTE =
+  'Informational only. Not tax advice. Review with your CPA or tax professional.';
 
 const parseDate = (value: unknown): Date | null => {
   if (!value) return null;
@@ -30,20 +36,24 @@ function displayVendorName(e: TaxExpense): string {
   return n || 'Unknown vendor';
 }
 
-function resolveVendorForExpense(e: TaxExpense, vendors: Vendor[]): Vendor | undefined {
-  if (e.vendorId) return vendors.find((v) => v.id === e.vendorId);
-  const label = displayVendorName(e).toLowerCase();
-  return vendors.find((v) => v.businessName.trim().toLowerCase() === label);
+export function resolveVendorForExpense(e: TaxExpense, vendors: Vendor[]): Vendor | undefined {
+  if (e.vendorId) {
+    const byId = vendors.find((v) => v.id === e.vendorId);
+    if (byId) return byId;
+  }
+  const label = normalizeVendorNameKey(displayVendorName(e));
+  if (!label) return undefined;
+  return vendors.find((v) => normalizeVendorNameKey(v.businessName) === label);
 }
 
 function effectiveVendorType(v: Vendor | undefined, expense: TaxExpense): VendorType | 'unknown' {
   if (v?.vendorType) return v.vendorType;
   const cat = mapExpenseToTaxCategory(expense);
-  if (cat === 'Subcontractors') return 'subcontractor';
-  return 'supplier';
+  return inferVendorTypeFromTaxCategory(cat, expense);
 }
 
 function w9Blocking(status: W9Status | 'unknown' | undefined): boolean {
+  if (status === 'not_applicable') return false;
   return status === 'missing' || status === 'requested' || status === 'unknown' || status === undefined;
 }
 
@@ -71,7 +81,9 @@ function isPotential1099EligibleVendorType(vType: VendorType | 'unknown'): boole
 }
 
 export type Tax1099ReviewVendorRow = {
+  /** Saved vendor id when linked to the directory; otherwise null. */
   vendorId: string | null;
+  hasSavedVendor: boolean;
   displayName: string;
   vendorType: VendorType | 'unknown';
   /** Capitalized for UI badge (e.g. Supplier, Subcontractor). */
@@ -79,10 +91,25 @@ export type Tax1099ReviewVendorRow = {
   totalPaid: number;
   paymentMethodDisplay: string;
   w9Status: W9Status | 'unknown';
+  /** Short label for lists and exports. */
+  w9StatusDisplay: string;
   projects: string[];
   actionNeeded: string[];
   /** When false, hide W-9 status on review cards (e.g. suppliers without 1099 override). */
   w9UiRelevant: boolean;
+  /** When the vendor is only detected from expenses, tap Save to create a directory profile. */
+  saveDraft: null | {
+    businessName: string;
+    vendorType: VendorType;
+    defaultCategory?: string;
+    /** Primary payment method when detected expenses share one method (optional). */
+    defaultPaymentMethod?: string;
+    w9Status: W9Status;
+    notes: string;
+  };
+  workbookFlags: string;
+  workbookActionNeeded: string;
+  informationalNote: string;
 };
 
 export type Tax1099ReviewSummary = {
@@ -100,6 +127,30 @@ const DISCLAIMER =
 function formatVendorTypeBadge(t: VendorType | 'unknown'): string {
   if (t === 'unknown') return 'Unknown';
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function formatW9StatusDisplay(
+  linked: Vendor | undefined,
+  vType: VendorType | 'unknown',
+  raw: W9Status | 'unknown'
+): string {
+  if (linked) {
+    if (linked.w9Status === 'not_applicable') return 'Not applicable';
+    return linked.w9Status;
+  }
+  if (raw !== 'unknown') return raw;
+  const def = defaultW9StatusForVendorType(vType === 'unknown' ? 'supplier' : vType);
+  return def === 'not_applicable' ? 'Not applicable (inferred)' : 'Missing (inferred)';
+}
+
+function splitWorkbookFlagColumns(actionNeeded: string[]): { flags: string; actions: string } {
+  const flagLabels = new Set(['Potential 1099 Review', 'Missing W-9', 'Missing Vendor Info']);
+  const flags = actionNeeded.filter((a) => flagLabels.has(a));
+  const actions = actionNeeded.filter((a) => !flagLabels.has(a));
+  return {
+    flags: flags.join('; ') || '—',
+    actions: actions.join('; ') || '—',
+  };
 }
 
 export function build1099ReviewSummary(args: {
@@ -130,14 +181,14 @@ export function build1099ReviewSummary(args: {
     if (!dateInYear(expenseDate(e), selectedYear)) continue;
     const linked = resolveVendorForExpense(e, vendors);
     const displayName = linked?.businessName || displayVendorName(e);
-    const vendorId = linked?.id || (e.vendorId ? String(e.vendorId) : null);
-    const key = vendorId ? `id:${vendorId}` : `name:${displayName.toLowerCase()}`;
+    const savedVendorId = linked?.id ?? null;
+    const key = savedVendorId ? `id:${savedVendorId}` : `name:${normalizeVendorNameKey(displayName)}`;
 
     let g = groups.get(key);
     if (!g) {
       g = {
         key,
-        vendorId,
+        vendorId: savedVendorId,
         displayName,
         totalPaid: 0,
         paid1099Total: 0,
@@ -167,7 +218,7 @@ export function build1099ReviewSummary(args: {
   for (const g of groups.values()) {
     const linked = g.linked;
     const vType = effectiveVendorType(linked, g.sampleExpense);
-    const w9: W9Status | 'unknown' = linked?.w9Status ?? 'unknown';
+    const w9Raw: W9Status | 'unknown' = linked?.w9Status ?? 'unknown';
     const actionNeeded: string[] = [];
     const override = requires1099Override(linked, g.anyRequires1099Review);
 
@@ -182,7 +233,7 @@ export function build1099ReviewSummary(args: {
       (isW9EligibleVendorType(vType) && g.paid1099Total > 0) ||
       (vType === 'supplier' && override && g.paid1099Total > 0);
 
-    if (w9TypeApplies && w9Blocking(w9)) {
+    if (w9TypeApplies && w9Blocking(w9Raw)) {
       actionNeeded.push('Missing W-9');
     }
 
@@ -194,32 +245,63 @@ export function build1099ReviewSummary(args: {
       (isW9EligibleVendorType(vType) && g.paid1099Total > 0) ||
       (vType === 'supplier' && override && g.paid1099Total > 0);
 
+    const hasLocationDetail =
+      !!String(linked?.address || '').trim() ||
+      (!!String(linked?.city || '').trim() && !!String(linked?.state || '').trim());
+
     if (
       detailEligible &&
       linked &&
       (!String(linked.legalName || '').trim() ||
-        !String(linked.address || '').trim() ||
+        !hasLocationDetail ||
         !String(linked.email || '').trim())
     ) {
       actionNeeded.push('Missing Vendor Info');
     }
 
-    const paymentMethodDisplay =
-      g.methods.size === 0 ? '—' : Array.from(g.methods).sort().join(', ');
+    const paymentMethodDisplay = g.methods.size === 0 ? '—' : Array.from(g.methods).sort().join(', ');
 
     const w9UiRelevant = isW9EligibleVendorType(vType) || override;
 
+    const hasSavedVendor = !!linked;
+    const detectedCategory = mapExpenseToTaxCategory(g.sampleExpense);
+    const inferredType = inferVendorTypeFromTaxCategory(detectedCategory, g.sampleExpense);
+
+    let saveDraft: Tax1099ReviewVendorRow['saveDraft'] = null;
+    if (!hasSavedVendor) {
+      const methodList = Array.from(g.methods).sort();
+      const defaultPaymentMethod = methodList.length > 0 ? methodList[0] : undefined;
+      saveDraft = {
+        businessName: g.displayName.trim() || 'Vendor',
+        vendorType: inferredType,
+        defaultCategory: detectedCategory,
+        defaultPaymentMethod,
+        w9Status: defaultW9StatusForVendorType(inferredType),
+        notes: 'Created from Tax Center vendor review',
+      };
+    }
+
+    const { flags: workbookFlags, actions: workbookActionNeeded } = splitWorkbookFlagColumns(
+      Array.from(new Set(actionNeeded))
+    );
+
     rows.push({
-      vendorId: g.vendorId,
+      vendorId: linked?.id ?? null,
+      hasSavedVendor,
       displayName: g.displayName,
       vendorType: vType,
       vendorTypeBadge: formatVendorTypeBadge(vType),
       totalPaid: g.totalPaid,
       paymentMethodDisplay,
-      w9Status: w9,
+      w9Status: w9Raw,
+      w9StatusDisplay: formatW9StatusDisplay(linked, vType, w9Raw),
       projects: Array.from(g.projects).sort(),
       actionNeeded: Array.from(new Set(actionNeeded)),
       w9UiRelevant,
+      saveDraft,
+      workbookFlags,
+      workbookActionNeeded,
+      informationalNote: WORKBOOK_INFO_NOTE,
     });
   }
 

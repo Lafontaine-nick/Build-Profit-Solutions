@@ -22,10 +22,31 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
-import type { VendorType, W9Status } from '@/src/lib/vendorTypes';
+import { TAX_CATEGORIES, type TaxCategory } from '@/src/lib/taxCenter';
+import { formatUsPhoneDashes } from '@/src/lib/phoneFormat';
+import { IRS_FORM_W9_PDF_URL } from '@/constants/irsForms';
+import { isReviewableVendorType, type VendorType, type W9Status } from '@/src/lib/vendorTypes';
+import { isClerkEnabled } from '@/lib/isClerkEnabled';
+import { getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
+
+let useUserHook: (() => { user?: { primaryEmailAddress?: { emailAddress?: string }; emailAddresses?: { emailAddress?: string }[] } | null }) | null =
+  null;
+try {
+  useUserHook = require('@clerk/clerk-expo').useUser;
+} catch {
+  useUserHook = null;
+}
 
 const VENDOR_TYPES: VendorType[] = ['subcontractor', 'supplier', 'consultant', 'other'];
-const W9_STATUSES: W9Status[] = ['missing', 'requested', 'uploaded', 'verified'];
+const W9_STATUSES: W9Status[] = ['not_applicable', 'missing', 'requested', 'uploaded', 'verified'];
+
+const W9_PILL_LABEL: Record<W9Status, string> = {
+  not_applicable: 'N/A',
+  missing: 'missing',
+  requested: 'requested',
+  uploaded: 'uploaded',
+  verified: 'verified',
+};
 
 export default function TaxVendorDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,17 +56,32 @@ export default function TaxVendorDetailScreen() {
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { vendors, hydrated, addVendor, updateVendor, removeVendor } = useVendorDirectory();
 
+  let clerkUser: { primaryEmailAddress?: { emailAddress?: string }; emailAddresses?: { emailAddress?: string }[] } | null = null;
+  if (isClerkEnabled() && useUserHook) {
+    try {
+      const userHook = useUserHook();
+      clerkUser = userHook?.user ?? null;
+    } catch {
+      clerkUser = null;
+    }
+  }
+
   const existing = useMemo(() => vendors.find((v) => v.id === id), [vendors, id]);
 
   const [businessName, setBusinessName] = useState('');
   const [legalName, setLegalName] = useState('');
-  const [vendorType, setVendorType] = useState<VendorType>('subcontractor');
+  const [vendorType, setVendorType] = useState<VendorType>('supplier');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [vendorState, setVendorState] = useState('');
   const [notes, setNotes] = useState('');
-  const [w9Status, setW9Status] = useState<W9Status>('missing');
+  const [defaultCategory, setDefaultCategory] = useState<TaxCategory | ''>('');
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState('');
+  const [w9Status, setW9Status] = useState<W9Status>('not_applicable');
   const [flag1099Review, setFlag1099Review] = useState(false);
+  const [contactExpanded, setContactExpanded] = useState(false);
 
   useEffect(() => {
     if (existing && !isNew) {
@@ -53,13 +89,75 @@ export default function TaxVendorDetailScreen() {
       setLegalName(existing.legalName || '');
       setVendorType(existing.vendorType);
       setEmail(existing.email || '');
-      setPhone(existing.phone || '');
+      setPhone(formatUsPhoneDashes(existing.phone || ''));
       setAddress(existing.address || '');
+      setCity(existing.city || '');
+      setVendorState(existing.state || '');
       setNotes(existing.notes || '');
+      setDefaultCategory((existing.defaultCategory as TaxCategory) || '');
+      setDefaultPaymentMethod(existing.defaultPaymentMethod || '');
       setW9Status(existing.w9Status);
       setFlag1099Review(existing.requires1099Review === true);
+      const hasContact =
+        !!(
+          existing.legalName ||
+          existing.email ||
+          existing.phone ||
+          existing.address ||
+          existing.city ||
+          existing.state
+        );
+      if (existing.vendorType === 'supplier' && !existing.requires1099Review && hasContact) {
+        setContactExpanded(true);
+      }
     }
   }, [existing, isNew]);
+
+  const simpleSupplierProfile = vendorType === 'supplier' && !flag1099Review;
+  const fullBookkeepingProfile = isReviewableVendorType(vendorType) || (vendorType === 'supplier' && flag1099Review);
+
+  const primaryButtonLabel = useMemo(() => {
+    if (!isNew) return 'Save Changes';
+    switch (vendorType) {
+      case 'supplier':
+        return 'Create Supplier';
+      case 'subcontractor':
+        return 'Create Subcontractor';
+      case 'consultant':
+        return 'Create Consultant';
+      case 'other':
+      default:
+        return 'Create Vendor';
+    }
+  }, [isNew, vendorType]);
+
+  const screenTitle = useMemo(() => {
+    if (!isNew) return 'Vendor profile';
+    switch (vendorType) {
+      case 'supplier':
+        return 'Add Supplier';
+      case 'subcontractor':
+        return 'Add Subcontractor';
+      case 'consultant':
+        return 'Add Consultant';
+      case 'other':
+      default:
+        return 'Add Vendor';
+    }
+  }, [isNew, vendorType]);
+
+  const onPhoneChange = (text: string) => {
+    setPhone(formatUsPhoneDashes(text));
+  };
+
+  const applyFlagChange = (v: boolean) => {
+    setFlag1099Review(v);
+    if (vendorType === 'supplier') {
+      if (!v) setW9Status('not_applicable');
+      else setW9Status((s) => (s === 'not_applicable' ? 'missing' : s));
+    }
+    void Haptics.selectionAsync();
+  };
 
   if (!isNew && hydrated && !existing) {
     return (
@@ -81,20 +179,23 @@ export default function TaxVendorDetailScreen() {
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (isNew) {
-      const v = addVendor({
+      addVendor({
         businessName: bn,
         legalName: legalName.trim() || undefined,
         vendorType,
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
+        city: city.trim() || undefined,
+        state: vendorState.trim() || undefined,
         notes: notes.trim() || undefined,
         w9Status,
         w9FileUri: undefined,
-        defaultCategory: undefined,
+        defaultCategory: defaultCategory || undefined,
+        defaultPaymentMethod: defaultPaymentMethod.trim() || undefined,
         requires1099Review: flag1099Review,
       });
-      router.replace(`/tax-vendor/${v.id}`);
+      router.replace('/tax-vendors');
       return;
     }
     updateVendor(id, {
@@ -104,34 +205,70 @@ export default function TaxVendorDetailScreen() {
       email: email.trim() || undefined,
       phone: phone.trim() || undefined,
       address: address.trim() || undefined,
+      city: city.trim() || undefined,
+      state: vendorState.trim() || undefined,
       notes: notes.trim() || undefined,
       w9Status,
+      defaultCategory: defaultCategory || undefined,
+      defaultPaymentMethod: defaultPaymentMethod.trim() || undefined,
       requires1099Review: flag1099Review,
     });
     Alert.alert('Saved', 'Vendor profile updated.');
   };
 
+  const w9RequestEligibleForStatusBump =
+    (isReviewableVendorType(vendorType) || (vendorType === 'supplier' && flag1099Review)) &&
+    (w9Status === 'missing' || w9Status === 'not_applicable');
+
+  const persistW9RequestedIfEligible = () => {
+    if (!w9RequestEligibleForStatusBump) return;
+    if (!isNew) {
+      updateVendor(id, { w9Status: 'requested' });
+    }
+    setW9Status('requested');
+  };
+
   const requestW9 = async () => {
-    const subject = encodeURIComponent(`W-9 request — ${businessName.trim() || 'Vendor'}`);
-    const body = encodeURIComponent(
-      'Hello,\n\nPlease send your completed IRS Form W-9 for our records.\n\nThank you.'
-    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const senderEmail = await getDocumentContactEmailAsync(clerkUser);
+    const displayName = businessName.trim() || 'Vendor';
+    const fromLine =
+      senderEmail != null && senderEmail.length > 0
+        ? `\n\n—\nFrom (your contractor profile): ${senderEmail}`
+        : '';
+    const plain =
+      `Hi ${displayName}, can you please send your completed Form W-9 for our records? We use this for bookkeeping and year-end reporting. ` +
+      `Build Profit Solutions does not determine tax filing requirements or verify tax forms. ` +
+      `Please contact your tax professional if you have questions about how to complete the form.\n\n` +
+      `Official Form W-9 (IRS PDF): ${IRS_FORM_W9_PDF_URL}\n\n` +
+      `Thank you.` +
+      fromLine;
+    const subject = encodeURIComponent(`Form W-9 request — ${displayName}`);
+    const body = encodeURIComponent(plain);
     if (email.trim()) {
       const url = `mailto:${email.trim()}?subject=${subject}&body=${body}`;
       const ok = await Linking.canOpenURL(url);
       if (ok) {
         await Linking.openURL(url);
-        updateVendor(id, { w9Status: 'requested' });
-        setW9Status('requested');
+        persistW9RequestedIfEligible();
         return;
       }
     }
-    await Share.share({
-      message: `Please send your completed IRS Form W-9 for ${businessName.trim() || 'our vendor records'}.`,
-    });
-    if (!isNew) {
-      updateVendor(id, { w9Status: 'requested' });
-      setW9Status('requested');
+    await Share.share({ message: plain, title: `Form W-9 request — ${displayName}` });
+    persistW9RequestedIfEligible();
+  };
+
+  const openIrsW9Form = async () => {
+    Haptics.selectionAsync();
+    try {
+      const ok = await Linking.canOpenURL(IRS_FORM_W9_PDF_URL);
+      if (ok) {
+        await Linking.openURL(IRS_FORM_W9_PDF_URL);
+      } else {
+        Alert.alert('Form W-9', 'Unable to open the IRS form. Try again or visit irs.gov and search for Form W-9.');
+      }
+    } catch {
+      Alert.alert('Form W-9', 'Unable to open the IRS form.');
     }
   };
 
@@ -165,12 +302,26 @@ export default function TaxVendorDetailScreen() {
 
   const markReceived = () => {
     if (isNew) {
-      setW9Status('uploaded');
+      setW9Status('verified');
       return;
     }
-    updateVendor(id, { w9Status: 'uploaded' });
-    setW9Status('uploaded');
+    updateVendor(id, { w9Status: 'verified' });
+    setW9Status('verified');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'W-9 verified',
+      'Verified means you or your CPA reviewed the W-9 information. Build Profit Solutions does not verify tax forms.'
+    );
+  };
+
+  const setVendorTypeAndDefaults = (t: VendorType) => {
+    setVendorType(t);
+    setW9Status((prev) => {
+      if (t === 'supplier' && !flag1099Review) return 'not_applicable';
+      if (t === 'supplier' && flag1099Review) return prev === 'not_applicable' ? 'missing' : prev;
+      if (prev === 'not_applicable') return 'missing';
+      return prev;
+    });
   };
 
   const confirmDelete = () => {
@@ -190,6 +341,111 @@ export default function TaxVendorDetailScreen() {
       },
     ]);
   };
+
+  const renderCategoryPills = () => (
+    <>
+      <Text style={styles.label}>Default accounting category (optional)</Text>
+      <Text style={styles.fieldHint}>Maps this vendor to a BPS expense bucket for exports.</Text>
+      <View style={styles.pills}>
+        <Pressable
+          onPress={() => setDefaultCategory('')}
+          style={[styles.pill, defaultCategory === '' && styles.pillOn]}
+        >
+          <Text style={[styles.pillText, defaultCategory === '' && styles.pillTextOn]}>None</Text>
+        </Pressable>
+        {TAX_CATEGORIES.map((c) => (
+          <Pressable
+            key={c}
+            onPress={() => setDefaultCategory(c)}
+            style={[styles.pill, defaultCategory === c && styles.pillOn]}
+          >
+            <Text style={[styles.pillText, defaultCategory === c && styles.pillTextOn]} numberOfLines={2}>
+              {c}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+
+  const renderPotential1099Section = () => (
+    <>
+      <Text style={styles.section}>Potential 1099 review</Text>
+      <Text style={styles.overrideHint}>
+        Use this only when your CPA or bookkeeper wants this vendor reviewed for year-end reporting. Informational
+        only. Not tax advice.
+      </Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Flag for Potential 1099 Review</Text>
+        <Switch
+          value={flag1099Review}
+          onValueChange={applyFlagChange}
+          trackColor={{ false: '#334155', true: 'rgba(45,255,196,0.45)' }}
+          thumbColor={flag1099Review ? '#2DFFC4' : '#94a3b8'}
+        />
+      </View>
+    </>
+  );
+
+  const renderW9Section = () => (
+    <>
+      <Text style={styles.section}>W-9 status</Text>
+      <Text style={styles.w9Disclaimer}>
+        W-9 tracking is mainly for subcontractors, consultants, and vendors your CPA wants reviewed. BPS does not
+        verify tax forms or determine filing requirements.
+      </Text>
+      <Text style={styles.w9AttachHint}>
+        You can attach a photo or scan from your library when needed (works in Expo Go and dev clients).
+      </Text>
+      <View style={styles.pills}>
+        {W9_STATUSES.map((s) => (
+          <Pressable key={s} onPress={() => setW9Status(s)} style={[styles.pill, w9Status === s && styles.pillOn]}>
+            <Text style={[styles.pillText, w9Status === s && styles.pillTextOn]}>{W9_PILL_LABEL[s]}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.w9VerifiedNote}>
+        Verified means you or your CPA reviewed the W-9 information. Build Profit Solutions does not verify tax forms.
+      </Text>
+      <View style={styles.actions}>
+        <ActionButton icon="email" label="Request W-9" onPress={requestW9} />
+        <ActionButton icon="photo-library" label="Upload W-9 (photo)" onPress={uploadW9} />
+        <ActionButton icon="check-circle" label="Mark as received (verified)" onPress={markReceived} />
+      </View>
+      <Pressable
+        onPress={openIrsW9Form}
+        style={styles.w9IrsLink}
+        hitSlop={10}
+      >
+        <MaterialIcons name="open-in-new" size={18} color="#5eead4" />
+        <Text style={styles.w9IrsLinkText}>Open IRS W-9 Form (PDF)</Text>
+      </Pressable>
+      <Text style={styles.w9RequestHelper}>
+        The vendor or subcontractor completes the W-9 and sends it back to you. BPS only tracks the request and
+        attachment status.
+      </Text>
+    </>
+  );
+
+  const addressFields = (
+    <>
+      <Field label="Address" value={address} onChangeText={setAddress} multiline multilineMinHeight={48} />
+      <View style={styles.cityStateRow}>
+        <View style={[styles.cityStateCol, styles.cityStateColGap]}>
+          <Field label="City (optional)" value={city} onChangeText={setCity} placeholder="City" />
+        </View>
+        <View style={styles.cityStateCol}>
+          <Field
+            label="State (optional)"
+            value={vendorState}
+            onChangeText={setVendorState}
+            placeholder="State"
+            autoCapitalize="words"
+          />
+        </View>
+      </View>
+    </>
+  );
 
   return (
     <View style={styles.screen}>
@@ -216,10 +472,10 @@ export default function TaxVendorDetailScreen() {
             </LinearGradient>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{isNew ? 'Add Vendor' : 'Vendor profile'}</Text>
+            <Text style={styles.title}>{screenTitle}</Text>
             {isNew ? (
               <Text style={styles.titleHelper}>
-                Add subcontractors, suppliers, consultants, or other vendors you pay for project work.
+                Add a supplier, subcontractor, consultant, or other vendor you pay for project work.
               </Text>
             ) : null}
           </View>
@@ -227,13 +483,21 @@ export default function TaxVendorDetailScreen() {
 
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Field label="Business name" value={businessName} onChangeText={setBusinessName} />
-          <Field label="Legal name (optional)" value={legalName} onChangeText={setLegalName} />
+
+          {fullBookkeepingProfile && !simpleSupplierProfile ? (
+            <Field label="Legal name (optional)" value={legalName} onChangeText={setLegalName} />
+          ) : null}
+
           <Text style={styles.label}>Vendor type</Text>
+          <Text style={styles.vendorTypeNote}>
+            Choose the type that best describes this company or person. This affects W-9 tracking, Potential 1099 Review
+            flags, and export grouping.
+          </Text>
           <View style={styles.pills}>
             {VENDOR_TYPES.map((t) => (
               <Pressable
                 key={t}
-                onPress={() => setVendorType(t)}
+                onPress={() => setVendorTypeAndDefaults(t)}
                 style={[styles.pill, vendorType === t && styles.pillOn]}
               >
                 <Text style={[styles.pillText, vendorType === t && styles.pillTextOn]}>{t}</Text>
@@ -241,47 +505,78 @@ export default function TaxVendorDetailScreen() {
             ))}
           </View>
 
-          <Text style={styles.section}>Potential 1099 review</Text>
-          <Text style={styles.overrideHint}>
-            Suppliers are not flagged for 1099 review by default. Turn this on only when your CPA expects review for
-            this vendor (e.g. certain supplier payments). Informational only. Not tax advice.
-          </Text>
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Flag for Potential 1099 review</Text>
-            <Switch
-              value={flag1099Review}
-              onValueChange={setFlag1099Review}
-              trackColor={{ false: '#334155', true: 'rgba(45,255,196,0.45)' }}
-              thumbColor={flag1099Review ? '#2DFFC4' : '#94a3b8'}
-            />
-          </View>
+          {simpleSupplierProfile ? (
+            <Text style={styles.supplierBlurb}>
+              Suppliers are usually tracked for expense categorization and reporting. W-9 tracking is typically used for
+              subcontractors, consultants, or vendors your CPA wants reviewed.
+            </Text>
+          ) : null}
 
-          <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
-          <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-          <Field label="Address" value={address} onChangeText={setAddress} multiline />
-          <Field label="Notes" value={notes} onChangeText={setNotes} multiline />
+          {renderCategoryPills()}
 
-          <Text style={styles.section}>W-9 status</Text>
-          <Text style={styles.w9Disclaimer}>
-            W-9 tracking is for bookkeeping support only. Informational only. Not tax advice. Verify vendor
-            information and filing requirements with your CPA or tax professional. Attach a photo or scan from your
-            library (works in Expo Go and dev clients).
-          </Text>
-          <View style={styles.pills}>
-            {W9_STATUSES.map((s) => (
-              <Pressable key={s} onPress={() => setW9Status(s)} style={[styles.pill, w9Status === s && styles.pillOn]}>
-                <Text style={[styles.pillText, w9Status === s && styles.pillTextOn]}>{s}</Text>
+          <Field
+            label="Payment method (optional)"
+            value={defaultPaymentMethod}
+            onChangeText={setDefaultPaymentMethod}
+            placeholder="e.g. Check, debit card, ACH"
+          />
+
+          {simpleSupplierProfile ? (
+            <>
+              <Text style={styles.inlineFlagHint}>Optional — only if your CPA asked you to review this supplier.</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Flag for Potential 1099 Review</Text>
+                <Switch value={flag1099Review} onValueChange={applyFlagChange} trackColor={{ false: '#334155', true: 'rgba(45,255,196,0.45)' }} thumbColor={flag1099Review ? '#2DFFC4' : '#94a3b8'} />
+              </View>
+              <Field label="Notes" value={notes} onChangeText={setNotes} multiline />
+              <Pressable
+                style={styles.expandContactBtn}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setContactExpanded((e) => !e);
+                }}
+              >
+                <MaterialIcons
+                  name={contactExpanded ? 'expand-less' : 'expand-more'}
+                  size={22}
+                  color="#2DFFC4"
+                />
+                <Text style={styles.expandContactText}>Add contact details</Text>
               </Pressable>
-            ))}
-          </View>
-          <View style={styles.actions}>
-            <ActionButton icon="email" label="Request W-9" onPress={requestW9} />
-            <ActionButton icon="photo-library" label="Upload W-9 (photo)" onPress={uploadW9} />
-            <ActionButton icon="check-circle" label="Mark as received" onPress={markReceived} />
-          </View>
+              {contactExpanded ? (
+                <>
+                  <Field label="Legal name (optional)" value={legalName} onChangeText={setLegalName} />
+                  <Field
+                    label="Email"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  <Field label="Phone" value={phone} onChangeText={onPhoneChange} keyboardType="phone-pad" />
+                  {addressFields}
+                </>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {renderPotential1099Section()}
+              <Field
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <Field label="Phone" value={phone} onChangeText={onPhoneChange} keyboardType="phone-pad" />
+              {addressFields}
+              <Field label="Notes" value={notes} onChangeText={setNotes} multiline />
+              {renderW9Section()}
+            </>
+          )}
 
           <Pressable style={styles.saveBtn} onPress={save}>
-            <Text style={styles.saveText}>{isNew ? 'Create vendor' : 'Save changes'}</Text>
+            <Text style={styles.saveText}>{primaryButtonLabel}</Text>
           </Pressable>
 
           {!isNew ? (
@@ -300,24 +595,37 @@ function Field({
   value,
   onChangeText,
   multiline,
+  multilineMinHeight,
   keyboardType,
+  placeholder,
+  autoCapitalize,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChangeText: (t: string) => void;
   multiline?: boolean;
+  /** When multiline, default 72 (notes); use lower values for compact fields like address. */
+  multilineMinHeight?: number;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  placeholder?: string;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  maxLength?: number;
 }) {
+  const minH = multiline ? multilineMinHeight ?? 72 : undefined;
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        placeholder={placeholder}
         placeholderTextColor="rgba(148,163,184,0.6)"
-        style={[styles.input, multiline && { minHeight: 72, textAlignVertical: 'top' }]}
+        style={[styles.input, multiline && { minHeight: minH, textAlignVertical: 'top' }]}
         multiline={!!multiline}
         keyboardType={keyboardType || 'default'}
+        {...(autoCapitalize != null ? { autoCapitalize } : {})}
+        maxLength={maxLength}
       />
     </View>
   );
@@ -383,11 +691,82 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   switchLabel: { color: '#e2e8f0', fontSize: 14, fontWeight: '700', flex: 1 },
+  vendorTypeNote: {
+    color: 'rgba(148, 163, 184, 0.9)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 8,
+    marginTop: -2,
+  },
+  supplierBlurb: {
+    color: 'rgba(203, 213, 225, 0.9)',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 14,
+    paddingVertical: 4,
+  },
+  inlineFlagHint: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 6,
+  },
+  expandContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  expandContactText: { color: '#2DFFC4', fontSize: 14, fontWeight: '800' },
+  cityStateRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  cityStateCol: { flex: 1, minWidth: 0 },
+  cityStateColGap: { marginRight: 10 },
+  fieldHint: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  w9AttachHint: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
   w9Disclaimer: {
     color: 'rgba(148, 163, 184, 0.95)',
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 10,
+  },
+  w9VerifiedNote: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  w9IrsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  w9IrsLinkText: {
+    color: '#5eead4',
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+    textDecorationLine: 'underline',
+    textDecorationColor: 'rgba(94, 234, 212, 0.5)',
+  },
+  w9RequestHelper: {
+    color: 'rgba(148, 163, 184, 0.9)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 8,
   },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   pill: {
@@ -401,7 +780,7 @@ const styles = StyleSheet.create({
   pillOn: { borderColor: '#2DFFC4', backgroundColor: 'rgba(45, 255, 196, 0.12)' },
   pillText: { color: 'rgba(203,213,225,0.9)', fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
   pillTextOn: { color: '#FFFFFF' },
-  actions: { gap: 10, marginBottom: 20 },
+  actions: { gap: 10, marginBottom: 8 },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',

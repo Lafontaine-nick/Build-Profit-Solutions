@@ -2,7 +2,17 @@
 
 export type VendorType = 'subcontractor' | 'supplier' | 'consultant' | 'other';
 
-export type W9Status = 'missing' | 'requested' | 'uploaded' | 'verified';
+/** Subcontractors, consultants, and “other” use the full bookkeeping / W-9 workflow; suppliers are simplified unless flagged for CPA review. */
+export function isReviewableVendorType(vendorType: VendorType): boolean {
+  return vendorType === 'subcontractor' || vendorType === 'consultant' || vendorType === 'other';
+}
+
+export type W9Status = 'not_applicable' | 'missing' | 'requested' | 'uploaded' | 'verified';
+
+/** Default W-9 tracking behavior by vendor type (users can override per vendor). */
+export function defaultW9StatusForVendorType(vendorType: VendorType): W9Status {
+  return vendorType === 'supplier' ? 'not_applicable' : 'missing';
+}
 
 export type Vendor = {
   id: string;
@@ -13,9 +23,14 @@ export type Vendor = {
   email?: string;
   phone?: string;
   address?: string;
+  city?: string;
+  state?: string;
   w9Status: W9Status;
   w9FileUri?: string;
+  /** BPS tax category label when this vendor is the usual payee for that bucket. */
   defaultCategory?: string;
+  /** Typical payment method for this vendor (check, card, ACH, etc.). */
+  defaultPaymentMethod?: string;
   notes?: string;
   /** When true, include this vendor in Potential 1099 Review and W-9 checks even if type is supplier. */
   requires1099Review?: boolean;

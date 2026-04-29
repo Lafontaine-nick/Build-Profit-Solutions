@@ -47,6 +47,8 @@ import { generateAccountantWorkbookBase64 } from '@/src/lib/accountantWorkbookEx
 import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import Tax1099ReviewDashboard from '@/src/components/tax/Tax1099ReviewDashboard';
+import { getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
+import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 
 const money = (value: number): string =>
   new Intl.NumberFormat('en-US', {
@@ -84,16 +86,23 @@ function mapExportFailureMessage(err: unknown, kind: 'pdf' | 'csv' | 'receipt' |
   return 'Receipt backup export failed. Please try again.';
 }
 
+async function withContractorContactOnPayload(base: TaxSummaryExportPayload): Promise<TaxSummaryExportPayload> {
+  const contractorContactEmail = await getDocumentContactEmailAsync();
+  return { ...base, contractorContactEmail: contractorContactEmail ?? undefined };
+}
+
 export default function TaxCenterScreen() {
   const router = useRouter();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { projects } = useProjectList();
-  const { vendors, quickBooksCategoryMap } = useVendorDirectory();
+  const { vendors, quickBooksCategoryMap, addVendor } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => getTaxYearOptions(projects, currentYear), [projects, currentYear]);
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [exportingType, setExportingType] = useState<'pdf' | 'csv' | 'receipts' | 'workbook' | null>(null);
+  const [taxBreakdownExpanded, setTaxBreakdownExpanded] = useState(false);
+  const [vendorReviewExpanded, setVendorReviewExpanded] = useState(false);
 
   const yearRange = useMemo(() => getTaxYearRange(selectedYear), [selectedYear]);
   const summary = useMemo(
@@ -101,7 +110,14 @@ export default function TaxCenterScreen() {
     [projects, selectedYear]
   );
   const yearExpenses = useMemo(() => getYearExpenses(projects, selectedYear), [projects, selectedYear]);
-  const categoryRows = useMemo(() => groupExpensesByTaxCategory(yearExpenses), [yearExpenses]);
+  const categoryRows = useMemo(
+    () =>
+      groupExpensesByTaxCategory(yearExpenses, (cat) => {
+        const raw = quickBooksCategoryMap[cat];
+        return typeof raw === 'string' ? raw.trim() : '';
+      }),
+    [yearExpenses, quickBooksCategoryMap]
+  );
   const projectSummaries = useMemo(
     () => buildProjectTaxSummaries(projects, selectedYear),
     [projects, selectedYear]
@@ -109,6 +125,10 @@ export default function TaxCenterScreen() {
   const subcontractors = useMemo(
     () => buildSubcontractorPaymentSummary(yearExpenses, selectedYear),
     [yearExpenses, selectedYear]
+  );
+  const subcontractorPaymentsTotal = useMemo(
+    () => subcontractors.reduce((sum, v) => sum + (Number(v.totalPaid) || 0), 0),
+    [subcontractors]
   );
 
   const taxInputs = useMemo(() => getTaxCenterDataInputs(projects), [projects]);
@@ -139,12 +159,22 @@ export default function TaxCenterScreen() {
         selectedYear,
         summary,
         expenseCategories: categoryRows,
+        quickBooksCategoryMap,
         projectSummaries,
         subcontractorSummary: subcontractors,
         receiptGroups: receiptExportGroups,
         aiTaxInsight: aiInsightLines,
       }),
-    [selectedYear, summary, categoryRows, projectSummaries, subcontractors, receiptExportGroups, aiInsightLines]
+    [
+      selectedYear,
+      summary,
+      categoryRows,
+      quickBooksCategoryMap,
+      projectSummaries,
+      subcontractors,
+      receiptExportGroups,
+      aiInsightLines,
+    ]
   );
 
   const busy = exportingType !== null;
@@ -154,7 +184,8 @@ export default function TaxCenterScreen() {
     setExportingType('pdf');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const uri = await generateTaxSummaryPdf(exportPayload);
+      const payload = await withContractorContactOnPayload(exportPayload);
+      const uri = await generateTaxSummaryPdf(payload);
       await shareExportUri(uri, 'application/pdf');
       Alert.alert(exportDialogTitle('pdf'), 'Your Year-End Tax Summary PDF is ready to share.');
     } catch (err) {
@@ -170,7 +201,8 @@ export default function TaxCenterScreen() {
     setExportingType('csv');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const csv = generateTaxCenterCsv(exportPayload);
+      const payload = await withContractorContactOnPayload(exportPayload);
+      const csv = generateTaxCenterCsv(payload);
       const path = await writeStringToCacheFile(csv, `BPS_Year_End_Tax_Summary_${selectedYear}.csv`);
       await shareExportUri(path, 'text/csv');
       Alert.alert(exportDialogTitle('csv'), 'Your Year-End Tax Summary CSV is ready to share.');
@@ -191,7 +223,8 @@ export default function TaxCenterScreen() {
     }
     setExportingType('receipts');
     try {
-      const csv = generateReceiptManifestCsv(exportPayload);
+      const payload = await withContractorContactOnPayload(exportPayload);
+      const csv = generateReceiptManifestCsv(payload);
       const path = await writeStringToCacheFile(csv, `BPS_Receipt_Backup_Manifest_${selectedYear}.csv`);
       await shareExportUri(path, 'text/csv');
       Alert.alert('Export Receipt Backup', 'Your Receipt Backup Manifest is ready to share.');
@@ -208,8 +241,9 @@ export default function TaxCenterScreen() {
     setExportingType('workbook');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      const payload = await withContractorContactOnPayload(exportPayload);
       const b64 = generateAccountantWorkbookBase64({
-        payload: exportPayload,
+        payload,
         review: review1099,
         vendors,
         quickBooksCategoryMap,
@@ -339,27 +373,124 @@ export default function TaxCenterScreen() {
             </View>
           </TaxGradientFrame>
 
-          <TaxGradientFrame>
-            <TaxCategoryBreakdown rows={categoryRows} formatMoney={money} />
-          </TaxGradientFrame>
-
-          <TaxGradientFrame>
-            <ProjectTaxSummaryList projects={projectSummaries} formatMoney={money} formatPercent={percent} />
-          </TaxGradientFrame>
-
-          <TaxGradientFrame>
-            <SubcontractorTaxReport vendors={subcontractors} formatMoney={money} />
-          </TaxGradientFrame>
-
-          <TaxGradientFrame innerStyle={styles.frameIntroInner}>
-            <Tax1099ReviewDashboard
-              review={review1099}
-              onPressVendor={(key) => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (key.startsWith('v_')) router.push(`/tax-vendor/${key}`);
-                else router.push('/tax-vendors');
+          <TaxGradientFrame innerStyle={styles.collapseFrameInner}>
+            <Pressable
+              onPress={() => {
+                Haptics.selectionAsync();
+                setTaxBreakdownExpanded((e) => !e);
               }}
-            />
+            >
+              <View style={styles.collapseHeader}>
+                <View style={styles.collapseHeaderMain}>
+                  <Text style={styles.collapseCardTitle}>Tax Breakdown</Text>
+                  <Text style={styles.collapseCardSub}>
+                    Expense categories, project summaries, and subcontractor payment review.
+                  </Text>
+                  {!taxBreakdownExpanded ? (
+                    <View style={styles.collapsePreview}>
+                      <Text style={styles.collapsePreviewLine}>Expense categories: {categoryRows.length}</Text>
+                      <Text style={styles.collapsePreviewLine}>Projects: {projectSummaries.length}</Text>
+                      <Text style={styles.collapsePreviewLine}>
+                        Subcontractor payments: {money(subcontractorPaymentsTotal)}
+                      </Text>
+                      <Text style={styles.collapseCta}>View Tax Breakdown</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <MaterialIcons
+                  name={taxBreakdownExpanded ? 'expand-less' : 'expand-more'}
+                  size={28}
+                  color="#2DFFC4"
+                  style={styles.collapseChevron}
+                />
+              </View>
+            </Pressable>
+
+            {taxBreakdownExpanded ? (
+              <View style={styles.collapseExpandedStack}>
+                <TaxCategoryBreakdown rows={categoryRows} formatMoney={money} />
+                <ProjectTaxSummaryList projects={projectSummaries} formatMoney={money} formatPercent={percent} />
+                <SubcontractorTaxReport vendors={subcontractors} formatMoney={money} />
+              </View>
+            ) : null}
+          </TaxGradientFrame>
+
+          <TaxGradientFrame innerStyle={styles.collapseFrameInner}>
+            <Pressable
+              onPress={() => {
+                Haptics.selectionAsync();
+                setVendorReviewExpanded((e) => !e);
+              }}
+            >
+              <View style={styles.collapseHeader}>
+                <View style={styles.collapseHeaderMain}>
+                  <Text style={styles.collapseCardTitle}>Vendor & 1099 Review</Text>
+                  <Text style={styles.collapseCardSub}>
+                    Review vendors, W-9 tracking, payment methods, and year-end CPA flags.
+                  </Text>
+                  {!vendorReviewExpanded ? (
+                    <View style={styles.collapsePreview}>
+                      <Text style={styles.collapsePreviewLine}>
+                        Potential 1099 vendors: {review1099.potential1099VendorCount}
+                      </Text>
+                      <Text style={styles.collapsePreviewLine}>Missing W-9s: {review1099.missingW9Count}</Text>
+                      <Text style={styles.collapsePreviewLine}>
+                        Payments missing method: {review1099.paymentsMissingMethodCount}
+                      </Text>
+                      <Text style={styles.collapseCta}>Review Vendors</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <MaterialIcons
+                  name={vendorReviewExpanded ? 'expand-less' : 'expand-more'}
+                  size={28}
+                  color="#2DFFC4"
+                  style={styles.collapseChevron}
+                />
+              </View>
+            </Pressable>
+
+            {vendorReviewExpanded ? (
+              <>
+                <View style={styles.vendorExplainerCard}>
+                  <Text style={styles.vendorExplainerTitle}>How vendor review works</Text>
+                  <Text style={styles.vendorExplainerBody}>
+                    BPS detects vendors from your paid expenses and purchase orders. Save vendors you want to track,
+                    then confirm whether they are suppliers, subcontractors, consultants, or other vendors. W-9
+                    tracking is mainly for subcontractors, consultants, and vendors your CPA wants reviewed.
+                  </Text>
+                  <Text style={styles.vendorExplainerFooter}>
+                    Informational only. Not tax advice. Review with your CPA or tax professional.
+                  </Text>
+                </View>
+                <Tax1099ReviewDashboard
+                  omitSectionTitle
+                  review={review1099}
+                  onPressVendor={(row) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (row.vendorId) router.push(`/tax-vendor/${row.vendorId}`);
+                  }}
+                  onSaveVendor={(row) => {
+                    if (!row.saveDraft) return;
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    const v = addVendor({
+                      businessName: row.saveDraft.businessName,
+                      vendorType: row.saveDraft.vendorType,
+                      defaultCategory: row.saveDraft.defaultCategory,
+                      defaultPaymentMethod: row.saveDraft.defaultPaymentMethod,
+                      w9Status: row.saveDraft.w9Status,
+                      notes: row.saveDraft.notes,
+                      requires1099Review: false,
+                    });
+                    router.push(`/tax-vendor/${v.id}`);
+                  }}
+                  onEditVendorProfile={(row) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (row.vendorId) router.push(`/tax-vendor/${row.vendorId}`);
+                  }}
+                />
+              </>
+            ) : null}
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.framePanelInner}>
@@ -410,6 +541,9 @@ export default function TaxCenterScreen() {
               disabled={busy}
               onPress={handleAccountantWorkbookExport}
             />
+            <Text style={styles.exportWorkbookHint}>
+              Includes summary, projects, categories, vendor review, missing W-9s, receipts, and accounting mappings.
+            </Text>
             <Pressable
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -492,6 +626,78 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 18,
+  },
+  collapseFrameInner: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  collapseHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  collapseHeaderMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  collapseCardTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  collapseCardSub: {
+    color: 'rgba(148, 163, 184, 0.95)',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  collapsePreview: {
+    marginTop: 10,
+  },
+  collapsePreviewLine: {
+    color: 'rgba(203, 213, 225, 0.88)',
+    fontSize: 12,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  collapseCta: {
+    color: '#2DFFC4',
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 12,
+  },
+  collapseChevron: {
+    marginTop: 2,
+  },
+  collapseExpandedStack: {
+    marginTop: 12,
+  },
+  vendorExplainerCard: {
+    backgroundColor: 'rgba(45, 255, 196, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.22)',
+    padding: 14,
+    marginBottom: 16,
+  },
+  vendorExplainerTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  vendorExplainerBody: {
+    color: 'rgba(203, 213, 225, 0.92)',
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  vendorExplainerFooter: {
+    color: 'rgba(148, 163, 184, 0.95)',
+    fontSize: 11,
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
   framePanelInner: {
     paddingHorizontal: 4,
@@ -684,6 +890,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     textDecorationLine: 'underline',
     textDecorationColor: 'rgba(45, 255, 196, 0.45)',
+  },
+  exportWorkbookHint: {
+    color: 'rgba(148, 163, 184, 0.9)',
+    fontSize: 11,
+    lineHeight: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    marginTop: -4,
   },
   aiLine: {
     color: 'rgba(203, 213, 225, 0.88)',

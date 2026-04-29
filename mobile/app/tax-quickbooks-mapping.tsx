@@ -20,6 +20,20 @@ import { getColors } from '@/theme/getColors';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import { TAX_CATEGORIES, type TaxCategory } from '@/src/lib/taxCenter';
 
+/** Example-only labels for bookkeeping / CPA handoff — not a live QuickBooks link. */
+const SUGGESTED_ACCOUNTING_MAP: Partial<Record<TaxCategory, string>> = {
+  Materials: 'Job Materials',
+  Labor: 'Labor',
+  Subcontractors: 'Contract Labor',
+  'Equipment Rental': 'Equipment Rental',
+  'Permits / Plans': 'Permits & Fees',
+  Insurance: 'Insurance',
+  'Vehicle / Mileage': 'Auto Expense',
+  'Software / Tools': 'Software',
+  'Office / Admin': 'Office Expense',
+  Other: 'Uncategorized Expense',
+};
+
 export default function TaxQuickBooksMappingScreen() {
   const router = useRouter();
   const { darkMode, theme: themeContext } = useTheme();
@@ -35,6 +49,11 @@ export default function TaxQuickBooksMappingScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setQuickBooksCategoryMap(local);
     Alert.alert('Saved', 'Mappings stored on this device for export prep.');
+  };
+
+  const applySuggested = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLocal((prev) => ({ ...prev, ...SUGGESTED_ACCOUNTING_MAP }));
   };
 
   return (
@@ -66,8 +85,26 @@ export default function TaxQuickBooksMappingScreen() {
 
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.note}>
-            Map BPS categories to your accounting or QuickBooks categories for cleaner exports. No live QuickBooks
-            connection in this build. Informational only. Not tax advice. Review with your CPA or tax professional.
+            Use this to match BPS categories to your accounting or QuickBooks categories before exporting reports to your
+            bookkeeper or CPA. This does not connect to QuickBooks yet.
+          </Text>
+          <Text style={styles.syncNote}>
+            These mappings appear in the Accountant Workbook and can later support QuickBooks sync. QuickBooks sync is
+            coming soon. You can prepare category mappings now and export an Accountant Workbook for your CPA.
+          </Text>
+          <Text style={styles.examples}>
+            Examples: Materials → Job Materials · Labor → Labor · Subcontractors → Contract Labor · Equipment Rental →
+            Equipment Rental · Permits / Plans → Permits & Fees · Insurance → Insurance · Vehicle / Mileage → Auto Expense
+            · Software / Tools → Software · Office / Admin → Office Expense · Other → Uncategorized Expense
+          </Text>
+
+          <Pressable style={styles.suggestBtn} onPress={applySuggested}>
+            <MaterialIcons name="auto-awesome" size={20} color="#2DFFC4" />
+            <Text style={styles.suggestText}>Use suggested mapping</Text>
+          </Pressable>
+
+          <Text style={styles.secondaryNote}>
+            Informational only. Not tax advice. Review with your CPA or tax professional.
           </Text>
 
           {TAX_CATEGORIES.map((cat) => (
@@ -76,7 +113,7 @@ export default function TaxQuickBooksMappingScreen() {
               <TextInput
                 value={local[cat] || ''}
                 onChangeText={(t) => setLocal((prev) => ({ ...prev, [cat]: t }))}
-                placeholder="Accounting or QuickBooks account / class"
+                placeholder="Accounting / QuickBooks category"
                 placeholderTextColor="rgba(148,163,184,0.5)"
                 style={styles.input}
               />
@@ -105,8 +142,40 @@ const styles = StyleSheet.create({
     color: 'rgba(148, 163, 184, 0.95)',
     fontSize: 13,
     lineHeight: 20,
-    marginBottom: 18,
+    marginBottom: 10,
   },
+  syncNote: {
+    color: 'rgba(148, 163, 184, 0.92)',
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  examples: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    lineHeight: 17,
+    marginBottom: 14,
+  },
+  secondaryNote: {
+    color: 'rgba(148, 163, 184, 0.85)',
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  suggestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.35)',
+    backgroundColor: 'rgba(45, 255, 196, 0.08)',
+  },
+  suggestText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   row: { marginBottom: 16 },
   cat: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', marginBottom: 6 },
   input: {

@@ -1,12 +1,16 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import type { Tax1099ReviewSummary } from '@/src/lib/tax1099Review';
+import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax1099Review';
 import { format1099ReviewMoney } from '@/src/lib/tax1099Review';
 
 type Props = {
   review: Tax1099ReviewSummary;
-  onPressVendor?: (vendorKey: string) => void;
+  onPressVendor?: (row: Tax1099ReviewVendorRow) => void;
+  onSaveVendor?: (row: Tax1099ReviewVendorRow) => void;
+  onEditVendorProfile?: (row: Tax1099ReviewVendorRow) => void;
+  /** When true, hide the main "Vendor & 1099 Review" heading (e.g. parent card already shows it). */
+  omitSectionTitle?: boolean;
 };
 
 function SummaryCard({
@@ -27,12 +31,19 @@ function SummaryCard({
   );
 }
 
-export default function Tax1099ReviewDashboard({ review, onPressVendor }: Props) {
+export default function Tax1099ReviewDashboard({
+  review,
+  onPressVendor,
+  onSaveVendor,
+  onEditVendorProfile,
+  omitSectionTitle = false,
+}: Props) {
   return (
     <View style={styles.root}>
-      <Text style={styles.sectionTitle}>Vendor & 1099 Review</Text>
+      {omitSectionTitle ? null : <Text style={styles.sectionTitle}>Vendor & 1099 Review</Text>}
       <Text style={styles.sectionSub}>
-        Review subcontractors, vendors, missing W-9s, payment methods, and items that may need year-end CPA review.
+        Review vendors detected from expenses. Suppliers usually do not need W-9 tracking, while subcontractors and
+        consultants may need year-end review with your CPA.
       </Text>
 
       <View style={styles.grid}>
@@ -54,49 +65,83 @@ export default function Tax1099ReviewDashboard({ review, onPressVendor }: Props)
         <Text style={styles.empty}>No vendor payments in this tax year.</Text>
       ) : (
         review.rows.slice(0, 40).map((row) => (
-          <Pressable
+          <View
             key={`${row.vendorId || 'n'}:${row.displayName}`}
             style={styles.vendorCard}
-            onPress={() => onPressVendor?.(row.vendorId || row.displayName)}
-            disabled={!onPressVendor}
           >
-            <View style={styles.vendorTop}>
-              <View style={styles.nameBlock}>
-                <Text style={styles.vendorName} numberOfLines={2}>
-                  {row.displayName}
-                </Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{row.vendorTypeBadge}</Text>
-                </View>
-              </View>
-              <Text style={styles.vendorPaid}>{format1099ReviewMoney(row.totalPaid)}</Text>
-            </View>
-            <Text style={styles.metaLine}>
-              <Text style={styles.metaKey}>Payment method: </Text>
-              {row.paymentMethodDisplay}
-            </Text>
-            {row.w9UiRelevant ? (
-              <Text style={styles.metaLine}>
-                <Text style={styles.metaKey}>W-9 status: </Text>
-                {row.w9Status}
-              </Text>
-            ) : null}
-            <Text style={styles.metaLine} numberOfLines={2}>
-              <Text style={styles.metaKey}>Projects: </Text>
-              {row.projects.length ? row.projects.join(', ') : '—'}
-            </Text>
-            <View style={styles.chipRow}>
-              {row.actionNeeded.length === 0 ? (
-                <Text style={styles.actionNone}>No flags</Text>
-              ) : (
-                row.actionNeeded.map((a) => (
-                  <View key={a} style={styles.chip}>
-                    <Text style={styles.chipText}>{a}</Text>
+            <Pressable
+              onPress={() => {
+                if (row.hasSavedVendor && row.vendorId) onPressVendor?.(row);
+              }}
+              disabled={!row.hasSavedVendor || !row.vendorId || !onPressVendor}
+            >
+              <View style={styles.vendorTop}>
+                <View style={styles.nameBlock}>
+                  <Text style={styles.vendorName} numberOfLines={2}>
+                    {row.displayName}
+                  </Text>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{row.vendorTypeBadge}</Text>
                   </View>
-                ))
+                </View>
+                <Text style={styles.vendorPaid}>{format1099ReviewMoney(row.totalPaid)}</Text>
+              </View>
+              <Text style={styles.metaLine}>
+                <Text style={styles.metaKey}>Payment method: </Text>
+                {row.paymentMethodDisplay}
+              </Text>
+              {row.w9UiRelevant ? (
+                <Text style={styles.metaLine}>
+                  <Text style={styles.metaKey}>W-9 status: </Text>
+                  {row.w9StatusDisplay}
+                </Text>
+              ) : row.vendorType === 'supplier' ? (
+                <Text style={styles.metaLine}>
+                  <Text style={styles.metaKey}>Tracking: </Text>
+                  Tracked for expense categorization
+                </Text>
+              ) : (
+                <Text style={styles.metaLine}>
+                  <Text style={styles.metaKey}>W-9 tracking: </Text>
+                  Not applicable for this vendor type (informational)
+                </Text>
               )}
-            </View>
-          </Pressable>
+              <Text style={styles.metaLine} numberOfLines={2}>
+                <Text style={styles.metaKey}>Projects: </Text>
+                {row.projects.length ? row.projects.join(', ') : '—'}
+              </Text>
+              <View style={styles.chipRow}>
+                {row.actionNeeded.length === 0 ? (
+                  <Text style={styles.actionNone}>No flags</Text>
+                ) : (
+                  row.actionNeeded.map((a) => (
+                    <View key={a} style={styles.chip}>
+                      <Text style={styles.chipText}>{a}</Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            </Pressable>
+
+            {row.hasSavedVendor && row.vendorId && onEditVendorProfile ? (
+              <Pressable
+                style={styles.saveVendorBtn}
+                onPress={() => onEditVendorProfile(row)}
+              >
+                <MaterialIcons name="edit" size={18} color="#0f172a" />
+                <Text style={styles.saveVendorText}>Edit Vendor Profile</Text>
+              </Pressable>
+            ) : null}
+            {!row.hasSavedVendor && row.saveDraft && onSaveVendor ? (
+              <Pressable
+                style={styles.saveVendorBtn}
+                onPress={() => onSaveVendor(row)}
+              >
+                <MaterialIcons name="person-add-alt-1" size={18} color="#0f172a" />
+                <Text style={styles.saveVendorText}>Save Vendor</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ))
       )}
       {review.rows.length > 40 ? (
@@ -187,4 +232,15 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontStyle: 'italic',
   },
+  saveVendorBtn: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#2DFFC4',
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  saveVendorText: { color: '#0f172a', fontSize: 14, fontWeight: '900' },
 });

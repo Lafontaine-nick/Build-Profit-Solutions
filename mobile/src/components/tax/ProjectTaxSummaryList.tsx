@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { ProjectTaxSummary } from '@/src/lib/taxCenter';
+import { taxCenterPanelCard } from '@/src/components/tax/taxPanelCardStyle';
 
 type Props = {
   projects: ProjectTaxSummary[];
@@ -50,10 +51,8 @@ function Metric({ label, value, positive }: { label: string; value: string; posi
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 0,
-    padding: 18,
-    paddingBottom: 4,
-    backgroundColor: 'transparent',
+    ...taxCenterPanelCard,
+    paddingBottom: 12,
   },
   title: {
     color: '#FFFFFF',

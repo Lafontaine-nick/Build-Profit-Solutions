@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { TaxCategoryRow } from '@/src/lib/taxCenter';
+import { taxCenterPanelCard } from '@/src/components/tax/taxPanelCardStyle';
 
 type Props = {
   rows: TaxCategoryRow[];
@@ -29,6 +30,11 @@ export default function TaxCategoryBreakdown({ rows, formatMoney }: Props) {
               <View style={styles.track}>
                 <View style={[styles.fill, { width: `${Math.max(3, pct * 100)}%` }]} />
               </View>
+              {!!row.accountingLabel?.trim() ? (
+                <Text style={styles.accounting} numberOfLines={2}>
+                  Accounting mapping: {row.accountingLabel.trim()}
+                </Text>
+              ) : null}
               <Text style={styles.count}>{row.count} item{row.count === 1 ? '' : 's'}</Text>
             </View>
           );
@@ -40,10 +46,8 @@ export default function TaxCategoryBreakdown({ rows, formatMoney }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 0,
-    padding: 18,
-    paddingBottom: 4,
-    backgroundColor: 'transparent',
+    ...taxCenterPanelCard,
+    paddingBottom: 12,
   },
   title: {
     color: '#FFFFFF',
@@ -87,6 +91,12 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 99,
     backgroundColor: '#2DFFC4',
+  },
+  accounting: {
+    color: 'rgba(148, 163, 184, 0.88)',
+    fontSize: 11,
+    marginTop: 6,
+    lineHeight: 15,
   },
   count: {
     color: 'rgba(148, 163, 184, 0.85)',

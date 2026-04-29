@@ -1,3 +1,5 @@
+import type { VendorType } from '@/src/lib/vendorTypes';
+
 export type TaxCategory =
   | 'Materials'
   | 'Labor'
@@ -96,6 +98,8 @@ export type TaxCenterSummary = {
 
 export type TaxCategoryRow = {
   category: TaxCategory;
+  /** Accounting / QuickBooks label from user mapping; empty when unmapped. */
+  accountingLabel: string;
   amount: number;
   count: number;
 };
@@ -220,6 +224,41 @@ export function isPoPaidForTax(po: any): boolean {
   if (po?.isPaid === true) return true;
   const status = String(po?.status || '').toLowerCase();
   return status === 'paid' || status === 'completed' || status === 'complete';
+}
+
+/** Normalize vendor names for matching saved directory entries to detected names. */
+export function normalizeVendorNameKey(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Infer vendor type from BPS tax category (detection defaults; users can override in the directory). */
+export function inferVendorTypeFromTaxCategory(category: TaxCategory, expense?: Partial<TaxExpense>): VendorType {
+  if (
+    category === 'Materials' ||
+    category === 'Equipment Rental' ||
+    category === 'Software / Tools' ||
+    category === 'Insurance'
+  ) {
+    return 'supplier';
+  }
+  if (category === 'Subcontractors') return 'subcontractor';
+  if (category === 'Labor') {
+    const v = String(expense?.vendorName || expense?.vendor || '').trim();
+    if (!v) return 'supplier';
+    const t = v.toLowerCase();
+    if (
+      /\b(consult|consulting|engineer|engineering|architect|designer|accountant|cpa|attorney|lawyer|legal|professional)\b/.test(
+        t
+      )
+    ) {
+      return 'consultant';
+    }
+    return 'subcontractor';
+  }
+  return 'supplier';
 }
 
 export function mapExpenseToTaxCategory(expense: Partial<TaxExpense> | string | undefined): TaxCategory {
@@ -379,13 +418,24 @@ export function getTaxCenterDataInputs(
   };
 }
 
-export function groupExpensesByTaxCategory(expenses: TaxExpense[]): TaxCategoryRow[] {
+export function groupExpensesByTaxCategory(
+  expenses: TaxExpense[],
+  accountingLabelForCategory: (category: TaxCategory) => string = () => ''
+): TaxCategoryRow[] {
   const rows = new Map<TaxCategory, TaxCategoryRow>();
-  TAX_CATEGORIES.forEach((category) => rows.set(category, { category, amount: 0, count: 0 }));
+  TAX_CATEGORIES.forEach((category) =>
+    rows.set(category, { category, accountingLabel: accountingLabelForCategory(category), amount: 0, count: 0 })
+  );
 
   asArray<TaxExpense>(expenses).forEach((expense) => {
     const category = mapExpenseToTaxCategory(expense);
-    const current = rows.get(category) || { category, amount: 0, count: 0 };
+    const current = rows.get(category) || {
+      category,
+      accountingLabel: accountingLabelForCategory(category),
+      amount: 0,
+      count: 0,
+    };
+    current.accountingLabel = accountingLabelForCategory(category);
     current.amount += expenseAmount(expense);
     current.count += 1;
     rows.set(category, current);
