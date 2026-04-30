@@ -24,7 +24,8 @@ import { useRouter } from 'expo-router';
 import { Pressable } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
+import { ScreenLayout } from '@/constants/ScreenLayout';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 
 // Mock data with different lead sources
@@ -1081,9 +1082,10 @@ export default function LeadsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
-    () => getStyles(Colors, getTabScrollContentBottomInset(insets.bottom)),
-    [Colors, insets.bottom]
+    () => getStyles(Colors, tabScrollBottomInset),
+    [Colors, tabScrollBottomInset]
   );
   
   const user = {

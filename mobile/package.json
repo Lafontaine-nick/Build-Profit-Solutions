@@ -10,7 +10,9 @@
     "start:offline": "EXPO_NO_DOCTOR=1 npx expo start --offline --clear",
     "start:dev": "EXPO_NO_DOCTOR=1 npx expo start --dev-client",
     "start:dev:lan": "EXPO_NO_DOCTOR=1 bash -c 'source scripts/lan-packager-host-env.sh && npx expo start --dev-client --lan'",
+    "start:dev:lan:web": "EXPO_NO_DOCTOR=1 bash -c 'source scripts/lan-packager-host-env.sh && npx expo start --dev-client --lan --web'",
     "start:dev:tunnel": "EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel --clear",
+    "start:dev:tunnel:web": "EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel --web --clear",
     "build:dev:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --profile development --platform ios",
     "build:dev:android": "EXPO_NO_CAPABILITY_SYNC=1 eas build --profile development --platform android",
     "dev": "EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel",
@@ -31,10 +33,15 @@
     "test": "jest",
     "android": "EXPO_NO_DOCTOR=1 npx expo start --android",
     "ios": "EXPO_NO_DOCTOR=1 npx expo start --ios",
-    "web": "EXPO_NO_DOCTOR=1 npx expo start --web"
+    "web": "EXPO_NO_DOCTOR=1 npx expo start --web",
+    "web:desktop": "bash scripts/start-web-desktop.sh",
+    "web:desktop:clear": "bash scripts/start-web-desktop.sh --clear",
+    "dev:stop": "pkill -f '[e]xpo start' 2>/dev/null || true; pkill -f '[m]etro' 2>/dev/null || true; echo 'Expo/Metro stop sent (if running).'",
+    "metro:clean": "bash scripts/metro-clean.sh"
   },
   "dependencies": {
     "@clerk/clerk-expo": "^1.2.0",
+    "@clerk/clerk-react": "5.2.9",
     "@expo-google-fonts/montserrat": "^0.4.2",
     "@expo-google-fonts/saira": "^0.4.1",
     "@expo/vector-icons": "^15.0.3",

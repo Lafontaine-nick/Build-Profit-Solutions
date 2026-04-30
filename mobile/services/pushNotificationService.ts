@@ -2,17 +2,21 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { isExpoWebRuntime } from '@/utils/isExpoWebRuntime';
+import { isReactNativeJsRuntime } from '@/utils/isReactNativeJsRuntime';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Configure notification behavior (native only)
+if (!isExpoWebRuntime()) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
 
 export interface PushNotification {
   id: string;
@@ -53,6 +57,10 @@ class PushNotificationService {
 
   async initialize(): Promise<boolean> {
     try {
+      if (!isReactNativeJsRuntime() || isExpoWebRuntime()) {
+        return false;
+      }
+
       // Request permissions
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();

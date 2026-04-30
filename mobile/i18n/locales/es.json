@@ -115,16 +115,18 @@
   },
   "landing": {
     "tagline": "Gestión Inteligente de Construcción",
-    "aiPowered": "Herramientas impulsadas por IA · Construidas para contratistas",
+    "aiPowered": "Herramientas impulsadas por IA pensadas para contratistas",
     "getStarted": "Crea y gestiona estimaciones rentables",
     "getStartedButton": "COMENZAR",
-    "launchDescription": "Estimación con IA, costos de obra en vivo e información de proyectos — pensado para contratistas.",
+    "launchDescription": "Estimación con IA, costos de obra e información de proyectos pensado para contratistas.",
     "aiEstimates": "Estimaciones IA",
     "profitTracking": "Seguimiento de Ganancias",
     "teamManagement": "Gestión de Equipo",
-    "dataPrivacy": "Tus datos permanecen privados y seguros.",
+    "dataPrivacy": "Datos privados y seguros",
     "whatBuildersSay": "Lo que Dicen los Constructores",
-    "trustedBy": "Confiado por contratistas en todo el país"
+    "trustedBy": "Confiado por contratistas en todo el país",
+    "contractorFeedbackTitle": "Construido con opiniones de contratistas",
+    "contractorFeedbackSubtitle": "En pruebas con contratistas y equipos de construcción reales."
   },
   "auth": {
     "getStarted": "Comenzar",

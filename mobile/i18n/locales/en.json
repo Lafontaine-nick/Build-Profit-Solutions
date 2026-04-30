@@ -115,16 +115,18 @@
   },
   "landing": {
     "tagline": "Smart Construction Management",
-    "aiPowered": "AI-powered tools · Built for contractors",
+    "aiPowered": "AI-powered tools built for contractors",
     "getStarted": "Build & manage profitable estimates",
     "getStartedButton": "GET STARTED",
-    "launchDescription": "AI-powered estimating, job costing, and project insights — built for contractors.",
+    "launchDescription": "AI-powered estimating, job costing, and project insights built for contractors.",
     "aiEstimates": "AI Estimates",
     "profitTracking": "Profit Tracking",
     "teamManagement": "Team Management",
-    "dataPrivacy": "Your data stays private and secure.",
+    "dataPrivacy": "Private & secure data",
     "whatBuildersSay": "What Builders Say",
-    "trustedBy": "Trusted by contractors nationwide"
+    "trustedBy": "Trusted by contractors nationwide",
+    "contractorFeedbackTitle": "Built With Contractor Feedback",
+    "contractorFeedbackSubtitle": "Now testing with real contractors and construction teams."
   },
   "auth": {
     "getStarted": "Get started",

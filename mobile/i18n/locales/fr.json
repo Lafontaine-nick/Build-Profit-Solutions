@@ -115,16 +115,18 @@
   },
   "landing": {
     "tagline": "Gestion Intelligente de la Construction",
-    "aiPowered": "Outils alimentés par l'IA · Conçus pour les entrepreneurs",
+    "aiPowered": "Outils alimentés par l'IA, conçus pour les entrepreneurs",
     "getStarted": "Créez et gérez des estimations rentables",
     "getStartedButton": "COMMENCER",
-    "launchDescription": "Estimation par IA, coûts de chantier en direct et suivi de projets — conçu pour les entrepreneurs.",
+    "launchDescription": "Estimation par IA, coûts de chantier et suivi de projets, conçu pour les entrepreneurs.",
     "aiEstimates": "Estimations IA",
     "profitTracking": "Suivi des Profits",
     "teamManagement": "Gestion d'Équipe",
-    "dataPrivacy": "Vos données restent privées et sécurisées.",
+    "dataPrivacy": "Données privées et sécurisées",
     "whatBuildersSay": "Ce que Disent les Constructeurs",
-    "trustedBy": "Approuvé par les entrepreneurs à travers le pays"
+    "trustedBy": "Approuvé par les entrepreneurs à travers le pays",
+    "contractorFeedbackTitle": "Conçu avec le retour des entrepreneurs",
+    "contractorFeedbackSubtitle": "Tests en cours avec de vrais entrepreneurs et équipes de chantier."
   },
   "auth": {
     "getStarted": "Commencer",

@@ -78,6 +78,35 @@ This document explains common OAuth issues and how to prevent them.
 - This was caused by `useRequireAuth` checking wrong auth system
 - Fixed: Now checks Clerk's auth state when Clerk is enabled
 
+### Google / Apple OAuth on **Expo Web** (Safari, Chrome, localhost)
+
+**Why web was flaky:** `@clerk/clerk-expo`’s `useOAuth` → `startOAuthFlow` uses `WebBrowser.openAuthSessionAsync`, then reads `rotating_token_nonce` from `URL.searchParams`. On web/Safari that return URL is often wrong or empty, so you could pick a Google account and never get a session.
+
+**What we do instead on web:** `signIn.authenticateWithRedirect` (full redirect), then `/oauth-native-callback` mounts `<AuthenticateWithRedirectCallback />` from `@clerk/clerk-react`, which runs `handleRedirectCallback` and activates the session.
+
+The redirect URL sent to Clerk must still be **allowlisted** in the Clerk Dashboard and must **open your app** (with `ClerkProvider`).
+
+1. **Web redirect URL (this repo)**  
+   On web we use: `http://localhost:<PORT>/oauth-native-callback` (or `https://your-domain.com/oauth-native-callback` in production).  
+   The route `app/oauth-native-callback.tsx` mounts the Clerk redirect callback component.
+
+2. **Clerk Dashboard**  
+   - Go to **Configure** → **Paths** (or **Native applications** / **Redirect URLs**, depending on your Clerk UI).  
+   - Add the **exact** URLs you use, for example:  
+     - `http://localhost:8081/oauth-native-callback`  
+     - `http://localhost:19006/oauth-native-callback` (if Expo uses another port)  
+     - Your deployed web origin + `/oauth-native-callback`
+
+3. **Google Cloud Console** (when using **custom** Google credentials in Clerk)  
+   - Authorized **redirect** URIs must still be Clerk’s callback (`https://<your-instance>.clerk.accounts.dev/v1/oauth_callback`, etc.) — **not** your localhost path.  
+   - Authorized **JavaScript origins** should include your local origin (e.g. `http://localhost:8081`).
+
+4. **Safari / ITP**  
+   If the flow works in Chrome but not Safari, try disabling cross-site tracking prevention for localhost or test in Chrome first.
+
+5. **Dev tip**  
+   With `__DEV__`, the console logs `[Clerk OAuth] Web redirect URL — allowlist this in Clerk:` with the precise string to paste into Clerk.
+
 ## 📝 Checklist for OAuth Setup
 
 ### Google OAuth

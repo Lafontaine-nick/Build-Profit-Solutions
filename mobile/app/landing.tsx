@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useRef, useMemo } from "react";
 import {
   SafeAreaView,
   View,
@@ -7,62 +7,78 @@ import {
   TouchableOpacity,
   Image,
   Animated,
-  Dimensions,
+  Platform,
   StatusBar,
   ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useTranslation } from "react-i18next";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { getPostAuthHref } from "@/lib/postAuthNavigation";
+import { isClerkEnabled } from "@/lib/isClerkEnabled";
+import {
+  WEB_CENTERED_COLUMN_MAX_WIDTH,
+  WEB_CENTERED_COLUMN_MIN_WIDTH,
+} from "@/constants/ScreenLayout";
 
-const { width } = Dimensions.get("window");
+/**
+ * Signed-in users can still match `index` (this screen) on web after OAuth if the URL is `/`
+ * or before Clerk navigation settles. Mirror `auth.tsx` `navigateAfterClerkSession` → `getPostAuthHref`.
+ */
+function SignedInLandingExit() {
+  const router = useRouter();
+  const { isSignedIn, isLoaded } = useAuth();
+  const { user } = useUser();
 
-const TESTIMONIALS = [
-  {
-    text: "This app made bidding and tracking projects so much easier!",
-    author: "Mike Johnson, GC",
-  },
-  {
-    text: "A must-have for every contractor and developer.",
-    author: "Sarah Chen, Developer",
-  },
-  {
-    text: "The best tool for managing construction projects.",
-    author: "David Rodriguez, Contractor",
-  },
-  {
-    text: "Trusted by 1,000+ builders nationwide.",
-    author: "Build Profit Solutions",
-  },
-];
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user?.id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const href = await getPostAuthHref(user.id);
+        if (!cancelled) router.replace(href as "/onboarding" | "/(tabs)/dashboard");
+      } catch {
+        if (!cancelled) router.replace("/onboarding");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, user?.id, router]);
+
+  return null;
+}
+
+/** Wide web: centered premium column (not full-bleed mobile layout) */
+const LANDING_WIDE_WEB_MIN_WIDTH = WEB_CENTERED_COLUMN_MIN_WIDTH;
+const LANDING_MAX_CONTENT_WIDTH = WEB_CENTERED_COLUMN_MAX_WIDTH;
+const LANDING_CTA_MAX_WIDTH = 400;
 
 export default function LandingScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
-  const [testimonialIdx, setTestimonialIdx] = useState(0);
+  const styles = useMemo(
+    () => getStyles(Colors, darkMode, windowWidth),
+    [Colors, darkMode, windowWidth]
+  );
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Fade-in
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
       useNativeDriver: true,
     }).start();
-
-    const interval = setInterval(() => {
-      setTestimonialIdx((idx) => (idx + 1) % TESTIMONIALS.length);
-    }, 5000);
-
-    return () => clearInterval(interval);
   }, [fadeAnim]);
 
   const handleGetStarted = () => {
@@ -72,6 +88,7 @@ export default function LandingScreen() {
 
   return (
     <View style={styles.root}>
+      {isClerkEnabled() ? <SignedInLandingExit /> : null}
       <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
@@ -119,24 +136,24 @@ export default function LandingScreen() {
               </View>
             </View>
 
-            {/* Title + tagline (slightly tightened spacing) */}
-            <View style={{ marginTop: 16 }}>
-              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>BUILD PROFIT</Text>
+            <View style={{ marginTop: 12 }}>
+              <Text
+                style={[
+                  styles.screenTitle,
+                  { color: darkMode ? "#f9fafb" : "#000000" },
+                ]}
+              >
+                BUILD PROFIT SOLUTIONS
+              </Text>
             </View>
-            <Text style={[styles.screenSubtitle, { color: darkMode ? "#FFFFFF" : "#000000" }]}>SOLUTIONS</Text>
 
             <View style={styles.taglineRow}>
               <Ionicons name="sparkles" size={14} color="#22c55e" />
-              <Text style={styles.tagline}>{t('landing.tagline')}</Text>
+              <Text style={styles.tagline}>{t("landing.tagline")}</Text>
               <Ionicons name="sparkles" size={14} color="#22c55e" />
             </View>
 
-            <View style={styles.aiStatusRow}>
-              <View style={styles.aiDot} />
-              <Text style={styles.aiStatusText}>
-                {t('landing.aiPowered')}
-              </Text>
-            </View>
+            <Text style={styles.aiStatusText}>{t("landing.aiPowered")}</Text>
           </View>
           </View>
 
@@ -148,12 +165,21 @@ export default function LandingScreen() {
             end={{ x: 0.95, y: 0.9 }}
             style={styles.cardBorder}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line, borderWidth: 1 }]}>
+            <View
+              style={[
+                styles.card,
+                !darkMode && {
+                  backgroundColor: Colors.bg,
+                  borderColor: Colors.line,
+                  borderWidth: 1,
+                },
+              ]}
+            >
               <View style={styles.cardHeaderRow}>
-                <View>
-                  <Text style={styles.cardTitle}>{t('landing.getStarted')}</Text>
+                <View style={styles.cardHeaderTextBlock}>
+                  <Text style={styles.cardTitle}>{t("landing.getStarted")}</Text>
                   <Text style={styles.cardSubtitle}>
-                    {t('landing.launchDescription')}
+                    {t("landing.launchDescription")}
                   </Text>
                 </View>
               </View>
@@ -170,41 +196,57 @@ export default function LandingScreen() {
                   style={styles.buttonGradient}
                 >
                   <Ionicons name="rocket-outline" size={20} color="#020617" />
-                  <Text style={styles.primaryButtonText}>{t('landing.getStartedButton')}</Text>
+                  <Text style={styles.primaryButtonText}>
+                    {t("landing.getStartedButton")}
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
 
-                                  <View style={styles.featuresRow}>
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <Ionicons name="calculator-outline" size={22} color="#22c55e" />
-              </View>
-              <Text style={styles.featureTitle}>{t('landing.aiEstimates')}</Text>
-            </View>
+              <View style={styles.featuresRow}>
+                <View style={styles.featureItem}>
+                  <View style={styles.featureIconContainer}>
+                    <Ionicons
+                      name="calculator-outline"
+                      size={22}
+                      color="#22c55e"
+                    />
+                  </View>
+                  <Text style={styles.featureTitle}>
+                    {t("landing.aiEstimates")}
+                  </Text>
+                </View>
 
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <Ionicons name="trending-up-outline" size={22} color="#22c55e" />
-              </View>
-              <Text style={styles.featureTitle}>{t('landing.profitTracking')}</Text>
-            </View>
+                <View style={styles.featureItem}>
+                  <View style={styles.featureIconContainer}>
+                    <Ionicons
+                      name="trending-up-outline"
+                      size={22}
+                      color="#22c55e"
+                    />
+                  </View>
+                  <Text style={styles.featureTitle}>
+                    {t("landing.profitTracking")}
+                  </Text>
+                </View>
 
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <Ionicons name="people-outline" size={22} color="#22c55e" />
+                <View style={styles.featureItem}>
+                  <View style={styles.featureIconContainer}>
+                    <Ionicons name="people-outline" size={22} color="#22c55e" />
+                  </View>
+                  <Text style={styles.featureTitle}>
+                    {t("landing.teamManagement")}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.featureTitle}>{t('landing.teamManagement')}</Text>
-            </View>
-          </View>
 
-<View style={styles.reassureRow}>
+              <View style={styles.reassureRow}>
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={16}
                   color={darkMode ? "#6ee7b7" : "#16a34a"}
                 />
                 <Text style={styles.reassureText}>
-                  {t('landing.dataPrivacy')}
+                  {t("landing.dataPrivacy")}
                 </Text>
               </View>
             </View>
@@ -217,31 +259,25 @@ export default function LandingScreen() {
             colors={["#2DFFC4", "#00A6FF"]}
             start={{ x: 0.05, y: 0.1 }}
             end={{ x: 0.95, y: 0.9 }}
-            style={[styles.cardBorder, { marginBottom: 0 }]}
+            style={[styles.cardBorder, styles.feedbackCardBorder]}
           >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line, borderWidth: 1 }]}>
-              <View style={styles.cardHeaderRow}>
-                <View>
-                  <Text style={styles.cardTitle}>{t('landing.whatBuildersSay')}</Text>
-                  <Text style={styles.cardSubtitle}>
-                    {t('landing.trustedBy')}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.testimonialContent}>
-                <View style={styles.testimonialIconCircle}>
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={20}
-                    color="#22c55e"
-                  />
-                </View>
-                <Text style={styles.testimonialText}>
-                  "{TESTIMONIALS[testimonialIdx].text}"
+            <View
+              style={[
+                styles.card,
+                styles.feedbackCard,
+                !darkMode && {
+                  backgroundColor: Colors.bg,
+                  borderColor: Colors.line,
+                  borderWidth: 1,
+                },
+              ]}
+            >
+              <View style={styles.feedbackCardInner}>
+                <Text style={styles.feedbackTitle}>
+                  {t("landing.contractorFeedbackTitle")}
                 </Text>
-                <Text style={styles.testimonialAuthor}>
-                  — {TESTIMONIALS[testimonialIdx].author}
+                <Text style={styles.feedbackSubtitle}>
+                  {t("landing.contractorFeedbackSubtitle")}
                 </Text>
               </View>
             </View>
@@ -254,7 +290,11 @@ export default function LandingScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
+  const wideWeb =
+    Platform.OS === "web" && windowWidth >= LANDING_WIDE_WEB_MIN_WIDTH;
+
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -270,7 +310,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     backgroundColor: "rgba(15,23,42,0.6)",
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wideWeb ? 24 : 20,
     paddingTop: 0,
     paddingBottom: 40,
     overflow: 'visible',
@@ -284,15 +324,25 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flex: 1,
   },
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 8,
-    position: 'relative',
+    ...(wideWeb
+      ? {
+          marginHorizontal: 0,
+          paddingHorizontal: 0,
+          maxWidth: LANDING_MAX_CONTENT_WIDTH,
+          alignSelf: "center" as const,
+          width: "100%",
+        }
+      : {
+          marginHorizontal: -20,
+          paddingHorizontal: 8,
+        }),
+    position: "relative",
   },
   logoGradientBg: {
     position: "absolute",
     top: -500,
-    left: -width * 1.5,
-    right: -width * 1.5,
+    left: -windowWidth * 1.5,
+    right: -windowWidth * 1.5,
     height: 1000,
     borderRadius: 999,
     zIndex: 0,
@@ -300,8 +350,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
 
   headerSection: {
     alignItems: "center",
-    marginBottom: 24,
-    paddingTop: 20,
+    marginBottom: wideWeb ? 12 : 22,
+    paddingTop: wideWeb ? 12 : 20,
   },
   logoWrapper: {
     justifyContent: "center",
@@ -309,10 +359,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 4,
   },
   logoGlowWrapper: {
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
     shadowColor: "#22c55e",
-    shadowOpacity: 0.55, // stronger glow
-    shadowRadius: 26, // smoother spread
+    shadowOpacity: 0.45,
+    shadowRadius: 22,
     shadowOffset: { width: 0, height: 0 },
+    elevation: darkMode ? 8 : 6,
   },
   logoOuter: {
     width: 116,
@@ -326,7 +383,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 999,
-    backgroundColor: darkMode ? "#000000" : Colors.bg,
+    backgroundColor: Colors.bg,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -356,17 +413,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 999,
   },
   screenTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: "800",
     textAlign: "center",
-    letterSpacing: 1,
-  },
-  screenSubtitle: {
-    fontSize: 18,
-    fontWeight: "700", // Increased from 600
-    textAlign: "center",
-    marginTop: 4,
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
+    lineHeight: 32,
+    paddingHorizontal: 8,
   },
   taglineRow: {
     flexDirection: "row",
@@ -379,27 +431,19 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? "#FFFFFF" : "#475569",
     fontWeight: "500",
   },
-  aiStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  aiDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: "#22c55e",
-    marginRight: 6,
-  },
   aiStatusText: {
-    fontSize: 12,
+    fontSize: 13,
+    marginTop: 10,
+    textAlign: "center",
+    paddingHorizontal: 12,
     color: darkMode ? "#6ee7b7" : "#15803d",
+    fontWeight: "500",
   },
 
   cardBorder: {
     borderRadius: 28,
     padding: 1,
-    marginBottom: 16,
+    marginBottom: wideWeb ? 12 : 16,
     shadowColor: darkMode ? '#00A6FF' : "transparent",
     shadowOpacity: darkMode ? 0.16 : 0,
     shadowRadius: darkMode ? 14 : 0,
@@ -409,17 +453,52 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderColor: "transparent",
     overflow: 'hidden',
   },
+  feedbackCardBorder: {
+    marginBottom: 0,
+    shadowOpacity: darkMode ? 0.1 : 0,
+    shadowRadius: darkMode ? 10 : 0,
+    shadowOffset: { width: 0, height: darkMode ? 6 : 0 },
+  },
   card: {
     backgroundColor: darkMode ? "#000000" : "#FFFFFF",
     borderRadius: 26,
-    padding: 20,
+    padding: wideWeb ? 22 : 20,
     borderWidth: darkMode ? 0 : 0, // Border on wrapper, not card
+  },
+  feedbackCard: {
+    paddingVertical: wideWeb ? 14 : 16,
+    paddingHorizontal: wideWeb ? 20 : 18,
+  },
+  feedbackCardInner: {
+    alignItems: "center",
+  },
+  feedbackTitle: {
+    fontSize: wideWeb ? 17 : 18,
+    fontWeight: "700",
+    textAlign: "center",
+    color: darkMode ? "#FFFFFF" : "#0F172A",
+    letterSpacing: 0.2,
+  },
+  feedbackSubtitle: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    color: darkMode ? "#94a3b8" : "#64748b",
+    fontWeight: "500",
+    maxWidth: 440,
+    paddingHorizontal: 8,
   },
   cardHeaderRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: wideWeb ? 14 : 16,
+  },
+  cardHeaderTextBlock: {
+    alignItems: "center",
+    width: "100%",
+    ...(wideWeb ? { maxWidth: 520 } : {}),
   },
   cardTitle: {
     fontSize: 22,
@@ -436,7 +515,13 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
 
   primaryButton: {
     width: "100%",
-    marginBottom: 22,
+    ...(wideWeb
+      ? {
+          alignSelf: "center" as const,
+          maxWidth: LANDING_CTA_MAX_WIDTH,
+        }
+      : {}),
+    marginBottom: wideWeb ? 18 : 22,
     borderRadius: 18,
     overflow: "hidden",
     shadowColor: "#22c55e",
@@ -462,15 +547,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
 
   featuresRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: wideWeb ? "space-evenly" : "space-between",
     width: "100%",
-    gap: 10,
+    gap: wideWeb ? 12 : 10,
+    paddingHorizontal: wideWeb ? 4 : 0,
   },
-  featureItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-      featureIconContainer: {
+  featureIconContainer: {
     width: 52,
     height: 52,
     borderRadius: 18,
@@ -480,7 +562,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 10,
   },
   featureTitle: {
-    fontSize: 13,
+    fontSize: wideWeb ? 14 : 13,
     color: darkMode ? "#e2e8f0" : "#0F172A",
     fontWeight: "600",
     textAlign: "center",
@@ -489,7 +571,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   reassureRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 16,
+    justifyContent: "center",
+    marginTop: wideWeb ? 12 : 16,
     gap: 6,
   },
   reassureText: {
@@ -497,31 +580,5 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? "#FFFFFF" : "#475569",
   },
 
-  testimonialContent: {
-    alignItems: "center",
-  },
-  testimonialIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,166,255,0.42)',
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  testimonialText: {
-    fontSize: 15,
-    fontStyle: "italic",
-    textAlign: "center",
-    lineHeight: 22,
-    color: darkMode ? "#e2e8f0" : "#0F172A",
-    marginBottom: 10,
-  },
-  testimonialAuthor: {
-    fontSize: 14,
-    textAlign: "center",
-    color: darkMode ? "#FFFFFF" : "#64748B",
-    fontWeight: "600",
-  },
 });
+};

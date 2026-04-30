@@ -183,9 +183,12 @@ function AuthGateWithClerk() {
   // But add timeout to prevent infinite loading
   if (!isLoaded && !clerkTimeout) {
     console.log('AuthGate - Clerk is loading, waiting for session restoration...');
-    return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      <Stack.Screen name="loading" />
-    </Stack>;
+    return (
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+        <Stack.Screen name="loading" />
+        <Stack.Screen name="oauth-native-callback" />
+      </Stack>
+    );
   }
   
   // If Clerk timed out, proceed anyway (might be network issue)
@@ -198,6 +201,7 @@ function AuthGateWithClerk() {
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/signup" />
         <Stack.Screen name="auth/forgot-password" />
+        <Stack.Screen name="oauth-native-callback" />
       </Stack>
     );
   }
@@ -212,6 +216,7 @@ function AuthGateWithClerk() {
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/signup" />
         <Stack.Screen name="auth/forgot-password" />
+        <Stack.Screen name="oauth-native-callback" />
       </Stack>
     );
   }
@@ -222,6 +227,7 @@ function AuthGateWithClerk() {
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
+        <Stack.Screen name="oauth-native-callback" />
       </Stack>
     );
   }
@@ -325,6 +331,7 @@ function AuthGateWithoutClerk() {
         <Stack.Screen name="auth" />
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/signup" />
+        <Stack.Screen name="auth/forgot-password" />
       </Stack>
     );
   }

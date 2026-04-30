@@ -4,8 +4,8 @@ import { BlurView } from 'expo-blur';
 import { useTheme } from '@/contexts/ThemeContext';
 
 /**
- * Floating dock: moderate blur + lighter translucent tint so content shows through.
- * Single soft hairline — no strong rim; shadow kept gentle for depth only.
+ * Native (iOS/Android): floating dock using real blur.
+ * Web uses `PillTabBarBackground.web.tsx` — `expo-blur` triggers Worklets errors on Metro web.
  */
 export default function PillTabBarBackground() {
   const { darkMode } = useTheme();

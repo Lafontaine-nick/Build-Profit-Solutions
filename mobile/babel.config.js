@@ -1,6 +1,7 @@
 module.exports = function(api) {
-  // Use forever() instead of true to avoid caching conflicts
-  api.cache.forever();
+  const platform = api.caller(caller => caller?.platform);
+  const isWeb = platform === 'web';
+
   return {
     presets: [
       [
@@ -12,10 +13,12 @@ module.exports = function(api) {
         },
       ],
     ],
-    plugins: [
-      // Reanimated plugin must be last
-      'react-native-reanimated/plugin',
-    ],
+    plugins: isWeb
+      ? []
+      : [
+          // Reanimated 4: transforms live in react-native-worklets; this must be the last plugin.
+          'react-native-worklets/plugin',
+        ],
     // Fast Refresh is enabled by default in babel-preset-expo
     // This ensures it stays enabled in development
     env: {

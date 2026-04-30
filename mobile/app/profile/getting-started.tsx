@@ -6,12 +6,18 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import {
+  WEB_CENTERED_COLUMN_MAX_WIDTH,
+  WEB_CENTERED_COLUMN_MIN_WIDTH,
+} from '@/constants/ScreenLayout';
 import * as Haptics from 'expo-haptics';
 
 interface StepCardProps {
@@ -67,6 +73,9 @@ const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: 
 
 export default function GettingStartedScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const wideWeb =
+    Platform.OS === 'web' && windowWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -144,8 +153,9 @@ export default function GettingStartedScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
+          <View style={[styles.pageShell, wideWeb && styles.pageShellWeb]}>
           {/* Header */}
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, wideWeb && styles.headerRowWeb]}>
             <View style={styles.backButtonWrapper}>
               <LinearGradient
                 colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -183,7 +193,10 @@ export default function GettingStartedScreen() {
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+              style={[
+                styles.cardGradientBorder,
+                wideWeb ? styles.cardGradientBorderWeb : styles.cardGradientBorderMobile,
+              ]}
             >
               <View
                 style={[
@@ -252,6 +265,7 @@ export default function GettingStartedScreen() {
               </View>
             </LinearGradient>
           </ScrollView>
+          </View>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -265,6 +279,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  pageShell: {
+    flex: 1,
+    width: '100%',
+  },
+  pageShellWeb: {
+    maxWidth: WEB_CENTERED_COLUMN_MAX_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -273,6 +296,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginHorizontal: 20,
     position: 'relative',
+  },
+  headerRowWeb: {
+    marginHorizontal: 0,
   },
   backButtonWrapper: {
     width: 42,
@@ -300,6 +326,17 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: 0.15,
+  },
+  cardGradientBorder: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 16,
+  },
+  cardGradientBorderMobile: {
+    marginHorizontal: 8,
+  },
+  cardGradientBorderWeb: {
+    marginHorizontal: 0,
   },
   contentCard: {
     borderRadius: 23,

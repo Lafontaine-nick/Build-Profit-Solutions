@@ -38,7 +38,8 @@ import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenLayout, getTabScrollContentBottomInset } from '@/constants/ScreenLayout';
+import { ScreenLayout } from '@/constants/ScreenLayout';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughIntroSheetContent,
@@ -435,9 +436,10 @@ export default function ProjectsScreen() {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
-    () => getStyles(Colors, darkMode, getTabScrollContentBottomInset(insets.bottom)),
-    [Colors, darkMode, insets.bottom]
+    () => getStyles(Colors, darkMode, tabScrollBottomInset),
+    [Colors, darkMode, tabScrollBottomInset]
   );
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
@@ -1296,7 +1298,7 @@ export default function ProjectsScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           activeProjectWalkthroughScrollPadBottom > 0 && {
-            paddingBottom: getTabScrollContentBottomInset(insets.bottom) + activeProjectWalkthroughScrollPadBottom,
+            paddingBottom: tabScrollBottomInset + activeProjectWalkthroughScrollPadBottom,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -1778,7 +1780,7 @@ export default function ProjectsScreen() {
         >
           <FirstEstimateWalkthroughSheetShell
             darkMode={darkMode}
-            bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+            bottomOffset={tabScrollBottomInset}
           >
             <FirstEstimateWalkthroughIntroSheetContent
               darkMode={darkMode}

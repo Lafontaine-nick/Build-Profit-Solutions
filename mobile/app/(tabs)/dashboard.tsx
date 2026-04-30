@@ -37,7 +37,8 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
-import { ScreenLayout, getTabScrollContentBottomInset } from "@/constants/ScreenLayout";
+import { ScreenLayout } from "@/constants/ScreenLayout";
+import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import {
@@ -2807,9 +2808,10 @@ const DashboardScreen: React.FC = () => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
-    () => getStyles(Colors, getTabScrollContentBottomInset(insets.bottom)),
-    [Colors, insets.bottom]
+    () => getStyles(Colors, tabScrollBottomInset),
+    [Colors, tabScrollBottomInset]
   );
   const { activeProjects, estimates } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");

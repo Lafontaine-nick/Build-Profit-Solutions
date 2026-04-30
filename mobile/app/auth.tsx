@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
@@ -31,16 +32,50 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import {
+  WEB_CENTERED_COLUMN_MAX_WIDTH,
+  WEB_CENTERED_COLUMN_MIN_WIDTH,
+} from '@/constants/ScreenLayout';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
 
-/** Must match Clerk Dashboard → Native applications → iOS allowed redirect URLs. */
+/** Android-only in practice; on web `warmUpAsync` throws UnavailabilityError before the OS check. */
+async function warmUpWebBrowserForOAuth(): Promise<void> {
+  try {
+    await WebBrowser.warmUpAsync();
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[OAuth] WebBrowser.warmUpAsync skipped (expected on web):', e);
+    }
+  }
+}
+
+/**
+ * OAuth return URL passed to Clerk `startOAuthFlow({ redirectUrl })`.
+ *
+ * - **Web:** Use a fixed path on the current origin so Google/Clerk see an https/http URL
+ *   (not a custom scheme). Register the exact URL in Clerk:
+ *   Dashboard → Configure → Paths → Redirect URLs / allowed list
+ *   (e.g. `http://localhost:8081/oauth-native-callback` and your production origin + same path).
+ * - **Native:** `expo-auth-session` resolves the app scheme + path (see `app/oauth-native-callback.tsx`).
+ */
 function getClerkOAuthRedirectUrl(): string {
-  const uri = AuthSession.makeRedirectUri({ path: 'oauth-native-callback' });
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location?.origin) {
+    const uri = `${window.location.origin.replace(/\/$/, "")}/oauth-native-callback`;
+    if (__DEV__) {
+      console.log(
+        "[Clerk OAuth] Web redirect URL — allowlist this in Clerk (Paths / redirect URLs):",
+        uri
+      );
+    }
+    return uri;
+  }
+
+  const uri = AuthSession.makeRedirectUri({ path: "oauth-native-callback" });
   if (__DEV__) {
     console.log(
-      '[Clerk OAuth] Redirect URL (register in Clerk if Apple/Google native OAuth fails):',
+      "[Clerk OAuth] Native redirect URL (register in Clerk if OAuth fails):",
       uri
     );
   }
@@ -95,7 +130,11 @@ const AuthScreen: React.FC = () => {
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const { width: windowWidth } = useWindowDimensions();
+  const styles = useMemo(
+    () => getStyles(Colors, darkMode, windowWidth),
+    [Colors, darkMode, windowWidth]
+  );
   const inputPlaceholderColor = darkMode ? '#6B7280' : '#64748B';
   const params = useLocalSearchParams<{ mode?: string }>();
 
@@ -194,6 +233,50 @@ const AuthScreen: React.FC = () => {
   // OAuth handlers - receive OAuth objects from OAuthButtons component
   const handleGoogleSignIn = async (googleOAuthHandler: any, clerkSetActiveHandler: any) => {
     try {
+      /**
+       * Web (Safari/Chrome): `@clerk/clerk-expo` `useOAuth` uses `WebBrowser.openAuthSessionAsync`
+       * then parses `rotating_token_nonce` from `URL.searchParams` — that often fails on web/Safari.
+       * Use Clerk's redirect flow + `AuthenticateWithRedirectCallback` on `/oauth-native-callback` instead.
+       */
+      if (Platform.OS === "web") {
+        const signIn = signInHook?.signIn;
+        if (!signIn) {
+          Alert.alert(
+            "Sign-in not ready",
+            "Please wait a moment and try again, or use email and password."
+          );
+          return;
+        }
+        if (typeof window === "undefined") return;
+        setLoading(true);
+        try {
+          const redirectUrl = getClerkOAuthRedirectUrl();
+          const origin = window.location.origin.replace(/\/$/, "");
+          // Must not be `/` (index = landing). Native uses `getPostAuthHref` after OAuth; same default entry as returning users.
+          const redirectUrlComplete = `${origin}/dashboard`;
+          await signIn.authenticateWithRedirect({
+            strategy: "oauth_google",
+            redirectUrl,
+            redirectUrlComplete,
+          });
+        } catch (webErr: any) {
+          const msg = webErr?.message || String(webErr);
+          if (
+            !msg.includes("cancel") &&
+            !msg.includes("dismiss") &&
+            !msg.includes("user_cancelled")
+          ) {
+            console.error("Google web redirect OAuth error:", webErr);
+            Alert.alert(
+              "Google Sign-In Error",
+              msg || "Could not start Google sign-in. Check Clerk allowed redirect URLs for this origin."
+            );
+          }
+          setLoading(false);
+        }
+        return;
+      }
+
       console.log('🔵 handleGoogleSignIn called with:', {
         hasGoogleOAuthHandler: !!googleOAuthHandler,
         hasClerkSetActiveHandler: !!clerkSetActiveHandler,
@@ -257,7 +340,7 @@ const AuthScreen: React.FC = () => {
       });
       
       // Warm up browser for better performance
-      await WebBrowser.warmUpAsync();
+      await warmUpWebBrowserForOAuth();
 
       const oauthRedirectUrl = getClerkOAuthRedirectUrl();
       const result = await googleOAuthHandler.startOAuthFlow({ redirectUrl: oauthRedirectUrl });
@@ -583,7 +666,7 @@ const AuthScreen: React.FC = () => {
         handlerType: typeof appleOAuthHandler,
       });
 
-      await WebBrowser.warmUpAsync();
+      await warmUpWebBrowserForOAuth();
 
       const oauthRedirectUrl = getClerkOAuthRedirectUrl();
       const result = await appleOAuthHandler.startOAuthFlow({ redirectUrl: oauthRedirectUrl });
@@ -1187,7 +1270,11 @@ const AuthScreen: React.FC = () => {
             {/* Top header – styled like the Dashboard title area */}
             <View style={[styles.headerRow, styles.wideContainer]}>
               {navigation.canGoBack() && (
-                <TouchableOpacity onPress={handleBack} hitSlop={12} style={{ marginBottom: 8 }}>
+                <TouchableOpacity
+                  onPress={handleBack}
+                  hitSlop={12}
+                  style={styles.headerBackBtn}
+                >
                   <MaterialIcons name="arrow-back-ios" size={18} color={darkMode ? "#FFFFFF" : Colors.text} />
                 </TouchableOpacity>
               )}
@@ -1640,7 +1727,11 @@ const AuthScreen: React.FC = () => {
   );
 };
 
-const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
+const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
+  const wideWeb =
+    Platform.OS === "web" && windowWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
+
+  return StyleSheet.create({
   gradient: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -1650,45 +1741,74 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: wideWeb ? 24 : 20,
     paddingBottom: 24,
-    justifyContent: "flex-end",
+    paddingTop: wideWeb ? 12 : 0,
+    justifyContent: wideWeb ? "flex-start" : "flex-end",
   },
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 8,
+    ...(wideWeb
+      ? {
+          marginHorizontal: 0,
+          paddingHorizontal: 0,
+          maxWidth: WEB_CENTERED_COLUMN_MAX_WIDTH,
+          alignSelf: "center" as const,
+          width: "100%",
+        }
+      : {
+          marginHorizontal: -20,
+          paddingHorizontal: 8,
+        }),
   },
   headerRow: {
-    marginBottom: 18,
+    marginBottom: wideWeb ? 14 : 18,
+    ...(wideWeb ? { alignItems: "center" as const } : {}),
+  },
+  headerBackBtn: {
+    marginBottom: 8,
+    ...(wideWeb ? { alignSelf: "flex-start" as const } : {}),
   },
   headerTextBlock: {
     marginTop: 8,
+    ...(wideWeb
+      ? {
+          alignItems: "center" as const,
+          alignSelf: "center" as const,
+          width: "100%",
+          maxWidth: 560,
+        }
+      : {}),
   },
   headerEyebrow: {
     color: "#19E180",
     fontSize: 12,
     fontWeight: "600",
     marginBottom: 2,
+    ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "flex-end",
+    ...(wideWeb ? { justifyContent: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   headerTitle: {
     color: isDark ? "#F9FAFB" : Colors.text,
     fontSize: 28,
     fontWeight: "800",
+    ...(wideWeb ? { textAlign: "center" as const } : {}),
   },
   headerTitleAccent: {
     color: "#19E180",
     fontSize: 22,
     fontWeight: "700",
     marginTop: 1,
+    ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   headerSubtitle: {
     color: isDark ? "#FFFFFF" : "#475569",
     fontSize: 13,
     marginTop: 6,
+    ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   cardBorder: {
     borderRadius: 30,
@@ -1704,8 +1824,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   card: {
     backgroundColor: isDark ? "#000000" : "#FFFFFF",
     borderRadius: 28,
-    paddingHorizontal: 18,
-    paddingVertical: 20,
+    paddingHorizontal: wideWeb ? 20 : 18,
+    paddingVertical: wideWeb ? 18 : 20,
   },
   modeToggle: {
     flexDirection: "row",
@@ -1869,6 +1989,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     textDecorationLine: "underline",
   },
 });
+};
 
 export default AuthScreen;
 

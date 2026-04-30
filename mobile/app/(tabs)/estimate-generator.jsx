@@ -91,7 +91,7 @@ import {
   allocateNextProposalNumber,
   formatProposalIdForContract,
 } from '../../utils/proposalNumber';
-import { getTabScrollContentBottomInset } from '../../constants/ScreenLayout';
+import { useTabScrollBottomInset } from '../../hooks/useTabScrollBottomInset';
 import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid';
 
 // Colors will be defined inside the component using theme
@@ -833,6 +833,7 @@ let weeklyPaymentHeaderTop = null;
 // Payment Milestone Modal
 const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const insets = useSafeAreaInsets();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
@@ -873,8 +874,8 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
   const scrollViewContentStyle = useMemo(() => ({
     paddingHorizontal: 20,
     paddingTop: headerTop + 110,
-    paddingBottom: getTabScrollContentBottomInset(insets.bottom),
-  }), [headerTop, insets.bottom]);
+    paddingBottom: tabScrollBottomInset,
+  }), [headerTop, tabScrollBottomInset]);
   
   useEffect(() => {
     if (item) {
@@ -1199,6 +1200,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
 // Weekly Payment Modal
 const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const insets = useSafeAreaInsets();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
@@ -1239,8 +1241,8 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const scrollViewContentStyle = useMemo(() => ({
     paddingHorizontal: 20,
     paddingTop: headerTop + 110,
-    paddingBottom: getTabScrollContentBottomInset(insets.bottom),
-  }), [headerTop, insets.bottom]);
+    paddingBottom: tabScrollBottomInset,
+  }), [headerTop, tabScrollBottomInset]);
   
   useEffect(() => {
     if (item) {
@@ -4321,6 +4323,7 @@ export default function EstimateGeneratorScreen() {
   useRequireAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
   const keyboardHeightRef = useRef(0);
   keyboardHeightRef.current = keyboardHeight;
@@ -18352,7 +18355,7 @@ export default function EstimateGeneratorScreen() {
       !firstEstimateWtIntroResolved ? (
         <FirstEstimateWalkthroughSheetShell
           darkMode={darkMode}
-          bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+          bottomOffset={tabScrollBottomInset}
         >
           <FirstEstimateWalkthroughIntroSheetContent
             darkMode={darkMode}
@@ -18374,7 +18377,7 @@ export default function EstimateGeneratorScreen() {
       {firstEstimateFloatingTipVisible ? (
         <FirstEstimateWalkthroughSheetShell
           darkMode={darkMode}
-          bottomOffset={getTabScrollContentBottomInset(insets.bottom)}
+          bottomOffset={tabScrollBottomInset}
         >
           <FirstEstimateWalkthroughStepSheetContent
             darkMode={darkMode}

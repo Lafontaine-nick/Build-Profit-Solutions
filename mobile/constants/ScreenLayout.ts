@@ -1,7 +1,21 @@
+import { Platform } from 'react-native';
+
 /**
  * Shared layout tokens for tab screens: headers, cards, and bottom inset
  * (floating pill tab bar in app/(tabs)/_layout.tsx).
  */
+
+/** Web ≥ this width: landing, auth, getting-started use a centered max-width column (not full-bleed). */
+export const WEB_CENTERED_COLUMN_MIN_WIDTH = 768;
+/** Max width for that centered column (forms + marketing hero). */
+export const WEB_CENTERED_COLUMN_MAX_WIDTH = 720;
+
+/** Web viewports at or above this width use a left sidebar tab bar (office / desktop). */
+export const DESKTOP_WEB_MIN_WIDTH = 1024;
+
+export function isDesktopWebLayoutWidth(width: number): boolean {
+  return Platform.OS === 'web' && width >= DESKTOP_WEB_MIN_WIDTH;
+}
 
 export const ScreenLayout = {
   edge: {
@@ -36,7 +50,14 @@ export const ScreenLayout = {
   },
 } as const;
 
-export function getTabScrollContentBottomInset(safeAreaBottom: number): number {
+export function getTabScrollContentBottomInset(
+  safeAreaBottom: number,
+  options?: { floatingBottomTabBar?: boolean }
+): number {
+  const floating = options?.floatingBottomTabBar !== false;
+  if (!floating) {
+    return 32 + safeAreaBottom;
+  }
   return (
     ScreenLayout.tabBar.bottomOffset +
     ScreenLayout.tabBar.height +

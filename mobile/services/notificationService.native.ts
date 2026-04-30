@@ -1,18 +1,22 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isExpoWebRuntime } from '@/utils/isExpoWebRuntime';
+import { isReactNativeJsRuntime } from '@/utils/isReactNativeJsRuntime';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// Configure notification behavior (native only — web push uses different APIs;
+// setNotificationHandler + token registration can hit unsupported native/worklet paths)
+if (!isExpoWebRuntime()) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 const NOTIFICATION_TOKEN_KEY = 'expo_push_notification_token';
 const NOTIFICATION_PERMISSION_KEY = 'notification_permission_status';
@@ -28,9 +32,24 @@ export interface NotificationPermissionResult {
  */
 export async function requestNotificationPermissions(): Promise<NotificationPermissionResult> {
   try {
+    if (!isReactNativeJsRuntime()) {
+      return {
+        granted: false,
+        canAskAgain: false,
+        status: Notifications.PermissionStatus.UNDETERMINED,
+      };
+    }
+
+    if (isExpoWebRuntime()) {
+      return {
+        granted: false,
+        canAskAgain: false,
+        status: Notifications.PermissionStatus.UNDETERMINED,
+      };
+    }
+
     // Check if device supports notifications
     if (!Device.isDevice) {
-      console.warn('⚠️ Push notifications only work on physical devices');
       return {
         granted: false,
         canAskAgain: false,
@@ -96,6 +115,22 @@ export async function requestNotificationPermissions(): Promise<NotificationPerm
  */
 export async function getNotificationPermissionStatus(): Promise<NotificationPermissionResult> {
   try {
+    if (!isReactNativeJsRuntime()) {
+      return {
+        granted: false,
+        canAskAgain: false,
+        status: Notifications.PermissionStatus.UNDETERMINED,
+      };
+    }
+
+    if (isExpoWebRuntime()) {
+      return {
+        granted: false,
+        canAskAgain: false,
+        status: Notifications.PermissionStatus.UNDETERMINED,
+      };
+    }
+
     const { status } = await Notifications.getPermissionsAsync();
     return {
       granted: status === 'granted',
@@ -117,16 +152,22 @@ export async function getNotificationPermissionStatus(): Promise<NotificationPer
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    // Check if device supports notifications
-    if (!Device.isDevice) {
-      console.warn('⚠️ Push notifications only work on physical devices');
+    if (!isReactNativeJsRuntime()) {
       return null;
     }
 
-    // Check permissions first
+    if (isExpoWebRuntime()) {
+      return null;
+    }
+
+    // Check if device supports notifications
+    if (!Device.isDevice) {
+      return null;
+    }
+
+    // Check permissions first (native only; getPermissionsAsync is not supported on web)
     const permissionResult = await getNotificationPermissionStatus();
     if (!permissionResult.granted) {
-      console.warn('⚠️ Notification permissions not granted');
       return null;
     }
 
@@ -151,8 +192,6 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     
     // Save token
     await AsyncStorage.setItem(NOTIFICATION_TOKEN_KEY, token);
-    
-    console.log('✅ Push notification token registered:', token);
     return token;
   } catch (error) {
     console.error('Error registering for push notifications:', error);
@@ -182,6 +221,10 @@ export async function scheduleLocalNotification(
   trigger?: Notifications.NotificationTriggerInput
 ): Promise<string> {
   try {
+    if (!isReactNativeJsRuntime() || isExpoWebRuntime()) {
+      return '';
+    }
+
     const identifier = await Notifications.scheduleNotificationAsync({
       content: {
         title,
@@ -204,6 +247,7 @@ export async function scheduleLocalNotification(
  */
 export async function cancelNotification(identifier: string): Promise<void> {
   try {
+    if (!isReactNativeJsRuntime() || isExpoWebRuntime()) return;
     await Notifications.cancelScheduledNotificationAsync(identifier);
   } catch (error) {
     console.error('Error canceling notification:', error);
@@ -215,6 +259,7 @@ export async function cancelNotification(identifier: string): Promise<void> {
  */
 export async function cancelAllNotifications(): Promise<void> {
   try {
+    if (!isReactNativeJsRuntime() || isExpoWebRuntime()) return;
     await Notifications.cancelAllScheduledNotificationsAsync();
   } catch (error) {
     console.error('Error canceling all notifications:', error);
@@ -239,6 +284,10 @@ export async function getStoredPushToken(): Promise<string | null> {
  */
 export async function initializeNotificationService(): Promise<void> {
   try {
+    if (!isReactNativeJsRuntime() || isExpoWebRuntime()) {
+      return;
+    }
+
     // Set up notification received handler (when app is in foreground)
     Notifications.addNotificationReceivedListener(notification => {
       console.log('📬 Notification received:', notification);
