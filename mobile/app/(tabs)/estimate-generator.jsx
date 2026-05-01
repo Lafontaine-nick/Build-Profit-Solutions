@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   Pressable,
   Linking,
-  LayoutAnimation,
   Share,
   StatusBar,
   FlatList,
@@ -30,10 +29,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import GreyCalendar from '../../components/GreyCalendar';
 import * as Haptics from 'expo-haptics';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons, MaterialCommunityIcons, Feather, MaterialIcons } from '@expo/vector-icons';
 import AttachSkuModal from '../../components/AttachSkuModal';
 import SavedMaterialsScreen from '../../components/SavedMaterialsScreen';
@@ -938,7 +934,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
       visible={visible}
       transparent
       animationType="slide"
-      presentationStyle="overFullScreen"
+      {...(Platform.OS !== 'web' ? { presentationStyle: 'overFullScreen' } : {})}
       onRequestClose={onClose}
     >
       <SafeAreaView edges={[]} style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -1298,7 +1294,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       visible={visible}
       transparent
       animationType="slide"
-      presentationStyle="overFullScreen"
+      {...(Platform.OS !== 'web' ? { presentationStyle: 'overFullScreen' } : {})}
       onRequestClose={onClose}
     >
       <SafeAreaView edges={[]} style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -1695,7 +1691,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     if (!visible || !isMaterial) return;
     const kb = Math.max(keyboardHeightRef.current || 0, Platform.OS === 'ios' ? 290 : 260);
     const marginAboveKeyboard = Platform.OS === 'ios' ? 88 : 72;
-    materialVendorBlockRef.current?.measureInWindow((_x, y, _w, h) => {
+    materialVendorBlockRef.current?.measureInWindow?.((_x, y, _w, h) => {
       const winH = Dimensions.get('window').height;
       const keyboardTopY = winH - kb;
       const clearLineY = keyboardTopY - marginAboveKeyboard;
@@ -1729,8 +1725,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="fullScreen"
-      statusBarTranslucent
+      {...(Platform.OS !== 'web'
+        ? { presentationStyle: 'fullScreen', statusBarTranslucent: true }
+        : {})}
       onRequestClose={onClose}
     >
       {Platform.OS === 'ios' && (
@@ -4438,7 +4435,7 @@ export default function EstimateGeneratorScreen() {
     if (step !== forStep) return;
     const kb = Math.max(keyboardHeightRef.current || 0, Platform.OS === 'ios' ? 290 : 260);
     const marginAboveKeyboard = Platform.OS === 'ios' ? 88 : 72;
-    blockRef.current?.measureInWindow((_x, y, _w, h) => {
+    blockRef.current?.measureInWindow?.((_x, y, _w, h) => {
       const winH = Dimensions.get('window').height;
       const keyboardTopY = winH - kb;
       const clearLineY = keyboardTopY - marginAboveKeyboard;
@@ -9033,7 +9030,27 @@ export default function EstimateGeneratorScreen() {
       return assetPath || null;
     }
 
+    /** `expo-file-system/legacy` must not be imported at module scope on web — it breaks the Estimates bundle. */
+    if (Platform.OS === 'web') {
+      try {
+        const response = await fetch(assetPath);
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('FileReader failed'));
+          reader.readAsDataURL(blob);
+        });
+        return typeof dataUrl === 'string' ? dataUrl : null;
+      } catch (error) {
+        console.error('Failed to convert contract brand image (web):', error);
+        return null;
+      }
+    }
+
     try {
+      const FileSystem = require('expo-file-system/legacy');
       const base64 = await FileSystem.readAsStringAsync(assetPath, {
         encoding: 'base64',
       });
@@ -17709,6 +17726,15 @@ export default function EstimateGeneratorScreen() {
           keyboardVerticalOffset: 20,
         };
 
+  /** iOS-only ScrollView props — passing them on web can break react-native-web (Estimates white screen). */
+  const estimatesMainScrollIosProps =
+    Platform.OS === 'ios'
+      ? {
+          automaticallyAdjustKeyboardInsets: true,
+          contentInsetAdjustmentBehavior: 'never',
+        }
+      : {};
+
   return (
     <SafeAreaView style={s.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
@@ -17751,9 +17777,8 @@ export default function EstimateGeneratorScreen() {
           }}
           showsVerticalScrollIndicator={false}
           {...KEYBOARD_SCROLL_DEFAULTS}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           automaticallyAdjustContentInsets={false}
-          contentInsetAdjustmentBehavior="never"
+          {...estimatesMainScrollIosProps}
           style={{ backgroundColor: darkMode ? '#000000' : Colors.bg }}
         >
         {/* Header */}

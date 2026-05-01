@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Alert,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -37,7 +38,7 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
-import { ScreenLayout } from "@/constants/ScreenLayout";
+import { ScreenLayout, isDesktopWebLayoutWidth } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
@@ -4240,6 +4241,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   filteredNextSteps,
   timelineLatestPlannedMs,
 }) => {
+  const { width: windowWidth } = useWindowDimensions();
+  const desktopWideWeb = isDesktopWebLayoutWidth(windowWidth);
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -4257,12 +4260,13 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
 
   const aiInsightsCollapsedHint = useMemo(() => {
+    const expandVerb = desktopWideWeb ? "Click" : "Tap";
     if (aiLoading) return "Analyzing your projects…";
     if (aiError) return aiError;
     if (!aiPmMode) return "Turn on AI PM Mode to see insights.";
-    if (insightCount === 0) return "No major issues detected. Tap to expand.";
-    return `${insightCount} insight${insightCount === 1 ? "" : "s"} · Tap to expand`;
-  }, [aiLoading, aiError, aiPmMode, insightCount]);
+    if (insightCount === 0) return `No major issues detected. ${expandVerb} to expand.`;
+    return `${insightCount} insight${insightCount === 1 ? "" : "s"} · ${expandVerb} to expand`;
+  }, [aiLoading, aiError, aiPmMode, insightCount, desktopWideWeb]);
 
   const toggleAiInsights = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -4276,9 +4280,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         <View>
           <Text style={styles.sectionTitle}>Key Metrics</Text>
           <Text style={styles.sectionSubtitle}>This month at a glance</Text>
-                    </View>
-        <Text style={styles.metricsSwipeHint}>Swipe</Text>
-                  </View>
+        </View>
+        {!desktopWideWeb ? (
+          <Text style={styles.metricsSwipeHint}>Swipe</Text>
+        ) : null}
+      </View>
 
         <View
           style={[
@@ -4290,7 +4296,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         >
           <ScrollView
             horizontal
-            showsHorizontalScrollIndicator={false}
+            showsHorizontalScrollIndicator={desktopWideWeb}
             contentContainerStyle={{ paddingRight: 28, paddingLeft: 2 }}
           >
           <EnhancedMetricCard

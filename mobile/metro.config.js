@@ -15,6 +15,7 @@ const pngJsBrowserEntry = require.resolve('@react-pdf/png-js/lib/png-js.browser.
 const yogaShimEntry = require.resolve('./lib/proposals/reactPdfYogaShim.js');
 const reanimatedWebShimEntry = require.resolve('./shims/reactNativeReanimated.web.js');
 const workletsWebShimEntry = require.resolve('./shims/reactNativeWorklets.web.js');
+const expoBlurWebEntry = require.resolve('./shims/expoBlur.web.tsx');
 
 /** Prefer compiled JS: package "react-native" field points at ./src (TS); Metro can leave stale edges to removed paths (e.g. 0.8.x src/memory/*) after version changes. */
 const workletsLibEntry = require.resolve('react-native-worklets/lib/module/index.js');
@@ -26,6 +27,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (platform === 'web' && moduleName === 'react-native-worklets') {
     return { filePath: workletsWebShimEntry, type: 'sourceFile' };
+  }
+  if (platform === 'web' && moduleName === 'expo-blur') {
+    return { filePath: expoBlurWebEntry, type: 'sourceFile' };
   }
   if (moduleName === 'react-native-worklets') {
     return { filePath: workletsLibEntry, type: 'sourceFile' };

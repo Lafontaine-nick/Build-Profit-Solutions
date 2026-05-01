@@ -22,8 +22,7 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Don't log anything that might cause text rendering issues
-    // Just silently handle the error
+    console.error('[ErrorBoundary]', error?.message || error, error?.stack, errorInfo?.componentStack);
   }
 
   handleRetry = () => {

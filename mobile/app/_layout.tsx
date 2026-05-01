@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import * as Font from 'expo-font';
 import { useFonts as useMontserrat, Montserrat_700Bold } from '@expo-google-fonts/montserrat';
 import { useFonts as useSaira, Saira_400Regular } from '@expo-google-fonts/saira';
-import { View, Text, Platform, Keyboard } from 'react-native';
+import { View, Text, Platform, Keyboard, type StyleProp, type ViewStyle } from 'react-native';
 import KeyboardDoneBar from '../components/KeyboardDoneBar';
 import { KEYBOARD_ACCESSORY_IDS } from '../constants/keyboard';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
@@ -33,6 +33,12 @@ import '../i18n/config'; // Initialize i18n
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapper';
 import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';
+
+/** RN-web: avoid short viewport / rubber-band glitches when the shell does not fill the window. */
+const gestureHandlerRootStyle: StyleProp<ViewStyle> =
+  Platform.OS === 'web'
+    ? ({ flex: 1, minHeight: '100vh' } as ViewStyle)
+    : { flex: 1 };
 
 // Component to apply theme-aware styling and StatusBar
 function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
@@ -275,7 +281,13 @@ function AuthGateWithClerk() {
   }
 
   console.log('AuthGate - Showing main app');
-  return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} />;
+  // Without this, Expo Router can default to `index` (landing) after auth/profile gates — bad for web OAuth → /dashboard.
+  return (
+    <Stack
+      screenOptions={{ headerShown: false, gestureEnabled: false }}
+      initialRouteName="(tabs)"
+    />
+  );
 }
 
 function AuthGateWithoutClerk() {
@@ -360,9 +372,10 @@ function AuthGateWithoutClerk() {
   // User is authenticated, show main app (all routes including tabs)
   console.log('AuthGate - User authenticated, showing main app');
   return (
-    <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
-      {/* All routes are accessible when authenticated */}
-    </Stack>
+    <Stack
+      screenOptions={{ headerShown: false, gestureEnabled: false }}
+      initialRouteName="(tabs)"
+    />
   );
 }
 
@@ -402,7 +415,7 @@ export default function RootLayout() {
   if (!useClerk) {
     console.log('⚠️  Running without Clerk authentication (using placeholder key or missing)');
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={gestureHandlerRootStyle}>
         <ErrorBoundary>
         <ApiProvider>
           <WalkthroughStateProviderLegacy>
@@ -433,7 +446,7 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={gestureHandlerRootStyle}>
       <ErrorBoundary>
         <ApiProvider>
           <ClerkProvider publishableKey={publishableKey} tokenCache={clerkTokenCache}>

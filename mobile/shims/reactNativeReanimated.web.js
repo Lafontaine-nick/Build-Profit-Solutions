@@ -17,13 +17,11 @@ function makeSharedValue(initialValue) {
 }
 
 function useAnimatedStyle(updater) {
-  return React.useMemo(() => {
-    try {
-      return typeof updater === 'function' ? updater() : {};
-    } catch {
-      return {};
-    }
-  }, [updater]);
+  try {
+    return typeof updater === 'function' ? updater() : {};
+  } catch {
+    return {};
+  }
 }
 
 function interpolate(value, inputRange = [0, 1], outputRange = [0, 1]) {
