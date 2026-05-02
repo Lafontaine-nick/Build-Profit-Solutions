@@ -23,7 +23,7 @@ import Constants from 'expo-constants';
 let signInHookFactory: any = null;
 let clerkInstanceFactory: any = null;
 try {
-  const clerkModule = require('@clerk/clerk-expo');
+  const clerkModule = require('@clerk/clerk-react');
   signInHookFactory = clerkModule.useSignIn;
   clerkInstanceFactory = clerkModule.useClerk;
 } catch (e) {

@@ -32,7 +32,7 @@ import { getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 let useUserHook: (() => { user?: { primaryEmailAddress?: { emailAddress?: string }; emailAddresses?: { emailAddress?: string }[] } | null }) | null =
   null;
 try {
-  useUserHook = require('@clerk/clerk-expo').useUser;
+  useUserHook = require('@clerk/clerk-react').useUser;
 } catch {
   useUserHook = null;
 }

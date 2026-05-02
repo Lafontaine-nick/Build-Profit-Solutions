@@ -137,5 +137,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '500',
     paddingVertical: 16,
+    ...(Platform.OS === 'web'
+      ? ({
+          outlineStyle: 'none',
+          outlineWidth: 0,
+        } as const)
+      : {}),
   },
 });

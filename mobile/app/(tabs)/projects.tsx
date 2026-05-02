@@ -18,6 +18,7 @@ import {
   Dimensions,
   BackHandler,
   PanResponder,
+  useWindowDimensions,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -38,7 +39,7 @@ import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProfitForecast } from '@/src/lib/profitForecast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenLayout } from '@/constants/ScreenLayout';
+import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import {
   FirstEstimateWalkthroughSheetShell,
@@ -52,7 +53,7 @@ import {
   getPendingActiveProjectWalkthroughProjectId,
   clearPendingActiveProjectWalkthroughProjectId,
 } from '@/lib/activeProjectWalkthroughStorage';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
@@ -436,10 +437,19 @@ export default function ProjectsScreen() {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
+  const { width: layoutWidth } = useWindowDimensions();
+  const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
+  const webScrollContentCap = desktopWeb
+    ? {
+        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+        width: "100%" as const,
+        alignSelf: "center" as const,
+      }
+    : undefined;
   const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
-    () => getStyles(Colors, darkMode, tabScrollBottomInset),
-    [Colors, darkMode, tabScrollBottomInset]
+    () => getStyles(Colors, darkMode, tabScrollBottomInset, desktopWeb),
+    [Colors, darkMode, tabScrollBottomInset, desktopWeb]
   );
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
@@ -1292,11 +1302,17 @@ export default function ProjectsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView
+      style={[
+        styles.root,
+        Platform.OS === "web" && desktopWeb && styles.rootDesktopWeb,
+      ]}
+    >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
+          webScrollContentCap,
           activeProjectWalkthroughScrollPadBottom > 0 && {
             paddingBottom: tabScrollBottomInset + activeProjectWalkthroughScrollPadBottom,
           },
@@ -1798,19 +1814,24 @@ export default function ProjectsScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 120) => StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 120, desktopWeb = false) => {
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
+  rootDesktopWeb: {
+    backgroundColor: Colors.bg === "#000000" ? Colors.bg : "#f1f5f9",
+  },
   scrollContent: {
-    paddingTop: ScreenLayout.screen.paddingTop,
-    paddingHorizontal: ScreenLayout.edge.horizontal,
+    paddingTop: desktopWeb ? 24 : ScreenLayout.screen.paddingTop,
+    paddingHorizontal: edge,
     paddingBottom: scrollBottomInset,
   },
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 4,
+    marginHorizontal: -edge,
+    paddingHorizontal: desktopWeb ? 8 : 4,
   },
   projectsHeaderWrap: {
     marginBottom: 4,
@@ -2154,9 +2175,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.cardDark,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.cardDark,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.3)' : Colors.line,
+    borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : Colors.line,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2339,3 +2360,4 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontWeight: '700',
   },
 });
+};

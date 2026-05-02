@@ -1,6 +1,17 @@
+const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
+
+/**
+ * Metro can bundle more than one physical copy of `@clerk/clerk-react` / `@clerk/shared`.
+ * Clerk contexts are module-singletons — duplicates cause `AuthContext not found` on web.
+ */
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules || {}),
+  '@clerk/clerk-react': path.join(__dirname, 'node_modules', '@clerk/clerk-react'),
+  '@clerk/shared': path.join(__dirname, 'node_modules', '@clerk/shared'),
+};
 
 /**
  * @react-pdf packages ship separate browser builds (no `fs`). Metro's resolver

@@ -1,4 +1,4 @@
-import { Stack, useSegments } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { ProjectListProvider } from '../contexts/ProjectListContext';
@@ -18,8 +18,8 @@ import notificationService from '../services/notificationService';
 import { NotificationProvider } from '../contexts/NotificationContext';
 import { LanguageProvider } from '../contexts/LanguageContext';
 import { useUserRole } from '../contexts/UserRoleContext';
-import { ClerkProvider, useAuth, useUser } from '@clerk/clerk-expo';
-import clerkTokenCache from '../utils/clerkTokenCache';
+import { useAuth, useUser } from '@clerk/clerk-react';
+import ClerkWebBootstrap from '../components/ClerkWebBootstrap';
 import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
@@ -33,6 +33,8 @@ import '../i18n/config'; // Initialize i18n
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapper';
 import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';
+import { ClerkUiProvider } from '../contexts/ClerkUiContext';
+import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
 
 /** RN-web: avoid short viewport / rubber-band glitches when the shell does not fill the window. */
 const gestureHandlerRootStyle: StyleProp<ViewStyle> =
@@ -280,20 +282,17 @@ function AuthGateWithClerk() {
     </Stack>;
   }
 
-  console.log('AuthGate - Showing main app');
-  // Without this, Expo Router can default to `index` (landing) after auth/profile gates — bad for web OAuth → /dashboard.
+  // Signed-in returning users always land on the marketing homepage (`index`). Get Started → app
+  // (skip sign-in only when “stay signed in” is on) is handled in `landing.tsx`.
+  console.log('AuthGate - Showing main app shell (homepage first)');
   return (
-    <Stack
-      screenOptions={{ headerShown: false, gestureEnabled: false }}
-      initialRouteName="(tabs)"
-    />
+    <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index" />
   );
 }
 
 function AuthGateWithoutClerk() {
   const [isAuthenticated, setIsAuthenticated] = React.useState<boolean | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
-  const segments = useSegments();
   const {
     hydrated: wtHydrated,
     shouldShowAppOnboarding,
@@ -369,13 +368,9 @@ function AuthGateWithoutClerk() {
     );
   }
 
-  // User is authenticated, show main app (all routes including tabs)
-  console.log('AuthGate - User authenticated, showing main app');
+  console.log('AuthGate - User authenticated, main app (homepage first)');
   return (
-    <Stack
-      screenOptions={{ headerShown: false, gestureEnabled: false }}
-      initialRouteName="(tabs)"
-    />
+    <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index" />
   );
 }
 
@@ -396,25 +391,27 @@ export default function RootLayout() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0b1c38' }}><Text style={{ color: '#fff' }}>Loading...</Text></View>;
   }
 
-  // Get the Clerk publishable key from the extra config
-  const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  // Same resolution as `isClerkEnabled()` / landing (web-safe extras + manifest fallbacks).
+  const publishableKey = getClerkPublishableKey();
 
   // Debug logging
   console.log('RootLayout - Clerk publishable key:', publishableKey ? 'Found' : 'Not found');
   console.log('RootLayout - Key value:', publishableKey);
   console.log('RootLayout - Constants.expoConfig?.extra:', Constants.expoConfig?.extra);
 
-  // Temporarily bypass Clerk authentication if key is invalid or missing
-  const useClerk = publishableKey && (
-    publishableKey.startsWith('pk_live_') || 
-    (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk')
+  const clerkEnabled = !!(
+    publishableKey &&
+    (publishableKey.startsWith('pk_live_') ||
+      (publishableKey.startsWith('pk_test_') &&
+        publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'))
   );
 
-  console.log('RootLayout - useClerk:', useClerk, 'publishableKey:', publishableKey?.substring(0, 20) + '...');
+  console.log('RootLayout - clerkEnabled:', clerkEnabled, 'publishableKey:', publishableKey?.substring(0, 20) + '...');
 
-  if (!useClerk) {
+  if (!clerkEnabled) {
     console.log('⚠️  Running without Clerk authentication (using placeholder key or missing)');
     return (
+      <ClerkUiProvider clerkEnabled={false}>
       <GestureHandlerRootView style={gestureHandlerRootStyle}>
         <ErrorBoundary>
         <ApiProvider>
@@ -442,14 +439,16 @@ export default function RootLayout() {
         </ApiProvider>
         </ErrorBoundary>
       </GestureHandlerRootView>
+      </ClerkUiProvider>
     );
   }
 
   return (
+    <ClerkUiProvider clerkEnabled={true}>
     <GestureHandlerRootView style={gestureHandlerRootStyle}>
       <ErrorBoundary>
         <ApiProvider>
-          <ClerkProvider publishableKey={publishableKey} tokenCache={clerkTokenCache}>
+          <ClerkWebBootstrap publishableKey={publishableKey}>
             <WalkthroughStateProvider>
               <UserRoleProvider>
                 <ProjectListProvider>
@@ -473,9 +472,10 @@ export default function RootLayout() {
                 </ProjectListProvider>
               </UserRoleProvider>
             </WalkthroughStateProvider>
-          </ClerkProvider>
+          </ClerkWebBootstrap>
         </ApiProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
+    </ClerkUiProvider>
   );
 }

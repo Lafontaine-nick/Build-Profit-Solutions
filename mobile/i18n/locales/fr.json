@@ -118,6 +118,7 @@
     "aiPowered": "Outils alimentés par l'IA, conçus pour les entrepreneurs",
     "getStarted": "Créez et gérez des estimations rentables",
     "getStartedButton": "COMMENCER",
+    "checkingSessionButton": "VÉRIFICATION DE LA SESSION…",
     "launchDescription": "Estimation par IA, coûts de chantier et suivi de projets, conçu pour les entrepreneurs.",
     "aiEstimates": "Estimations IA",
     "profitTracking": "Suivi des Profits",
@@ -125,6 +126,8 @@
     "dataPrivacy": "Données privées et sécurisées",
     "whatBuildersSay": "Ce que Disent les Constructeurs",
     "trustedBy": "Approuvé par les entrepreneurs à travers le pays",
+    "testimonialQuote": "« Le meilleur outil pour gérer les projets de construction. »",
+    "testimonialAttribution": "— David Rodriguez, Entrepreneur",
     "contractorFeedbackTitle": "Conçu avec le retour des entrepreneurs",
     "contractorFeedbackSubtitle": "Tests en cours avec de vrais entrepreneurs et équipes de chantier."
   },

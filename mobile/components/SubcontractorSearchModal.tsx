@@ -18,6 +18,7 @@ import {
   Animated,
   StatusBar,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,6 +36,9 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { WEB_CENTERED_COLUMN_MIN_WIDTH } from '@/constants/ScreenLayout';
+
+const SUBCONTRACTOR_SEARCH_WEB_MAX_WIDTH = 900;
 
 /** Off by default — set `EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED=true` + `YELP_API_KEY` on backend when you enable Yelp. */
 function isYelpSubSearchEnabled(): boolean {
@@ -56,9 +60,6 @@ const TRADE_OPTIONS = [
   'Concrete',
   'Landscaping',
 ];
-
-/** Matches estimate-generator Step 4 `GlassBorderCard` / `GRAD` — green → cyan border */
-const ESTIMATE_STEP_GLASS_BORDER_GRAD = ['#2DFFC4', '#00A6FF'] as const;
 
 /**
  * UI-only samples when Yelp is off and there are no campaign subs — not real Yelp listings.
@@ -162,6 +163,18 @@ function SubcontractorSearchModal({
   const { createConversation } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: layoutWidth } = useWindowDimensions();
+  const webConstrainedForm =
+    Platform.OS === 'web' && layoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH
+      ? { maxWidth: SUBCONTRACTOR_SEARCH_WEB_MAX_WIDTH, width: '100%' as const, alignSelf: 'center' as const }
+      : undefined;
+  const inputWebOutline =
+    Platform.OS === 'web'
+      ? { outlineStyle: 'none' as const, outlineWidth: 0 }
+      : {};
+  /** Wide enough to sit Refresh + Request in one row without cramming (native phones stay stacked). */
+  const subSearchActionsRow =
+    Platform.OS === 'web' ? layoutWidth >= 520 : Dimensions.get('window').width >= 520;
   const [selectedTrade, setSelectedTrade] = useState('All Trades');
   const [zipCode, setZipCode] = useState(defaultZip);
   const [searchQuery, setSearchQuery] = useState('');
@@ -682,13 +695,11 @@ function SubcontractorSearchModal({
             paddingHorizontal: 22,
             paddingTop: Math.max(insets.top, 0) + 10,
             paddingBottom: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
             backgroundColor: darkMode ? '#000000' : Colors.bg,
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
           }}>
+              <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webConstrainedForm]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
                 <LinearGradient
                   colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -734,21 +745,25 @@ function SubcontractorSearchModal({
               </View>
 
               <View style={{ width: 52 }} />
+              </View>
             </View>
 
           {/* Scrollable Content */}
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{ 
-              paddingTop: 18,
+              paddingTop: 14,
               paddingBottom: 40,
+              paddingHorizontal: 20,
+              ...(webConstrainedForm ? { alignItems: 'center' } : {}),
             }}
             showsVerticalScrollIndicator={false}
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
+          <View style={[{ width: '100%' }, webConstrainedForm]}>
           {/* Trade Selector */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 14 }}>
-            <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', marginBottom: 10, fontSize: 12, fontWeight: '600', letterSpacing: 0.35, textTransform: 'uppercase', opacity: 0.9 }}>Trade</Text>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000', marginBottom: 8, fontSize: 11, fontWeight: '600', letterSpacing: 0.45, textTransform: 'uppercase' }}>Trade</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
               {TRADE_OPTIONS.map(trade => (
                 <TouchableOpacity
@@ -780,52 +795,55 @@ function SubcontractorSearchModal({
           </View>
 
           {/* Search Inputs */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 14 }}>
+          <View style={{ marginBottom: 12 }}>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by name or specialty..."
-                placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
+                placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                 style={{
                   flex: 1,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
-                  paddingHorizontal: 16,
-                  paddingVertical: 13,
-                  borderRadius: 14,
+                  paddingHorizontal: 14,
+                  paddingVertical: 11,
+                  borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
                   fontSize: 15,
+                  ...inputWebOutline,
                 }}
               />
               <TextInput
                 value={zipCode}
                 onChangeText={setZipCode}
                 placeholder="ZIP"
-                placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
+                placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                 keyboardType="phone-pad"
                 textContentType="none"
                 autoComplete="off"
                 maxLength={5}
                 style={{
                   width: 86,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
                   color: darkMode ? '#FFFFFF' : '#000000',
-                  paddingHorizontal: 12,
-                  paddingVertical: 13,
-                  borderRadius: 14,
+                  paddingHorizontal: 10,
+                  paddingVertical: 11,
+                  borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
                   fontSize: 15,
                   textAlign: 'center',
+                  ...inputWebOutline,
                 }}
               />
             </View>
           </View>
 
           {/* Search & Request Buttons */}
-          <View style={{ marginHorizontal: -20, paddingHorizontal: 28, marginBottom: 18 }}>
+          <View style={{ marginBottom: 16 }}>
+            <View style={{ flexDirection: subSearchActionsRow ? 'row' : 'column', gap: 10, alignItems: 'stretch' }}>
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -834,9 +852,9 @@ function SubcontractorSearchModal({
               activeOpacity={0.9}
               disabled={loading}
               style={{
-                borderRadius: 14,
+                flex: 1,
+                borderRadius: 12,
                 overflow: 'hidden',
-                marginBottom: 10,
                 opacity: loading ? 0.88 : 1,
               }}
             >
@@ -845,9 +863,10 @@ function SubcontractorSearchModal({
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={{
-                  paddingVertical: 15,
+                  paddingVertical: 11,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  minHeight: 42,
                   shadowColor: '#000000',
                   shadowOpacity: darkMode ? 0.25 : 0.12,
                   shadowRadius: 8,
@@ -855,7 +874,7 @@ function SubcontractorSearchModal({
                   elevation: 3,
                 }}
               >
-                <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 16, letterSpacing: 0.2 }}>
+                <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
                   {loading
                     ? yelpSubSearchEnabled
                       ? 'Searching...'
@@ -877,22 +896,25 @@ function SubcontractorSearchModal({
                 console.log('✅ handleRequestSubcontractor called');
               }}
               style={{
+                flex: 1,
                 backgroundColor: 'transparent',
-                paddingVertical: 12,
-                borderRadius: 14,
+                paddingVertical: 10,
+                borderRadius: 12,
                 borderWidth: 1,
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.24)' : Colors.line,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
                 flexDirection: 'row',
                 justifyContent: 'center',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
+                minHeight: 42,
               }}
             >
-              <MaterialIcons name="send" size={18} color={darkMode ? 'rgba(226, 232, 240, 0.75)' : Colors.sub} />
-              <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.88)' : Colors.text, textAlign: 'center', fontWeight: '600', fontSize: 14 }}>
+              <MaterialIcons name="send" size={17} color={darkMode ? 'rgba(226, 232, 240, 0.85)' : Colors.sub} />
+              <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text, textAlign: 'center', fontWeight: '600', fontSize: 13 }}>
                 Request Subcontractor
               </Text>
             </TouchableOpacity>
+            </View>
           </View>
 
             {/* Loading */}
@@ -907,26 +929,31 @@ function SubcontractorSearchModal({
 
             {/* Results */}
             {!loading && results.length > 0 && (
-              <View style={{ marginHorizontal: -20, paddingHorizontal: 28 }}>
+              <View>
                 <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
                   {results.length} Subcontractor{results.length !== 1 ? 's' : ''} Found
                 </Text>
                 
                 {results.map(sub => (
-                <LinearGradient
+                <View
                   key={sub.id}
-                  colors={[...ESTIMATE_STEP_GLASS_BORDER_GRAD]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{ borderRadius: 14, padding: 1, marginBottom: 10 }}
+                  style={{
+                    marginBottom: 10,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
+                    borderLeftWidth: 3,
+                    borderLeftColor: 'rgba(45, 255, 196, 0.45)',
+                    overflow: 'hidden',
+                  }}
                 >
                   <View
                     style={{
-                      borderRadius: 13,
+                      borderRadius: 11,
                       overflow: 'hidden',
                       backgroundColor: darkMode ? Colors.card : Colors.bg,
-                      borderWidth: 1,
-                      borderColor: Colors.line,
+                      borderWidth: 0,
                     }}
                   >
                   <TouchableOpacity
@@ -1014,8 +1041,8 @@ function SubcontractorSearchModal({
                         </View>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                        <MaterialIcons name="star" size={15} color="#fbbf24" style={{ marginRight: 4 }} />
                         <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>
-                          ⭐{' '}
                           {typeof sub.rating === 'number' && !Number.isNaN(sub.rating)
                             ? sub.rating.toFixed(1)
                             : sub.rating}
@@ -1079,16 +1106,25 @@ function SubcontractorSearchModal({
                   </View>
 
                   {/* Details */}
-                  <View style={{ marginBottom: 8, gap: 4 }}>
-                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
-                      📍 {sub.location} ({sub.distance} mi)
-                    </Text>
-                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
-                      💰 ${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr
-                    </Text>
-                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
-                      📅 {sub.availability}
-                    </Text>
+                  <View style={{ marginBottom: 8, gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name="place" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
+                        {sub.location} ({sub.distance} mi)
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name="payments" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
+                        ${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons name="event-available" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
+                        {sub.availability}
+                      </Text>
+                    </View>
                   </View>
 
                   {/* Specialties */}
@@ -1106,15 +1142,14 @@ function SubcontractorSearchModal({
                       style={{
                         flex: 1,
                         backgroundColor: '#22c55e',
-                        paddingVertical: 11,
+                        paddingVertical: 9,
                         borderRadius: 10,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        minHeight: 44,
                         shadowColor: '#000000',
-                        shadowOpacity: 0.15,
-                        shadowRadius: 6,
-                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.12,
+                        shadowRadius: 4,
+                        shadowOffset: { width: 0, height: 1 },
                         elevation: 2,
                       }}
                       onPress={() => {
@@ -1129,14 +1164,13 @@ function SubcontractorSearchModal({
                         style={{
                           flex: 1,
                           backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                          paddingVertical: 11,
+                          paddingVertical: 9,
                           borderRadius: 10,
                           borderWidth: 1,
                           borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
                           alignItems: 'center',
                           flexDirection: 'row',
                           justifyContent: 'center',
-                          minHeight: 44,
                         }}
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1159,13 +1193,12 @@ function SubcontractorSearchModal({
                       style={{
                         flex: 1,
                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                        paddingVertical: 11,
+                        paddingVertical: 9,
                         borderRadius: 10,
                         borderWidth: 1,
                         borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        minHeight: 44,
                       }}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1179,7 +1212,7 @@ function SubcontractorSearchModal({
                   </View>
                   </TouchableOpacity>
                   </View>
-                </LinearGradient>
+                </View>
                 ))}
                 
                 {yelpSubSearchEnabled && yelpResults.length > 0 ? (
@@ -1223,6 +1256,7 @@ function SubcontractorSearchModal({
                 </TouchableOpacity>
               </View>
             )}
+          </View>
           </ScrollView>
           </Animated.View>
           

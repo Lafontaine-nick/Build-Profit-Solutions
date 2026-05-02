@@ -19,7 +19,7 @@ import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 
 type PlanCatalogEntry = {
   id: string;

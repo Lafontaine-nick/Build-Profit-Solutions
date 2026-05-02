@@ -50,7 +50,7 @@ import { resetActiveProjectWalkthroughStorage } from '@/lib/activeProjectWalkthr
 let useClerkAuth: any = null;
 let useUser: any = null;
 try {
-  const clerkModule = require('@clerk/clerk-expo');
+  const clerkModule = require('@clerk/clerk-react');
   useClerkAuth = clerkModule.useAuth;
   useUser = clerkModule.useUser;
 } catch (e) {

@@ -47,6 +47,7 @@ import {
   StatusBar,
   StyleSheet,
   InputAccessoryView,
+  useWindowDimensions,
 } from "react-native";
 
 /** Get API base URL dynamically (recomputes each time to ensure fresh detection) */
@@ -69,6 +70,10 @@ import {
   textInputPhonePadDoneAccessory,
 } from '@/constants/inputKeyboardPresets';
 import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import { WEB_CENTERED_COLUMN_MIN_WIDTH } from '@/constants/ScreenLayout';
+
+/** Web (viewport ≥ 768px): cap form width — same 900px column as Add Material / Find Subcontractors */
+const SKU_SEARCH_WEB_MAX_WIDTH = 900;
 
 /** Backend (esp. older production) may still return placehold.co "fake" thumbnails — never show those as product photos. */
 function isPlaceholderImageUrl(u: string | null | undefined): boolean {
@@ -182,17 +187,6 @@ export default function AttachSkuModal({
     }
   }, [visible, defaultZip, isRentalMode]);
 
-  // Log when results change
-  React.useEffect(() => {
-    console.log('🔍 Results updated - count:', results.length);
-    if (results.length > 0) {
-      console.log('✅ Results are available - should be displayed');
-      console.log('✅ First result:', results[0]?.title?.substring(0, 30));
-    } else {
-      console.log('⚠️ No results to display');
-    }
-  }, [results]);
-
   const [q, setQ] = useState("");
   const [zip, setZip] = useState(defaultZip);
   const [store, setStore] = useState<Store>("hd");
@@ -204,6 +198,27 @@ export default function AttachSkuModal({
   const [quantities, setQuantities] = useState<Map<string, number>>(new Map()); // Quantity per SKU
   const [watchedItems, setWatchedItems] = useState<Set<string>>(new Set()); // Watched/Saved items
   const insets = useSafeAreaInsets();
+  const { width: layoutWidth } = useWindowDimensions();
+  const webConstrainedForm =
+    Platform.OS === 'web' && layoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH
+      ? { maxWidth: SKU_SEARCH_WEB_MAX_WIDTH, width: '100%', alignSelf: 'center' as const }
+      : undefined;
+
+  const inputWebOutline =
+    Platform.OS === 'web'
+      ? { outlineStyle: 'none' as const, outlineWidth: 0 }
+      : {};
+
+  // Log when results change (must be after `results` state — TDZ if placed above useState)
+  React.useEffect(() => {
+    console.log('🔍 Results updated - count:', results.length);
+    if (results.length > 0) {
+      console.log('✅ Results are available - should be displayed');
+      console.log('✅ First result:', results[0]?.title?.substring(0, 30));
+    } else {
+      console.log('⚠️ No results to display');
+    }
+  }, [results]);
 
   // Load saved items when results change
   useEffect(() => {
@@ -683,10 +698,11 @@ export default function AttachSkuModal({
           <View style={{
             paddingHorizontal: 20,
             paddingTop: Math.max(insets.top, 12),
-            paddingBottom: 14,
+            paddingBottom: 12,
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(0,0,0,0.08)',
           }}>
+            <View style={webConstrainedForm}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <LinearGradient
                 colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
@@ -792,14 +808,16 @@ export default function AttachSkuModal({
                 </TouchableOpacity>
               )}
             </View>
+            </View>
           </View>
 
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{
               flexGrow: 1,
-              paddingBottom: 28,
+              paddingBottom: 24,
               paddingHorizontal: 20,
+              ...(webConstrainedForm ? { alignItems: 'center' } : {}),
             }}
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             automaticallyAdjustContentInsets={false}
@@ -807,84 +825,98 @@ export default function AttachSkuModal({
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
           <View style={{ 
-            paddingTop: 18,
-            gap: 18,
+            paddingTop: 14,
+            gap: 14,
+            ...webConstrainedForm,
           }}>
 
             {/* Retailer Selection */}
-            <View style={{ marginBottom: 4 }}>
+            <View>
               <Text style={{
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: '600',
-                color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 8,
-                letterSpacing: 0.3,
+                color: darkMode ? 'rgba(248, 250, 252, 0.88)' : 'rgba(0,0,0,0.75)',
+                marginBottom: 6,
+                letterSpacing: 0.4,
                 textTransform: 'uppercase',
-                opacity: 0.9,
               }}>
                 Retailer
               </Text>
-              <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
                 <TouchableOpacity
                   onPress={() => setStore("hd")}
                   style={{
                     flex: 1,
-                    paddingVertical: 14,
-                    paddingHorizontal: 14,
-                    borderRadius: 14,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 12,
                     borderWidth: 1.5,
                     borderColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
                     backgroundColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
                     alignItems: 'center',
                     justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
                   }}
                 >
+                  <MaterialCommunityIcons
+                    name="storefront-outline"
+                    size={20}
+                    color={store === "hd" ? "#020617" : (darkMode ? "#e2e8f0" : "#0f172a")}
+                  />
                   <Text
                     style={{
                       color: store === "hd" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
                       fontWeight: "700",
-                      fontSize: 13,
-                      letterSpacing: 0.2,
+                      fontSize: 14,
+                      letterSpacing: 0.15,
                     }}
                   >
-                    🏠 Home Depot
+                    Home Depot
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setStore("lowes")}
                   style={{
                     flex: 1,
-                    paddingVertical: 14,
-                    paddingHorizontal: 14,
-                    borderRadius: 14,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 12,
                     borderWidth: 1.5,
                     borderColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
                     backgroundColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
                     alignItems: 'center',
                     justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
                   }}
                 >
+                  <MaterialCommunityIcons
+                    name="tools"
+                    size={20}
+                    color={store === "lowes" ? "#020617" : (darkMode ? "#e2e8f0" : "#0f172a")}
+                  />
                   <Text
                     style={{
                       color: store === "lowes" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
                       fontWeight: "700",
-                      fontSize: 13,
-                      letterSpacing: 0.2,
+                      fontSize: 14,
+                      letterSpacing: 0.15,
                     }}
                   >
-                    🔨 Lowe's
+                    Lowe's
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Search Input */}
-            <View style={{ marginBottom: 4 }}>
+            <View>
               <Text style={{
                 fontSize: 13,
                 fontWeight: '600',
                 color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 8,
+                marginBottom: 6,
                 letterSpacing: 0.2,
               }}>
                 Search Query *
@@ -902,9 +934,11 @@ export default function AttachSkuModal({
                   borderRadius: 18,
                   flexDirection: 'row',
                   alignItems: 'center',
-                  paddingHorizontal: 16,
-                  backgroundColor: darkMode ? '#000000' : Colors.surface2,
-                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                  paddingVertical: 10,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
                 }}>
                   <Feather
                     name="search"
@@ -922,8 +956,9 @@ export default function AttachSkuModal({
                       fontSize: 15,
                       color: darkMode ? '#FFFFFF' : '#000000',
                       fontWeight: '500',
+                      ...inputWebOutline,
                     }}
-                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
+                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                     onSubmitEditing={search}
                     keyboardAppearance={darkMode ? 'dark' : 'light'}
                     selectionColor="#2EE6A6"
@@ -953,12 +988,12 @@ export default function AttachSkuModal({
             </View>
 
             {/* ZIP Input */}
-            <View style={{ marginBottom: 4 }}>
+            <View>
               <Text style={{
                 fontSize: 13,
                 fontWeight: '600',
                 color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 8,
+                marginBottom: 6,
                 letterSpacing: 0.2,
               }}>
                 ZIP Code *
@@ -976,9 +1011,11 @@ export default function AttachSkuModal({
                   borderRadius: 18,
                   flexDirection: 'row',
                   alignItems: 'center',
-                  paddingHorizontal: 16,
-                  backgroundColor: darkMode ? '#000000' : Colors.surface2,
-                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                  paddingVertical: 10,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
                 }}>
                   <Feather
                     name="map-pin"
@@ -999,8 +1036,9 @@ export default function AttachSkuModal({
                       fontSize: 15,
                       color: darkMode ? '#FFFFFF' : '#000000',
                       fontWeight: '500',
+                      ...inputWebOutline,
                     }}
-                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.48)" : Colors.sub}
+                    placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                     underlineColorAndroid="transparent"
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -1017,10 +1055,10 @@ export default function AttachSkuModal({
               }}
               disabled={loading || !q || !zip}
               style={{
-                borderRadius: 14,
+                borderRadius: 12,
                 overflow: 'hidden',
-                marginTop: 4,
-                marginBottom: 8,
+                marginTop: 2,
+                marginBottom: 4,
                 opacity: (loading || !q || !zip) ? 0.5 : 1,
               }}
             >
@@ -1029,7 +1067,7 @@ export default function AttachSkuModal({
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={{
-                    paddingVertical: 15,
+                    paddingVertical: 13,
                     alignItems: 'center',
                     justifyContent: 'center',
                     shadowColor: '#000000',
@@ -1342,20 +1380,25 @@ export default function AttachSkuModal({
 
             {!isInputFocused && (
               <View style={{ 
-                backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.12)', 
-                paddingHorizontal: 14, 
-                paddingVertical: 13, 
+                backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.07)' : 'rgba(251, 191, 36, 0.1)', 
+                paddingHorizontal: 12, 
+                paddingVertical: 12, 
                 borderRadius: 12, 
                 borderWidth: 1, 
-                borderColor: darkMode ? 'rgba(251, 191, 36, 0.22)' : 'rgba(217, 119, 6, 0.25)',
-                marginTop: results.length > 0 ? 14 : 10,
+                borderColor: darkMode ? 'rgba(251, 191, 36, 0.22)' : 'rgba(217, 119, 6, 0.28)',
+                marginTop: results.length > 0 ? 12 : 8,
               }}>
-                <Text style={{ fontSize: 12, color: darkMode ? "#fbbf24" : "#b45309", fontWeight: "700", marginBottom: 6, letterSpacing: 0.2 }}>
-                  ⚠️ Price Estimates
-                </Text>
-                <Text style={{ fontSize: 12, color: darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub, lineHeight: 18 }}>
-                  Prices are estimates from public search results and may change. Always verify current pricing and availability on the retailer's website before purchasing. Build Profit Solutions is not affiliated with Home Depot or Lowe's.
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                  <MaterialIcons name="warning" size={22} color={darkMode ? '#fbbf24' : '#d97706'} style={{ marginTop: 1 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, color: darkMode ? "#fbbf24" : "#b45309", fontWeight: "700", marginBottom: 4, letterSpacing: 0.2 }}>
+                      Price estimates
+                    </Text>
+                    <Text style={{ fontSize: 12, color: darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub, lineHeight: 17 }}>
+                      Prices are estimates from public search results and may change. Always verify current pricing and availability on the retailer's website before purchasing. Build Profit Solutions is not affiliated with Home Depot or Lowe's.
+                    </Text>
+                  </View>
+                </View>
               </View>
             )}
           </View>

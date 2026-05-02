@@ -15,8 +15,10 @@ export default function OAuthNativeCallbackScreen() {
   return (
     <View style={styles.root} testID="oauth-native-callback">
       <AuthenticateWithRedirectCallback
-        signInFallbackRedirectUrl="/dashboard"
-        signUpFallbackRedirectUrl="/dashboard"
+        signInUrl="/oauth-native-callback"
+        signUpUrl="/oauth-native-callback"
+        signInFallbackRedirectUrl="/(tabs)/dashboard"
+        signUpFallbackRedirectUrl="/(tabs)/dashboard"
       />
       <ActivityIndicator size="large" style={styles.spinner} />
     </View>

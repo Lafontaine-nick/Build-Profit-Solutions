@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from "react";
+import React, { useEffect, useRef, useMemo, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -17,42 +17,153 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useTranslation } from "react-i18next";
-import { useAuth, useUser } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { getPostAuthHref } from "@/lib/postAuthNavigation";
-import { isClerkEnabled } from "@/lib/isClerkEnabled";
+import { useClerkUiEnabled } from "@/contexts/ClerkUiContext";
+import {
+  getStaySignedInPreference,
+} from "@/lib/authSessionPreference";
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from "@/constants/ScreenLayout";
 
-/**
- * Signed-in users can still match `index` (this screen) on web after OAuth if the URL is `/`
- * or before Clerk navigation settles. Mirror `auth.tsx` `navigateAfterClerkSession` → `getPostAuthHref`.
- */
-function SignedInLandingExit() {
-  const router = useRouter();
-  const { isSignedIn, isLoaded } = useAuth();
+/** Clerk session signals can lag `isSignedIn` on web; `getToken()` confirms an active session. */
+function useClerkLandingSession() {
+  const { isSignedIn, isLoaded, getToken } = useAuth();
   const { user } = useUser();
+  const [hasToken, setHasToken] = useState(false);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !user?.id) return;
+    if (!isLoaded) {
+      setHasToken(false);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
-        const href = await getPostAuthHref(user.id);
-        if (!cancelled) router.replace(href as "/onboarding" | "/(tabs)/dashboard");
+        const tok = await getToken();
+        if (!cancelled) setHasToken(!!tok);
       } catch {
-        if (!cancelled) router.replace("/onboarding");
+        if (!cancelled) setHasToken(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, isSignedIn, user?.id, router]);
+  }, [isLoaded, getToken]);
 
-  return null;
+  const showGoToDashboard =
+    isLoaded && (!!isSignedIn || !!user?.id || hasToken);
+
+  return { showGoToDashboard, isLoaded, user };
+}
+
+function ClerkLandingHeroContent({
+  styles,
+  t,
+}: {
+  styles: ReturnType<typeof getStyles>;
+  t: (key: string) => string;
+}) {
+  const router = useRouter();
+  const { showGoToDashboard, isLoaded, user } = useClerkLandingSession();
+
+  const onPress = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      if (showGoToDashboard) {
+        const stay = await getStaySignedInPreference();
+        if (!stay) {
+          router.push("/auth?mode=signin");
+          return;
+        }
+        if (user?.id) {
+          const href = await getPostAuthHref(user.id);
+          router.replace(href as "/onboarding" | "/(tabs)/dashboard");
+          return;
+        }
+        router.replace("/(tabs)/dashboard");
+        return;
+      }
+    } catch {
+      // fall through to sign-in
+    }
+    router.push("/auth?mode=signin");
+  };
+
+  const buttonLabel = !isLoaded
+    ? t("landing.checkingSessionButton")
+    : showGoToDashboard
+      ? t("landing.goToDashboardButton")
+      : t("landing.getStartedButton");
+
+  return (
+    <>
+      <View style={styles.cardHeaderRow}>
+        <View style={styles.cardHeaderTextBlock}>
+          <Text style={styles.cardTitle}>
+            {!isLoaded
+              ? t("landing.getStarted")
+              : showGoToDashboard
+                ? t("landing.goToDashboardHeadline")
+                : t("landing.getStarted")}
+          </Text>
+          <Text style={styles.cardSubtitle}>
+            {!isLoaded
+              ? t("landing.launchDescription")
+              : showGoToDashboard
+                ? t("landing.goToDashboardDescription")
+                : t("landing.launchDescription")}
+          </Text>
+        </View>
+      </View>
+
+      <TouchableOpacity style={styles.primaryButton} onPress={onPress} activeOpacity={0.85}>
+        <LinearGradient
+          colors={["#22c55e", "#22d3ee"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.buttonGradient}
+        >
+          <Ionicons name="rocket-outline" size={20} color="#020617" />
+          <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    </>
+  );
+}
+
+function DefaultGetStartedCTA({
+  styles,
+  t,
+}: {
+  styles: ReturnType<typeof getStyles>;
+  t: (key: string) => string;
+}) {
+  const router = useRouter();
+  return (
+    <TouchableOpacity
+      style={styles.primaryButton}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push("/auth?mode=signin");
+      }}
+      activeOpacity={0.85}
+    >
+      <LinearGradient
+        colors={["#22c55e", "#22d3ee"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.buttonGradient}
+      >
+        <Ionicons name="rocket-outline" size={20} color="#020617" />
+        <Text style={styles.primaryButtonText}>{t("landing.getStartedButton")}</Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
 }
 
 /** Wide web: centered premium column (not full-bleed mobile layout) */
@@ -61,7 +172,7 @@ const LANDING_MAX_CONTENT_WIDTH = WEB_CENTERED_COLUMN_MAX_WIDTH;
 const LANDING_CTA_MAX_WIDTH = 400;
 
 export default function LandingScreen() {
-  const router = useRouter();
+  const clerkUiEnabled = useClerkUiEnabled();
   const { width: windowWidth } = useWindowDimensions();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
@@ -77,18 +188,12 @@ export default function LandingScreen() {
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== "web",
     }).start();
   }, [fadeAnim]);
 
-  const handleGetStarted = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push("/auth?mode=signin");
-      };
-
   return (
     <View style={styles.root}>
-      {isClerkEnabled() ? <SignedInLandingExit /> : null}
       <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
@@ -175,32 +280,21 @@ export default function LandingScreen() {
                 },
               ]}
             >
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.cardHeaderTextBlock}>
-                  <Text style={styles.cardTitle}>{t("landing.getStarted")}</Text>
-                  <Text style={styles.cardSubtitle}>
-                    {t("landing.launchDescription")}
-                  </Text>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleGetStarted}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.buttonGradient}
-                >
-                  <Ionicons name="rocket-outline" size={20} color="#020617" />
-                  <Text style={styles.primaryButtonText}>
-                    {t("landing.getStartedButton")}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
+              {clerkUiEnabled ? (
+                <ClerkLandingHeroContent styles={styles} t={t} />
+              ) : (
+                <>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.cardHeaderTextBlock}>
+                      <Text style={styles.cardTitle}>{t("landing.getStarted")}</Text>
+                      <Text style={styles.cardSubtitle}>
+                        {t("landing.launchDescription")}
+                      </Text>
+                    </View>
+                  </View>
+                  <DefaultGetStartedCTA styles={styles} t={t} />
+                </>
+              )}
 
               <View style={styles.featuresRow}>
                 <View style={styles.featureItem}>
@@ -274,10 +368,23 @@ export default function LandingScreen() {
             >
               <View style={styles.feedbackCardInner}>
                 <Text style={styles.feedbackTitle}>
-                  {t("landing.contractorFeedbackTitle")}
+                  {t("landing.whatBuildersSay")}
                 </Text>
                 <Text style={styles.feedbackSubtitle}>
-                  {t("landing.contractorFeedbackSubtitle")}
+                  {t("landing.trustedBy")}
+                </Text>
+                <View style={styles.testimonialIconCircle}>
+                  <Ionicons
+                    name="chatbubbles-outline"
+                    size={26}
+                    color="#22c55e"
+                  />
+                </View>
+                <Text style={styles.testimonialQuote}>
+                  {t("landing.testimonialQuote")}
+                </Text>
+                <Text style={styles.testimonialAttribution}>
+                  {t("landing.testimonialAttribution")}
                 </Text>
               </View>
             </View>
@@ -472,6 +579,34 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
   feedbackCardInner: {
     alignItems: "center",
   },
+  testimonialIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: darkMode ? "rgba(34, 197, 94, 0.12)" : "rgba(34, 197, 94, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: darkMode ? "rgba(34, 197, 94, 0.35)" : "rgba(34, 197, 94, 0.25)",
+  },
+  testimonialQuote: {
+    fontSize: wideWeb ? 15 : 14,
+    lineHeight: 22,
+    fontStyle: "italic",
+    textAlign: "center",
+    color: darkMode ? "#e2e8f0" : "#334155",
+    fontWeight: "500",
+    paddingHorizontal: 8,
+    marginBottom: 10,
+  },
+  testimonialAttribution: {
+    fontSize: 13,
+    textAlign: "center",
+    color: darkMode ? "#94a3b8" : "#64748b",
+    fontWeight: "500",
+  },
   feedbackTitle: {
     fontSize: wideWeb ? 17 : 18,
     fontWeight: "700",
@@ -551,6 +686,10 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     width: "100%",
     gap: wideWeb ? 12 : 10,
     paddingHorizontal: wideWeb ? 4 : 0,
+  },
+  featureItem: {
+    flex: 1,
+    alignItems: "center",
   },
   featureIconContainer: {
     width: 52,

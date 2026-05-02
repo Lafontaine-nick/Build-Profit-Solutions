@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,13 +12,14 @@ import {
   ActivityIndicator,
   ScrollView,
   useWindowDimensions,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { clerkAuthService } from '@/services/clerkAuth';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import Constants from 'expo-constants';
+import { isClerkPublishableKeyConfigured } from '@/lib/clerkPublishableKey';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { OAuthButtons } from '@/components/OAuthButtons';
 import {
@@ -26,11 +27,15 @@ import {
   useAuth as clerkAuthHook,
   useSignIn as clerkSignInHook,
   useSignUp as clerkSignUpHook,
-} from '@clerk/clerk-expo';
+} from '@clerk/clerk-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
+import {
+  getStaySignedInPreference,
+  setStaySignedInPreference,
+} from '@/lib/authSessionPreference';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
@@ -154,13 +159,13 @@ const AuthScreen: React.FC = () => {
   /** Clerk sign-up: email_code after signUp.create when status is not complete */
   const [needsSignupEmailCode, setNeedsSignupEmailCode] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [staySignedIn, setStaySignedIn] = useState(false);
 
   const isSignup = mode === 'signup';
   const passwordStrength = isSignup && password ? getPasswordStrength(password) : null;
 
-  // Check if Clerk is available (for showing OAuth buttons)
-  const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  const isClerkEnabled = publishableKey && (publishableKey.startsWith('pk_live_') || (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'));
+  /** Same key resolution as RootLayout + landing (manifest/env fallbacks — Expo web often omits `expoConfig.extra`). */
+  const isClerkEnabled = isClerkPublishableKeyConfigured();
 
   // OAuth handlers are passed from OAuthButtons component which safely calls the hooks
 
@@ -199,11 +204,17 @@ const AuthScreen: React.FC = () => {
     console.log('useClerk/useAuth hooks not available');
   }
 
+  useEffect(() => {
+    void getStaySignedInPreference().then(setStaySignedIn);
+  }, []);
+
   /** Prefer onboarding until this Clerk user has completed it; avoids router jumping past AuthGate. */
   const navigateAfterClerkSession = async (opts?: {
     oauthResult?: any;
     signInResource?: any;
     signUpResource?: any;
+    /** Email/password; omit on OAuth so the stored preference is only set from the sign-in switch. */
+    staySignedIn?: boolean;
   }) => {
     const oauth = opts?.oauthResult;
     const rIn = opts?.signInResource ?? oauth?.signIn;
@@ -224,6 +235,14 @@ const AuthScreen: React.FC = () => {
     }
 
     try {
+      if (opts?.staySignedIn !== undefined) {
+        await setStaySignedInPreference(opts.staySignedIn);
+      }
+    } catch {
+      // non-fatal
+    }
+
+    try {
       router.replace(await getPostAuthHref(uid));
     } catch {
       router.replace('/onboarding');
@@ -240,26 +259,50 @@ const AuthScreen: React.FC = () => {
        */
       if (Platform.OS === "web") {
         const signIn = signInHook?.signIn;
-        if (!signIn) {
+        const signUp = signUpHook?.signUp;
+        if (!signInHook?.isLoaded || !signUpHook?.isLoaded || !signIn) {
           Alert.alert(
             "Sign-in not ready",
-            "Please wait a moment and try again, or use email and password."
+            "Please wait until authentication finishes loading, then try again—or use email and password."
           );
           return;
         }
         if (typeof window === "undefined") return;
         setLoading(true);
+        /**
+         * Path-style URLs match Clerk's Next.js examples; Clerk resolves against the current origin.
+         * Allowlist the **absolute** equivalents in Clerk (same origin + path).
+         */
+        const redirectPath = "/oauth-native-callback";
+        const completePath = "/(tabs)/dashboard";
+        if (__DEV__) {
+          const o = window.location.origin;
+          console.log(
+            "[Clerk OAuth] Add to Clerk allowed redirect URLs:",
+            `${o}${redirectPath}`,
+            `${o}${completePath}`
+          );
+        }
         try {
-          const redirectUrl = getClerkOAuthRedirectUrl();
-          const origin = window.location.origin.replace(/\/$/, "");
-          // Must not be `/` (index = landing). Native uses `getPostAuthHref` after OAuth; same default entry as returning users.
-          const redirectUrlComplete = `${origin}/dashboard`;
           await signIn.authenticateWithRedirect({
             strategy: "oauth_google",
-            redirectUrl,
-            redirectUrlComplete,
+            redirectUrl: redirectPath,
+            redirectUrlComplete: completePath,
           });
         } catch (webErr: any) {
+          const su: any = signUp;
+          if (typeof su?.authenticateWithRedirect === "function") {
+            try {
+              await su.authenticateWithRedirect({
+                strategy: "oauth_google",
+                redirectUrl: redirectPath,
+                redirectUrlComplete: completePath,
+              });
+              return;
+            } catch (upErr) {
+              console.error("Google web redirect (signUp fallback):", upErr);
+            }
+          }
           const msg = webErr?.message || String(webErr);
           if (
             !msg.includes("cancel") &&
@@ -267,10 +310,11 @@ const AuthScreen: React.FC = () => {
             !msg.includes("user_cancelled")
           ) {
             console.error("Google web redirect OAuth error:", webErr);
-            Alert.alert(
-              "Google Sign-In Error",
-              msg || "Could not start Google sign-in. Check Clerk allowed redirect URLs for this origin."
-            );
+            const full = msg || "Could not start Google sign-in. Check Clerk allowed redirect URLs for this origin.";
+            Alert.alert("Google Sign-In Error", full);
+            if (typeof window !== "undefined" && __DEV__) {
+              window.alert(`Google Sign-In (dev): ${full}`);
+            }
           }
           setLoading(false);
         }
@@ -942,6 +986,24 @@ const AuthScreen: React.FC = () => {
       return;
     }
 
+    /** Avoid falling through to `clerkAuthService` — Clerk-only accounts would always “fail” to sign in. */
+    if (isClerkEnabled) {
+      if (!signInHook || !signUpHook) {
+        Alert.alert(
+          'Sign-in unavailable',
+          'Authentication is still initializing. Wait a few seconds and try again, or refresh the page.'
+        );
+        return;
+      }
+      if (!signInHook.isLoaded || !signUpHook.isLoaded) {
+        Alert.alert(
+          'Please wait',
+          'Sign-in is still loading. Try again in a moment.'
+        );
+        return;
+      }
+    }
+
     // Clerk rejects signIn.create / signUp.create while a session already exists
     if (isClerkEnabled && clerkAuth?.isSignedIn) {
       void navigateAfterClerkSession({});
@@ -971,6 +1033,7 @@ const AuthScreen: React.FC = () => {
               await setActive({ session: signUpResult.createdSessionId });
               await navigateAfterClerkSession({
                 signUpResource: signUpHook?.signUp,
+                staySignedIn: true,
               });
             } else {
               Alert.alert('Success', 'Account created successfully! Please check your email to verify your account.', [
@@ -1022,6 +1085,7 @@ const AuthScreen: React.FC = () => {
               await setActive({ session: signInResult.createdSessionId });
               await navigateAfterClerkSession({
                 signInResource: signInHook?.signIn,
+                staySignedIn: staySignedIn,
               });
             } else {
               Alert.alert('Error', 'Sign in successful but session could not be created. Please try again.');
@@ -1185,6 +1249,7 @@ const AuthScreen: React.FC = () => {
           await setActive({ session: result.createdSessionId });
           await navigateAfterClerkSession({
             signInResource: signInHook?.signIn,
+            staySignedIn: staySignedIn,
           });
         } else {
           Alert.alert('Error', 'Sign in successful but session could not be created. Please try again.');
@@ -1226,6 +1291,7 @@ const AuthScreen: React.FC = () => {
         setVerificationCode('');
         await navigateAfterClerkSession({
           signUpResource: signUpHook?.signUp,
+          staySignedIn: true,
         });
       } else if (result.status === 'complete' && !result.createdSessionId) {
         Alert.alert(
@@ -1624,6 +1690,23 @@ const AuthScreen: React.FC = () => {
                 </TouchableOpacity>
               )}
 
+              {!isSignup && !needsVerificationCode && (
+                <View style={styles.staySignedInRow}>
+                  <Switch
+                    value={staySignedIn}
+                    onValueChange={(v) => {
+                      setStaySignedIn(v);
+                      void setStaySignedInPreference(v);
+                    }}
+                    disabled={loading}
+                    trackColor={{ false: '#64748B', true: 'rgba(34, 197, 94, 0.45)' }}
+                    thumbColor={staySignedIn ? '#22c55e' : '#f4f4f5'}
+                    ios_backgroundColor="#64748B"
+                  />
+                  <Text style={styles.staySignedInLabel}>{t('auth.staySignedIn')}</Text>
+                </View>
+              )}
+
               {/* Primary CTA */}
               <TouchableOpacity
                 activeOpacity={0.9}
@@ -1937,6 +2020,18 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     color: "#22C55E",
     fontSize: 13,
     fontWeight: "500",
+  },
+  staySignedInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  staySignedInLabel: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 13,
+    color: isDark ? '#F3F4F6' : '#475569',
   },
   primaryBtnWrapper: {
     borderRadius: 999,

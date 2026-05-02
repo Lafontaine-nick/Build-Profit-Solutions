@@ -397,6 +397,11 @@ export const useKeyboard = () => {
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   useEffect(() => {
+    /** RN Web: keyboard listeners are unreliable and `remove`/listener wiring can throw — Estimates uses this hook. */
+    if (Platform.OS === 'web') {
+      return undefined;
+    }
+
     const keyboardDidShowListener = Keyboard.addListener(
       'keyboardDidShow',
       e => {

@@ -21,6 +21,7 @@ import {
   AppState,
   BackHandler,
   InputAccessoryView,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -80,7 +81,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
 import api from '../../services/BackendAPI';
-import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
 import {
@@ -89,6 +90,13 @@ import {
 } from '../../utils/proposalNumber';
 import { useTabScrollBottomInset } from '../../hooks/useTabScrollBottomInset';
 import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid';
+import {
+  ScreenLayout,
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  WEB_DESKTOP_EDGE_HORIZONTAL,
+  WEB_CENTERED_COLUMN_MIN_WIDTH,
+} from '@/constants/ScreenLayout';
 
 // Colors will be defined inside the component using theme
 
@@ -486,6 +494,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 12,
     color: Colors.text,
     fontSize: 14,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
   },
   row: {
     flexDirection: 'row',
@@ -572,7 +581,9 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 14,
-    marginBottom: 4,
+    marginBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
   },
   headerIconButton: {
     width: 40,
@@ -668,12 +679,12 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    backgroundColor: Colors.surface2,
+    paddingHorizontal: 14,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
     borderWidth: 1,
-    borderColor: Colors.line,
-    paddingVertical: 13,
-    minHeight: 50,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
+    paddingVertical: 12,
+    minHeight: 48,
   },
   materialInputIcon: {
     marginRight: 12,
@@ -683,22 +694,65 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
     fontWeight: '500',
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
+  },
+  /** Estimates Add Material / Add Labor — grouped body (readable on wide web) */
+  materialFormSheet: {
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(45, 255, 196, 0.22)' : Colors.line,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+  },
+  materialPricingRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  materialPricingOption: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  materialPricingOptionActive: {
+    borderColor: '#22c55e',
+    backgroundColor: '#38d39f',
+  },
+  materialPricingOptionIdle: {
+    borderColor: Colors.line,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
+  },
+  materialPricingOptionTextActive: {
+    color: '#050B13',
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: 0.2,
+  },
+  materialPricingOptionTextIdle: {
+    color: Colors.text,
+    fontWeight: '600',
+    fontSize: 14,
   },
   materialChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 2,
-    gap: 8,
+    marginTop: 4,
+    gap: 10,
   },
   materialChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
     marginRight: 0,
     marginBottom: 0,
     borderWidth: 1,
     borderColor: Colors.line,
-    backgroundColor: Colors.surface2,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
   },
   materialChipActive: {
     backgroundColor: 'rgba(34, 197, 94, 0.14)',
@@ -785,8 +839,8 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.line,
-    backgroundColor: Colors.surface2,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
   },
   budgetDollarSign: {
     fontSize: 18,
@@ -802,6 +856,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingLeft: 4,
     color: Colors.text,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
   },
   budgetFieldLabel: {
     fontSize: 14,
@@ -1549,8 +1604,14 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   );
 };
 
+/** Desktop / tablet web (≥768px): centered column; same cap as Find Subcontractors / SKU search */
+const LINE_ITEM_MODAL_WEB_MAX_WIDTH = 900;
+
 const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => {
   const insets = useSafeAreaInsets();
+  const { width: lineItemLayoutWidth } = useWindowDimensions();
+  const lineItemWebConstrained =
+    Platform.OS === 'web' && lineItemLayoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
@@ -1746,6 +1807,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       >
         {(isMaterial || isLabor) ? (
           <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
+            <View
+              style={[
+                { flex: 1, width: '100%' },
+                lineItemWebConstrained && {
+                  maxWidth: LINE_ITEM_MODAL_WEB_MAX_WIDTH,
+                  width: '100%',
+                  alignSelf: 'center',
+                },
+              ]}
+            >
               {/* Header */}
               <View style={modalStyles.materialHeader}>
                 <View style={modalStyles.backButtonWrapper}>
@@ -1810,12 +1881,12 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 contentInsetAdjustmentBehavior="never"
                 contentContainerStyle={{
                   paddingHorizontal: 20,
-                  paddingTop: 4,
-                  paddingBottom: 24 + lineItemMaterialVendorKeyboardBoost,
+                  paddingTop: 8,
+                  paddingBottom: 16 + lineItemMaterialVendorKeyboardBoost,
                 }}
               >
                 {isLabor ? (
-                  <>
+                  <View style={modalStyles.materialFormSheet}>
                     {/* Labor Name (Description) */}
                     <View style={modalStyles.materialFieldGroup}>
                       <Text style={modalStyles.materialLabel}>Item Name *</Text>
@@ -2036,9 +2107,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </Text>
                       </View>
                     </View>
-                  </>
+                  </View>
                 ) : (
-                  <>
+                  <View style={modalStyles.materialFormSheet}>
                       {/* Material Name (Description) */}
                       <View style={modalStyles.materialFieldGroup}>
                         <Text style={modalStyles.materialLabel}>Description *</Text>
@@ -2097,54 +2168,44 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       {/* Pricing: flat total vs per sq ft (same idea as labor) */}
                       <View style={modalStyles.materialFieldGroup}>
                         <Text style={modalStyles.materialLabel}>Pricing *</Text>
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <View style={modalStyles.materialPricingRow}>
                           <TouchableOpacity
                             onPress={() => setMode('flat')}
-                            style={{
-                              flex: 1,
-                              paddingVertical: 12,
-                              paddingHorizontal: 16,
-                              borderRadius: 12,
-                              borderWidth: 1,
-                              borderColor: mode === 'flat'
-                                ? '#38d39f'
-                                : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                              backgroundColor: mode === 'flat'
-                                ? '#38d39f'
-                                : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
+                            style={[
+                              modalStyles.materialPricingOption,
+                              mode === 'flat'
+                                ? modalStyles.materialPricingOptionActive
+                                : modalStyles.materialPricingOptionIdle,
+                            ]}
                           >
-                            <Text style={{
-                              color: mode === 'flat' ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'),
-                              fontWeight: '600',
-                              fontSize: 14,
-                            }}>💵 Flat amount</Text>
+                            <Text
+                              style={
+                                mode === 'flat'
+                                  ? modalStyles.materialPricingOptionTextActive
+                                  : modalStyles.materialPricingOptionTextIdle
+                              }
+                            >
+                              💵 Flat amount
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => setMode('sqft')}
-                            style={{
-                              flex: 1,
-                              paddingVertical: 12,
-                              paddingHorizontal: 16,
-                              borderRadius: 12,
-                              borderWidth: 1,
-                              borderColor: mode === 'sqft'
-                                ? '#38d39f'
-                                : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                              backgroundColor: mode === 'sqft'
-                                ? '#38d39f'
-                                : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
+                            style={[
+                              modalStyles.materialPricingOption,
+                              mode === 'sqft'
+                                ? modalStyles.materialPricingOptionActive
+                                : modalStyles.materialPricingOptionIdle,
+                            ]}
                           >
-                            <Text style={{
-                              color: mode === 'sqft' ? '#000000' : (darkMode ? '#FFFFFF' : '#000000'),
-                              fontWeight: '600',
-                              fontSize: 14,
-                            }}>📐 Per sq ft</Text>
+                            <Text
+                              style={
+                                mode === 'sqft'
+                                  ? modalStyles.materialPricingOptionTextActive
+                                  : modalStyles.materialPricingOptionTextIdle
+                              }
+                            >
+                              📐 Per sq ft
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -2367,7 +2428,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       </View>
 
                       {/* Category (Optional) */}
-                      <View style={[modalStyles.materialFieldGroup, { marginTop: 18 }]}>
+                      <View style={[modalStyles.materialFieldGroup, { marginTop: 12, marginBottom: 8 }]}>
                         <Text style={modalStyles.materialLabel}>Category (Optional)</Text>
                         <View style={modalStyles.materialChipRow}>
                           {['Lumber', 'Framing', 'Drywall', 'Electrical', 'Plumbing', 'Roofing', 'Flooring', 'Paint', 'Tile', 'Concrete', 'Hardware', 'Windows', 'Exterior Siding', 'Doors', 'Cabinets', 'Lighting', 'Appliances', 'Fixtures', 'Insulation', 'HVAC', 'General'].map((c) => (
@@ -2383,7 +2444,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           ))}
                         </View>
                       </View>
-                </>
+                  </View>
                 )}
               </ScrollView>
 
@@ -2423,6 +2484,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   </LinearGradient>
                 </Pressable>
               </View>
+            </View>
             </View>
         ) : (
           <>
@@ -3852,10 +3914,15 @@ const buildTimelineFromProject = (project) => {
 };
 
 // ============ STYLES ============
-const getStyles = (Colors: any) => StyleSheet.create({
+const getStyles = (Colors: any, desktopWeb = false) => {
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
+  },
+  rootDesktopWeb: {
+    backgroundColor: Colors.bg === '#000000' ? Colors.bg : '#f1f5f9',
   },
   // Gradient border wrapper for cards
   cardBorderWrapper: {
@@ -3957,6 +4024,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     paddingVertical: 12,
     color: Colors.text,
     fontSize: 14,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
   },
   inputGroup: {
     marginBottom: 16,
@@ -4180,8 +4248,8 @@ const getStyles = (Colors: any) => StyleSheet.create({
   },
   // same idea as Dashboard wideContainer
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 4,
+    marginHorizontal: -edge,
+    paddingHorizontal: desktopWeb ? 8 : 4,
   },
   gradBorder: {
     borderRadius: 20,
@@ -4196,6 +4264,21 @@ const getStyles = (Colors: any) => StyleSheet.create({
     backgroundColor: '#000000',
     borderRadius: 18,
     padding: 18,
+  },
+  /** Desktop web: S–8 spans full Bid Summary card (equal slots); mobile keeps horizontal ScrollView */
+  stepRowDesktopEqual: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  stepIconTouchableDesktop: {
+    flex: 1,
+    minWidth: 0,
+    marginHorizontal: 0,
+    alignItems: 'center',
   },
   // Thinner nav pill - matches dashboard segmented control
   navPillBorder: {
@@ -4279,6 +4362,7 @@ const getStyles = (Colors: any) => StyleSheet.create({
     marginBottom: 8,
   },
 });
+};
 
 /** Latest contractor row for PDF: merge AsyncStorage (profile saves) + document contact email (profile beats Clerk). */
 async function resolveProfileForContractExport(baseProfile, clerkUser) {
@@ -4335,6 +4419,9 @@ export default function EstimateGeneratorScreen() {
     markSkipped: markWalkthroughSkipped,
     refresh: refreshWalkthroughState,
   } = useWalkthroughState();
+  const { addEstimate, convertBidToProject, updateProject, activeProjects, estimates, deleteProject } =
+    useProjectList();
+
   const Colors = useMemo(() => {
     const baseColors = getColors(theme);
     return {
@@ -4352,8 +4439,19 @@ export default function EstimateGeneratorScreen() {
     };
   }, [theme]);
   
+  const { width: layoutWidth } = useWindowDimensions();
+  const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
+  const webScrollContentCap = desktopWeb
+    ? {
+        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+        width: '100%',
+        alignSelf: 'center',
+      }
+    : undefined;
+  const estimateScrollPadH = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
-  const s = useMemo(() => getStyles(Colors), [Colors]);
+  const s = useMemo(() => getStyles(Colors, desktopWeb), [Colors, desktopWeb]);
   
   const [step, setStep] = useState(0); // Start at step 0 (Bid Summary) - default first page
   const [activeNavButton, setActiveNavButton] = useState('summary'); // 'back', 'summary', or 'next'
@@ -4361,6 +4459,94 @@ export default function EstimateGeneratorScreen() {
   const bidRef = useRef(bid);
   const materialsCartRef = useRef([]);
   const lastEstimateAiUndoRef = useRef(null);
+  /** Declared before any hook reads them — avoids temporal-dead-zone crashes when Estimates mounts (web ErrorBoundary). */
+  const [materialsCart, setMaterialsCart] = useState([]);
+  const [materialNeedQty, setMaterialNeedQty] = useState({});
+  const [rentalCart, setRentalCart] = useState([]);
+  useEffect(() => {
+    materialsCartRef.current = materialsCart;
+  }, [materialsCart]);
+
+  const calc = useMemo(() => {
+    const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
+    const laborFromItems = bid.laborLineItems?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+    const labor = laborFromItems;
+    const rentals = rentalCart.length;
+    const financials = getEstimateStep5Financials(bid, materials, labor);
+    const subtotal = financials.totalCostBeforeMarkup;
+    const costContextTotal = financials.overheadContextTotal;
+    const contingency = financials.projectCosts.developerProjectCostsActive ? financials.projectCosts.contingency : 0;
+    const profit = financials.markupAmount;
+    const total = financials.bidPrice;
+    const marginRatio = total > 0 ? profit / total : 0;
+    const marginPercent = marginRatio * 100;
+    const denom = bid.unitMode === 'sqft' ? Math.max(1, bid.sqft) : bid.unitMode === 'lf' ? 480 : 30;
+    const unitPrice = total / denom;
+    return {
+      materials,
+      labor,
+      rentals,
+      costContextTotal,
+      companyOverhead: financials.companyOverheadTotal,
+      permitCosts: financials.projectCosts.permitCosts,
+      totalProjectCosts: financials.projectCosts.totalProjectCosts,
+      markupBaseSubtotal: financials.markupBaseSubtotal,
+      contingency,
+      profit,
+      total,
+      grandTotal: total,
+      subtotal,
+      unitPrice,
+      marginRatio,
+      marginPercent,
+    };
+  }, [bid, rentalCart, materialsCart]);
+
+  const healthScore = useMemo(() => {
+    let points = 0;
+    if (bid.title) points += 5;
+    if (bid.projectDescription) points += 5;
+    if (bid.customerCity || bid.location) points += 5;
+    if (bid.customerEmail) points += 2;
+    if (bid.customerPhone) points += 2;
+    if (bid.customerAddress) points += 2;
+    if (bid.customerCity) points += 1.5;
+    if (bid.customerState) points += 1.5;
+    if (bid.customerZip) points += 1.5;
+    if (bid.customerCompany) points += 1.5;
+    if (bid.customerNotes) points += 1;
+    if (bid.customerName) points += 3;
+    const startDate = bid.startDate || bid.projectStartDate;
+    const endDate = bid.endDate || bid.projectEndDate;
+    if (startDate) points += 5;
+    if (endDate) points += 5;
+    if ((materialsCart?.length || 0) > 0) points += 10;
+    if ((bid.laborLineItems?.length || 0) > 0) points += 10;
+    if (bid.overheadPct && bid.overheadPct > 0) points += 8;
+    if (bid.markupPct && bid.markupPct > 0) points += 7;
+    if (bid.paymentSchedule === 'milestone-based') {
+      const totalPct = bid.paymentMilestones?.reduce((sum, m) => sum + (m.percentage || 0), 0) || 0;
+      if (Math.abs(totalPct - 100) < 0.1) {
+        points += 25;
+      } else if (totalPct > 0) {
+        points += 15;
+      }
+    } else if (bid.paymentSchedule === 'weekly') {
+      const totalScheduled = bid.weeklyPayments?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0;
+      if (calc.total > 0 && Math.abs(calc.total - totalScheduled) < 1) {
+        points += 25;
+      } else if (totalScheduled > 0) {
+        points += 15;
+      }
+    }
+    if (bid.licenseNumber) points += 5;
+    if (bid.insuranceCoverage) points += 5;
+    if (bid.workSchedule) points += 5;
+    return Math.min(100, Math.round(points));
+  }, [bid, materialsCart, calc]);
+
+  const healthColor = healthScore >= 80 ? '#38d39f' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
+
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [savedEstimates, setSavedEstimates] = useState([]);
@@ -4549,19 +4735,6 @@ export default function EstimateGeneratorScreen() {
   }, [isLoaded, isOnboardingReset, estimates, savedEstimates, activeProjects, hasSubmittedFirstEstimate]);
 
   useEffect(() => {
-    if (step === 5) {
-      setHasReviewedMarkup(true);
-    }
-    if (step === 8) {
-      setHasReviewedTotal(true);
-      // Auto-highlight Summary button for first-time users on final step
-      if (shouldShowGuidance) {
-        setActiveNavButton('summary');
-      }
-    }
-  }, [step, shouldShowGuidance]);
-
-  useEffect(() => {
     const persistMaterialsCart = async () => {
       try {
         await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(materialsCart || []));
@@ -4579,17 +4752,6 @@ export default function EstimateGeneratorScreen() {
       setMaterialsAddedFlag(false);
     }
   }, [materialsCart?.length, bid.materialLineItems?.length, materialsAddedFlag]);
-
-  useEffect(() => {
-    if (!shouldShowGuidance) {
-      lastCompletionRef.current = completedChecklistCount;
-      return;
-    }
-    if (completedChecklistCount > lastCompletionRef.current) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    lastCompletionRef.current = completedChecklistCount;
-  }, [completedChecklistCount, shouldShowGuidance]);
 
   // Sync local customer fields only on initial load or when bid ID changes
   // This prevents overwriting user input while they're typing
@@ -4801,6 +4963,9 @@ export default function EstimateGeneratorScreen() {
   }, [step, dismissFirstEstimateWalkthroughStep]);
 
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      return;
+    }
     if (
       !shouldShowFirstEstimateWalkthrough ||
       !firstEstimateWtProgressHydrated ||
@@ -4981,6 +5146,30 @@ export default function EstimateGeneratorScreen() {
   const checklistTotal = 6;
   const setupProgressPct = Math.round((completedChecklistCount / checklistTotal) * 100);
 
+  /** Must run after `shouldShowGuidance` + `completedChecklistCount` exist (avoid TDZ / ReferenceError on Estimates mount). */
+  useEffect(() => {
+    if (step === 5) {
+      setHasReviewedMarkup(true);
+    }
+    if (step === 8) {
+      setHasReviewedTotal(true);
+      if (shouldShowGuidance) {
+        setActiveNavButton('summary');
+      }
+    }
+  }, [step, shouldShowGuidance]);
+
+  useEffect(() => {
+    if (!shouldShowGuidance) {
+      lastCompletionRef.current = completedChecklistCount;
+      return;
+    }
+    if (completedChecklistCount > lastCompletionRef.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    lastCompletionRef.current = completedChecklistCount;
+  }, [completedChecklistCount, shouldShowGuidance]);
+
   const guidedSteps = [1, 2, 3, 4, 5];
   const guidedStepIndex = guidedSteps.indexOf(step) >= 0 ? guidedSteps.indexOf(step) + 1 : 1;
   const currentEstimateStepMeta =
@@ -5093,7 +5282,6 @@ export default function EstimateGeneratorScreen() {
   const equipmentRentalInputFocusedRef = useRef(false);
   const markupInputRef = useRef(null);
   const isMarkupFocused = useRef(false);
-  const { addEstimate, convertBidToProject, updateProject, activeProjects, estimates, deleteProject } = useProjectList();
 
   // Load live project metrics — AI must use Projects data, not Estimates. Match by id OR title.
   const [projectLiveMetrics, setProjectLiveMetrics] = useState(null);
@@ -5780,19 +5968,13 @@ export default function EstimateGeneratorScreen() {
   const [expandedSections, setExpandedSections] = useState({});
   const [expandedCategories, setExpandedCategories] = useState({});
   const [materialSearch, setMaterialSearch] = useState('');
-  const [materialNeedQty, setMaterialNeedQty] = useState({});
   const [materialSelectedVendor, setMaterialSelectedVendor] = useState({});
-  const [materialsCart, setMaterialsCart] = useState([]);
   const [isCartExpanded, setIsCartExpanded] = useState(true);
 
-  useEffect(() => {
-    materialsCartRef.current = materialsCart;
-  }, [materialsCart]);
   const [isLaborCartExpanded, setIsLaborCartExpanded] = useState(true);
   const [editingCartItem, setEditingCartItem] = useState(null);
 
-  // Rental equipment state
-  const [rentalCart, setRentalCart] = useState([]);
+  // Rental equipment state (cart state lives at top with bid — see temporal-dead-zone note there)
   const [rentalSearch, setRentalSearch] = useState('');
   const [rentalSelectedStore, setRentalSelectedStore] = useState('hd');
   const [showRentalModal, setShowRentalModal] = useState(false);
@@ -6961,53 +7143,6 @@ export default function EstimateGeneratorScreen() {
     };
     saveRentals();
   }, [rentalCart]);
-
-  // Calculations - MUST be before auto-adjustment useEffect
-  const calc = useMemo(() => {
-    // Calculate materials from materials cart
-    const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
-    
-    
-    // Calculate labor from line items
-    const laborFromItems = bid.laborLineItems?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
-    const labor = laborFromItems;
-    
-    // Calculate rental equipment costs (note: rentals don't have fixed pricing, just duration tracking)
-    const rentals = rentalCart.length; // Count of rental items for tracking
-    
-    // Total project cost includes all project costs; markup applies only to the selected markup base.
-    // Business overhead (insurance, equipment maintenance, facilities, admin, other) is not in the markup base; it reduces net profit after markup.
-    const financials = getEstimateStep5Financials(bid, materials, labor);
-    const subtotal = financials.totalCostBeforeMarkup;
-    const costContextTotal = financials.overheadContextTotal;
-    const contingency = financials.projectCosts.developerProjectCostsActive ? financials.projectCosts.contingency : 0;
-    const profit = financials.markupAmount;
-    const total = financials.bidPrice; // Preserve exact decimal precision, don't round
-    const marginRatio = total > 0 ? profit / total : 0;
-    const marginPercent = marginRatio * 100;
-    
-    const denom = bid.unitMode === 'sqft' ? Math.max(1, bid.sqft) : bid.unitMode === 'lf' ? 480 : 30;
-    const unitPrice = total / denom;
-    
-    return {
-      materials,
-      labor,
-      rentals,
-      costContextTotal,
-      companyOverhead: financials.companyOverheadTotal,
-      permitCosts: financials.projectCosts.permitCosts,
-      totalProjectCosts: financials.projectCosts.totalProjectCosts,
-      markupBaseSubtotal: financials.markupBaseSubtotal,
-      contingency,
-      profit,
-      total,
-      grandTotal: total,
-      subtotal,
-      unitPrice,
-      marginRatio,
-      marginPercent,
-    };
-  }, [bid, rentalCart, materialsCart]);
 
   /** Persists current bid + materials cart to AsyncStorage and the restore-bids list (same as Save Bid, without alert). */
   const silentPersistEstimateDraft = useCallback(async () => {
@@ -8206,69 +8341,6 @@ export default function EstimateGeneratorScreen() {
     }
   }, [calc?.total, calc?.grandTotal, isLoaded, bid.paymentSchedule]);
 
-
-  // Shared health score calculation
-  const healthScore = useMemo(() => {
-    let points = 0;
-    
-    // Project Information (15 points)
-    if (bid.title) points += 5;
-    if (bid.projectDescription) points += 5;
-    if (bid.customerCity || bid.location) points += 5;
-    
-    // Customer Information (16 points)
-    if (bid.customerEmail) points += 2;
-    if (bid.customerPhone) points += 2;
-    if (bid.customerAddress) points += 2;
-    if (bid.customerCity) points += 1.5;
-    if (bid.customerState) points += 1.5;
-    if (bid.customerZip) points += 1.5;
-    if (bid.customerCompany) points += 1.5;
-    if (bid.customerNotes) points += 1;
-    if (bid.customerName) points += 3;
-    
-    // Project Dates (10 points)
-    const startDate = bid.startDate || bid.projectStartDate;
-    const endDate = bid.endDate || bid.projectEndDate;
-    if (startDate) points += 5;
-    if (endDate) points += 5;
-    
-    // Materials & Labor (20 points)
-    if ((materialsCart?.length || 0) > 0) points += 10;
-    if ((bid.laborLineItems?.length || 0) > 0) points += 10;
-    
-    // Direct costs, overhead & markup (15 points)
-    if (bid.overheadPct && bid.overheadPct > 0) points += 8;
-    if (bid.markupPct && bid.markupPct > 0) points += 7;
-    
-    // Payment Schedule (25 points)
-    if (bid.paymentSchedule === 'milestone-based') {
-      const totalPct = bid.paymentMilestones?.reduce((sum, m) => sum + (m.percentage || 0), 0) || 0;
-      if (Math.abs(totalPct - 100) < 0.1) {
-        points += 25;
-      } else if (totalPct > 0) {
-        points += 15;
-      }
-    } else if (bid.paymentSchedule === 'weekly') {
-      const totalScheduled = bid.weeklyPayments?.reduce((sum, w) => sum + (w.amount || 0), 0) || 0;
-      if (calc.total > 0 && Math.abs(calc.total - totalScheduled) < 1) {
-        points += 25;
-      } else if (totalScheduled > 0) {
-        points += 15;
-      }
-    }
-    
-    // Legal & Compliance (10 points)
-    if (bid.licenseNumber) points += 5;
-    if (bid.insuranceCoverage) points += 5;
-    
-    // Work Schedule (5 points)
-    if (bid.workSchedule) points += 5;
-    
-    return Math.min(100, Math.round(points));
-  }, [bid, materialsCart, calc]);
-
-  const healthColor = healthScore >= 80 ? '#38d39f' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
 
   // Helper function to round payment amounts to 2 decimal places
   const roundPayment = (amount) => {
@@ -17715,16 +17787,17 @@ export default function EstimateGeneratorScreen() {
   /** Underlying step screens still mount `number` accessory TextInputs; without clearing their IDs, iOS can show the grey pill while a line-item modal field is focused. */
   const lineItemModalOpen = materialModal.visible || laborModal.visible;
 
-  /** iOS: `KeyboardAvoidingView` + `automaticallyAdjustKeyboardInsets` stacks and hides fields or leaves a huge gap. Use ScrollView keyboard insets only so each focused field stays just above the keyboard. Android: keep avoiding view. */
-  const EstimatesMainKeyboardWrapper = Platform.OS === 'ios' ? View : KeyboardAvoidingView;
+  /** iOS + web: plain `View`. Android: `KeyboardAvoidingView`. RN Web KAV + keyboard hooks has crashed Estimates (ErrorBoundary). */
+  const EstimatesMainKeyboardWrapper =
+    Platform.OS === 'android' ? KeyboardAvoidingView : View;
   const estimatesMainKeyboardWrapperProps =
-    Platform.OS === 'ios'
-      ? { style: { flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg } }
-      : {
+    Platform.OS === 'android'
+      ? {
           behavior: 'height',
           style: { flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg },
           keyboardVerticalOffset: 20,
-        };
+        }
+      : { style: { flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg } };
 
   /** iOS-only ScrollView props — passing them on web can break react-native-web (Estimates white screen). */
   const estimatesMainScrollIosProps =
@@ -17736,7 +17809,10 @@ export default function EstimateGeneratorScreen() {
       : {};
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
+    <SafeAreaView
+      style={[s.container, Platform.OS === 'web' && desktopWeb && s.rootDesktopWeb]}
+      edges={['top']}
+    >
       <StatusBar barStyle="light-content" />
       {/* Estimates steps 1–7 keyboard mounts: keep in sync with `renderStepContent` + `.cursor/rules/estimate-generator-keyboards-stable.mdc`. */}
       {/* Grey text/number Done strips: hidden on steps 1–2 (same as step 1 — dismiss via scroll / tap outside). */}
@@ -17770,11 +17846,14 @@ export default function EstimateGeneratorScreen() {
             mainScrollYRef.current = e.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}
-          contentContainerStyle={{
-            paddingHorizontal: 20,
-            paddingTop: 32,
-            paddingBottom: estimatesScrollContentPadBottom,
-          }}
+          contentContainerStyle={[
+            {
+              paddingHorizontal: estimateScrollPadH,
+              paddingTop: desktopWeb ? 24 : 32,
+              paddingBottom: estimatesScrollContentPadBottom,
+            },
+            webScrollContentCap,
+          ]}
           showsVerticalScrollIndicator={false}
           {...KEYBOARD_SCROLL_DEFAULTS}
           automaticallyAdjustContentInsets={false}
@@ -18036,15 +18115,21 @@ export default function EstimateGeneratorScreen() {
             </View>
           )}
           
-          {/* Step Icons Row */}
+          {/* Step Icons Row — desktop uses ScrollView with scrollEnabled:false so flex row + taps work on RN Web; plain View broke presses */}
           <ScrollView
             horizontal
+            scrollEnabled={!desktopWeb}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              alignItems: 'flex-start',
-            }}
+            style={desktopWeb ? { width: '100%' } : undefined}
+            contentContainerStyle={
+              desktopWeb
+                ? [s.stepRowDesktopEqual, { flexGrow: 1, minWidth: '100%' }]
+                : {
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    alignItems: 'flex-start',
+                  }
+            }
           >
             {/* Bid Summary - Special icon without number, appears before step 1 */}
             <TouchableOpacity
@@ -18052,11 +18137,14 @@ export default function EstimateGeneratorScreen() {
                 setStep(0);
                 setActiveNavButton('summary');
               }}
-              style={{
-                alignItems: 'center',
-                marginHorizontal: 11,
-                minWidth: 50,
-              }}
+              style={[
+                {
+                  alignItems: 'center',
+                  marginHorizontal: 11,
+                  minWidth: 50,
+                },
+                desktopWeb && s.stepIconTouchableDesktop,
+              ]}
             >
               <View style={{
                 width: 44,
@@ -18104,11 +18192,14 @@ export default function EstimateGeneratorScreen() {
                 onPress={async () => {
                   setStep(stepItem.id);
                 }}
-                style={{
-                  alignItems: 'center',
-                  marginHorizontal: 11,
-                  minWidth: 50,
-                }}
+                style={[
+                  {
+                    alignItems: 'center',
+                    marginHorizontal: 11,
+                    minWidth: 50,
+                  },
+                  desktopWeb && s.stepIconTouchableDesktop,
+                ]}
               >
                 <View style={{
                   width: 44,

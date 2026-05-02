@@ -36,7 +36,7 @@ import AIAssistantModal from '../../components/AIAssistantModal';
 import ProjectActivationFlow from '../../components/ProjectActivationFlow';
 import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
 import api from '../../services/BackendAPI';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth } from '@clerk/clerk-react';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { useTranslation } from 'react-i18next';

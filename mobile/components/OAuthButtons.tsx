@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useClerkOAuth } from '@/hooks/useClerkOAuth';
-import Constants from 'expo-constants';
+import { isClerkPublishableKeyConfigured } from '@/lib/clerkPublishableKey';
 import { useTheme } from '@/contexts/ThemeContext';
 
 interface OAuthButtonsProps {
@@ -41,51 +41,22 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
     [isDarkBg]
   );
 
-  // Check if Clerk is configured
-  const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  const useClerk = publishableKey && (publishableKey.startsWith('pk_live_') || (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'));
+  const oauthResult = useClerkOAuth();
+  const clerkConfigured = isClerkPublishableKeyConfigured();
 
-  if (!useClerk) {
-    return null;
-  }
-
-  // Try to use OAuth hooks - must be called unconditionally
-  // Will throw if not in ClerkProvider, which we'll catch
-  let oauthResult: any = null;
-  try {
-    oauthResult = useClerkOAuth();
-    console.log('OAuthButtons - useClerkOAuth result:', {
-      useClerk: oauthResult?.useClerk,
-      hasGoogleOAuth: !!oauthResult?.googleOAuth,
-      hasAppleOAuth: !!oauthResult?.appleOAuth,
-      hasClerkSetActive: !!oauthResult?.clerkSetActive,
-    });
-  } catch (e) {
-    // Not in ClerkProvider - don't show buttons
-    console.log('OAuthButtons - useClerkOAuth threw error (not in ClerkProvider):', e);
-    return null;
-  }
-
-  // Only show buttons if OAuth is actually available
-  if (!oauthResult?.useClerk || !oauthResult?.googleOAuth) {
-    console.log('OAuthButtons - Not showing buttons:', {
-      useClerk: oauthResult?.useClerk,
-      hasGoogleOAuth: !!oauthResult?.googleOAuth,
-      hasClerkSetActive: !!oauthResult?.clerkSetActive,
-      oauthResult: oauthResult,
-    });
+  if (!clerkConfigured || !oauthResult?.useClerk || !oauthResult?.googleOAuth) {
     return null;
   }
 
   const oauthReady = oauthResult.oauthReady !== false;
 
-  // Log that we're showing buttons
-  console.log('OAuthButtons - Showing OAuth buttons:', {
-    hasGoogleOAuth: !!oauthResult.googleOAuth,
-    hasClerkSetActive: !!oauthResult.clerkSetActive,
-    googleOAuthType: typeof oauthResult.googleOAuth,
-    oauthReady,
-  });
+  if (__DEV__) {
+    console.log('OAuthButtons - Showing OAuth buttons:', {
+      hasGoogleOAuth: !!oauthResult.googleOAuth,
+      hasClerkSetActive: !!oauthResult.clerkSetActive,
+      oauthReady,
+    });
+  }
 
   return (
     <>

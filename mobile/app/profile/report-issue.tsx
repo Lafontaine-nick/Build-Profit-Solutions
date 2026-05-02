@@ -26,7 +26,7 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 // Try to import Clerk hooks
 let useUser: any = null;
 try {
-  const clerkModule = require('@clerk/clerk-expo');
+  const clerkModule = require('@clerk/clerk-react');
   useUser = clerkModule.useUser;
 } catch (e) {
   // Clerk not available

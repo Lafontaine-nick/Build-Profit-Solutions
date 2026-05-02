@@ -17,6 +17,7 @@ import {
   Keyboard,
   Dimensions,
   RefreshControl,
+  useWindowDimensions,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
@@ -35,8 +36,12 @@ import { KeyboardAwareFlatList } from "react-native-keyboard-aware-scroll-view";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import {
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+} from "@/constants/ScreenLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth, useUser } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { formatIsoDateMMDDYYYY } from "@/utils/formatIsoDateMMDDYYYY";
 import { usePMEventReactions, pmEventTracker } from "@/hooks/usePMEventReactions";
@@ -818,6 +823,9 @@ const AIAssistantModal: React.FC<Props> = ({
   }, []);
   const { enabled: aiManagerEnabled, loading: aiModeLoading, toggleEnabled } = useAIManagerMode();
   const insets = useSafeAreaInsets();
+  const { width: aiLayoutWidth } = useWindowDimensions();
+  const aiDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(aiLayoutWidth);
   const dotAnim1 = useRef(new Animated.Value(0.4)).current;
   const dotAnim2 = useRef(new Animated.Value(0.4)).current;
   const dotAnim3 = useRef(new Animated.Value(0.4)).current;
@@ -4571,6 +4579,16 @@ const AIAssistantModal: React.FC<Props> = ({
       >
         <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg })]}>
           <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+            <View
+              style={[
+                styles.aiModalContentColumn,
+                aiDesktopWeb && {
+                  maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+                  width: "100%",
+                  alignSelf: "center",
+                },
+              ]}
+            >
             {/* Header — full title strip when idle; back-only when keyboard is open */}
             <View
               style={[
@@ -5537,9 +5555,18 @@ const AIAssistantModal: React.FC<Props> = ({
                         placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
-                        multiline
+                        multiline={Platform.OS !== "web"}
                         maxLength={500}
                         textAlignVertical="center"
+                        returnKeyType={Platform.OS === "web" ? "send" : "default"}
+                        blurOnSubmit={false}
+                        onSubmitEditing={
+                          Platform.OS === "web"
+                            ? () => {
+                                if (input.trim() && !loading && isContextReady) void sendMessage();
+                              }
+                            : undefined
+                        }
                           onFocus={() => {
                             // Scroll to bottom when input is focused (only if user isn't manually scrolling)
                             const timeout = Platform.OS === 'ios' ? 350 : 150;
@@ -5590,6 +5617,7 @@ const AIAssistantModal: React.FC<Props> = ({
               </Animated.View>
               </View>
             </View>
+            </View>
           </SafeAreaView>
         </View>
       </KeyboardAvoidingView>
@@ -5612,6 +5640,11 @@ export default AIAssistantModal;
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  /** Desktop web: match Dashboard / Projects max-width column */
+  aiModalContentColumn: {
+    flex: 1,
+    width: "100%",
+  },
   gradient: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -6042,7 +6075,7 @@ const styles = StyleSheet.create({
   },
   inputInnerBorder: {
     flex: 1,
-    borderRadius: 22,
+    borderRadius: 18,
     padding: 1,
     overflow: "hidden",
   },
@@ -6050,24 +6083,46 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 21,
+    borderRadius: 16,
     backgroundColor: "#05070A",
-    minHeight: 44,
-    paddingVertical: Platform.OS === "ios" ? 6 : 5,
+    minHeight: 32,
+    ...Platform.select({
+      web: { paddingVertical: 0 },
+      ios: { paddingVertical: 2 },
+      default: { paddingVertical: 2 },
+    }),
   },
   inputLeadIcon: {
-    marginLeft: 12,
-    marginRight: 8,
+    marginLeft: 10,
+    marginRight: 6,
     opacity: 0.88,
   },
   input: {
     flex: 1,
     color: Colors.text,
     fontSize: 15,
-    paddingRight: 8,
-    paddingVertical: 0,
+    textAlign: "left",
+    paddingRight: 6,
     maxHeight: 100,
-    lineHeight: 20,
+    lineHeight: 18,
+    ...Platform.select({
+      web: {
+        outlineStyle: "none" as const,
+        outlineWidth: 0,
+        height: 32,
+        minHeight: 32,
+        maxHeight: 32,
+        paddingTop: 0,
+        paddingBottom: 0,
+        lineHeight: 20,
+      },
+      ios: {
+        paddingVertical: 0,
+      },
+      default: {
+        paddingVertical: 0,
+      },
+    }),
   },
   recordingRow: {
     flex: 1,
@@ -6093,8 +6148,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   micButton: {
-    padding: 8,
-    marginRight: 8,
+    padding: 4,
+    marginRight: 6,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -6102,17 +6157,17 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
   sendButtonBorder: {
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 1,
     overflow: "hidden",
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
   },
   sendButtonInner: {
     width: "100%",
     height: "100%",
     backgroundColor: "#05070A",
-    borderRadius: 21,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
   },

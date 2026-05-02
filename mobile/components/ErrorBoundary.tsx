@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface Props {
@@ -9,16 +9,18 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  /** Set when a child throws so __DEV__ UI can show the real cause (e.g. Expo web + Clerk). */
+  caughtError: Error | null;
 }
 
 class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
   constructor(props: Props & { theme: any }) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, caughtError: null };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, caughtError: error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -26,7 +28,7 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
   }
 
   handleRetry = () => {
-    this.setState({ hasError: false });
+    this.setState({ hasError: false, caughtError: null });
   };
 
   render() {
@@ -34,6 +36,12 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
       if (this.props.fallback) {
         return this.props.fallback;
       }
+
+      const err = this.state.caughtError;
+      const devDetail =
+        typeof __DEV__ !== 'undefined' && __DEV__ && err
+          ? `${err.message || String(err)}\n\n${err.stack || ''}`
+          : null;
 
       return (
         <View
@@ -48,6 +56,14 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
           <Text style={[styles.message, { color: this.props.theme.subtext }]}>
             We're sorry, but something unexpected happened. Please try again.
           </Text>
+          {devDetail ? (
+            <Text
+              selectable
+              style={[styles.devDetail, { color: this.props.theme.subtext }]}
+            >
+              {devDetail}
+            </Text>
+          ) : null}
           <TouchableOpacity
             style={[
               styles.retryButton,
@@ -113,5 +129,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  devDetail: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : 'Courier',
+    textAlign: 'left',
+    alignSelf: 'stretch',
+    marginBottom: 16,
+    maxHeight: 240,
   },
 });

@@ -21,7 +21,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function planShortName(name: string): string {

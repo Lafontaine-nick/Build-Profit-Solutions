@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 import { clerkAuthService } from '@/services/clerkAuth';
 import type { WalkthroughFlowKey, WalkthroughsState } from '@/lib/walkthroughStateTypes';
 import { shouldShowWalkthrough } from '@/lib/walkthroughStateTypes';

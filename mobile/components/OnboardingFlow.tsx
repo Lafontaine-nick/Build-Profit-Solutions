@@ -11,7 +11,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 import { isClerkEnabled } from '../lib/isClerkEnabled';
 import { clerkAuthService } from '../services/clerkAuth';
 import { onboardingDataKeyForUser } from '../lib/onboardingStorage';

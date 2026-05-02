@@ -8,7 +8,6 @@ import {
   StatusBar,
   SafeAreaView,
   Animated,
-  Dimensions,
   Modal,
   Platform,
   TextInput,
@@ -38,7 +37,12 @@ import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
-import { ScreenLayout, isDesktopWebLayoutWidth } from "@/constants/ScreenLayout";
+import {
+  ScreenLayout,
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  WEB_DESKTOP_EDGE_HORIZONTAL,
+} from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
@@ -51,7 +55,7 @@ import {
 import { splitEventNotesForDisplay } from "@/utils/calendarEventDisplay";
 import { dashboardGreetingFromProfile, type DashboardGreeting } from "@/utils/dashboardGreeting";
 import Constants from "expo-constants";
-import { useUser } from "@clerk/clerk-expo";
+import { useUser } from "@clerk/clerk-react";
 import {
   bucketForNextStep,
   firstSupportingSentence,
@@ -70,6 +74,19 @@ import {
   getCompletedProjectMarginPercent,
   getCompletedProjectProfit,
 } from "@/lib/completedProjectProfitability";
+
+const AI_DASHBOARD_FETCH_TIMEOUT_MS = 60_000;
+
+function createEmptyAiDashboardResponse(): AiDashboardResponse {
+  const now = new Date().toISOString();
+  return {
+    insights: [],
+    nextSteps: [],
+    ruleBasedUpdatedAt: now,
+    aiUpdatedAt: null,
+    lastUpdated: now,
+  };
+}
 
 // Exclude deposit from progress — paid before work starts; Week 1+ represents actual work
 const isDepositMilestone = (m: any): boolean => {
@@ -142,8 +159,6 @@ const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgr
   // Use the strongest available signal so weekly and milestone schedules are treated equally.
   return Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
 };
-
-const { width } = Dimensions.get("window");
 
 type TabKey = "overview" | "analytics" | "calendar" | "insights";
 
@@ -2810,10 +2825,18 @@ const DashboardScreen: React.FC = () => {
   const Colors = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
   const tabScrollBottomInset = useTabScrollBottomInset();
-  const styles = useMemo(
-    () => getStyles(Colors, tabScrollBottomInset),
-    [Colors, tabScrollBottomInset]
-  );
+  const { width: layoutWidth } = useWindowDimensions();
+  const desktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
+  const styles = useDashboardStyles(Colors, tabScrollBottomInset);
+  /** Desktop browser only (`isDesktopWebLayoutWidth` is false on iOS/Android). Narrows main column on wide monitors. */
+  const webScrollContentCap = isDesktopWebLayoutWidth(layoutWidth)
+    ? {
+        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+        width: "100%" as const,
+        alignSelf: "center" as const,
+      }
+    : undefined;
   const { activeProjects, estimates } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showAIAssistant, setShowAIAssistant] = useState(false);
@@ -2829,6 +2852,9 @@ const DashboardScreen: React.FC = () => {
   // Debounce refs for project changes
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProjectsHashRef = useRef<string>('');
+  /** Latest dashboard-insights request wins; stale responses must not toggle loading or overwrite data */
+  const aiDashboardReqSeqRef = useRef(0);
+  const aiDashboardAbortRef = useRef<AbortController | null>(null);
   const clerkAuthEnabled = useMemo(() => isClerkAuthEnabledForDashboard(), []);
   const [dashboardGreeting, setDashboardGreeting] = useState<DashboardGreeting>({
     name: "there",
@@ -3032,9 +3058,19 @@ const DashboardScreen: React.FC = () => {
       return;
     }
 
+    const seq = ++aiDashboardReqSeqRef.current;
+    aiDashboardAbortRef.current?.abort();
+    const abortController = new AbortController();
+    aiDashboardAbortRef.current = abortController;
+
+    let fetchTimeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       setAiLoading(true);
       setAiError(null);
+      fetchTimeoutId = setTimeout(
+        () => abortController.abort(),
+        AI_DASHBOARD_FETCH_TIMEOUT_MS
+      );
 
       // Get userId from Clerk auth
       const authState = clerkAuthService.getAuthState();
@@ -3120,15 +3156,23 @@ const DashboardScreen: React.FC = () => {
           // This endpoint supports optional auth and can use userId from body.
           // Force-empty Authorization to avoid stale/expired token failures.
           headers: { Authorization: '' },
+          signal: abortController.signal,
         }
       );
 
+      const mergedResponse: AiDashboardResponse = {
+        ...createEmptyAiDashboardResponse(),
+        ...(response.data ?? {}),
+        insights: response.data?.insights ?? [],
+        nextSteps: response.data?.nextSteps ?? [],
+      };
+
       if (__DEV__) {
         console.log('📊 AI Dashboard Response:', {
-          insightsCount: response.data?.insights?.length || 0,
-          nextStepsCount: response.data?.nextSteps?.length || 0,
+          insightsCount: mergedResponse.insights?.length || 0,
+          nextStepsCount: mergedResponse.nextSteps?.length || 0,
           projectsSent: allProjects.length,
-          firstInsight: response.data?.insights?.[0],
+          firstInsight: mergedResponse.insights?.[0],
         });
       }
 
@@ -3150,8 +3194,8 @@ const DashboardScreen: React.FC = () => {
 
       // Pipeline-only ids for operational insights; closed jobs only keep retrospective rows
       const filteredData = {
-        ...response.data,
-        insights: (response.data.insights || []).filter((insight: any) => {
+        ...mergedResponse,
+        insights: (mergedResponse.insights || []).filter((insight: any) => {
           const pid = normalizeInsightProjectId(insight);
           const blob = `${insight.title || ""} ${insight.body || ""}`;
           const retrospective =
@@ -3168,7 +3212,7 @@ const DashboardScreen: React.FC = () => {
           }
           return true;
         }),
-        nextSteps: (response.data.nextSteps || []).filter((step: any) => {
+        nextSteps: (mergedResponse.nextSteps || []).filter((step: any) => {
           const pid = normalizeInsightProjectId(step);
           const stepBlob = `${step.label || ""} ${step.chip || ""}`;
           if (stepBlob.toLowerCase().includes("josh")) return false;
@@ -3198,17 +3242,34 @@ const DashboardScreen: React.FC = () => {
 
       if (__DEV__) {
         console.log("📊 After filtering:", {
-          originalInsights: response.data?.insights?.length || 0,
+          originalInsights: mergedResponse.insights?.length || 0,
           filteredInsights: filteredData.insights.length,
           afterClientRetrospectives: mergedInsights.length,
           completedSummariesSent: completedSummaries.length,
-          originalNextSteps: response.data?.nextSteps?.length || 0,
+          originalNextSteps: mergedResponse.nextSteps?.length || 0,
           filteredNextSteps: filteredData.nextSteps.length,
         });
       }
 
+      if (seq !== aiDashboardReqSeqRef.current) return;
       setAiData(filteredDataWithRetrospectives);
     } catch (err: any) {
+      if (seq !== aiDashboardReqSeqRef.current) return;
+
+      const isAbort =
+        err?.name === "AbortError" ||
+        (typeof err?.message === "string" &&
+          (err.message.includes("aborted") || err.message.includes("Abort")));
+
+      if (isAbort) {
+        if (__DEV__) {
+          console.warn("⚠️  AI dashboard request timed out or was aborted");
+        }
+        setAiData(createEmptyAiDashboardResponse());
+        setAiError(null);
+        return;
+      }
+
       // Check for route not found first
       const isRouteNotFound = 
         err.message?.includes("Route") && err.message?.includes("not found") ||
@@ -3220,7 +3281,7 @@ const DashboardScreen: React.FC = () => {
         if (__DEV__) {
           console.log("ℹ️  AI dashboard endpoint not available, skipping AI insights");
         }
-        setAiData(null);
+        setAiData(createEmptyAiDashboardResponse());
         setAiError(null);
         return;
       }
@@ -3238,7 +3299,7 @@ const DashboardScreen: React.FC = () => {
         if (__DEV__) {
           console.warn("⚠️  Cannot connect to backend for AI insights:", err.message);
         }
-        setAiData(null);
+        setAiData(createEmptyAiDashboardResponse());
         setAiError(null);
         return;
       }
@@ -3261,13 +3322,18 @@ const DashboardScreen: React.FC = () => {
         ) {
           errorMessage = "Authentication error. Please sign in again.";
         } else {
+          setAiData(createEmptyAiDashboardResponse());
           setAiError(null);
           return;
         }
       }
       setAiError(errorMessage);
+      setAiData(createEmptyAiDashboardResponse());
     } finally {
-      setAiLoading(false);
+      if (fetchTimeoutId) clearTimeout(fetchTimeoutId);
+      if (seq === aiDashboardReqSeqRef.current) {
+        setAiLoading(false);
+      }
     }
   }, [aiPmMode, activeProjects, estimates, timelineProgress]);
 
@@ -3581,7 +3647,12 @@ const DashboardScreen: React.FC = () => {
   const activeWonCount = activeCount + completedCount;
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView
+      style={[
+        styles.root,
+        Platform.OS === "web" && desktopWeb && styles.rootDesktopWeb,
+      ]}
+    >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       {clerkAuthEnabled ? (
         <ClerkDashboardGreetingSync setGreeting={setDashboardGreeting} />
@@ -3593,7 +3664,7 @@ const DashboardScreen: React.FC = () => {
       <View style={StyleSheet.absoluteFill} />
 
         <ScrollView
-        contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
           showsVerticalScrollIndicator={false}
         >
         {/* HEADER */}
@@ -3603,6 +3674,8 @@ const DashboardScreen: React.FC = () => {
             subtitle={`${t('dashboard.welcome')}, ${dashboardGreeting.name}`}
             titleColor={Colors.text}
             subtitleColor={darkMode ? "rgba(255,255,255,0.92)" : "#334155"}
+            titleStyle={desktopWeb ? styles.headerTitleDesktop : undefined}
+            subtitleStyle={desktopWeb ? styles.headerSubtitleDesktop : undefined}
             belowTitle={(() => {
               const aiStatusText = aiPmMode
                 ? "AI PM Active"
@@ -3750,7 +3823,7 @@ const DashboardScreen: React.FC = () => {
           />
         )}
 
-        <View style={{ height: 32 }} />
+        <View style={{ height: desktopWeb ? 20 : 32 }} />
       </ScrollView>
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
@@ -3832,7 +3905,7 @@ type SegmentProps = {
 const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   
   if (isActive) {
     return (
@@ -3879,6 +3952,7 @@ const EnhancedMetricCard = ({
   trend,
   trendDirection,
   context,
+  desktopEqualColumns,
 }: {
   gradient?: boolean;
   label: string;
@@ -3887,10 +3961,12 @@ const EnhancedMetricCard = ({
   trend: string;
   trendDirection: "up" | "down";
   context: string;
+  /** Desktop web: equal-width columns to match segment nav width */
+  desktopEqualColumns?: boolean;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -3936,7 +4012,7 @@ const EnhancedMetricCard = ({
   return (
     <Animated.View
       style={[
-        styles.metricOuter,
+        desktopEqualColumns ? styles.metricOuterDesktopEqual : styles.metricOuter,
         { transform: [{ scale }] },
       ]}
     >
@@ -4050,7 +4126,7 @@ const InsightsActionRow = ({
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   const bucket = bucketForNextStep(step);
   const chipVis = bucketChipVisual(bucket, darkMode);
   const title = humanizeNextStepLabel(step.label);
@@ -4122,7 +4198,7 @@ const InsightItem = ({
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   const [showTooltip, setShowTooltip] = useState(false);
   
   const iconMap: Record<typeof type, keyof typeof Ionicons.glyphMap> = {
@@ -4246,7 +4322,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   /** Collapsed by default — long lists expand on demand; preview still shows first N */
   const [aiInsightsExpanded, setAiInsightsExpanded] = useState(false);
   const overviewInsightsSorted = useMemo(
@@ -4256,17 +4332,21 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const insightCount = overviewInsightsSorted.length;
   const INSIGHT_PREVIEW_COUNT = 2;
   const showPreviewPanel =
-    aiPmMode && !aiLoading && !aiError && insightCount > 0 && !aiInsightsExpanded;
+    aiPmMode &&
+    !aiError &&
+    insightCount > 0 &&
+    !aiInsightsExpanded &&
+    (!aiLoading || aiData != null);
   const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
 
   const aiInsightsCollapsedHint = useMemo(() => {
     const expandVerb = desktopWideWeb ? "Click" : "Tap";
-    if (aiLoading) return "Analyzing your projects…";
     if (aiError) return aiError;
     if (!aiPmMode) return "Turn on AI PM Mode to see insights.";
+    if (aiLoading && !aiData) return "Analyzing your projects…";
     if (insightCount === 0) return `No major issues detected. ${expandVerb} to expand.`;
     return `${insightCount} insight${insightCount === 1 ? "" : "s"} · ${expandVerb} to expand`;
-  }, [aiLoading, aiError, aiPmMode, insightCount, desktopWideWeb]);
+  }, [aiLoading, aiData, aiError, aiPmMode, insightCount, desktopWideWeb]);
 
   const toggleAiInsights = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -4276,10 +4356,33 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   return (
     <>
       {/* KEY METRICS */}
-      <View style={[styles.sectionHeaderRow, styles.overviewKeyMetricsAiInsights]}>
-        <View>
-          <Text style={styles.sectionTitle}>Key Metrics</Text>
-          <Text style={styles.sectionSubtitle}>This month at a glance</Text>
+      <View
+        style={desktopWideWeb ? styles.keyMetricsClusterDesktop : undefined}
+      >
+      <View
+        style={[
+          styles.sectionHeaderRow,
+          styles.overviewKeyMetricsAiInsights,
+          desktopWideWeb && styles.keyMetricsHeaderDesktop,
+        ]}
+      >
+        <View style={desktopWideWeb ? { alignItems: "center" } : undefined}>
+          <Text
+            style={[
+              styles.sectionTitle,
+              desktopWideWeb && { textAlign: "center" },
+            ]}
+          >
+            Key Metrics
+          </Text>
+          <Text
+            style={[
+              styles.sectionSubtitle,
+              desktopWideWeb && { textAlign: "center" },
+            ]}
+          >
+            This month at a glance
+          </Text>
         </View>
         {!desktopWideWeb ? (
           <Text style={styles.metricsSwipeHint}>Swipe</Text>
@@ -4294,9 +4397,41 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             styles.overviewKeyMetricsBottomSpacing,
           ]}
         >
+          {desktopWideWeb ? (
+            <View style={styles.metricsRowEqualDesktop}>
+              <EnhancedMetricCard
+                desktopEqualColumns
+                gradient
+                label="Total Bids"
+                value={metrics.totalBids}
+                timeframe="This Month"
+                trend="+12.5%"
+                trendDirection="up"
+                context="12% under expected at this phase"
+              />
+              <EnhancedMetricCard
+                desktopEqualColumns
+                label="Projects"
+                value={metrics.activeProjects}
+                timeframe="In Progress"
+                trend="+4.1%"
+                trendDirection="up"
+                context="3 jobs flagged for review"
+              />
+              <EnhancedMetricCard
+                desktopEqualColumns
+                label="Avg Net Profit"
+                value={metrics.avgMargin}
+                timeframe="Completed jobs"
+                trend="—"
+                trendDirection="down"
+                context="Net profit ÷ contract on closed work (realized)"
+              />
+            </View>
+          ) : (
           <ScrollView
             horizontal
-            showsHorizontalScrollIndicator={desktopWideWeb}
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingRight: 28, paddingLeft: 2 }}
           >
           <EnhancedMetricCard
@@ -4325,7 +4460,9 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             context="Net profit ÷ contract on closed work (realized)"
           />
         </ScrollView>
+          )}
                   </View>
+      </View>
 
       {/* AI INSIGHTS PANEL */}
       <Pressable
@@ -4445,7 +4582,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               </View>
             )}
 
-            {!aiError && aiPmMode && aiLoading && (
+            {!aiError && aiPmMode && aiLoading && !aiData && (
               <Text style={styles.aiPanelPausedText}>Analyzing your projects…</Text>
             )}
 
@@ -4456,7 +4593,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             )}
 
             {aiPmMode &&
-              !aiLoading &&
               !aiError &&
               overviewInsightsSorted.map((insight) => (
                 <InsightItem
@@ -4695,7 +4831,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   // Simple avg project value for the snapshot card (use raw total — display string may be $12.8M / $123.5M)
   const avgProjectValue = useMemo(() => {
     const rawTotal = (metrics as { _rawTotalBids?: number })._rawTotalBids;
@@ -4808,7 +4944,7 @@ const AnalyticsMetric = ({
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   
   // Get icon and color for each metric type
   const isDark = Colors.bg === '#000000';
@@ -4875,7 +5011,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors), [Colors]);
+  const styles = useDashboardStyles(Colors);
   const router = useRouter();
   const [showAllActions, setShowAllActions] = useState(false);
   const [dismissedNextStepIds, setDismissedNextStepIds] = useState<Set<string>>(() => new Set());
@@ -5331,14 +5467,37 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
 /* ----------------- STYLES ----------------- */
 
-const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.create({
+const getStyles = (
+  Colors: any,
+  scrollBottomInset: number = 120,
+  desktopWeb = false,
+  layoutWidth: number = 390
+) => {
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  /** Key metric carousel: avoid 60%+ viewport-wide cards on desktop; tight horizontal strip on phone */
+  const metricsCardOuterWidth = desktopWeb
+    ? Math.min(
+        308,
+        Math.max(
+          248,
+          Math.floor(
+            (Math.min(layoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH) - edge * 2 - 28) / 3 - 8
+          )
+        )
+      )
+    : Math.min(Math.round(layoutWidth * 0.72), 360);
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
+  /** Web + ≥1024px only (merged in JSX). Match card/page black in dark mode — avoid slate tint on #000000. */
+  rootDesktopWeb: {
+    backgroundColor: Colors.bg === "#000000" ? Colors.bg : "#f1f5f9",
+  },
   scrollContent: {
-    paddingTop: ScreenLayout.screen.paddingTop,
-    paddingHorizontal: ScreenLayout.edge.horizontal,
+    paddingTop: desktopWeb ? 24 : ScreenLayout.screen.paddingTop,
+    paddingHorizontal: edge,
     paddingBottom: scrollBottomInset,
   },
   glossOverlay: {
@@ -5352,8 +5511,18 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
 
   // HEADER (TabScreenHeader handles vertical spacing; wide bleed for segments)
   headerRow: {
-    marginHorizontal: -ScreenLayout.edge.horizontal,
-    paddingHorizontal: 8,
+    marginHorizontal: -edge,
+    paddingHorizontal: desktopWeb ? 12 : 8,
+  },
+  headerTitleDesktop: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+  },
+  headerSubtitleDesktop: {
+    fontSize: 15,
+    fontWeight: "500",
+    marginTop: 6,
   },
   titleGlow: {
     position: "absolute",
@@ -5450,14 +5619,14 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     overflow: "hidden",
     borderWidth: 1, // Match projects page border width
     borderColor: "#19E180", // Green border for both dark and light mode
-    marginBottom: 18,
+    marginBottom: desktopWeb ? 22 : 18,
   },
   segmentScrollView: {
     flexGrow: 0,
   },
   segmentInner: {
     flexDirection: "row",
-    padding: 4,
+    padding: desktopWeb ? 5 : 4,
     backgroundColor: Colors.bg === '#000000' ? "transparent" : Colors.surface2,
     minWidth: "100%",
   },
@@ -5477,12 +5646,12 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: desktopWeb ? 10 : 8,
+    paddingHorizontal: desktopWeb ? 6 : 4,
     gap: 6,
   },
   segmentLabel: {
-    fontSize: 13,
+    fontSize: desktopWeb ? 14 : 13,
     fontWeight: "600",
     color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
   },
@@ -5493,7 +5662,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   // GENERIC CARD
   card: {
     borderRadius: ScreenLayout.card.radius,
-    padding: ScreenLayout.card.padding,
+    padding: desktopWeb ? 22 : ScreenLayout.card.padding,
     backgroundColor: Colors.card,
     borderWidth: Colors.bg === '#000000' ? 1 : 0,
     borderColor: Colors.line,
@@ -5508,10 +5677,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     marginHorizontal: -8,
     paddingHorizontal: 12,
     paddingVertical: 18,
+    borderWidth: desktopWeb && Colors.bg === "#000000" ? 1 : 0,
+    borderColor: "rgba(34, 197, 94, 0.18)",
+    borderRadius: desktopWeb ? 26 : undefined,
   },
   allProjectsContainer: {
     marginBottom: 16,
-    marginHorizontal: -20,
+    marginHorizontal: -edge,
     paddingHorizontal: 4,
     paddingTop: 16,
   },
@@ -6242,9 +6414,21 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontWeight: "700",
   },
 
+  /** Desktop Overview: three equal columns inside same width as segment nav (`wideContainer`) */
+  metricsRowEqualDesktop: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    width: "100%",
+    gap: 10,
+  },
+  metricOuterDesktopEqual: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 0,
+  },
   // ENHANCED METRIC CARDS
   metricOuter: {
-    width: width * 0.62,
+    width: metricsCardOuterWidth,
     marginRight: 10,
   },
   metricGradientCard: {
@@ -6305,15 +6489,22 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
 
   // WIDE CONTAINER (matches allProjectsContainer)
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 4,
+    marginHorizontal: -edge,
+    paddingHorizontal: desktopWeb ? 8 : 4,
   },
   /** Extra left/right inset + vertical gap between Key Metrics strip and AI Insights (Overview tab) */
   overviewKeyMetricsAiInsights: {
     paddingHorizontal: 12,
   },
   overviewKeyMetricsBottomSpacing: {
-    marginBottom: 18,
+    marginBottom: desktopWeb ? 14 : 18,
+  },
+  /** Desktop web: Key Metrics title row — full bleed like segment; titles centered */
+  keyMetricsClusterDesktop: {
+    width: "100%",
+  },
+  keyMetricsHeaderDesktop: {
+    justifyContent: "center",
   },
   aiInsightsHeaderTopSpacing: {
     marginTop: 4,
@@ -6323,31 +6514,41 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   sectionHeaderRow: {
     marginTop: 6,
     marginBottom: 8,
-    marginHorizontal: -20,
+    marginHorizontal: -edge,
     paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: desktopWeb ? 19 : 18,
     fontWeight: Colors.bg === '#000000' ? "700" : "800", // Heavier in light mode
     color: Colors.bg === '#000000' ? "#e5e7eb" : "#0F172A",
   },
   sectionSubtitle: {
-    fontSize: 13,
+    fontSize: desktopWeb ? 14 : 13,
     color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#334155",
     marginTop: 2,
   },
   overviewAiInsightsSubtitle: {
     fontSize: 12,
-    opacity: Colors.bg === '#000000' ? 0.94 : 0.96,
+    opacity:
+      desktopWeb && Colors.bg === "#000000"
+        ? 0.98
+        : Colors.bg === "#000000"
+          ? 0.94
+          : 0.96,
     marginTop: 1,
   },
   aiInsightsCollapsedHint: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
+    fontSize: desktopWeb ? 14 : 13,
+    lineHeight: desktopWeb ? 20 : 18,
+    color:
+      desktopWeb && Colors.bg === "#000000"
+        ? "rgba(255,255,255,0.84)"
+        : Colors.bg === "#000000"
+          ? "rgba(255,255,255,0.9)"
+          : "#475569",
     paddingHorizontal: 4,
   },
   aiInsightsShowMoreRow: {
@@ -6413,8 +6614,13 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     paddingVertical: 18,
   },
   aiPanelPausedText: {
-    fontSize: 12,
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.88)" : "#334155",
+    fontSize: desktopWeb ? 13 : 12,
+    color:
+      desktopWeb && Colors.bg === "#000000"
+        ? "rgba(255,255,255,0.88)"
+        : Colors.bg === "#000000"
+          ? "rgba(255,255,255,0.88)"
+          : "#334155",
     marginBottom: 10,
   },
   insightRow: {
@@ -6511,7 +6717,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   // FLOATING AI BADGE
   aiFloatingWrapper: {
     position: "absolute",
-    right: 18,
+    right: desktopWeb ? 28 : 18,
     bottom: 96,
     zIndex: 10,
   },
@@ -6529,7 +6735,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
   },
   aiFloatingText: {
     marginLeft: 6,
-    fontSize: 11,
+    fontSize: desktopWeb ? 12 : 11,
     fontWeight: "600",
     color: "#d4d4d8",
   },
@@ -6550,5 +6756,21 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     fontSize: 10,
   },
 });
+};
+
+/**
+ * Single source of `getStyles` for dashboard + all subcomponents: applies **desktop web** layout
+ * (wider padding, type scale) only when `Platform.OS === "web"` and width ≥ `DESKTOP_WEB_MIN_WIDTH`.
+ * Native iOS/Android always get `desktopWeb === false`.
+ */
+function useDashboardStyles(Colors: any, scrollBottomInset: number = 120) {
+  const { width } = useWindowDimensions();
+  const desktopWeb = Platform.OS === "web" && isDesktopWebLayoutWidth(width);
+  return useMemo(
+    () => getStyles(Colors, scrollBottomInset, desktopWeb, width),
+    [Colors, scrollBottomInset, desktopWeb, width]
+  );
+}
+
 export default DashboardScreen;
 

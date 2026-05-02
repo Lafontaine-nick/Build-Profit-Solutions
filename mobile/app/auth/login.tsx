@@ -8,7 +8,7 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 // Conditionally import Clerk - only if configured
 let signInHookFactory: any = null;
 try {
-  const clerkModule = require('@clerk/clerk-expo');
+  const clerkModule = require('@clerk/clerk-react');
   signInHookFactory = clerkModule.useSignIn;
 } catch (e) {
   // Clerk not available

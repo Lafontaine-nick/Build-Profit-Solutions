@@ -10,6 +10,15 @@ export const WEB_CENTERED_COLUMN_MIN_WIDTH = 768;
 /** Max width for that centered column (forms + marketing hero). */
 export const WEB_CENTERED_COLUMN_MAX_WIDTH = 720;
 
+/**
+ * Dashboard / portfolio-style tabs on web: keeps metrics and sections readable on ultrawide
+ * monitors instead of stretching edge-to-edge.
+ */
+export const DASHBOARD_WEB_MAX_CONTENT_WIDTH = 1180;
+
+/** Horizontal padding for tab shell content on desktop web (≥ DESKTOP_WEB_MIN_WIDTH). */
+export const WEB_DESKTOP_EDGE_HORIZONTAL = 32;
+
 /** Web viewports at or above this width use a left sidebar tab bar (office / desktop). */
 export const DESKTOP_WEB_MIN_WIDTH = 1024;
 

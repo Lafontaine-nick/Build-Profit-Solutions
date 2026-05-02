@@ -19,7 +19,7 @@ import { useMemo } from 'react';
 import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-react';
 
 export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();

@@ -28,10 +28,10 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const desktopWebSidebar = isDesktopWebLayoutWidth(width);
   const { enabled: aiManagerEnabled, hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
-  const { darkMode } = useTheme();
+  const { darkMode, theme } = useTheme();
   const tabInactiveColor = darkMode ? '#757575' : '#64748B';
   const sidebarBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)';
-  const sidebarBg = darkMode ? '#071525' : '#f8fafc';
+  const sidebarBg = darkMode ? theme.bg : '#f8fafc';
 
   const screenOptions = useMemo(
     () =>
@@ -45,7 +45,10 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
               tabBarLabelPosition: 'below-icon' as const,
               tabBarButton: HapticTab,
               tabBarStyle: {
-                paddingTop: Platform.OS === 'web' ? 12 : 8,
+                paddingTop: Platform.OS === 'web' ? 20 : 8,
+                paddingBottom: Platform.OS === 'web' ? 16 : 0,
+                paddingHorizontal: Platform.OS === 'web' ? 8 : 0,
+                width: Platform.OS === 'web' ? 112 : undefined,
                 backgroundColor: sidebarBg,
                 borderRightWidth: StyleSheet.hairlineWidth,
                 borderRightColor: sidebarBorder,
@@ -73,10 +76,11 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
         tabBarLabelStyle: desktopWebSidebar
           ? {
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: '600' as TextStyle['fontWeight'],
-              marginTop: 2,
-              letterSpacing: -0.1,
+              marginTop: 4,
+              letterSpacing: 0.15,
+              maxWidth: 92,
             }
           : {
               fontSize: 10,
@@ -87,7 +91,8 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
         tabBarItemStyle: desktopWebSidebar
           ? {
-              paddingVertical: 2,
+              paddingVertical: 6,
+              paddingHorizontal: 4,
             }
           : {
               minWidth: 56,

@@ -1,12 +1,10 @@
-import Constants from 'expo-constants';
-import { useOAuth, useAuth, useClerk, useSignIn, useSignUp } from '@clerk/clerk-expo';
+import { useOAuth } from '@clerk/clerk-expo';
+import { useAuth, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
+import { isClerkPublishableKeyConfigured } from '@/lib/clerkPublishableKey';
 
-/**
- * Check if Clerk is configured (without using hooks)
- */
+/** Matches `RootLayout` / `auth.tsx` — must not rely on `Constants.expoConfig.extra` alone (web). */
 export function isClerkConfigured(): boolean {
-  const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  return !!(publishableKey && (publishableKey.startsWith('pk_live_') || (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk')));
+  return isClerkPublishableKeyConfigured();
 }
 
 /**
