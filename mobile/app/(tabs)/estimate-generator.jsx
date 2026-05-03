@@ -95,7 +95,6 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
-  WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
 
 // Colors will be defined inside the component using theme
@@ -696,7 +695,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: '500',
     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
   },
-  /** Estimates Add Material / Add Labor — grouped body (readable on wide web) */
+  /** Estimates Add Material / Add Labor — grouped body (same on native + web; gate web-only layout elsewhere). */
   materialFormSheet: {
     borderRadius: 20,
     padding: 16,
@@ -1604,14 +1603,14 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   );
 };
 
-/** Desktop / tablet web (≥768px): centered column; same cap as Find Subcontractors / SKU search */
+/** Desktop web (≥1024px): centered column — match `isDesktopWebLayoutWidth` (not tablet). */
 const LINE_ITEM_MODAL_WEB_MAX_WIDTH = 900;
 
 const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => {
   const insets = useSafeAreaInsets();
   const { width: lineItemLayoutWidth } = useWindowDimensions();
   const lineItemWebConstrained =
-    Platform.OS === 'web' && lineItemLayoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
+    Platform.OS === 'web' && isDesktopWebLayoutWidth(lineItemLayoutWidth);
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
@@ -1641,8 +1640,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const lineItemModalScrollYRef = useRef(0);
   const materialVendorBlockRef = useRef(null);
 
-  const isLabor = title.includes('Labor');
-  const isMaterial = title.includes('Material');
+  /** Full-screen add flows: use `laborMode` (not `title`) so i18n / copy changes never fall through to the bottom-sheet layout. */
+  const isLaborForm = laborMode === true;
+  const isMaterialForm = laborMode !== true;
   /** Global `bps-keyboard-done` bar (mounted in root `_layout.tsx`). */
   const bpsKeyboardAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone);
   /** Modal-local empty accessory for text fields inside this full-screen modal. */
@@ -1654,7 +1654,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setQuantity(item.quantity || 1);
       setUnit(item.unit || 'lot');
       setUnitPrice(item.unitPrice || 0);
-      if (isMaterial) {
+      if (isMaterialForm) {
         setQuantityText(
           item.quantity != null && item.quantity !== ''
             ? digitsOnly(String(item.quantity))
@@ -1670,7 +1670,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         setUnitPriceText(item.unitPrice?.toString() || '');
       }
       setHours(item.hours || '');
-      if (isLabor) {
+      if (isLaborForm) {
         setLaborRateDigits(
           item.rate != null && item.rate !== ''
             ? sanitizeDecimalMoneyInput(String(Number(item.rate)))
@@ -1681,7 +1681,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       }
       setVendor(item.vendor ?? '');
       setCategory(item.category || 'General');
-      if (isMaterial) {
+      if (isMaterialForm) {
         setMode(item.mode === 'sqft' ? 'sqft' : 'flat');
       } else {
         setMode(item.mode || laborMode || 'hourly');
@@ -1700,43 +1700,43 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setLaborRateDigits('');
       setVendor('');
       setCategory('General');
-      setMode(isMaterial ? 'flat' : laborMode || 'hourly');
+      setMode(isMaterialForm ? 'flat' : laborMode || 'hourly');
       setLaborType('inhouse');
     }
     if (!visible) {
       prevVisibleRef.current = false;
     }
-  }, [item, isMaterial, laborMode, visible]);
+  }, [item, isMaterialForm, laborMode, visible]);
   
   const handleSave = () => {
-    if (isMaterial && !String(vendor || '').trim()) {
+    if (isMaterialForm && !String(vendor || '').trim()) {
       Alert.alert('Vendor required', 'Please enter a vendor or supplier.');
       return;
     }
-    const laborRateNum = isLabor ? decimalMoneyInputToNumber(laborRateDigits) || 0 : 0;
+    const laborRateNum = isLaborForm ? decimalMoneyInputToNumber(laborRateDigits) || 0 : 0;
     const data = {
       name,
-      ...(isLabor ? {
+      ...(isLaborForm ? {
         mode: mode,
         laborType: laborType,
         hours: Number(hours) || 0,
         rate: laborRateNum,
         total: (Number(hours) || 0) * laborRateNum
       } : {
-        ...(isMaterial && { mode: mode === 'sqft' ? 'sqft' : 'flat' }),
-        quantity: isMaterial
+        ...(isMaterialForm && { mode: mode === 'sqft' ? 'sqft' : 'flat' }),
+        quantity: isMaterialForm
           ? mode === 'sqft'
             ? Number(quantity) || 0
             : 1
           : Number(quantity) || 0,
-        unit: isMaterial ? (mode === 'sqft' ? 'sq ft' : 'lot') : unit,
+        unit: isMaterialForm ? (mode === 'sqft' ? 'sq ft' : 'lot') : unit,
         unitPrice: Number(unitPrice) || 0,
-        total: isMaterial
+        total: isMaterialForm
           ? mode === 'sqft'
             ? (Number(quantity) || 0) * (Number(unitPrice) || 0)
             : Number(unitPrice) || 0
           : (Number(quantity) || 0) * (Number(unitPrice) || 0),
-        ...(isMaterial && { vendor, category }),
+        ...(isMaterialForm && { vendor, category }),
       })
     };
     
@@ -1749,7 +1749,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
   /** Same pattern as estimate steps 1–2: one nudge so Vendor / Supplier clears the keyboard. */
   const nudgeLineItemMaterialVendorAboveKeyboard = useCallback(() => {
-    if (!visible || !isMaterial) return;
+    if (!visible || !isMaterialForm) return;
     const kb = Math.max(keyboardHeightRef.current || 0, Platform.OS === 'ios' ? 290 : 260);
     const marginAboveKeyboard = Platform.OS === 'ios' ? 88 : 72;
     materialVendorBlockRef.current?.measureInWindow?.((_x, y, _w, h) => {
@@ -1763,20 +1763,20 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         lineItemModalScrollRef.current.scrollTo({ y: nextY, animated: true });
       }
     });
-  }, [visible, isMaterial]);
+  }, [visible, isMaterialForm]);
 
   useEffect(() => {
-    if (!visible || !isMaterial || !materialVendorFocused) return;
+    if (!visible || !isMaterialForm || !materialVendorFocused) return;
     const id = setTimeout(() => nudgeLineItemMaterialVendorAboveKeyboard(), 220);
     return () => clearTimeout(id);
-  }, [visible, isMaterial, materialVendorFocused, nudgeLineItemMaterialVendorAboveKeyboard]);
+  }, [visible, isMaterialForm, materialVendorFocused, nudgeLineItemMaterialVendorAboveKeyboard]);
 
   useEffect(() => {
     if (!visible) setMaterialVendorFocused(false);
   }, [visible]);
 
   const lineItemMaterialVendorKeyboardBoost =
-    visible && isMaterial && isKeyboardVisible && materialVendorFocused
+    visible && isMaterialForm && isKeyboardVisible && materialVendorFocused
       ? Platform.OS === 'ios'
         ? 160
         : 120
@@ -1805,7 +1805,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         style={{ flex: 1, backgroundColor: Colors.bg }}
         keyboardVerticalOffset={0}
       >
-        {(isMaterial || isLabor) ? (
+        {(isMaterialForm || isLaborForm) ? (
           <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
             <View
               style={[
@@ -1848,7 +1848,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     >
                       <View style={modalStyles.headerIconContainer}>
                         <MaterialCommunityIcons
-                          name={isLabor ? "account-hard-hat" : "package-variant-closed"}
+                          name={isLaborForm ? "account-hard-hat" : "package-variant-closed"}
                           size={24}
                           color="#22c55e"
                         />
@@ -1857,10 +1857,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   </View>
                   <View style={modalStyles.headerTextBlock}>
                     <Text style={modalStyles.materialTitle}>
-                      {isLabor ? 'Add Labor' : 'Add Materials & Equipment'}
+                      {isLaborForm ? 'Add Labor' : 'Add Materials & Equipment'}
                     </Text>
                     <Text style={modalStyles.materialSubtitle}>
-                      {isLabor ? 'Log your labor expense' : 'Log your material or equipment expense'}
+                      {isLaborForm ? 'Log your labor expense' : 'Log your material or equipment expense'}
                     </Text>
                   </View>
                 </View>
@@ -1885,7 +1885,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   paddingBottom: 16 + lineItemMaterialVendorKeyboardBoost,
                 }}
               >
-                {isLabor ? (
+                {isLaborForm ? (
                   <View style={modalStyles.materialFormSheet}>
                     {/* Labor Name (Description) */}
                     <View style={modalStyles.materialFieldGroup}>
@@ -2524,7 +2524,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     />
                   </View>
                   
-                  {isLabor ? (
+                  {isLaborForm ? (
                     <>
                       {/* Pricing Mode Toggle */}
                       <View style={modalStyles.inputGroup}>
@@ -8026,7 +8026,7 @@ export default function EstimateGeneratorScreen() {
     const itemId = action.itemId || action.item_id || `ai-${Date.now()}`;
     const descriptionKey = description.toLowerCase();
 
-    const isLabor =
+    const isAiLaborItem =
       action.type === 'add_labor_expense' ||
       /labor|labour|sub|crew/.test(descriptionKey);
 
@@ -8044,8 +8044,8 @@ export default function EstimateGeneratorScreen() {
     }
     
     if (action.type === 'update_estimate_item' || action.type === 'add_material' || action.type === 'add_labor_expense') {
-      storeEstimateAiUndoSnapshot(isLabor ? 'add / update labor item' : 'add / update material item');
-      if (isLabor) {
+      storeEstimateAiUndoSnapshot(isAiLaborItem ? 'add / update labor item' : 'add / update material item');
+      if (isAiLaborItem) {
         const nextLabor = {
           id: itemId,
           name: description,
@@ -9061,7 +9061,9 @@ export default function EstimateGeneratorScreen() {
   // Generate and Share Contract - Goes straight to PDF sharing
   const generateContract = async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
 
       const contractType = getContractTypeForProject(bid.projectType);
       const profileForPdf = await resolveProfileForContractExport(contractorProfile, clerkUser);
@@ -9089,6 +9091,12 @@ export default function EstimateGeneratorScreen() {
       };
 
       if (preflightWarnings.length > 0) {
+        // RN Web: Alert.alert is often invisible / no-op — user already sees "Review before sending" on step 8.
+        if (Platform.OS === 'web') {
+          await runExport();
+          return;
+        }
+
         const warningText = preflightWarnings
           .slice(0, 5)
           .map((warning) => `• ${warning.message}`)
@@ -9117,11 +9125,12 @@ export default function EstimateGeneratorScreen() {
     } catch (error) {
       console.error('❌ Error generating contract:', error);
       console.error('Error stack:', error.stack);
-      Alert.alert(
-        '❌ Error',
-        `Failed to generate contract: ${error.message}`,
-        [{ text: 'OK' }]
-      );
+      const msg = `Failed to generate contract: ${error.message}`;
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(msg);
+      } else {
+        Alert.alert('❌ Error', msg, [{ text: 'OK' }]);
+      }
     }
   };
 

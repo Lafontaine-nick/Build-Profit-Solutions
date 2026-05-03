@@ -228,9 +228,13 @@ export default function ProfileScreen() {
       }
     : undefined;
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  /** Match Projects / Estimates: bleed main shell past scroll `edge` except desktop-web column. */
+  const profileShellBleedActive = !(Platform.OS === 'web' && desktopWeb);
   const footerSvgWidth = Math.max(
     1,
-    Math.min(layoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH) - edge * 2
+    profileShellBleedActive
+      ? layoutWidth - (desktopWeb ? 16 : 8)
+      : Math.min(layoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH) - edge * 2
   );
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
@@ -2535,6 +2539,7 @@ export default function ProfileScreen() {
         contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
         showsVerticalScrollIndicator={true}
       >
+        <View style={styles.profileShellBleed}>
         <LinearGradient
           colors={["#2DFFC4", "#00A6FF"]}
           start={{ x: 0.05, y: 0.15 }}
@@ -2685,6 +2690,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       )}
+        </View>
       </ScrollView>
 
       {/* Edit Profile Modal */}
@@ -3662,6 +3668,15 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingTop: desktopWeb ? 24 : 16,
     paddingHorizontal: edge,
     paddingBottom: 40,
+  },
+  /** Same pattern as `projects.tsx` `wideContainer`: cancel scroll horizontal padding so the shell is nearly full-bleed. */
+  profileShellBleed: {
+    ...(!(Platform.OS === 'web' && desktopWeb)
+      ? {
+          marginHorizontal: -edge,
+          paddingHorizontal: desktopWeb ? 8 : 4,
+        }
+      : {}),
   },
   backButtonWrapper: {
     marginRight: 12,

@@ -9,7 +9,9 @@ import type { ReactElement } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { fromByteArray } from 'base64-js';
+import { Platform } from 'react-native';
+import { fromByteArray, toByteArray } from 'base64-js';
+import { triggerBrowserPdfDownload } from './triggerBrowserPdfDownload';
 
 export type GeneratePdfOptions = {
   filename: string;
@@ -88,6 +90,13 @@ export async function generateAndSavePdf(
     const safeFilename = options.filename.toLowerCase().endsWith('.pdf')
       ? options.filename
       : `${options.filename}.pdf`;
+
+    if (Platform.OS === 'web') {
+      triggerBrowserPdfDownload(safeFilename, toByteArray(base64data));
+      console.log('✅ PDF download triggered (web):', safeFilename);
+      return `web-download:${safeFilename}`;
+    }
+
     const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
 
     if (!baseDir) {

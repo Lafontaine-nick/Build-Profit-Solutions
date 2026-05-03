@@ -8,6 +8,7 @@ import { ContractBuildOptions } from "./contractTemplate";
 import { buildProposalHtml, getContractPdfPrintFooterParts } from "./buildProposalHtml";
 import { resolveBackendRestApiBaseUrl } from "../../utils/resolveBackendRestApiUrl";
 import { getNetworkInfo } from "../../utils/networkDetection";
+import { triggerBrowserPdfDownload } from "../../utils/triggerBrowserPdfDownload";
 
 const sanitizeFilenamePart = (value: string) =>
   String(value || "contract")
@@ -252,6 +253,11 @@ export async function exportContractPdf(
           );
         }
         throw new Error("Invalid PDF from server (missing %PDF header).");
+      }
+
+      if (Platform.OS === "web") {
+        triggerBrowserPdfDownload(filename, bytes);
+        return `web-download:${filename}`;
       }
 
       const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
