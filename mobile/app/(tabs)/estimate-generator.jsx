@@ -2961,7 +2961,7 @@ function getEstimateSavedFinancialFields({ materials = 0, labor = 0, financials,
   };
 }
 
-const blankState = (isFirstTime = false) => ({
+const blankState = () => ({
   id: String(Date.now()),
   title: 'Untitled Bid',
   region: 'NV',
@@ -3000,55 +3000,9 @@ const blankState = (isFirstTime = false) => ({
   otherDirectCost: 0,
   zoning: 'residential',
   
-  // Materials - Detailed line items (with smart defaults for first-time users)
-  materialLineItems: isFirstTime ? [
-    {
-      id: String(Date.now() + 10),
-      name: '2x4x8 KD Stud',
-      description: '2x4x8 KD Stud (editable)',
-      quantity: 50,
-      unit: 'ea',
-      unitPrice: 4.15,
-      total: 207.50,
-      section: 'Framing',
-      category: 'Framing',
-    },
-    {
-      id: String(Date.now() + 11),
-      name: 'Drywall 1/2" 4x8',
-      description: 'Drywall 1/2" 4x8 (editable)',
-      quantity: 20,
-      unit: 'sheet',
-      unitPrice: 10.90,
-      total: 218.00,
-      section: 'Drywall & Paint',
-      category: 'Drywall',
-    },
-  ] : [],
-  
-  // Labor - Detailed line items (with smart defaults for first-time users)
-  laborLineItems: isFirstTime ? [
-    {
-      id: String(Date.now() + 1),
-      name: 'Framing labor',
-      description: 'Framing labor (editable)',
-      hours: 40,
-      rate: 45,
-      total: 1800,
-      category: 'Framing',
-      section: 'Framing',
-    },
-    {
-      id: String(Date.now() + 2),
-      name: 'Electrical labor',
-      description: 'Electrical labor (editable)',
-      hours: 24,
-      rate: 55,
-      total: 1320,
-      category: 'Electrical',
-      section: 'Electrical',
-    },
-  ] : [],
+  // Materials / labor — start empty so first-estimate walkthrough is a clean slate
+  materialLineItems: [],
+  laborLineItems: [],
   
   // Labor (calculated from line items)
   labor: 0,
@@ -4441,6 +4395,9 @@ export default function EstimateGeneratorScreen() {
   
   const { width: layoutWidth } = useWindowDimensions();
   const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
+  /** Larger secondary copy on web browsers (estimate steps are dense on desktop). */
+  const estimateWebType = Platform.OS === 'web';
+  const ew = (phone, web) => (estimateWebType ? web : phone);
   const webScrollContentCap = desktopWeb
     ? {
         maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
@@ -6693,12 +6650,10 @@ export default function EstimateGeneratorScreen() {
   }, []);
   
   useEffect(() => {
-    console.log('🔄 Bid useEffect triggered - isLoaded:', isLoaded);
     if (!isLoaded) return;
-    
+
     // Safety check - don't save if bid is empty or invalid
     if (!bid || !bid.id) {
-      console.log('⚠️ Skipping bid save - bid is empty or invalid');
       return;
     }
     
@@ -6710,7 +6665,6 @@ export default function EstimateGeneratorScreen() {
       }
       initialLoadTimeoutRef.current = setTimeout(() => {
         isInitialLoadRef.current = false;
-        console.log('✅ Initial load complete, normal saves enabled');
       }, 1000); // Wait 1 second after mount before allowing saves
       return;
     }
@@ -6741,7 +6695,6 @@ export default function EstimateGeneratorScreen() {
     });
     const bidKey = `${bid.id}-${bid.title}-${JSON.stringify(bid.laborLineItems)}-${JSON.stringify(materialsCart)}-${customerInfoKey}-${paymentScheduleKey}`;
     if (lastSavedBidRef.current === bidKey) {
-      console.log('⚠️ Same bid already saved, skipping...');
       return;
     }
     
@@ -6823,13 +6776,7 @@ export default function EstimateGeneratorScreen() {
       if (!snapshot) return;
       const { bidSnapshot: snapshotBid, estimateContext } = snapshot;
       try {
-        console.log('💾 Persisting bid snapshot to AsyncStorage...');
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
-        console.log(
-          `💾 Saved bid: ${snapshotBid.title} with grandTotal: $${(snapshotBid.total || 0).toLocaleString()}, leadId: ${
-            snapshotBid.leadId || 'none'
-          }, leadSource: ${snapshotBid.leadSource || 'none'}`
-        );
 
         // The restore-bids list is handled separately by silentPersistEstimateDraft
         // so regular snapshot/project syncing can stay lightweight here.
@@ -6845,20 +6792,12 @@ export default function EstimateGeneratorScreen() {
         const existingProject = existingWonProject || matchingEstimate || existingInProgress;
           const location = `${snapshotBid.customerCity || 'Unknown'}, ${snapshotBid.customerState || 'Unknown'}`;
 
-          console.log(
-            `💰 Auto-sync calculation: materials=${estimateContext.materials}, labor=${estimateContext.labor}, costContextTotal=${estimateContext.costContextTotal}, permit=${estimateContext.permitCosts}, subtotal=${estimateContext.subtotal}, markup=${estimateContext.markup}%, total=${estimateContext.total}`
-          );
-
         // Calculate labor and materials budgets from estimateContext (which uses CURRENT materialsCart and laborLineItems)
         // CRITICAL: estimateContext.materials and estimateContext.labor are calculated from current state in the useEffect
         // These are the source of truth, not snapshotBid.materialLineItems which might be stale
         const materialsBudget = estimateContext.materials || 0;
         const laborBudget = estimateContext.labor || 0;
-        
-        console.log(`💰 Updating buckets: Materials=$${materialsBudget}, Labor=$${laborBudget}`);
-        console.log(`💰 From estimateContext: materials=${estimateContext.materials}, labor=${estimateContext.labor}`);
-        console.log(`💰 MaterialsCart count: ${materialsCart.length}, LaborLineItems count: ${bid.laborLineItems?.length || 0}`);
-        
+
         // CRITICAL: Also update snapshotBid.materialLineItems to match materialsCart so it's saved correctly
         // This ensures materials don't get deleted when the bid is reloaded
         if (materialsCart.length > 0) {
@@ -6872,7 +6811,6 @@ export default function EstimateGeneratorScreen() {
             cost: Number(item.cost) || Number(item.total) || 0,
             section: item.section || 'General Materials',
           }));
-          console.log(`💾 Synced ${materialsCart.length} materials to materialLineItems`);
         } else {
           snapshotBid.materialLineItems = [];
         }
@@ -6996,9 +6934,7 @@ export default function EstimateGeneratorScreen() {
           };
           
           await AsyncStorage.setItem(projectDataKey, JSON.stringify(updatedProjectData));
-          console.log(`💾 Updated projectData buckets: Labor=$${laborBudget}, Materials=$${materialsBudget}`);
-          console.log(`💾 Saved projectData to AsyncStorage for project ${snapshotBid.title} (${snapshotBid.id})`);
-          
+
         // CRITICAL: Merge estimate payment milestones with existing timeline milestones
         // Timeline edits (status, progress) should be preserved, but amounts/dates from estimate should update
         let mergedMilestones = normalizedPaymentMilestones;
@@ -7028,8 +6964,6 @@ export default function EstimateGeneratorScreen() {
               }
               return estimateMilestone;
             });
-            
-            console.log(`🔄 Merged ${mergedMilestones.length} milestones: preserved timeline edits, updated amounts from estimate`);
           }
         } catch (error) {
           console.error('Error merging milestones:', error);
@@ -7045,18 +6979,8 @@ export default function EstimateGeneratorScreen() {
           paymentSchedule: snapshotBid.paymentSchedule || bid.paymentSchedule,
           estimateData: snapshotBid,
         });
-          console.log(`✅ Synced projectData buckets to ProjectListContext for ${snapshotBid.title}`);
         } catch (error) {
           console.error('Error updating projectData buckets:', error);
-        }
-        if (existingProject) {
-          console.log(
-            `✅ Auto-synced estimate/project (${existingProject.status}) for ${snapshotBid.title} ($${estimateContext.total.toLocaleString()})`
-          );
-        } else {
-          console.log(
-            `✅ Auto-created estimate entry for ${snapshotBid.title} ($${estimateContext.total.toLocaleString()})`
-          );
         }
       } catch (error) {
         console.error('❌ Failed to persist bid snapshot:', error);
@@ -7066,7 +6990,6 @@ export default function EstimateGeneratorScreen() {
     const timeoutId = setTimeout(async () => {
       await persistSnapshot(pendingSaveRef.current);
       pendingSaveRef.current = null;
-      console.log('✅ Bid useEffect completed successfully');
     }, 800);
 
     return () => {
@@ -10303,7 +10226,7 @@ export default function EstimateGeneratorScreen() {
           // Create a completely blank bid (not first time, so no default items)
           const proposalNumber = await allocateNextProposalNumber();
           const nextBid = {
-            ...blankState(false),
+            ...blankState(),
             proposalNumber,
             // Ensure all calculation-related fields are cleared
             previousTotal: undefined,
@@ -12418,6 +12341,10 @@ export default function EstimateGeneratorScreen() {
         const netProfit = profit - businessOverheadDeduct;
         const bidPriceForMargin = jobTotal;
         const netProfitPct = bidPriceForMargin > 0 ? (netProfit / bidPriceForMargin) * 100 : 0;
+        /** When markup is applied to the same base as total cost and overhead is $0, margin-on-bid % only changes with Markup % — not when editing dollar fields. */
+        const marginOnBidLockedByMarkupPctOnly =
+          businessOverheadDeduct < 0.005 &&
+          Math.abs((calc?.markupBaseSubtotal ?? 0) - (calc?.subtotal ?? 0)) < 0.005;
         const netProfitAccentColor = netProfit >= 0 ? '#38d39f' : '#f87171';
         
         // AI badge always shows - determine message and button text
@@ -12630,28 +12557,28 @@ export default function EstimateGeneratorScreen() {
         const step5MutedSoft = darkMode ? 'rgba(198, 210, 232, 0.78)' : Colors.sub;
         const step5FieldLabelStyle = {
           color: darkMode ? 'rgba(241, 245, 249, 0.93)' : Colors.sub,
-          fontSize: 12,
+          fontSize: ew(12, 14),
           fontWeight: '600',
-          marginBottom: 5,
+          marginBottom: ew(5, 6),
         };
         const step5FieldWrapStyle = { marginBottom: 12 };
         const step5SectionTitleStyle = {
           color: Colors.text,
-          fontSize: 17,
+          fontSize: ew(17, 19),
           fontWeight: '800',
           letterSpacing: -0.3,
         };
         const step5SectionSubtitleStyle = {
           color: step5Muted,
-          fontSize: 12.5,
+          fontSize: ew(12.5, 15),
           marginTop: 5,
-          lineHeight: 17,
+          lineHeight: ew(17, 22),
         };
         const step5SectionHelperStyle = {
           color: step5MutedSoft,
-          fontSize: 11.5,
+          fontSize: ew(11.5, 14),
           marginTop: 7,
-          lineHeight: 16,
+          lineHeight: ew(16, 21),
         };
         /**
          * Step 5 decimal fields: pair with `keyboardType="decimal-pad"` and
@@ -12668,8 +12595,14 @@ export default function EstimateGeneratorScreen() {
               }
             : { autoComplete: 'off' };
 
+        /** RN Web: TouchableWithoutFeedback steals taps from TextInputs — keep dismiss wrapper only on native. */
+        const Step5KeyboardDismissWrap =
+          Platform.OS === 'web' ? View : TouchableWithoutFeedback;
+
         return (
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <Step5KeyboardDismissWrap
+            {...(Platform.OS === 'web' ? {} : { onPress: Keyboard.dismiss })}
+          >
             <View style={[s.wideContainer, { marginTop: 0, marginBottom: 100, paddingTop: 4 }]}>
               <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
               <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
@@ -12679,7 +12612,7 @@ export default function EstimateGeneratorScreen() {
                   </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.35 }}>Project costs, overhead & markup</Text>
-                  <Text style={{ color: step5Muted, fontSize: 13, marginTop: 5, lineHeight: 18 }}>Enter other project costs, company overhead, and your markup rate</Text>
+                  <Text style={{ color: step5Muted, fontSize: ew(13, 16), marginTop: 5, lineHeight: ew(18, 23) }}>Enter other project costs, company overhead, and your markup rate</Text>
                 </View>
               </View>
 
@@ -12692,10 +12625,10 @@ export default function EstimateGeneratorScreen() {
                 padding: 14,
                 marginBottom: 18,
               }}>
-                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
+                <Text style={{ color: Colors.text, fontSize: ew(14, 15), fontWeight: '800', marginBottom: 6, letterSpacing: -0.2 }}>
                   Pricing Profile
                 </Text>
-                <Text style={{ color: step5MutedSoft, fontSize: 12, marginBottom: 14, lineHeight: 17 }}>
+                <Text style={{ color: step5MutedSoft, fontSize: ew(12, 14), marginBottom: 14, lineHeight: ew(17, 21) }}>
                   Choose a pricing profile to pre-fill markup and company overhead targets. You can adjust everything.
                 </Text>
 
@@ -12733,10 +12666,10 @@ export default function EstimateGeneratorScreen() {
                               color: selected
                                 ? (darkMode ? 'rgba(236, 253, 244, 0.96)' : '#14532d')
                                 : Colors.text,
-                              fontSize: 13,
+                              fontSize: ew(13, 15),
                               fontWeight: selected ? '800' : '700',
                               letterSpacing: -0.2,
-                              lineHeight: 16,
+                              lineHeight: ew(16, 19),
                             }}
                             numberOfLines={2}
                           >
@@ -12747,8 +12680,8 @@ export default function EstimateGeneratorScreen() {
                               color: selected
                                 ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
                                 : step5MutedSoft,
-                              fontSize: 11,
-                              lineHeight: 13,
+                              fontSize: ew(11, 13),
+                              lineHeight: ew(13, 16),
                               marginTop: 2,
                             }}
                             numberOfLines={2}
@@ -12789,10 +12722,10 @@ export default function EstimateGeneratorScreen() {
                         normalizedContractorType === 5
                           ? (darkMode ? 'rgba(236, 253, 244, 0.96)' : '#14532d')
                           : Colors.text,
-                      fontSize: 13,
+                      fontSize: ew(13, 15),
                       fontWeight: normalizedContractorType === 5 ? '800' : '700',
                       letterSpacing: -0.2,
-                      lineHeight: 16,
+                      lineHeight: ew(16, 19),
                     }}
                   >
                     {contractorTypes[5].name}
@@ -12803,8 +12736,8 @@ export default function EstimateGeneratorScreen() {
                         normalizedContractorType === 5
                           ? (darkMode ? 'rgba(148, 163, 184, 0.82)' : 'rgba(22, 101, 52, 0.72)')
                           : step5MutedSoft,
-                      fontSize: 11,
-                      lineHeight: 13,
+                      fontSize: ew(11, 13),
+                      lineHeight: ew(13, 16),
                       marginTop: 2,
                     }}
                   >
@@ -12830,7 +12763,7 @@ export default function EstimateGeneratorScreen() {
                         <Text
                           style={{
                             color: darkMode ? 'rgba(186, 198, 210, 0.88)' : 'rgba(71, 85, 105, 0.88)',
-                            fontSize: 10.5,
+                            fontSize: ew(10.5, 12),
                             fontWeight: '700',
                             marginBottom: 4,
                             letterSpacing: 0.35,
@@ -12847,8 +12780,8 @@ export default function EstimateGeneratorScreen() {
                           <Text
                             key={String(label)}
                             style={{
-                              fontSize: 11,
-                              lineHeight: 16,
+                              fontSize: ew(11, 13),
+                              lineHeight: ew(16, 19),
                               marginBottom: 2,
                               fontWeight: '500',
                             }}
@@ -12873,9 +12806,9 @@ export default function EstimateGeneratorScreen() {
                         <Text
                           style={{
                             color: darkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.84)',
-                            fontSize: 9,
+                            fontSize: ew(9, 11.5),
                             marginTop: 6,
-                            lineHeight: 12.5,
+                            lineHeight: ew(12.5, 16),
                             fontWeight: '500',
                           }}
                         >
@@ -12884,9 +12817,9 @@ export default function EstimateGeneratorScreen() {
                         <Text
                           style={{
                             color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: 8.5,
+                            fontSize: ew(8.5, 11),
                             marginTop: 3,
-                            lineHeight: 12,
+                            lineHeight: ew(12, 15),
                             fontWeight: '500',
                           }}
                         >
@@ -12898,8 +12831,8 @@ export default function EstimateGeneratorScreen() {
                         <Text
                           style={{
                             color: darkMode ? 'rgba(203, 213, 225, 0.82)' : 'rgba(51, 65, 85, 0.85)',
-                            fontSize: 11,
-                            lineHeight: 15,
+                            fontSize: ew(11, 13),
+                            lineHeight: ew(15, 19),
                             fontWeight: '500',
                           }}
                         >
@@ -12908,9 +12841,9 @@ export default function EstimateGeneratorScreen() {
                         <Text
                           style={{
                             color: darkMode ? 'rgba(148, 163, 184, 0.68)' : 'rgba(100, 116, 139, 0.78)',
-                            fontSize: 8.5,
+                            fontSize: ew(8.5, 11),
                             marginTop: 5,
-                            lineHeight: 12,
+                            lineHeight: ew(12, 15),
                             fontWeight: '500',
                           }}
                         >
@@ -12953,9 +12886,9 @@ export default function EstimateGeneratorScreen() {
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
                       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.accent, marginRight: 10 }} />
-                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{item.label}</Text>
+                      <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700' }}>{item.label}</Text>
                     </View>
-                    <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.25 }}>
+                    <Text style={{ color: Colors.text, fontSize: ew(18, 20), fontWeight: '800', letterSpacing: -0.25 }}>
                       {money(item.value)}
                     </Text>
                   </View>
@@ -13291,7 +13224,7 @@ export default function EstimateGeneratorScreen() {
 
               <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Admin</Text>
-                <Text style={{ color: step5MutedSoft, fontSize: 10.5, marginBottom: 6, lineHeight: 14 }}>
+                <Text style={{ color: step5MutedSoft, fontSize: ew(10.5, 13), marginBottom: 6, lineHeight: ew(14, 18) }}>
                   Only include company/admin burden here. Project-specific coordination belongs in project costs.
                 </Text>
                 <TextInput
@@ -13365,8 +13298,8 @@ export default function EstimateGeneratorScreen() {
                   <Text
                     style={{
                       color: overheadWarning.tone === 'strong' ? '#fbbf24' : step5MutedSoft,
-                      fontSize: 12,
-                      lineHeight: 18,
+                      fontSize: ew(12, 14),
+                      lineHeight: ew(18, 21),
                       fontWeight: overheadWarning.tone === 'strong' ? '600' : '500',
                     }}
                   >
@@ -13427,7 +13360,7 @@ export default function EstimateGeneratorScreen() {
                           : contextualMessage?.type === 'inRange' && applyButtonText === 'Apply 0%'
                           ? (darkMode ? '#99f6e4' : '#000000')
                           : '#fde68a',
-                        fontSize: 12,
+                        fontSize: ew(12, 14),
                         fontWeight: '600',
                         maxWidth: 200,
                         textAlign: 'right',
@@ -13498,9 +13431,9 @@ export default function EstimateGeneratorScreen() {
                              contextualMessage.type === 'high' ? '#fbbf24' :
                              contextualMessage.type === 'inRange' ? '#38d39f' :
                              '#38d39f',
-                      fontSize: 12.5,
+                      fontSize: ew(12.5, 14.5),
                       fontWeight: '600',
-                      lineHeight: 18,
+                      lineHeight: ew(18, 21),
                     }}>
                       {contextualMessage.type === 'low' && '🔴 '}
                       {contextualMessage.type === 'high' && '🟡 '}
@@ -13535,7 +13468,7 @@ export default function EstimateGeneratorScreen() {
                     backgroundColor: markupStatusColor,
                     marginRight: 10,
                   }} />
-                  <Text style={{ color: markupStatusColor, fontSize: 12.5, fontWeight: '600', flex: 1, lineHeight: 18 }}>
+                  <Text style={{ color: markupStatusColor, fontSize: ew(12.5, 14.5), fontWeight: '600', flex: 1, lineHeight: ew(18, 21) }}>
                     {markupStatusText}
                   </Text>
                 </View>
@@ -13553,11 +13486,11 @@ export default function EstimateGeneratorScreen() {
                 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', letterSpacing: -0.2 }}>Total Cost</Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
+                      <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700', letterSpacing: -0.2 }}>Total Cost</Text>
+                      <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
                         {'Materials + labor + active project costs above\n(company overhead is shown separately below)'}
                       </Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: 10.5, marginTop: 6, lineHeight: 15, fontWeight: '600' }}>
+                      <Text style={{ color: step5MutedSoft, fontSize: ew(10.5, 13), marginTop: 6, lineHeight: ew(15, 18), fontWeight: '600' }}>
                         {`Markup base: ${markupBaseSummary}`}
                       </Text>
                     </View>
@@ -13575,7 +13508,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: '#38d39f', fontSize: 13, fontWeight: '700' }}>+ Markup</Text>
+                    <Text style={{ color: '#38d39f', fontSize: ew(13, 15), fontWeight: '700' }}>+ Markup</Text>
                     <Text style={{
                       color: '#38d39f',
                       fontSize: 16,
@@ -13590,7 +13523,7 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line, marginVertical: 10 }} />
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
+                    <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Bid Price</Text>
                     <Text style={{
                       color: '#22d3ee',
                       fontSize: 20,
@@ -13605,7 +13538,7 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <Text style={{ color: step5Muted, fontSize: 13, fontWeight: '600' }}>Gross Profit (Markup)</Text>
+                    <Text style={{ color: step5Muted, fontSize: ew(13, 15), fontWeight: '600' }}>Gross Profit (Markup)</Text>
                     <Text style={{
                       color: Colors.text,
                       fontSize: 15,
@@ -13620,8 +13553,8 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <View style={{ flex: 1, paddingRight: 14, maxWidth: '72%' }}>
-                      <Text style={{ color: '#f97316', fontSize: 13, fontWeight: '700' }}>- Business overhead</Text>
-                      <Text style={{ color: step5MutedSoft, fontSize: 11.5, marginTop: 4, lineHeight: 16 }}>
+                      <Text style={{ color: '#f97316', fontSize: ew(13, 15), fontWeight: '700' }}>- Business overhead</Text>
+                      <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 14), marginTop: 4, lineHeight: ew(16, 20) }}>
                         Insurance, equipment maintenance, facilities, admin, and other company costs — not plans, permits, equipment rental, engineering, financing, interest, contingency, or other project costs.
                       </Text>
                     </View>
@@ -13640,10 +13573,23 @@ export default function EstimateGeneratorScreen() {
                   <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line, marginVertical: 10 }} />
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', letterSpacing: -0.25 }}>Net Profit</Text>
-                      <Text style={{ color: netProfitAccentColor, fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>
+                      <Text style={{ color: Colors.text, fontSize: ew(15, 17), fontWeight: '800', letterSpacing: -0.25 }}>Net Profit</Text>
+                      <Text style={{ color: netProfitAccentColor, fontSize: ew(12.5, 14.5), marginTop: 4, fontWeight: '600' }}>
                         {netProfitPct.toFixed(1)}% margin on bid
                       </Text>
+                      {marginOnBidLockedByMarkupPctOnly ? (
+                        <Text
+                          style={{
+                            color: step5MutedSoft,
+                            fontSize: ew(10.5, 12.5),
+                            marginTop: 6,
+                            lineHeight: ew(14, 17),
+                            fontWeight: '500',
+                          }}
+                        >
+                          Same markup % — margin on bid stays at this % when you change line-item amounts; adjust Markup % above to change it.
+                        </Text>
+                      ) : null}
                     </View>
                     <Text style={{
                       color: netProfitAccentColor,
@@ -13665,19 +13611,19 @@ export default function EstimateGeneratorScreen() {
 
               <Text style={{
                 color: step5MutedSoft,
-                fontSize: 11,
+                fontSize: ew(11, 13.5),
                 textAlign: 'center',
                 marginTop: 18,
                 marginBottom: 8,
                 paddingHorizontal: 20,
                 opacity: darkMode ? 0.78 : 0.72,
                 fontStyle: 'italic',
-                lineHeight: 17,
+                lineHeight: ew(17, 20),
               }}>
                 Estimates are scenario-based projections and not guarantees of actual costs or profit.
               </Text>
             </View>
-          </TouchableWithoutFeedback>
+          </Step5KeyboardDismissWrap>
         );
       }
 
@@ -13692,7 +13638,7 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Project Analysis</Text>
-                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13, marginTop: 4 }}>Scenario presets & stress testing</Text>
+                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: ew(13, 16), marginTop: 4, lineHeight: ew(18, 22) }}>Scenario presets & stress testing</Text>
                 </View>
               </View>
               {shouldGateAdvanced ? (
@@ -13705,11 +13651,11 @@ export default function EstimateGeneratorScreen() {
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <MaterialIcons name="lock" size={18} color={darkMode ? '#FFFFFF' : Colors.sub} />
-                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                    <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700' }}>
                       Project Analysis
                     </Text>
                   </View>
-                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: ew(12, 14), lineHeight: ew(18, 21) }}>
                     Complete your estimate to unlock scenario presets and risk modeling.
                   </Text>
                   <TouchableOpacity
@@ -13726,7 +13672,7 @@ export default function EstimateGeneratorScreen() {
                       backgroundColor: 'rgba(45, 255, 196, 0.08)',
                     }}
                   >
-                    <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '700' }}>
+                    <Text style={{ color: '#2DFFC4', fontSize: ew(12, 14), fontWeight: '700' }}>
                       Finish setup to unlock
                     </Text>
                   </TouchableOpacity>
@@ -13745,13 +13691,14 @@ export default function EstimateGeneratorScreen() {
             {/* Legal Disclaimer - Outside the card */}
             <Text style={{
               color: darkMode ? '#FFFFFF' : Colors.sub,
-              fontSize: 11,
+              fontSize: ew(11, 13.5),
               textAlign: 'center',
               marginTop: 16,
               marginBottom: 8,
               paddingHorizontal: 20,
               opacity: darkMode ? 0.9 : 0.6,
               fontStyle: 'italic',
+              lineHeight: ew(17, 20),
             }}>
               Estimates are scenario-based projections and not guarantees of actual costs or profit.
             </Text>
@@ -18074,10 +18021,10 @@ export default function EstimateGeneratorScreen() {
               <MaterialIcons name={getStepIcon(step)} size={21} color="#19E180" />
             </View>
             <View style={{ flexShrink: 1 }}>
-              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', letterSpacing: -0.2 }}>
+              <Text style={{ color: Colors.text, fontSize: ew(16, 18), fontWeight: '700', letterSpacing: -0.2 }}>
                 {step === 0 ? 'Bid Summary' : STEPS[step - 1]?.title}
               </Text>
-              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.84)' : Colors.sub, fontSize: 12, marginTop: 3, lineHeight: 17 }}>
+              <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.84)' : Colors.sub, fontSize: ew(12, 15), marginTop: 3, lineHeight: ew(17, 21) }}>
                 {step === 0 ? 'Financial breakdown and totals' : STEPS[step - 1]?.subtitle}
               </Text>
             </View>
@@ -18103,10 +18050,10 @@ export default function EstimateGeneratorScreen() {
                   : nextStepLabel.toUpperCase();
                 return (
                   <>
-                    <Text style={{ color: '#2DFFC4', fontSize: 11, fontWeight: '700', textAlign: 'center' }}>
+                    <Text style={{ color: '#2DFFC4', fontSize: ew(11, 13), fontWeight: '700', textAlign: 'center' }}>
                       STEP {currentStepNumber} OF {totalSteps} — {stepTitle}
                     </Text>
-                    <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : Colors.sub, fontSize: 11, marginTop: 4, textAlign: 'center', lineHeight: 15 }}>
+                    <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.72)' : Colors.sub, fontSize: ew(11, 13), marginTop: 4, textAlign: 'center', lineHeight: ew(15, 18) }}>
                       You&apos;re doing great. {Math.max(0, stepsRemaining - 1)} steps left.
                     </Text>
                   </>
@@ -18174,7 +18121,7 @@ export default function EstimateGeneratorScreen() {
               <Text
                 style={{
                   color: darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === 0 ? '#19E180' : Colors.sub),
-                  fontSize: 11,
+                  fontSize: ew(11, 13),
                   fontWeight: darkMode ? (step === 0 ? '800' : '500') : (step === 0 ? '800' : '600'),
                   textAlign: 'center',
                   minWidth: 30,
@@ -18229,7 +18176,7 @@ export default function EstimateGeneratorScreen() {
                 <Text
                   style={{
                     color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === stepItem.id ? '#19E180' : Colors.sub),
-                    fontSize: 11,
+                    fontSize: ew(11, 13),
                     fontWeight: darkMode ? (step === stepItem.id ? '800' : '500') : (step === stepItem.id ? '800' : '600'),
                     textAlign: 'center',
                     minWidth: 30,
@@ -18276,21 +18223,7 @@ export default function EstimateGeneratorScreen() {
                               materialsCart.length === 0 &&
                               (!calc?.total || calc.total === 0);
           const shouldShowEmpty = isFirstTime && isLoaded && hasNoEstimates && hasEmptyBid;
-          
-          console.log('🔍 Empty state check:', {
-            isFirstTime,
-            isLoaded,
-            hasNoEstimates,
-            hasEmptyBid,
-            shouldShowEmpty,
-            bidTitle: bid.title,
-            customerName: bid.customerName,
-            materialCount: bid.materialLineItems?.length || 0,
-            laborCount: bid.laborLineItems?.length || 0,
-            materialsCartCount: materialsCart.length,
-            total: calc?.total,
-          });
-          
+
           return shouldShowEmpty;
         })() ? (
           <View style={s.wideContainer}>
@@ -18298,7 +18231,7 @@ export default function EstimateGeneratorScreen() {
             onPress={async () => {
               // If we're coming from onboarding, keep everything empty ($0 total)
               const proposalNumber = await allocateNextProposalNumber();
-              const nextBid = { ...blankState(true), proposalNumber };
+              const nextBid = { ...blankState(), proposalNumber };
               // Convert materialLineItems to materialsCart format
               if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
                 const defaultMaterials = nextBid.materialLineItems.map(item => ({

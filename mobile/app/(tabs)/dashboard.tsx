@@ -3660,8 +3660,8 @@ const DashboardScreen: React.FC = () => {
         <LegacyDashboardGreetingSync setGreeting={setDashboardGreeting} />
       )}
 
-      {/* Background */}
-      <View style={StyleSheet.absoluteFill} />
+      {/* Background — must not capture taps (especially on web) or the header profile control won't receive presses */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none" />
 
         <ScrollView
           contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
@@ -3732,12 +3732,15 @@ const DashboardScreen: React.FC = () => {
             })()}
             right={
               <LinearGradient
+                pointerEvents="box-none"
                 colors={["#22c55e", "#22d3ee"]}
                 style={styles.profileOuter}
               >
                 <Pressable
                   style={styles.profileInner}
                   onPress={() => router.push("/profile")}
+                  accessibilityRole="button"
+                  accessibilityLabel="Profile"
                 >
                   <Text style={styles.profileInitials}>{dashboardGreeting.initials}</Text>
                 </Pressable>

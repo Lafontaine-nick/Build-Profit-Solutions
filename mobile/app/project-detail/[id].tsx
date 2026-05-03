@@ -2201,12 +2201,15 @@ function ProjectDetailContent() {
             
             {/* Profile with glow */}
             <LinearGradient
+              pointerEvents="box-none"
               colors={["#22c55e", "#22d3ee"]}
               style={styles.profileOuter}
             >
               <Pressable
                 style={styles.profileInner}
                 onPress={() => router.push("/profile")}
+                accessibilityRole="button"
+                accessibilityLabel="Profile"
               >
                 <Text style={styles.profileInitials}>{user.initials}</Text>
               </Pressable>

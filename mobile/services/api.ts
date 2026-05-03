@@ -745,9 +745,6 @@ class ApiService {
   // Core request method
   private async makeRequest(endpoint: string, options: any = {}): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
-    console.log('🌐 ApiService making request to:', url);
-    console.log('🌐 ApiService baseUrl:', this.baseUrl);
-    console.log('🌐 ApiService endpoint:', endpoint);
     const token = await this.getAuthToken();
 
     const defaultOptions = {

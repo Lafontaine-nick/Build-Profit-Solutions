@@ -50,7 +50,9 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     faintOpacity: darkMode ? 1 : 0.5,
     stepperBtnBg: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
   }), [darkMode, themeColors]);
-  const styles = useMemo(() => getStyles(palette), [palette]);
+  const estimateWebType = Platform.OS === 'web';
+  const ew = (phone, web) => (estimateWebType ? web : phone);
+  const styles = useMemo(() => getStyles(palette, ew), [palette]);
 
   // Early return if data is not ready
   if (!bid || !calc) {
@@ -649,7 +651,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             </Text>
 
             {/* Preset Scenarios */}
-            <Text style={[styles.sectionLabel, { marginBottom: 8, fontSize: 12, textAlign: 'center', color: '#38d39f' }]}>
+            <Text style={[styles.sectionLabel, { marginBottom: 8, fontSize: ew(12, 14), textAlign: 'center', color: '#38d39f' }]}>
               Scenario presets
             </Text>
             <View style={styles.presetRow}>
@@ -1256,21 +1258,21 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               
               <View style={styles.laborModalInfo}>
                 <Text style={styles.laborModalLabel}>Hourly Rate:</Text>
-                <Text style={[styles.laborModalValue, { color: palette.accent, fontSize: 20, fontWeight: '800' }]}>
+                <Text style={[styles.laborModalValue, { color: palette.accent, fontSize: ew(20, 22), fontWeight: '800' }]}>
                   ${selectedLabor ? selectedLabor.rate : 0}/hour
                 </Text>
               </View>
               
               <View style={styles.laborModalInfo}>
                 <Text style={styles.laborModalLabel}>Daily Rate (8hrs):</Text>
-                <Text style={[styles.laborModalValue, { color: palette.text, fontSize: 16, fontWeight: '700' }]}>
+                <Text style={[styles.laborModalValue, { color: palette.text, fontSize: ew(16, 18), fontWeight: '700' }]}>
                   ${selectedLabor ? (selectedLabor.rate * 8).toLocaleString() : 0}/day
                 </Text>
               </View>
               
               <View style={styles.laborModalInfo}>
                 <Text style={styles.laborModalLabel}>Weekly Rate (40hrs):</Text>
-                <Text style={[styles.laborModalValue, { color: palette.text, fontSize: 16, fontWeight: '700' }]}>
+                <Text style={[styles.laborModalValue, { color: palette.text, fontSize: ew(16, 18), fontWeight: '700' }]}>
                   ${selectedLabor ? (selectedLabor.rate * 40).toLocaleString() : 0}/week
                 </Text>
               </View>
@@ -1282,7 +1284,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   );
 }
 
-const getStyles = (palette) => StyleSheet.create({
+/** `ew` bumps secondary typography on web — matches estimate-generator step 5 */
+const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   container: {
     gap: 12,
   },
@@ -1305,7 +1308,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   tabText: {
     color: palette.textDim,
-    fontSize: 12,
+    fontSize: ew(12, 14),
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -1320,7 +1323,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   cardTitle: {
     color: palette.text,
-    fontSize: 20,
+    fontSize: ew(20, 22),
     fontWeight: '800',
     flex: 1,
     flexShrink: 1,
@@ -1329,8 +1332,8 @@ const getStyles = (palette) => StyleSheet.create({
     color: palette.textDim,
     marginTop: 4,
     marginBottom: 12,
-    lineHeight: 18,
-    fontSize: 14,
+    lineHeight: ew(18, 22),
+    fontSize: ew(14, 16),
   },
   resetBtn: {
     paddingHorizontal: 10,
@@ -1343,7 +1346,7 @@ const getStyles = (palette) => StyleSheet.create({
   resetText: {
     color: palette.accent,
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: ew(13, 15),
   },
 
   presetRow: {
@@ -1393,7 +1396,7 @@ const getStyles = (palette) => StyleSheet.create({
   presetChipText: {
     color: palette.text,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: ew(13, 15),
     textAlign: 'center',
   },
   presetChipTextActive: {
@@ -1413,12 +1416,12 @@ const getStyles = (palette) => StyleSheet.create({
   },
   presetAppliedText: {
     color: palette.text,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: ew(12, 14),
+    lineHeight: ew(16, 20),
   },
   presetDefaultNote: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontStyle: 'italic',
     marginTop: 4,
     marginBottom: 12,
@@ -1435,20 +1438,20 @@ const getStyles = (palette) => StyleSheet.create({
   },
   aiExplanationLabel: {
     color: palette.accent,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   aiExplanationText: {
     color: palette.textDim,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: ew(12, 14),
+    lineHeight: ew(18, 22),
     marginTop: 4,
   },
   legalDisclaimer: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     textAlign: 'center',
     marginTop: 16,
     marginBottom: 8,
@@ -1458,7 +1461,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   sectionLabel: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '600',
     marginTop: 12,
     marginBottom: 4,
@@ -1483,12 +1486,12 @@ const getStyles = (palette) => StyleSheet.create({
   chipText: {
     color: palette.text,
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: ew(13, 15),
   },
 
   fineTuneSectionTitle: {
     color: palette.text,
-    fontSize: 13,
+    fontSize: ew(13, 15),
     fontWeight: '700',
     marginTop: 12,
     marginBottom: 4,
@@ -1496,8 +1499,8 @@ const getStyles = (palette) => StyleSheet.create({
   },
   fineTuneHint: {
     color: palette.textDim,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: ew(11, 13),
+    lineHeight: ew(14, 17),
     marginBottom: 8,
     opacity: palette.subtleOpacity,
   },
@@ -1512,7 +1515,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   bidActiveBannerText: {
     color: palette.accent,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '600',
   },
   fineTuneCard: {
@@ -1541,14 +1544,14 @@ const getStyles = (palette) => StyleSheet.create({
   },
   stepperLabel: {
     color: palette.text,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '600',
     letterSpacing: -0.2,
   },
   stepperLabelHint: {
     color: palette.textDim,
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: ew(10, 12.5),
+    lineHeight: ew(13, 16),
     marginTop: 2,
     opacity: palette.faintOpacity,
   },
@@ -1569,13 +1572,13 @@ const getStyles = (palette) => StyleSheet.create({
   },
   stepperBtnText: {
     color: palette.textDim,
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '500',
     opacity: 0.85,
     marginTop: -1,
   },
   stepperValue: {
-    fontSize: 17,
+    fontSize: ew(17, 19),
     fontWeight: '800',
     minWidth: 56,
     textAlign: 'center',
@@ -1605,13 +1608,13 @@ const getStyles = (palette) => StyleSheet.create({
   },
   barLabel: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     marginTop: 6,
     fontWeight: '600',
   },
   barValue: {
     color: palette.accent,
-    fontSize: 12,
+    fontSize: ew(12, 14),
     fontWeight: '800',
     marginTop: 2,
   },
@@ -1636,18 +1639,18 @@ const getStyles = (palette) => StyleSheet.create({
   },
   deltaLabel: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '600',
     marginBottom: 4,
   },
   deltaValue: {
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '800',
   },
 
   heroSectionEyebrow: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
@@ -1671,24 +1674,24 @@ const getStyles = (palette) => StyleSheet.create({
   },
   heroLabel: {
     color: palette.textDim,
-    fontSize: 13,
+    fontSize: ew(13, 15),
     fontWeight: '600',
     flexShrink: 1,
     paddingRight: 8,
   },
   heroSubLabel: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     marginTop: 4,
     fontWeight: '500',
   },
   heroValue: {
     color: palette.text,
-    fontSize: 17,
+    fontSize: ew(17, 19),
     fontWeight: '700',
   },
   heroBidValue: {
-    fontSize: 22,
+    fontSize: ew(22, 24),
     fontWeight: '800',
   },
   heroDivider: {
@@ -1698,7 +1701,7 @@ const getStyles = (palette) => StyleSheet.create({
     marginTop: 2,
   },
   heroValueAccent: {
-    fontSize: 18,
+    fontSize: ew(18, 20),
     fontWeight: '800',
   },
 
@@ -1711,15 +1714,15 @@ const getStyles = (palette) => StyleSheet.create({
     marginBottom: 14,
   },
   safetyCardTitle: {
-    fontSize: 12,
+    fontSize: ew(12, 14),
     fontWeight: '800',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
     marginBottom: 8,
   },
   safetyCardBody: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: ew(15, 17),
+    lineHeight: ew(22, 26),
     fontWeight: '600',
   },
 
@@ -1733,7 +1736,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   supportingTitle: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -1747,17 +1750,17 @@ const getStyles = (palette) => StyleSheet.create({
   },
   supportingLabel: {
     color: palette.textDim,
-    fontSize: 12,
+    fontSize: ew(12, 14),
     flex: 1,
     paddingRight: 8,
   },
   supportingValue: {
     color: palette.text,
-    fontSize: 13,
+    fontSize: ew(13, 15),
     fontWeight: '600',
   },
   supportingHint: {
-    fontSize: 10,
+    fontSize: ew(10, 12.5),
     marginTop: 2,
     fontWeight: '600',
   },
@@ -1768,7 +1771,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   supportingFootnote: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontStyle: 'italic',
     textAlign: 'center',
     marginTop: 6,
@@ -1790,26 +1793,26 @@ const getStyles = (palette) => StyleSheet.create({
   },
   simLabel: {
     color: palette.text,
-    fontSize: 13,
+    fontSize: ew(13, 15),
   },
   simValue: {
     color: palette.text,
-    fontSize: 15,
+    fontSize: ew(15, 17),
     fontWeight: '600',
   },
   simLabelBold: {
     color: palette.text,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '700',
   },
   simValueBold: {
     color: palette.accent,
-    fontSize: 15,
+    fontSize: ew(15, 17),
     fontWeight: '600',
   },
   simValueBoldLarge: {
     color: palette.text,
-    fontSize: 18,
+    fontSize: ew(18, 20),
     fontWeight: '800',
   },
   simDivider: {
@@ -1825,7 +1828,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   breakEvenText: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontStyle: 'italic',
     textAlign: 'center',
   },
@@ -1845,7 +1848,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   versionTitle: {
     color: palette.accent,
-    fontSize: 18,
+    fontSize: ew(18, 20),
     fontWeight: '800',
     marginBottom: 10,
   },
@@ -1857,16 +1860,16 @@ const getStyles = (palette) => StyleSheet.create({
   },
   versionLabel: {
     color: palette.textDim,
-    fontSize: 13,
+    fontSize: ew(13, 15),
   },
   versionValue: {
     color: palette.text,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '700',
   },
   versionNotes: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     fontStyle: 'italic',
     flex: 1,
   },
@@ -1888,7 +1891,7 @@ const getStyles = (palette) => StyleSheet.create({
   exportBtnText: {
     color: palette.accent,
     fontWeight: '800',
-    fontSize: 15,
+    fontSize: ew(15, 17),
   },
 
   aiTipCard: {
@@ -1901,29 +1904,29 @@ const getStyles = (palette) => StyleSheet.create({
   },
   aiTipText: {
     color: palette.text,
-    lineHeight: 20,
-    fontSize: 14,
+    lineHeight: ew(20, 24),
+    fontSize: ew(14, 16),
   },
   aiTipDeltaContainer: {
     marginTop: 6,
   },
   aiTipDeltaLabel: {
     color: palette.textDim,
-    fontSize: 15,
+    fontSize: ew(15, 17),
     fontWeight: '600',
     marginBottom: 4,
   },
   aiTipDeltaText: {
     color: palette.text,
     fontWeight: '700',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: ew(15, 17),
+    lineHeight: ew(22, 26),
   },
   aiTipDelta: {
     color: palette.accent,
     fontWeight: '700',
     marginTop: 6,
-    fontSize: 15,
+    fontSize: ew(15, 17),
   },
 
   // Loading and Error States
@@ -1938,7 +1941,7 @@ const getStyles = (palette) => StyleSheet.create({
   loadingText: {
     color: palette.textDim,
     marginTop: 12,
-    fontSize: 14,
+    fontSize: ew(14, 16),
   },
   errorCard: {
     backgroundColor: '#000000',
@@ -1950,13 +1953,13 @@ const getStyles = (palette) => StyleSheet.create({
   },
   errorText: {
     color: palette.red,
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '700',
     textAlign: 'center',
   },
   errorSubtext: {
     color: palette.textDim,
-    fontSize: 12,
+    fontSize: ew(12, 14),
     marginTop: 4,
   },
 
@@ -1980,13 +1983,13 @@ const getStyles = (palette) => StyleSheet.create({
   },
   marketLabel: {
     color: palette.textDim,
-    fontSize: 11,
+    fontSize: ew(11, 13),
     marginBottom: 4,
     textAlign: 'center',
   },
   marketValue: {
     color: palette.text,
-    fontSize: 12,
+    fontSize: ew(12, 14),
     fontWeight: '800',
     textAlign: 'center',
     flexWrap: 'wrap',
@@ -2015,7 +2018,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   laborLabel: {
     color: palette.textDim,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '700',
     flex: 1,
     marginRight: 8,
@@ -2024,7 +2027,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   laborValue: {
     color: palette.accent,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '800',
     flexShrink: 0,
   },
@@ -2040,8 +2043,8 @@ const getStyles = (palette) => StyleSheet.create({
   },
   recommendationText: {
     color: palette.text,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ew(14, 16),
+    lineHeight: ew(20, 24),
     textAlign: 'center',
   },
   detailedRecommendations: {
@@ -2054,7 +2057,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   recommendationSectionTitle: {
     color: palette.accent,
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '800',
     marginBottom: 12,
   },
@@ -2066,11 +2069,11 @@ const getStyles = (palette) => StyleSheet.create({
   },
   recommendationLabel: {
     color: palette.textDim,
-    fontSize: 13,
+    fontSize: ew(13, 15),
   },
   recommendationValue: {
     color: palette.text,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '700',
   },
   recommendationActions: {
@@ -2089,7 +2092,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   actionBtnText: {
     color: palette.buttonText,
-    fontSize: 13,
+    fontSize: ew(13, 15),
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -2100,7 +2103,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   secondaryBtnText: {
     color: palette.accent,
-    fontSize: 13,
+    fontSize: ew(13, 15),
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -2148,7 +2151,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   modalTitle: {
     color: palette.text,
-    fontSize: 20,
+    fontSize: ew(20, 22),
     fontWeight: '800',
   },
   modalContent: {
@@ -2161,7 +2164,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   detailSectionTitle: {
     color: palette.accent,
-    fontSize: 18,
+    fontSize: ew(18, 20),
     fontWeight: '800',
     marginBottom: 12,
   },
@@ -2174,8 +2177,8 @@ const getStyles = (palette) => StyleSheet.create({
   },
   detailText: {
     color: palette.text,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: ew(14, 16),
+    lineHeight: ew(20, 24),
     marginBottom: 8,
   },
   detailLabel: {
@@ -2191,7 +2194,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   detailValue: {
     color: palette.text,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '700',
   },
   modalActions: {
@@ -2208,7 +2211,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   modalPrimaryBtnText: {
     color: palette.buttonText,
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -2236,8 +2239,8 @@ const getStyles = (palette) => StyleSheet.create({
   },
   warningText: {
     color: palette.red,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ew(13, 15),
+    lineHeight: ew(18, 22),
     fontWeight: '600',
   },
   successCard: {
@@ -2250,8 +2253,8 @@ const getStyles = (palette) => StyleSheet.create({
   },
   successText: {
     color: palette.green,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: ew(13, 15),
+    lineHeight: ew(18, 22),
     fontWeight: '600',
   },
 
@@ -2283,7 +2286,7 @@ const getStyles = (palette) => StyleSheet.create({
   },
   laborModalTitle: {
     color: palette.accent,
-    fontSize: 20,
+    fontSize: ew(20, 22),
     fontWeight: '800',
     flex: 1,
   },
@@ -2298,13 +2301,13 @@ const getStyles = (palette) => StyleSheet.create({
   },
   laborModalLabel: {
     color: palette.textDim,
-    fontSize: 14,
+    fontSize: ew(14, 16),
     fontWeight: '600',
     marginBottom: 4,
   },
   laborModalValue: {
     color: palette.text,
-    fontSize: 16,
+    fontSize: ew(16, 18),
     fontWeight: '700',
   },
 });

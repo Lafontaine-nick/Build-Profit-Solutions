@@ -61,6 +61,9 @@ const styles = StyleSheet.create({
   },
   right: {
     marginLeft: ScreenLayout.edge.horizontal,
+    /** Stay above long titles / decorative layers so the avatar receives presses (web + native). */
+    zIndex: 2,
+    position: 'relative',
   },
   screenTitle: {
     fontSize: ScreenLayout.header.titleSize,

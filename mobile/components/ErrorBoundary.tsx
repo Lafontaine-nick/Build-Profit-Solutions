@@ -1,11 +1,18 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { useTheme } from '../contexts/ThemeContext';
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
 }
+
+/** Fallback UI colors — do not use `useTheme()` here: on `_layout` this boundary wraps providers *above* `ThemeProvider`. */
+const FALLBACK_THEME = {
+  background: '#0b1c38',
+  text: '#fff',
+  subtext: '#aaa',
+  accent: '#43cea2',
+};
 
 interface State {
   hasError: boolean;
@@ -13,8 +20,8 @@ interface State {
   caughtError: Error | null;
 }
 
-class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
-  constructor(props: Props & { theme: any }) {
+class ErrorBoundaryClass extends Component<Props & { theme: typeof FALLBACK_THEME }, State> {
+  constructor(props: Props & { theme: typeof FALLBACK_THEME }) {
     super(props);
     this.state = { hasError: false, caughtError: null };
   }
@@ -24,7 +31,9 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[ErrorBoundary]', error?.message || error, error?.stack, errorInfo?.componentStack);
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error('[ErrorBoundary]', msg, stack, errorInfo?.componentStack);
   }
 
   handleRetry = () => {
@@ -81,24 +90,9 @@ class ErrorBoundaryClass extends Component<Props & { theme: any }, State> {
   }
 }
 
-// Wrapper to provide theme context
+// Wrapper — no ThemeContext dependency (boundary sits above ThemeProvider in root layout).
 export default function ErrorBoundary(props: Props) {
-  const { darkMode } = useTheme();
-  const theme = darkMode
-    ? {
-        background: '#0b1c38',
-        text: '#fff',
-        subtext: '#aaa',
-        accent: '#43cea2',
-      }
-    : {
-        background: '#f5f7fa',
-        text: '#222',
-        subtext: '#555',
-        accent: '#1976d2',
-      };
-
-  return <ErrorBoundaryClass {...props} theme={theme} />;
+  return <ErrorBoundaryClass {...props} theme={FALLBACK_THEME} />;
 }
 
 const styles = StyleSheet.create({

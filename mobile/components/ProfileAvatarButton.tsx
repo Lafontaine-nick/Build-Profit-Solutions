@@ -21,6 +21,8 @@ const ProfileAvatarButton: React.FC<Props> = ({ style, initials = "NL" }) => {
       style={[styles.avatar, style]}
       onPress={handlePress}
       activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityLabel="Profile"
     >
       <Text style={styles.initials}>{initials}</Text>
     </TouchableOpacity>

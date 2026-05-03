@@ -892,11 +892,11 @@ const AuthScreen: React.FC = () => {
     }
   };
 
-  // Validation helper
+  // Validation helper — single-field edits (blur / onChange). Submit uses batch validation below.
   const validateField = (field: string, value: string): boolean => {
     const newErrors: Record<string, string> = { ...errors };
     let isValid = true;
-    
+
     switch (field) {
       case 'email':
         if (!value) {
@@ -917,7 +917,6 @@ const AuthScreen: React.FC = () => {
           newErrors.password = t('auth.passwordTooShort');
           isValid = false;
         } else {
-          // Password strength is just informational, not blocking
           delete newErrors.password;
         }
         break;
@@ -955,9 +954,43 @@ const AuthScreen: React.FC = () => {
         }
         break;
     }
-    
+
     setErrors(newErrors);
     return isValid;
+  };
+
+  /** Submit-time validation: merged errors for all relevant fields (fixes stale `errors` on web). */
+  const validateAllForSubmit = (): boolean => {
+    const next: Record<string, string> = {};
+    const keys: string[] = isSignup
+      ? ['firstName', 'lastName', 'email', 'password', 'confirmPassword']
+      : ['email', 'password'];
+
+    if (isSignup) {
+      if (!firstName.trim()) next.firstName = t('auth.firstNameRequired');
+      else if (firstName.trim().length < 2) next.firstName = 'First name must be at least 2 characters';
+      if (!lastName.trim()) next.lastName = t('auth.lastNameRequired');
+      else if (lastName.trim().length < 2) next.lastName = 'Last name must be at least 2 characters';
+    }
+    const em = email.trim();
+    if (!em) next.email = t('auth.emailRequired');
+    else if (!isValidEmail(em)) next.email = t('auth.emailInvalid');
+    if (!password) next.password = t('auth.passwordRequired');
+    else if (isSignup && password.length < 8) next.password = t('auth.passwordTooShort');
+    if (isSignup) {
+      if (!confirmPassword) next.confirmPassword = t('auth.confirmPasswordRequired');
+      else if (confirmPassword !== password) next.confirmPassword = t('auth.passwordsDontMatch');
+    }
+
+    setErrors((prev) => {
+      const merged = { ...prev };
+      keys.forEach((k) => {
+        if (next[k]) merged[k] = next[k];
+        else delete merged[k];
+      });
+      return merged;
+    });
+    return Object.keys(next).length === 0;
   };
 
   const handleSubmit = async () => {
@@ -970,17 +1003,8 @@ const AuthScreen: React.FC = () => {
       setTouched(prev => ({ ...prev, [field]: true }));
     });
 
-    // Validate all fields
-    let isValid = true;
-    if (isSignup) {
-      isValid = validateField('firstName', firstName) && 
-                validateField('lastName', lastName) &&
-                validateField('email', email) &&
-                validateField('password', password) &&
-                validateField('confirmPassword', confirmPassword);
-    } else {
-      isValid = validateField('email', email) && validateField('password', password);
-    }
+    // Validate all fields (single merge — avoids stale `errors` losing messages on web)
+    const isValid = validateAllForSubmit();
 
     if (!isValid) {
       return;

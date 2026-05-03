@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useRef,
+  useMemo,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiService } from '../services/api';
 import { UNIFIED_PROJECTS_STORAGE_KEY } from '../lib/projectListCache';
@@ -619,26 +627,39 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Filtered lists
-  const estimates = projects.filter(p => {
-    const status = normalizeStatus(p.status);
-    return status === 'estimate' || status === 'bid_submitted';
-  });
-  const activeProjects = projects.filter(p => {
-    const status = normalizeStatus(p.status);
-    return (
-      status === 'won' ||
-      status === 'in_progress' ||
-      status === 'in-progress' ||
-      status === 'active' ||
-      status === 'completed' ||
-      status === 'complete'
-    );
-  });
-  const wonProjects = projects.filter(p => {
-    const status = normalizeStatus(p.status);
-    return status === 'won' || status === 'completed';
-  });
+  // Filtered lists — must be memoized: fresh [] each render breaks consumers' useEffect deps
+  // (e.g. estimate-generator bid autosave) and floods Metro / the integrated terminal.
+  const estimates = useMemo(
+    () =>
+      projects.filter((p) => {
+        const status = normalizeStatus(p.status);
+        return status === 'estimate' || status === 'bid_submitted';
+      }),
+    [projects]
+  );
+  const activeProjects = useMemo(
+    () =>
+      projects.filter((p) => {
+        const status = normalizeStatus(p.status);
+        return (
+          status === 'won' ||
+          status === 'in_progress' ||
+          status === 'in-progress' ||
+          status === 'active' ||
+          status === 'completed' ||
+          status === 'complete'
+        );
+      }),
+    [projects]
+  );
+  const wonProjects = useMemo(
+    () =>
+      projects.filter((p) => {
+        const status = normalizeStatus(p.status);
+        return status === 'won' || status === 'completed';
+      }),
+    [projects]
+  );
 
   // Add estimate from Estimates page
   const addEstimate = async (estimate: UnifiedProject) => {
@@ -751,25 +772,28 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // Calculate dashboard metrics
-  const dashboardMetrics = {
-    totalRevenue: wonProjects.reduce((sum, project) => {
-      const revenue = resolveProjectRevenue(project);
-      return sum + revenue;
-    }, 0),
-    totalExpenses: wonProjects.reduce((sum, project) => {
-      const revenue = resolveProjectRevenue(project);
-      const cost = resolveProjectCost(project, revenue);
-      return sum + cost;
-    }, 0),
-    totalProfit: wonProjects.reduce((sum, project) => {
-      const revenue = resolveProjectRevenue(project);
-      const cost = resolveProjectCost(project, revenue);
-      return sum + (revenue - cost);
-    }, 0),
-    activeProjectsCount: wonProjects.length,
-    wonBidsCount: wonProjects.length,
-    pendingBidsCount: estimates.filter(p => p.status === 'bid_submitted').length,
-  };
+  const dashboardMetrics = useMemo(
+    () => ({
+      totalRevenue: wonProjects.reduce((sum, project) => {
+        const revenue = resolveProjectRevenue(project);
+        return sum + revenue;
+      }, 0),
+      totalExpenses: wonProjects.reduce((sum, project) => {
+        const revenue = resolveProjectRevenue(project);
+        const cost = resolveProjectCost(project, revenue);
+        return sum + cost;
+      }, 0),
+      totalProfit: wonProjects.reduce((sum, project) => {
+        const revenue = resolveProjectRevenue(project);
+        const cost = resolveProjectCost(project, revenue);
+        return sum + (revenue - cost);
+      }, 0),
+      activeProjectsCount: wonProjects.length,
+      wonBidsCount: wonProjects.length,
+      pendingBidsCount: estimates.filter((p) => p.status === 'bid_submitted').length,
+    }),
+    [wonProjects, estimates]
+  );
 
   // Generic operations
   const getProjectById = (id: string) => {
@@ -997,11 +1021,6 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
       setIsHydrated(true);
       setHasLoadedOnce(true);
-      if (__DEV__) {
-        console.log(
-          '🔄 Projects refreshed from backend (local draft/estimate rows kept if not on server)'
-        );
-      }
     } catch (e) {
       if (__DEV__) {
         console.warn('refreshProjects: backend failed, falling back to loadProjects', e);

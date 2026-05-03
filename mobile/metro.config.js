@@ -31,8 +31,32 @@ const expoBlurWebEntry = require.resolve('./shims/expoBlur.web.tsx');
 /** Prefer compiled JS: package "react-native" field points at ./src (TS); Metro can leave stale edges to removed paths (e.g. 0.8.x src/memory/*) after version changes. */
 const workletsLibEntry = require.resolve('react-native-worklets/lib/module/index.js');
 
+/** Absolute main entries — `extraNodeModules` alone can still yield duplicate instances on web. */
+const clerkReactMainEntry = path.join(
+  __dirname,
+  'node_modules',
+  '@clerk',
+  'clerk-react',
+  'dist',
+  'index.js',
+);
+const clerkSharedMainEntry = path.join(
+  __dirname,
+  'node_modules',
+  '@clerk',
+  'shared',
+  'dist',
+  'index.js',
+);
+
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === '@clerk/clerk-react') {
+    return { type: 'sourceFile', filePath: clerkReactMainEntry };
+  }
+  if (moduleName === '@clerk/shared') {
+    return { type: 'sourceFile', filePath: clerkSharedMainEntry };
+  }
   if (platform === 'web' && moduleName === 'react-native-reanimated') {
     return { filePath: reanimatedWebShimEntry, type: 'sourceFile' };
   }

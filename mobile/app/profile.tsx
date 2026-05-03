@@ -17,9 +17,9 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Linking,
-  Dimensions,
   InputAccessoryView,
   Keyboard,
+  useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
@@ -31,6 +31,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import {
+  ScreenLayout,
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  WEB_DESKTOP_EDGE_HORIZONTAL,
+} from '@/constants/ScreenLayout';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
@@ -212,11 +218,27 @@ export default function ProfileScreen() {
 
   const { darkMode, setDarkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
-  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const { width: layoutWidth } = useWindowDimensions();
+  const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
+  const webScrollContentCap = desktopWeb
+    ? {
+        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+        width: '100%' as const,
+        alignSelf: 'center' as const,
+      }
+    : undefined;
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  const footerSvgWidth = Math.max(
+    1,
+    Math.min(layoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH) - edge * 2
+  );
+  const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
   const { currentLanguage, changeLanguage } = useLanguage();
   const { t } = useTranslation(); // Use directly for reactivity
-  
+
+  const [user, setUser] = useState(mockUser);
+
   // Check notification permission status on mount
   useEffect(() => {
     const checkNotificationStatus = async () => {
@@ -281,7 +303,6 @@ export default function ProfileScreen() {
   const [editModal, setEditModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [user, setUser] = useState(mockUser);
   const [settingsSearch, setSettingsSearch] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState(currentLanguage);
 
@@ -2511,14 +2532,14 @@ export default function ProfileScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+        contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
         showsVerticalScrollIndicator={true}
       >
         <LinearGradient
           colors={["#2DFFC4", "#00A6FF"]}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
-          style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+          style={{ borderRadius: 24, padding: 1, marginHorizontal: 0, marginBottom: 16 }}
         >
           <View style={styles.contentCard}>
           <View style={styles.content}>
@@ -2579,7 +2600,7 @@ export default function ProfileScreen() {
       {activeTab === 'overview' && (
         <View style={styles.settingsFooter}>
           <View style={styles.gradientTextWrapper}>
-            <Svg height="20" width={Dimensions.get('window').width - 40}>
+            <Svg height="20" width={footerSvgWidth}>
               <Defs>
                 <SvgLinearGradient id="gradientOverview" x1="0%" y1="0%" x2="100%" y2="0%">
                   <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
@@ -2590,7 +2611,7 @@ export default function ProfileScreen() {
                 fill="url(#gradientOverview)"
                 fontSize="14"
                 fontWeight="500"
-                x={(Dimensions.get('window').width - 40) / 2}
+                x={footerSvgWidth / 2}
                 y="16"
                 textAnchor="middle"
               >
@@ -2599,7 +2620,7 @@ export default function ProfileScreen() {
             </Svg>
           </View>
           <View style={styles.gradientTextWrapper}>
-            <Svg height="16" width={Dimensions.get('window').width - 40}>
+            <Svg height="16" width={footerSvgWidth}>
               <Defs>
                 <SvgLinearGradient id="gradientVersionOverview" x1="0%" y1="0%" x2="100%" y2="0%">
                   <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
@@ -2610,7 +2631,7 @@ export default function ProfileScreen() {
                 fill="url(#gradientVersionOverview)"
                 fontSize="12"
                 fontWeight="400"
-                x={(Dimensions.get('window').width - 40) / 2}
+                x={footerSvgWidth / 2}
                 y="14"
                 textAnchor="middle"
               >
@@ -2623,7 +2644,7 @@ export default function ProfileScreen() {
       {activeTab === 'settings' && (
         <View style={styles.settingsFooter}>
           <View style={styles.gradientTextWrapper}>
-            <Svg height="20" width={Dimensions.get('window').width - 40}>
+            <Svg height="20" width={footerSvgWidth}>
               <Defs>
                 <SvgLinearGradient id="gradientSettings" x1="0%" y1="0%" x2="100%" y2="0%">
                   <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
@@ -2634,7 +2655,7 @@ export default function ProfileScreen() {
                 fill="url(#gradientSettings)"
                 fontSize="14"
                 fontWeight="500"
-                x={(Dimensions.get('window').width - 40) / 2}
+                x={footerSvgWidth / 2}
                 y="16"
                 textAnchor="middle"
               >
@@ -2643,7 +2664,7 @@ export default function ProfileScreen() {
             </Svg>
           </View>
           <View style={styles.gradientTextWrapper}>
-            <Svg height="16" width={Dimensions.get('window').width - 40}>
+            <Svg height="16" width={footerSvgWidth}>
               <Defs>
                 <SvgLinearGradient id="gradientVersionSettings" x1="0%" y1="0%" x2="100%" y2="0%">
                   <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
@@ -2654,7 +2675,7 @@ export default function ProfileScreen() {
                 fill="url(#gradientVersionSettings)"
                 fontSize="12"
                 fontWeight="400"
-                x={(Dimensions.get('window').width - 40) / 2}
+                x={footerSvgWidth / 2}
                 y="14"
                 textAnchor="middle"
               >
@@ -3623,7 +3644,9 @@ export default function ProfileScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -3633,7 +3656,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 12,
-    marginHorizontal: 20,
+    marginHorizontal: edge,
+  },
+  scrollContent: {
+    paddingTop: desktopWeb ? 24 : 16,
+    paddingHorizontal: edge,
+    paddingBottom: 40,
   },
   backButtonWrapper: {
     marginRight: 12,
@@ -3665,9 +3693,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     padding: 16,
     backgroundColor: 'transparent',
   },
+  /** Segments sit inside `content` (16px padding). Do not use dashboard `-edge` bleed — that pulled tabs past the padded column and misaligned the teal frame vs cards. */
   wideContainer: {
-    marginHorizontal: 0,
-    paddingHorizontal: 0,
     marginBottom: 18,
   },
   segmentContainer: {
@@ -4904,3 +4931,4 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderWidth: 1,
   },
 });
+};

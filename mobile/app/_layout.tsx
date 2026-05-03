@@ -6,7 +6,6 @@ import { ApiProvider } from '../contexts/ApiContext';
 import { UserRoleProvider } from '../contexts/UserRoleContext';
 import { ChatProvider } from '../contexts/ChatContext';
 import React, { useEffect, useState } from 'react';
-import * as Font from 'expo-font';
 import { useFonts as useMontserrat, Montserrat_700Bold } from '@expo-google-fonts/montserrat';
 import { useFonts as useSaira, Saira_400Regular } from '@expo-google-fonts/saira';
 import { View, Text, Platform, Keyboard, type StyleProp, type ViewStyle } from 'react-native';
@@ -20,7 +19,6 @@ import { LanguageProvider } from '../contexts/LanguageContext';
 import { useUserRole } from '../contexts/UserRoleContext';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import ClerkWebBootstrap from '../components/ClerkWebBootstrap';
-import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
@@ -136,18 +134,7 @@ function AuthGateWithClerk() {
         // 2. Missing contractor profile completely (new users who haven't completed setup)
         // 3. Missing name or company in contractor profile (existing users with incomplete profiles)
         const needsSetup = !hasClerkName || !hasContractorProfile;
-        
-        console.log('AuthGate - Profile check:', {
-          hasClerkName,
-          hasName,
-          hasCompany,
-          hasContractorProfile,
-          needsSetup,
-          message: needsSetup 
-            ? 'Profile setup required - will show profile setup screen' 
-            : 'Profile complete - proceeding to app'
-        });
-        
+
         setNeedsProfileSetup(needsSetup);
       } catch (error) {
         clearTimeout(timeoutId);
@@ -183,14 +170,10 @@ function AuthGateWithClerk() {
     };
   }, [isLoaded, isSignedIn, getToken]);
 
-  // Debug logging
-  console.log('AuthGate - isLoaded:', isLoaded, 'isSignedIn:', isSignedIn, 'user:', !!user, 'userId:', user?.id);
-
   // Show loading while Clerk is initializing and restoring session
   // This is critical - we must wait for Clerk to check SecureStore for existing session
   // But add timeout to prevent infinite loading
   if (!isLoaded && !clerkTimeout) {
-    console.log('AuthGate - Clerk is loading, waiting for session restoration...');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
@@ -216,7 +199,6 @@ function AuthGateWithClerk() {
 
   // Truly signed out → landing + auth
   if (!isSignedIn) {
-    console.log('AuthGate - Not signed in, showing landing + auth screens');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
@@ -231,7 +213,6 @@ function AuthGateWithClerk() {
 
   // Session exists but Clerk user object not ready yet — do NOT show sign-in (Clerk returns session_exists)
   if (!user) {
-    console.log('AuthGate - Session active, waiting for Clerk user...');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
@@ -242,7 +223,6 @@ function AuthGateWithClerk() {
 
   // Wait for profile + walkthrough hydration
   if (needsProfileSetup === null || !wtHydrated) {
-    console.log('AuthGate - Checking profile and/or walkthrough state...');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
@@ -250,7 +230,6 @@ function AuthGateWithClerk() {
 
   // Flow: sign in → onboarding (first-time) → profile setup (if needed) → role → main app
   if (shouldShowAppOnboarding) {
-    console.log('AuthGate - Showing onboarding');
     return (
       <Stack
         screenOptions={{ headerShown: false, gestureEnabled: false }}
@@ -262,21 +241,18 @@ function AuthGateWithClerk() {
   }
 
   if (needsProfileSetup === true) {
-    console.log('AuthGate - Showing profile setup (missing profile information)');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="auth/profile-setup" />
     </Stack>;
   }
 
   if (isLoading) {
-    console.log('AuthGate - Showing loading for user role');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="loading" />
     </Stack>;
   }
 
   if (!userRole) {
-    console.log('AuthGate - Showing role selection');
     return <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
       <Stack.Screen name="role-selection" />
     </Stack>;
@@ -284,7 +260,6 @@ function AuthGateWithClerk() {
 
   // Signed-in returning users always land on the marketing homepage (`index`). Get Started → app
   // (skip sign-in only when “stay signed in” is on) is handled in `landing.tsx`.
-  console.log('AuthGate - Showing main app shell (homepage first)');
   return (
     <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index" />
   );
@@ -325,7 +300,6 @@ function AuthGateWithoutClerk() {
 
   // Show loading while checking auth state
   if (isLoading || isAuthenticated === null) {
-    console.log('AuthGate - Checking authentication state...');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
@@ -335,7 +309,6 @@ function AuthGateWithoutClerk() {
 
   // Show auth screen if not authenticated
   if (!isAuthenticated) {
-    console.log('AuthGate - User not authenticated, showing auth screen');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index">
         <Stack.Screen name="index" />
@@ -348,7 +321,6 @@ function AuthGateWithoutClerk() {
   }
 
   if (!wtHydrated) {
-    console.log('AuthGate - Waiting for walkthrough state...');
     return (
       <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
         <Stack.Screen name="loading" />
@@ -357,7 +329,6 @@ function AuthGateWithoutClerk() {
   }
 
   if (shouldShowAppOnboarding) {
-    console.log('AuthGate - Showing onboarding');
     return (
       <Stack
         screenOptions={{ headerShown: false, gestureEnabled: false }}
@@ -368,7 +339,6 @@ function AuthGateWithoutClerk() {
     );
   }
 
-  console.log('AuthGate - User authenticated, main app (homepage first)');
   return (
     <Stack screenOptions={{ headerShown: false, gestureEnabled: false }} initialRouteName="index" />
   );
@@ -394,11 +364,6 @@ export default function RootLayout() {
   // Same resolution as `isClerkEnabled()` / landing (web-safe extras + manifest fallbacks).
   const publishableKey = getClerkPublishableKey();
 
-  // Debug logging
-  console.log('RootLayout - Clerk publishable key:', publishableKey ? 'Found' : 'Not found');
-  console.log('RootLayout - Key value:', publishableKey);
-  console.log('RootLayout - Constants.expoConfig?.extra:', Constants.expoConfig?.extra);
-
   const clerkEnabled = !!(
     publishableKey &&
     (publishableKey.startsWith('pk_live_') ||
@@ -406,10 +371,7 @@ export default function RootLayout() {
         publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'))
   );
 
-  console.log('RootLayout - clerkEnabled:', clerkEnabled, 'publishableKey:', publishableKey?.substring(0, 20) + '...');
-
   if (!clerkEnabled) {
-    console.log('⚠️  Running without Clerk authentication (using placeholder key or missing)');
     return (
       <ClerkUiProvider clerkEnabled={false}>
       <GestureHandlerRootView style={gestureHandlerRootStyle}>

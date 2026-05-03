@@ -7,6 +7,7 @@ import {
   Pressable,
   Dimensions,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -46,6 +47,12 @@ export function FirstEstimateWalkthroughSheetShell({
   backdropVariant = 'full',
 }: ShellProps) {
   const maxH = Math.round(Dimensions.get('window').height * SHEET_MAX_VH);
+  const { width: windowWidth } = useWindowDimensions();
+  const webDesktopSheet =
+    Platform.OS === 'web' && windowWidth >= 640;
+  const sheetMaxWidth = webDesktopSheet
+    ? Math.min(560, windowWidth - 48)
+    : undefined;
 
   return (
     <View
@@ -83,12 +90,22 @@ export function FirstEstimateWalkthroughSheetShell({
       ) : null}
 
       <View
-        style={[styles.sheetAnchor, { bottom: bottomOffset, maxHeight: maxH }]}
+        style={[
+          styles.sheetAnchor,
+          { bottom: bottomOffset, maxHeight: maxH },
+          webDesktopSheet && styles.sheetAnchorWeb,
+        ]}
         pointerEvents="box-none"
       >
         <View
           style={[
             styles.sheetCard,
+            webDesktopSheet &&
+              sheetMaxWidth != null && {
+                maxWidth: sheetMaxWidth,
+                width: '100%',
+                marginHorizontal: 0,
+              },
             {
               backgroundColor: darkMode ? 'rgba(18, 22, 28, 0.97)' : 'rgba(255,255,255,0.98)',
               borderColor: darkMode ? 'rgba(148, 163, 184, 0.17)' : 'rgba(0,0,0,0.07)',
@@ -289,6 +306,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     justifyContent: 'flex-end',
+  },
+  sheetAnchorWeb: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
   },
   sheetCard: {
     marginHorizontal: 18,

@@ -1330,12 +1330,15 @@ export default function ProjectsScreen() {
           subtitleStyle={styles.budgetPageSubtitleFont}
           right={
             <LinearGradient
+              pointerEvents="box-none"
               colors={progressGradient}
               style={styles.profileOuter}
             >
               <Pressable
                 style={styles.profileInner}
                 onPress={() => router.push('/profile')}
+                accessibilityRole="button"
+                accessibilityLabel="Profile"
               >
                 <Text style={styles.profileInitials}>{user.initials}</Text>
               </Pressable>

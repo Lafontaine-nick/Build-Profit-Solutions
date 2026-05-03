@@ -5,6 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Platform,
+  useWindowDimensions,
+  type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -74,6 +77,83 @@ function OnboardingFlowCore({
     borderLight: 'rgba(148,163,184,0.10)',
   };
 
+  const { width: windowWidth } = useWindowDimensions();
+  const webDesktop = Platform.OS === 'web' && windowWidth >= 640;
+  /** Readable column width on desktop web — avoids a tiny island on large monitors */
+  const webColumnMax = webDesktop ? Math.min(800, windowWidth - 64) : undefined;
+  const webNavMax = webDesktop ? Math.min(800, windowWidth - 48) : undefined;
+  const iconMd = webDesktop ? 24 : 20;
+  const iconSm = webDesktop ? 22 : 20;
+
+  const webTitleHero = webDesktop
+    ? ({ fontSize: 38, lineHeight: 46, letterSpacing: 0.25 } as const)
+    : undefined;
+  const webTitle = webDesktop
+    ? ({ fontSize: 32, lineHeight: 40, letterSpacing: 0.2 } as const)
+    : undefined;
+  const webTitleCompact = webDesktop
+    ? ({ fontSize: 30, lineHeight: 38 } as const)
+    : undefined;
+  const webBody = webDesktop
+    ? ({ fontSize: 18, lineHeight: 28 } as const)
+    : undefined;
+  const webBodyCompact = webDesktop
+    ? ({ fontSize: 17, lineHeight: 26 } as const)
+    : undefined;
+  const webBullet = webDesktop
+    ? ({ fontSize: 17, lineHeight: 24 } as const)
+    : undefined;
+  const webOptionText = webDesktop ? ({ fontSize: 17 } as const) : undefined;
+  const webHelper = webDesktop ? ({ fontSize: 15, lineHeight: 22 } as const) : undefined;
+  const webCallout = webDesktop ? ({ fontSize: 17, lineHeight: 24 } as const) : undefined;
+
+  /** Desktop web: centered readable column (native / narrow web unchanged). */
+  const webMainColumn: ViewStyle | undefined =
+    webColumnMax != null
+      ? {
+          paddingHorizontal: 40,
+          maxWidth: webColumnMax,
+          alignSelf: 'center',
+          width: '100%',
+        }
+      : undefined;
+
+  const webInnerClamp: ViewStyle | undefined =
+    webColumnMax != null
+      ? {
+          maxWidth: webColumnMax,
+          alignSelf: 'center',
+          width: '100%',
+        }
+      : undefined;
+
+  const pageOuterStyle = webMainColumn
+    ? [styles.pageContainer, webMainColumn]
+    : styles.pageContainer;
+
+  const pageOuterCompactStyle = webMainColumn
+    ? [styles.pageContainer, styles.pageContainerCompact, webMainColumn]
+    : [styles.pageContainer, styles.pageContainerCompact];
+
+  const pageOuterFinalStyle = webMainColumn
+    ? [styles.pageContainer, styles.pageContainerFinal, webMainColumn]
+    : [styles.pageContainer, styles.pageContainerFinal];
+
+  const pageOuterHeroStyle = webMainColumn
+    ? [styles.pageContainer, styles.pageContainerHero, webMainColumn]
+    : [styles.pageContainer, styles.pageContainerHero];
+
+  const contentCenteredStyle = [styles.content, webInnerClamp];
+
+  const contentCompactTopStyle = [styles.content, styles.contentCompactTop, webInnerClamp];
+
+  const contentFinalStyle = [styles.content, styles.contentFinal, webInnerClamp];
+
+  const skipButtonRight =
+    webDesktop && webColumnMax != null
+      ? Math.max(16, (windowWidth - webColumnMax) / 2 + 12)
+      : undefined;
+
   const handleNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -132,30 +212,50 @@ function OnboardingFlowCore({
 
   // PAGE 1 — Product Positioning
   const renderPage1 = () => (
-    <View style={[styles.pageContainer, styles.pageContainerHero]}>
-      <View style={[styles.content, styles.contentHero]}>
-        <Text style={[styles.title, styles.titleHero, { color: colors.text }]}>
+    <View style={pageOuterHeroStyle}>
+      <View
+        style={[
+          styles.content,
+          styles.contentHero,
+          webInnerClamp,
+        ]}
+      >
+        <Text
+          style={[
+            styles.title,
+            styles.titleHero,
+            webTitleHero,
+            { color: colors.text },
+          ]}
+        >
           Your AI Project Manager{'\n'}for Construction
         </Text>
-        <Text style={[styles.body, styles.bodyHero, { color: colors.subtext }]}>
+        <Text
+          style={[
+            styles.body,
+            styles.bodyHero,
+            webBody,
+            { color: colors.subtext },
+          ]}
+        >
           Build Profit Solutions helps contractors turn estimates into profitable, well-run projects.
         </Text>
         <View style={[styles.bulletList, styles.bulletListHero]}>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
+            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Estimate with confidence
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
+            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Manage jobs in real time
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={20} color={colors.accent} />
-            <Text style={[styles.bulletText, { color: colors.text }]}>
+            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
               Protect your margin from day one
             </Text>
           </View>
@@ -174,9 +274,9 @@ function OnboardingFlowCore({
     ];
 
     return (
-      <View style={styles.pageContainer}>
-        <View style={styles.content}>
-          <Text style={[styles.title, { color: colors.text }]}>
+      <View style={pageOuterStyle}>
+        <View style={contentCenteredStyle}>
+          <Text style={[styles.title, webTitle, { color: colors.text }]}>
             What best describes you?
           </Text>
           <View style={styles.optionsContainer}>
@@ -186,6 +286,7 @@ function OnboardingFlowCore({
                 style={[
                   styles.optionButton,
                   optionCardStyle(selectedRole === role.id),
+                  webDesktop && styles.optionButtonWeb,
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -196,6 +297,7 @@ function OnboardingFlowCore({
                 <Text
                   style={[
                     styles.optionText,
+                    webOptionText,
                     {
                       color: selectedRole === role.id ? '#fff' : colors.text,
                       fontWeight: selectedRole === role.id ? '600' : '400',
@@ -205,7 +307,7 @@ function OnboardingFlowCore({
                   {role.label}
                 </Text>
                 {selectedRole === role.id && (
-                  <MaterialIcons name="check" size={20} color="#fff" />
+                  <MaterialIcons name="check" size={iconSm} color="#fff" />
                 )}
               </TouchableOpacity>
             ))}
@@ -226,9 +328,9 @@ function OnboardingFlowCore({
     ];
 
     return (
-      <View style={styles.pageContainer}>
-        <View style={styles.content}>
-          <Text style={[styles.title, { color: colors.text }]}>
+      <View style={pageOuterStyle}>
+        <View style={contentCenteredStyle}>
+          <Text style={[styles.title, webTitle, { color: colors.text }]}>
             How do you usually get work?
           </Text>
           <View style={styles.optionsContainer}>
@@ -238,6 +340,7 @@ function OnboardingFlowCore({
                 style={[
                   styles.optionButton,
                   optionCardStyle(selectedWorkSource === source.id),
+                  webDesktop && styles.optionButtonWeb,
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -248,6 +351,7 @@ function OnboardingFlowCore({
                 <Text
                   style={[
                     styles.optionText,
+                    webOptionText,
                     {
                       color: selectedWorkSource === source.id ? '#fff' : colors.text,
                       fontWeight: selectedWorkSource === source.id ? '600' : '400',
@@ -257,12 +361,12 @@ function OnboardingFlowCore({
                   {source.label}
                 </Text>
                 {selectedWorkSource === source.id && (
-                  <MaterialIcons name="check" size={20} color="#fff" />
+                  <MaterialIcons name="check" size={iconSm} color="#fff" />
                 )}
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={[styles.helperText, styles.helperTextSubtle]}>
+          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper]}>
             You can also connect with builders and contractors inside Build Profit Solutions.
           </Text>
         </View>
@@ -282,9 +386,9 @@ function OnboardingFlowCore({
     ];
 
     return (
-      <View style={styles.pageContainer}>
-        <View style={styles.content}>
-          <Text style={[styles.title, { color: colors.text }]}>
+      <View style={pageOuterStyle}>
+        <View style={contentCenteredStyle}>
+          <Text style={[styles.title, webTitle, { color: colors.text }]}>
             What do you want help with most?
           </Text>
           <View style={styles.optionsContainer}>
@@ -294,6 +398,7 @@ function OnboardingFlowCore({
                 style={[
                   styles.optionButton,
                   optionCardStyle(selectedHelp === option.id),
+                  webDesktop && styles.optionButtonWeb,
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -304,6 +409,7 @@ function OnboardingFlowCore({
                 <Text
                   style={[
                     styles.optionText,
+                    webOptionText,
                     {
                       color: selectedHelp === option.id ? '#fff' : colors.text,
                       fontWeight: selectedHelp === option.id ? '600' : '400',
@@ -313,7 +419,7 @@ function OnboardingFlowCore({
                   {option.label}
                 </Text>
                 {selectedHelp === option.id && (
-                  <MaterialIcons name="check" size={20} color="#fff" />
+                  <MaterialIcons name="check" size={iconSm} color="#fff" />
                 )}
               </TouchableOpacity>
             ))}
@@ -357,34 +463,42 @@ function OnboardingFlowCore({
     ];
 
     return (
-      <View style={[styles.pageContainer, styles.pageContainerCompact]}>
-        <View style={[styles.content, styles.contentCompactTop]}>
-          <Text style={[styles.title, styles.titleCompact, { color: colors.text }]}>
+      <View style={pageOuterCompactStyle}>
+        <View style={contentCompactTopStyle}>
+          <Text style={[styles.title, styles.titleCompact, webTitleCompact, { color: colors.text }]}>
             From estimate to live job control
           </Text>
-          <Text style={[styles.body, styles.bodyCompact, { color: colors.subtext }]}>
+          <Text
+            style={[
+              styles.body,
+              styles.bodyCompact,
+              webBodyCompact,
+              { color: colors.subtext },
+            ]}
+          >
             Build Profit Solutions does not stop after the bid is sent.{'\n'}
             Your estimate becomes the foundation for running the job in real time.
           </Text>
           <View style={[styles.bulletList, styles.bulletListTight]}>
             {flowBullets.map((row) => (
               <View key={row.text} style={styles.bulletItem}>
-                <MaterialIcons name={row.icon} size={20} color={colors.accent} />
-                <Text style={[styles.bulletText, { color: colors.text }]}>{row.text}</Text>
+                <MaterialIcons name={row.icon} size={iconMd} color={colors.accent} />
+                <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>{row.text}</Text>
               </View>
             ))}
           </View>
           <View
             style={[
               styles.calloutBox,
+              webDesktop && styles.calloutBoxWeb,
               {
                 backgroundColor: 'rgba(34,197,94,0.12)',
                 borderColor: colors.accent,
               },
             ]}
           >
-            <MaterialIcons name="insights" size={24} color={colors.accent} />
-            <Text style={[styles.calloutText, { color: colors.text }]}>
+            <MaterialIcons name="insights" size={webDesktop ? 28 : 24} color={colors.accent} />
+            <Text style={[styles.calloutText, webCallout, { color: colors.text }]}>
               Project Health Score shows how your job is performing at a glance.
             </Text>
           </View>
@@ -395,10 +509,10 @@ function OnboardingFlowCore({
 
   // PAGE 6 — Final action (single primary CTA)
   const renderFinalPage = () => (
-    <View style={[styles.pageContainer, styles.pageContainerFinal]}>
-      <View style={[styles.content, styles.contentFinal]}>
-        <Text style={[styles.title, { color: colors.text }]}>{"Let's get to work"}</Text>
-        <Text style={[styles.body, styles.bodyFinal, { color: colors.subtext }]}>
+    <View style={pageOuterFinalStyle}>
+      <View style={contentFinalStyle}>
+        <Text style={[styles.title, webTitle, { color: colors.text }]}>{"Let's get to work"}</Text>
+        <Text style={[styles.body, styles.bodyFinal, webBody, { color: colors.subtext }]}>
           Start by creating your first estimate.
         </Text>
         <View style={styles.finalActionsContainer}>
@@ -409,12 +523,14 @@ function OnboardingFlowCore({
             style={styles.primaryButton}
           >
             <TouchableOpacity
-              style={styles.primaryButtonInner}
+              style={[styles.primaryButtonInner, webDesktop && styles.primaryButtonInnerWeb]}
               onPress={saveOnboardingAndOpenEstimate}
               activeOpacity={0.8}
             >
-              <MaterialIcons name="description" size={20} color="#fff" />
-              <Text style={styles.primaryButtonText}>Create First Estimate</Text>
+              <MaterialIcons name="description" size={iconMd} color="#fff" />
+              <Text style={[styles.primaryButtonText, webDesktop && styles.primaryButtonTextWeb]}>
+                Create First Estimate
+              </Text>
             </TouchableOpacity>
           </LinearGradient>
         </View>
@@ -443,7 +559,16 @@ function OnboardingFlowCore({
 
       {/* Navigation */}
       <View style={[styles.navigation, { backgroundColor: '#000000', borderTopColor: 'rgba(255,255,255,0.05)' }]}>
-        <View style={styles.navigationContent}>
+        <View
+          style={[
+            styles.navigationContent,
+            webNavMax != null && {
+              maxWidth: webNavMax,
+              alignSelf: 'center',
+              width: '100%',
+            },
+          ]}
+        >
           {/* Progress dots */}
           <View style={styles.progressDots}>
             {Array.from({ length: ONBOARDING_PAGE_COUNT }, (_, pageIndex) => (
@@ -466,11 +591,15 @@ function OnboardingFlowCore({
           <View style={styles.buttonRow}>
             {currentPage > 0 && (
               <TouchableOpacity
-                style={[styles.backButton, { borderColor: 'rgba(255,255,255,0.15)', backgroundColor: '#1a1a1a' }]}
+                style={[
+                  styles.backButton,
+                  { borderColor: 'rgba(255,255,255,0.15)', backgroundColor: '#1a1a1a' },
+                  webDesktop && styles.backButtonWeb,
+                ]}
                 onPress={handleBack}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="arrow-back" size={20} color={colors.text} />
+                <MaterialIcons name="arrow-back" size={iconMd} color={colors.text} />
                 <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
               </TouchableOpacity>
             )}
@@ -483,13 +612,13 @@ function OnboardingFlowCore({
                 style={[styles.nextButton, { opacity: canProceed() ? 1 : 0.5 }]}
               >
                 <TouchableOpacity
-                  style={styles.nextButtonInner}
+                  style={[styles.nextButtonInner, webDesktop && styles.nextButtonInnerWeb]}
                   onPress={handleNext}
                   disabled={!canProceed()}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.nextButtonText}>Continue</Text>
-                  <MaterialIcons name="arrow-forward" size={20} color="#fff" />
+                  <Text style={[styles.nextButtonText, webDesktop && styles.nextButtonTextWeb]}>Continue</Text>
+                  <MaterialIcons name="arrow-forward" size={iconMd} color="#fff" />
                 </TouchableOpacity>
               </LinearGradient>
             )}
@@ -500,7 +629,10 @@ function OnboardingFlowCore({
       {/* Skip button (only on first few pages) */}
       {currentPage < 3 && (
         <TouchableOpacity
-          style={styles.skipButton}
+          style={[
+            styles.skipButton,
+            skipButtonRight != null && { right: skipButtonRight, top: 16 },
+          ]}
           onPress={handleSkip}
           activeOpacity={0.7}
         >
@@ -663,6 +795,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  optionButtonWeb: {
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    minHeight: 56,
+  },
   optionText: {
     fontSize: 16,
     flex: 1,
@@ -697,6 +834,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  calloutBoxWeb: {
+    paddingVertical: 22,
+    paddingHorizontal: 22,
+    gap: 14,
+  },
   calloutText: {
     fontSize: 16,
     lineHeight: 22,
@@ -723,10 +865,18 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 8,
   },
+  primaryButtonInnerWeb: {
+    paddingVertical: 20,
+    paddingHorizontal: 28,
+    minHeight: 56,
+  },
   primaryButtonText: {
     color: '#fff',
     fontSize: 17,
     fontWeight: '600',
+  },
+  primaryButtonTextWeb: {
+    fontSize: 18,
   },
   secondaryButton: {
     backgroundColor: 'transparent',
@@ -774,6 +924,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
+  backButtonWeb: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    minHeight: 48,
+  },
   backButtonText: {
     fontSize: 16,
     fontWeight: '500',
@@ -794,10 +949,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 8,
   },
+  nextButtonInnerWeb: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    minHeight: 52,
+  },
   nextButtonText: {
     color: '#fff',
     fontSize: 17,
     fontWeight: '600',
+  },
+  nextButtonTextWeb: {
+    fontSize: 18,
   },
   skipButton: {
     position: 'absolute',
