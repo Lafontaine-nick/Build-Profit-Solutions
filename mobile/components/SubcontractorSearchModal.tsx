@@ -18,11 +18,14 @@ import {
   Animated,
   StatusBar,
   StyleSheet,
-  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -38,9 +41,56 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
-import { WEB_CENTERED_COLUMN_MIN_WIDTH } from '@/constants/ScreenLayout';
 
-const SUBCONTRACTOR_SEARCH_WEB_MAX_WIDTH = 900;
+/** Web: gradient card (860); native: padded column — matches Edit Team / SKU search. */
+function SubWebFormOptionalChrome({
+  isWeb,
+  darkMode,
+  Colors,
+  columnStyle,
+  children,
+}: {
+  isWeb: boolean;
+  darkMode: boolean;
+  Colors: any;
+  columnStyle?: Record<string, unknown>;
+  children: React.ReactNode;
+}) {
+  if (isWeb) {
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={BRAND_FRAME_GRADIENT_START}
+        end={BRAND_FRAME_GRADIENT_END}
+        style={{
+          width: "100%",
+          maxWidth: 860,
+          alignSelf: "center",
+          borderRadius: 24,
+          padding: 1,
+          overflow: "hidden",
+          marginBottom: 4,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            borderRadius: 23,
+            padding: 28,
+            backgroundColor: darkMode ? "#050807" : Colors.surface2,
+          }}
+        >
+          <View style={{ gap: 14, width: "100%" }}>{children}</View>
+        </View>
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={[{ paddingTop: 0, gap: 14, width: "100%" }, columnStyle || {}]}>
+      {children}
+    </View>
+  );
+}
 
 /** Off by default — set `EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED=true` + `YELP_API_KEY` on backend when you enable Yelp. */
 function isYelpSubSearchEnabled(): boolean {
@@ -165,18 +215,17 @@ function SubcontractorSearchModal({
   const { createConversation } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: layoutWidth } = useWindowDimensions();
-  const webConstrainedForm =
-    Platform.OS === 'web' && layoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH
-      ? { maxWidth: SUBCONTRACTOR_SEARCH_WEB_MAX_WIDTH, width: '100%' as const, alignSelf: 'center' as const }
-      : undefined;
+  const isWeb = Platform.OS === "web";
+  const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : "rgba(0,0,0,0.06)";
+  const webColumn860 = isWeb
+    ? { width: "100%" as const, maxWidth: 860, alignSelf: "center" as const }
+    : undefined;
   const inputWebOutline =
     Platform.OS === 'web'
       ? { outlineStyle: 'none' as const, outlineWidth: 0 }
       : {};
   /** Wide enough to sit Refresh + Request in one row without cramming (native phones stay stacked). */
-  const subSearchActionsRow =
-    Platform.OS === 'web' ? layoutWidth >= 520 : Dimensions.get('window').width >= 520;
+  const subSearchActionsRow = Dimensions.get("window").width >= 520;
   const [selectedTrade, setSelectedTrade] = useState('All Trades');
   const [zipCode, setZipCode] = useState(defaultZip);
   const [searchQuery, setSearchQuery] = useState('');
@@ -692,6 +741,8 @@ function SubcontractorSearchModal({
             }}
             pointerEvents={showRequestForm ? 'none' : 'auto'}
           >
+          {!isWeb && (
+          <>
           {/* Header Section — title centered; back balances right spacer */}
           <View style={{
             paddingHorizontal: 22,
@@ -701,7 +752,7 @@ function SubcontractorSearchModal({
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
           }}>
-              <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webConstrainedForm]}>
+              <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webColumn860]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
                 <LinearGradient
                   colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -750,20 +801,86 @@ function SubcontractorSearchModal({
               <View style={{ width: 52 }} />
               </View>
             </View>
+          </>
+          )}
 
           {/* Scrollable Content */}
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ 
+            contentContainerStyle={
+              isWeb
+                ? {
+                    paddingTop: Math.max(insets.top, 8),
+                    paddingBottom: 40,
+                    paddingHorizontal: 32,
+                    flexGrow: 1,
+                    width: '100%',
+                    maxWidth: 1040,
+                    alignSelf: 'center',
+                  }
+                : {
               paddingTop: 14,
               paddingBottom: 40,
               paddingHorizontal: 20,
-              ...(webConstrainedForm ? { alignItems: 'center' } : {}),
-            }}
+              ...(webColumn860 ? { alignItems: 'center' } : {}),
+            }
+            }
             showsVerticalScrollIndicator={false}
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
-          <View style={[{ width: '100%' }, webConstrainedForm]}>
+          {isWeb && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 24,
+                paddingBottom: 18,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: headerRule,
+              }}
+            >
+              <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    padding: 1,
+                  }}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onClose();
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: 19,
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 }}>
+                  Find Subcontractors
+                </Text>
+                <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub, fontSize: 14, marginTop: 4, fontWeight: '500' }}>
+                  Search for qualified contractors
+                </Text>
+              </View>
+            </View>
+          )}
+          <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
           {/* Trade Selector */}
           <View style={{ marginBottom: 12 }}>
             <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000', marginBottom: 8, fontSize: 11, fontWeight: '600', letterSpacing: 0.45, textTransform: 'uppercase' }}>Trade</Text>
@@ -861,6 +978,32 @@ function SubcontractorSearchModal({
                 opacity: loading ? 0.88 : 1,
               }}
             >
+              {isWeb ? (
+                <View
+                  style={{
+                    paddingVertical: 11,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: 42,
+                    backgroundColor: "#22c55e",
+                    shadowColor: "#000000",
+                    shadowOpacity: darkMode ? 0.25 : 0.12,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: 3,
+                  }}
+                >
+                  <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
+                    {loading
+                      ? yelpSubSearchEnabled
+                        ? 'Searching...'
+                        : 'Refreshing...'
+                      : yelpSubSearchEnabled
+                        ? 'Search Subcontractors'
+                        : 'Refresh list'}
+                  </Text>
+                </View>
+              ) : (
               <LinearGradient
                 colors={['#22c55e', '#22d3ee']}
                 start={{ x: 0, y: 0 }}
@@ -887,6 +1030,7 @@ function SubcontractorSearchModal({
                       : 'Refresh list'}
                 </Text>
               </LinearGradient>
+              )}
             </TouchableOpacity>
 
             {/* Request Subcontractor Button */}
@@ -1053,8 +1197,25 @@ function SubcontractorSearchModal({
                         <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
-                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 11, fontWeight: '700' }}>{sub.trade}</Text>
+                        <View
+                          style={{
+                            backgroundColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.2)',
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.35)',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: isWeb ? '#000000' : darkMode ? '#86efac' : '#166534',
+                              fontSize: 11,
+                              fontWeight: '700',
+                            }}
+                          >
+                            {sub.trade}
+                          </Text>
                         </View>
                         {sub.licensed && (
                           <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>✓ Licensed</Text>
@@ -1259,7 +1420,7 @@ function SubcontractorSearchModal({
                 </TouchableOpacity>
               </View>
             )}
-          </View>
+          </SubWebFormOptionalChrome>
           </ScrollView>
           </Animated.View>
           

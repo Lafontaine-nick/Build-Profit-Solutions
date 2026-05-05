@@ -6,6 +6,7 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,6 +16,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 interface TutorialStepProps {
   number: number;
@@ -157,9 +159,14 @@ export default function ProjectsTutorialScreen() {
           {/* Content Card */}
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+            contentContainerStyle={{
+              paddingTop: Platform.OS === 'web' ? 0 : 16,
+              paddingBottom: 40,
+              paddingHorizontal: 0,
+            }}
             showsVerticalScrollIndicator={true}
           >
+            <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
             <LinearGradient
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
@@ -231,6 +238,7 @@ export default function ProjectsTutorialScreen() {
                 </View>
               </View>
             </LinearGradient>
+            </WebPageShell>
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>

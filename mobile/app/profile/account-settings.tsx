@@ -8,6 +8,7 @@ import {
   Switch,
   Alert,
   Modal,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -21,6 +22,7 @@ import {
   clearAllOnboardingCompletionKeys,
   clearOnboardingCompleteForUser,
 } from '@/lib/onboardingStorage';
+import WebPageShell from '@/components/layout/WebPageShell';
 import {
   FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
   FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
@@ -333,8 +335,10 @@ export default function AccountSettingsScreen() {
     <LinearGradient colors={theme.background} style={styles.container}>
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={Platform.OS === 'web' ? { paddingHorizontal: 0 } : undefined}
         showsVerticalScrollIndicator={false}
       >
+        <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
             Account Settings
@@ -447,6 +451,7 @@ export default function AccountSettingsScreen() {
             Build Profit Solutions v1.0.0
           </Text>
         </View>
+        </WebPageShell>
       </ScrollView>
 
       <Modal

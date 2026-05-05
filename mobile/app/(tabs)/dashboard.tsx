@@ -46,6 +46,7 @@ import {
 } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import WebPageShell from "@/components/layout/WebPageShell";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import {
   formatMoneyUSD,
@@ -2858,14 +2859,17 @@ const DashboardScreen: React.FC = () => {
   const desktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
   const styles = useDashboardStyles(Colors, tabScrollBottomInset);
-  /** Desktop browser only (`isDesktopWebLayoutWidth` is false on iOS/Android). Narrows main column on wide monitors. */
-  const webScrollContentCap = isDesktopWebLayoutWidth(layoutWidth)
-    ? {
-        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
-        width: "100%" as const,
-        alignSelf: "center" as const,
-      }
-    : undefined;
+  /** Desktop web column width is handled by `WebPageShell` on web; keep undefined here. */
+  const webScrollContentCap =
+    Platform.OS === "web"
+      ? undefined
+      : isDesktopWebLayoutWidth(layoutWidth)
+        ? {
+            maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            width: "100%" as const,
+            alignSelf: "center" as const,
+          }
+        : undefined;
   const { activeProjects, estimates } = useProjectList();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showAIAssistant, setShowAIAssistant] = useState(false);
@@ -3693,9 +3697,14 @@ const DashboardScreen: React.FC = () => {
       <View style={StyleSheet.absoluteFill} pointerEvents="none" />
 
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "web" && { paddingHorizontal: 0, paddingTop: 0 },
+            webScrollContentCap,
+          ]}
           showsVerticalScrollIndicator={false}
         >
+        <WebPageShell size="dashboard" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         {/* HEADER */}
           <TabScreenHeader
             style={styles.headerRow}
@@ -3856,6 +3865,7 @@ const DashboardScreen: React.FC = () => {
         )}
 
         <View style={{ height: desktopWeb ? 20 : 32 }} />
+        </WebPageShell>
       </ScrollView>
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}

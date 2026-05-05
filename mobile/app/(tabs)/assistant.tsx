@@ -10,6 +10,7 @@ import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
+import WebPageShell from '@/components/layout/WebPageShell';
 import { computeProjectFinancials, sumPlannedCostFromBuckets } from '@/src/lib/projectFinancials';
 import {
   computeProfitForecast,
@@ -354,7 +355,13 @@ export default function AssistantScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: Colors.bg }]}>
+    <WebPageShell
+      size="assistant"
+      scroll={false}
+      style={{ backgroundColor: Colors.bg }}
+      contentStyle={{ paddingTop: insets.top, paddingBottom: 24 }}
+    >
+    <View style={[styles.container, { paddingTop: 0, flex: 1, backgroundColor: Colors.bg }]}>
       {!isReady && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#22c55e" />
@@ -758,5 +765,6 @@ export default function AssistantScreen() {
         }}
       />
     </View>
+    </WebPageShell>
   );
 }

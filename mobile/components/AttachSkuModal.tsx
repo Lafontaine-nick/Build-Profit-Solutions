@@ -47,7 +47,6 @@ import {
   StatusBar,
   StyleSheet,
   InputAccessoryView,
-  useWindowDimensions,
 } from "react-native";
 
 /** Get API base URL dynamically (recomputes each time to ensure fresh detection) */
@@ -58,7 +57,11 @@ function getApiBase() {
 }
 
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -72,10 +75,175 @@ import {
   textInputPhonePadDoneAccessory,
 } from '@/constants/inputKeyboardPresets';
 import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
-import { WEB_CENTERED_COLUMN_MIN_WIDTH } from '@/constants/ScreenLayout';
 
-/** Web (viewport ≥ 768px): cap form width — same 900px column as Add Material / Find Subcontractors */
-const SKU_SEARCH_WEB_MAX_WIDTH = 900;
+/** Web: gradient card (860); native: padded column. */
+function SkuWebFormOptionalChrome({
+  isWeb,
+  darkMode,
+  Colors,
+  columnStyle,
+  children,
+}: {
+  isWeb: boolean;
+  darkMode: boolean;
+  Colors: any;
+  columnStyle?: Record<string, unknown>;
+  children: React.ReactNode;
+}) {
+  if (isWeb) {
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={BRAND_FRAME_GRADIENT_START}
+        end={BRAND_FRAME_GRADIENT_END}
+        style={{
+          width: "100%",
+          maxWidth: 860,
+          alignSelf: "center",
+          borderRadius: 24,
+          padding: 1,
+          overflow: "hidden",
+          marginBottom: 4,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            borderRadius: 23,
+            padding: 28,
+            backgroundColor: darkMode ? "#050807" : Colors.surface2,
+          }}
+        >
+          <View style={{ gap: 14 }}>{children}</View>
+        </View>
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={[{ paddingTop: 14, gap: 14 }, columnStyle || {}]}>
+      {children}
+    </View>
+  );
+}
+
+function SkuModalHeaderRow({
+  darkMode,
+  Colors,
+  isRentalMode,
+  onClose,
+  onOpenSaved,
+}: {
+  darkMode: boolean;
+  Colors: any;
+  isRentalMode: boolean;
+  onClose: () => void;
+  onOpenSaved?: () => void;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          padding: 1,
+          marginRight: 12,
+        }}
+      >
+        <GradientRingBackInner
+          darkMode={darkMode}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onClose();
+          }}
+          style={{
+            width: "100%",
+            height: "100%",
+            borderRadius: 19,
+            backgroundColor: darkMode ? "#000000" : Colors.bg,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
+        </GradientRingBackInner>
+      </LinearGradient>
+      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+        <LinearGradient
+          colors={BRAND_FRAME_GRADIENT_COLORS}
+          start={{ x: 0.05, y: 0.15 }}
+          end={{ x: 0.95, y: 0.85 }}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            padding: 1,
+            marginRight: 12,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              height: "100%",
+              borderRadius: 19,
+              backgroundColor: darkMode ? "#000000" : Colors.bg,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <MaterialCommunityIcons name="magnify" size={24} color="#22c55e" />
+          </View>
+        </LinearGradient>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{
+              fontSize: 22,
+              fontWeight: "700",
+              color: darkMode ? "#FFFFFF" : "#000000",
+              letterSpacing: 0.3,
+            }}
+          >
+            {isRentalMode ? "Find Rental Equipment" : "Search Products"}
+          </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              color: darkMode ? "rgba(226, 232, 240, 0.72)" : Colors.sub,
+              marginTop: 4,
+              lineHeight: 18,
+              fontWeight: "500",
+            }}
+          >
+            Search for materials and equipment
+          </Text>
+        </View>
+      </View>
+      {onOpenSaved ? (
+        <TouchableOpacity
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            onOpenSaved();
+          }}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
+            justifyContent: "center",
+            alignItems: "center",
+            borderWidth: 1,
+            borderColor: darkMode ? "rgba(148, 163, 184, 0.18)" : Colors.line,
+          }}
+        >
+          <MaterialIcons name="bookmark" size={20} color="#22c55e" />
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
 
 /** Backend (esp. older production) may still return placehold.co "fake" thumbnails — never show those as product photos. */
 function isPlaceholderImageUrl(u: string | null | undefined): boolean {
@@ -219,11 +387,11 @@ export default function AttachSkuModal({
   const [quantities, setQuantities] = useState<Map<string, number>>(new Map()); // Quantity per SKU
   const [watchedItems, setWatchedItems] = useState<Set<string>>(new Set()); // Watched/Saved items
   const insets = useSafeAreaInsets();
-  const { width: layoutWidth } = useWindowDimensions();
-  const webConstrainedForm =
-    Platform.OS === 'web' && layoutWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH
-      ? { maxWidth: SKU_SEARCH_WEB_MAX_WIDTH, width: '100%', alignSelf: 'center' as const }
-      : undefined;
+  const isWeb = Platform.OS === "web";
+  const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : "rgba(0,0,0,0.08)";
+  const webColumn860 = isWeb
+    ? { width: "100%" as const, maxWidth: 860, alignSelf: "center" as const }
+    : undefined;
 
   const inputWebOutline =
     Platform.OS === 'web'
@@ -715,7 +883,7 @@ export default function AttachSkuModal({
           : {})}
       >
         <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
-          {/* Header */}
+          {!isWeb && (
           <View style={{
             paddingHorizontal: 20,
             paddingTop: Math.max(insets.top, 12),
@@ -723,135 +891,63 @@ export default function AttachSkuModal({
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(0,0,0,0.08)',
           }}>
-            <View style={webConstrainedForm}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  padding: 1,
-                  marginRight: 12,
-                }}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onClose();
-                  }}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    borderRadius: 19,
-                    backgroundColor: darkMode ? '#000000' : Colors.bg,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? '#FFFFFF' : Colors.text}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 1,
-                    marginRight: 12,
-                  }}
-                >
-                  <View style={{
-                    width: '100%',
-                    height: '100%',
-                    borderRadius: 19,
-                    backgroundColor: darkMode ? '#000000' : Colors.bg,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}>
-                    <MaterialCommunityIcons
-                      name="magnify"
-                      size={24}
-                      color="#22c55e"
-                    />
-                  </View>
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={{
-                    fontSize: 22,
-                    fontWeight: '700',
-                    color: darkMode ? '#FFFFFF' : '#000000',
-                    letterSpacing: 0.3,
-                  }}>
-                    {isRentalMode ? 'Find Rental Equipment' : 'Search Products'}
-                  </Text>
-                  <Text style={{
-                    fontSize: 13,
-                    color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
-                    marginTop: 4,
-                    lineHeight: 18,
-                    fontWeight: '500',
-                  }}>
-                    Search for materials and equipment
-                  </Text>
-                </View>
-              </View>
-              
-              {/* Saved Materials Icon */}
-              {onOpenSaved && (
-                <TouchableOpacity
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    onOpenSaved();
-                  }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-                  }}
-                >
-                  <MaterialIcons name="bookmark" size={20} color="#22c55e" />
-                </TouchableOpacity>
-              )}
-            </View>
+            <View style={webColumn860}>
+              <SkuModalHeaderRow
+                darkMode={darkMode}
+                Colors={Colors}
+                isRentalMode={isRentalMode}
+                onClose={onClose}
+                onOpenSaved={onOpenSaved}
+              />
             </View>
           </View>
+          )}
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{
-              flexGrow: 1,
-              paddingBottom: 24,
-              paddingHorizontal: 20,
-              ...(webConstrainedForm ? { alignItems: 'center' } : {}),
-            }}
+            contentContainerStyle={
+              isWeb
+                ? {
+                    flexGrow: 1,
+                    width: '100%',
+                    maxWidth: 1040,
+                    alignSelf: 'center',
+                    paddingHorizontal: 32,
+                    paddingTop: Math.max(insets.top, 12),
+                    paddingBottom: 32,
+                  }
+                : {
+                    flexGrow: 1,
+                    paddingBottom: 24,
+                    paddingHorizontal: 20,
+                  }
+            }
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
-          <View style={{ 
-            paddingTop: 14,
-            gap: 14,
-            ...webConstrainedForm,
-          }}>
-
+          {isWeb && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 24,
+                paddingBottom: 18,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: headerRule,
+              }}
+            >
+              <SkuModalHeaderRow
+                darkMode={darkMode}
+                Colors={Colors}
+                isRentalMode={isRentalMode}
+                onClose={onClose}
+                onOpenSaved={onOpenSaved}
+              />
+            </View>
+          )}
+          <SkuWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
             {/* Retailer Selection */}
             <View>
               <Text style={{
@@ -1405,7 +1501,7 @@ export default function AttachSkuModal({
                 </View>
               </View>
             )}
-          </View>
+          </SkuWebFormOptionalChrome>
           </ScrollView>
         </View>
       </SkuModalRoot>

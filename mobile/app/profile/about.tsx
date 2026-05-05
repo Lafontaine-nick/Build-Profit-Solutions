@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 export default function AboutScreen() {
   const router = useRouter();
@@ -78,9 +80,13 @@ export default function AboutScreen() {
             <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
               <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[
+                  styles.scrollContent,
+                  Platform.OS === 'web' && { padding: 0, paddingBottom: 40 },
+                ]}
                 showsVerticalScrollIndicator={true}
               >
+                <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
                 {/* Header Section */}
                 <View style={styles.headerSection}>
                   <Text style={[styles.appTitle, { color: theme.text }]}>
@@ -195,6 +201,7 @@ export default function AboutScreen() {
                     profitably, and operate with complete confidence.
                   </Text>
                 </View>
+                </WebPageShell>
               </ScrollView>
             </View>
           </LinearGradient>

@@ -32,6 +32,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import WebPageShell, { getWebPageShellMaxWidth } from '@/components/layout/WebPageShell';
 import {
   ScreenLayout,
   isDesktopWebLayoutWidth,
@@ -222,21 +223,24 @@ export default function ProfileScreen() {
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { width: layoutWidth } = useWindowDimensions();
   const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
-  const webScrollContentCap = desktopWeb
-    ? {
-        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
-        width: '100%' as const,
-        alignSelf: 'center' as const,
-      }
-    : undefined;
+  const webScrollContentCap =
+    Platform.OS === 'web'
+      ? undefined
+      : desktopWeb
+        ? {
+            maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            width: '100%' as const,
+            alignSelf: 'center' as const,
+          }
+        : undefined;
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
-  /** Match Projects / Estimates: bleed main shell past scroll `edge` except desktop-web column. */
-  const profileShellBleedActive = !(Platform.OS === 'web' && desktopWeb);
+  /** Web: column shell handles insets; native keeps edge bleed. */
+  const profileShellBleedActive = Platform.OS !== 'web';
   const footerSvgWidth = Math.max(
     1,
     profileShellBleedActive
       ? layoutWidth - (desktopWeb ? 16 : 8)
-      : Math.min(layoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH) - edge * 2
+      : Math.min(layoutWidth, getWebPageShellMaxWidth('profile')) - edge * 2
   );
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
@@ -2538,9 +2542,14 @@ export default function ProfileScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.scrollContent, webScrollContentCap]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
+          webScrollContentCap,
+        ]}
         showsVerticalScrollIndicator={true}
       >
+        <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         <View style={styles.profileShellBleed}>
         <LinearGradient
           colors={["#2DFFC4", "#00A6FF"]}
@@ -2693,6 +2702,7 @@ export default function ProfileScreen() {
         </View>
       )}
         </View>
+        </WebPageShell>
       </ScrollView>
 
       {/* Edit Profile Modal */}

@@ -22,6 +22,7 @@ import {
   numericKeyboardDoneAccessoryId,
 } from '../components/KeyboardNumericDoneAccessory';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 const Colors = {
   bg: '#0d2745',
@@ -118,6 +119,7 @@ export default function ManualLaborEntryScreen() {
                 showsVerticalScrollIndicator={false}
                 {...KEYBOARD_SCROLL_DEFAULTS}
               >
+                <WebPageShell size="form" scroll={false} contentStyle={{ paddingBottom: 0 }}>
                 <View style={styles.sectionCard}>
                   <View style={styles.sectionHeader}>
                     <MaterialIcons name="engineering" size={22} color="#43cea2" />
@@ -247,6 +249,7 @@ export default function ManualLaborEntryScreen() {
                   <MaterialIcons name="add-circle" size={24} color="#0d2745" />
                   <Text style={styles.addButtonText}>Add Labor Item</Text>
                 </TouchableOpacity>
+                </WebPageShell>
               </ScrollView>
             </View>
           </KeyboardAvoidingView>

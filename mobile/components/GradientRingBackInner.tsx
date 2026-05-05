@@ -35,8 +35,8 @@ export default function GradientRingBackInner({
       hitSlop={hitSlop}
       {...neutralIconPressableProps(darkMode)}
       style={({ pressed }) => [
-        style,
         neutralIconPressableWebStyle(),
+        style,
         Platform.OS === "ios" && pressed ? { opacity: 0.88 } : null,
       ]}
     >

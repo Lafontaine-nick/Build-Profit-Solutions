@@ -106,6 +106,7 @@ import {
   WEB_DESKTOP_EDGE_HORIZONTAL,
   getProjectExpenseFormHorizontalPadding,
 } from '@/constants/ScreenLayout';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 // Colors will be defined inside the component using theme
 
@@ -4440,13 +4441,16 @@ export default function EstimateGeneratorScreen() {
   /** Larger secondary copy on web browsers (estimate steps are dense on desktop). */
   const estimateWebType = Platform.OS === 'web';
   const ew = (phone, web) => (estimateWebType ? web : phone);
-  const webScrollContentCap = desktopWeb
-    ? {
-        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
-        width: '100%',
-        alignSelf: 'center',
-      }
-    : undefined;
+  const webScrollContentCap =
+    Platform.OS === 'web'
+      ? undefined
+      : desktopWeb
+        ? {
+            maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            width: '100%',
+            alignSelf: 'center',
+          }
+        : undefined;
   const estimateScrollPadH = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
 
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
@@ -18013,8 +18017,8 @@ export default function EstimateGeneratorScreen() {
           scrollEventThrottle={16}
           contentContainerStyle={[
             {
-              paddingHorizontal: estimateScrollPadH,
-              paddingTop: desktopWeb ? 24 : 32,
+              paddingHorizontal: Platform.OS === 'web' ? 0 : estimateScrollPadH,
+              paddingTop: Platform.OS === 'web' ? 0 : desktopWeb ? 24 : 32,
               paddingBottom: estimatesScrollContentPadBottom,
             },
             webScrollContentCap,
@@ -18025,6 +18029,7 @@ export default function EstimateGeneratorScreen() {
           {...estimatesMainScrollIosProps}
           style={{ backgroundColor: darkMode ? '#000000' : Colors.bg }}
         >
+        <WebPageShell size="estimate" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         {/* Header */}
         <View style={{ marginBottom: 10 }}>
           {guidedMode && shouldShowGuidance && (
@@ -18614,6 +18619,7 @@ export default function EstimateGeneratorScreen() {
             {renderStepContent()}
           </>
         )}
+        </WebPageShell>
         </ScrollView>
       </EstimatesMainKeyboardWrapper>
 

@@ -14,7 +14,12 @@ import {
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SvgXml } from 'react-native-svg';
@@ -45,6 +50,61 @@ const IG_GRADIENT = `
 
 function IGLogo() {
   return <SvgXml xml={IG_GRADIENT} />;
+}
+
+/** Web: gradient frame (860) like Find Subcontractors / Messages; native: simple column. */
+function CampaignWebFormOptionalChrome({
+  isWeb,
+  darkMode,
+  Colors,
+  columnStyle,
+  fillVertical,
+  children,
+}: {
+  isWeb: boolean;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+  columnStyle?: Record<string, unknown>;
+  fillVertical?: boolean;
+  children: React.ReactNode;
+}) {
+  const fill = fillVertical ? ({ flex: 1, minHeight: 0 } as const) : {};
+  if (isWeb) {
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={BRAND_FRAME_GRADIENT_START}
+        end={BRAND_FRAME_GRADIENT_END}
+        style={{
+          width: '100%',
+          maxWidth: 860,
+          alignSelf: 'center',
+          borderRadius: 24,
+          padding: 1,
+          overflow: 'hidden',
+          marginBottom: 4,
+          ...fill,
+        }}
+      >
+        <View
+          style={{
+            width: '100%',
+            borderRadius: 23,
+            padding: 28,
+            backgroundColor: darkMode ? '#050807' : Colors.surface2,
+            ...fill,
+          }}
+        >
+          <View style={{ gap: 14, width: '100%', ...fill }}>{children}</View>
+        </View>
+      </LinearGradient>
+    );
+  }
+  return (
+    <View style={[{ paddingTop: 0, gap: 14, width: '100%' }, columnStyle || {}]}>
+      {children}
+    </View>
+  );
 }
 
 interface CampaignCreationModalProps {
@@ -126,6 +186,11 @@ export default function CampaignCreationModal({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
   const neutralIconColor = darkMode ? '#FFFFFF' : '#000000';
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === 'web';
+  const webColumn860 = isWeb
+    ? ({ width: '100%' as const, maxWidth: 860, alignSelf: 'center' as const } as const)
+    : undefined;
   const styles = useMemo(() => getStyles(darkMode, Colors), [darkMode, Colors]);
   const [currentStep, setCurrentStep] = useState(1);
   const [showPreview, setShowPreview] = useState(false);
@@ -600,7 +665,13 @@ export default function CampaignCreationModal({
                   return (
                     <TouchableOpacity
                       key={type}
-                      style={[styles.chip, isSelected && styles.chipSelected]}
+                      style={[
+                        styles.chip,
+                        isSelected &&
+                          (isWeb
+                            ? { backgroundColor: '#22c55e', borderColor: '#22c55e' }
+                            : styles.chipSelected),
+                      ]}
                       onPress={() => {
                         const currentTypes = campaign.leadPreferences?.projectTypes || [];
                         const newTypes = isSelected
@@ -679,7 +750,13 @@ export default function CampaignCreationModal({
                   return (
                     <TouchableOpacity
                       key={timeline}
-                      style={[styles.chip, isSelected && styles.chipSelected]}
+                      style={[
+                        styles.chip,
+                        isSelected &&
+                          (isWeb
+                            ? { backgroundColor: '#22c55e', borderColor: '#22c55e' }
+                            : styles.chipSelected),
+                      ]}
                       onPress={() => {
                         const currentTimelines = campaign.leadPreferences?.timelines || [];
                         const newTimelines = isSelected
@@ -915,7 +992,12 @@ export default function CampaignCreationModal({
 
   const renderProgressIndicator = () => {
     return (
-      <View style={styles.progressIndicatorContainer}>
+      <View
+        style={[
+          styles.progressIndicatorContainer,
+          isWeb && { paddingHorizontal: 0, paddingVertical: 14 },
+        ]}
+      >
         {[1, 2, 3, 4, 5, 6].map((step, index) => {
           const isCompleted = step < currentStep;
           const isCurrent = step === currentStep;
@@ -958,6 +1040,304 @@ export default function CampaignCreationModal({
     );
   };
 
+  const renderCampaignPreviewBody = () => (
+    <>
+      {/* Profile Header Card */}
+      <View style={styles.previewSection}>
+        <View style={styles.previewCompanyHeader}>
+          <View style={styles.previewCompanyIcon}>
+            <Text style={styles.previewCompanyInitials}>
+              {(campaign.companyName || 'C')[0].toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.previewCompanyName}>{campaign.companyName || 'Company Name'}</Text>
+            {campaign.serviceAreas && campaign.serviceAreas.length > 0 && campaign.services && campaign.services.length > 0 && (
+              <Text style={styles.previewCompanyLocation}>
+                {campaign.serviceAreas[0].city}, {campaign.serviceAreas[0].state} · {campaign.services[0]}
+              </Text>
+            )}
+          </View>
+          <View
+            style={[
+              styles.previewStatusPill,
+              campaign.status === 'active' && { backgroundColor: 'rgba(25, 225, 128, 0.2)', borderColor: '#19E180' },
+              campaign.status === 'paused' && { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
+              (campaign.status === 'draft' || !campaign.status) && { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: '#3B82F6' },
+            ]}
+          >
+            <View
+              style={[
+                styles.previewStatusDot,
+                campaign.status === 'active' && { backgroundColor: '#19E180' },
+                campaign.status === 'paused' && { backgroundColor: '#F59E0B' },
+                (campaign.status === 'draft' || !campaign.status) && { backgroundColor: '#3B82F6' },
+              ]}
+            />
+            <Text
+              style={[
+                styles.previewStatusText,
+                campaign.status === 'active' && { color: '#19E180' },
+                campaign.status === 'paused' && { color: '#F59E0B' },
+                (campaign.status === 'draft' || !campaign.status) && { color: '#3B82F6' },
+              ]}
+            >
+              {campaign.status === 'active' ? 'Active' : campaign.status === 'paused' ? 'Paused' : 'Optimizing'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {campaign.bio && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>About {campaign.companyName || 'Company'}</Text>
+          <View style={styles.previewBioCard}>
+            <Text style={styles.previewBioText}>{campaign.bio}</Text>
+          </View>
+        </View>
+      )}
+
+      {(campaign.licenseNumber || campaign.insuranceProvider || campaign.yearsExperience) && (
+        <View style={styles.previewSection}>
+          <View style={styles.previewCredibilityRow}>
+            {campaign.licenseNumber && campaign.insuranceProvider && (
+              <View style={styles.previewCredibilityItem}>
+                <MaterialIcons name="verified" size={16} color="#19E180" />
+                <Text style={styles.previewCredibilityText}>Licensed & Insured</Text>
+              </View>
+            )}
+            {campaign.yearsExperience && campaign.yearsExperience > 0 && (
+              <View style={styles.previewCredibilityItem}>
+                <MaterialIcons name="construction" size={16} color="#60A5FA" />
+                <Text style={styles.previewCredibilityText}>{campaign.yearsExperience} yrs exp</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {campaign.services && campaign.services.length > 0 && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Services</Text>
+          <View style={styles.previewChipsContainer}>
+            {campaign.services.map((service, index) => (
+              <View key={index} style={styles.previewChip}>
+                <Text style={styles.previewChipText}>{service}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {campaign.specialties && campaign.specialties.length > 0 && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Specialties</Text>
+          <View style={styles.previewChipsContainer}>
+            {campaign.specialties.map((specialty, index) => (
+              <View key={index} style={styles.previewChip}>
+                <Text style={styles.previewChipText}>{specialty}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {campaign.pricing && (campaign.pricing.hourlyRate.max > 0 || campaign.pricing.projectMinimum > 0) && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Pricing</Text>
+          {campaign.pricing.projectMinimum > 0 && (
+            <View style={styles.previewPricingRow}>
+              <MaterialIcons name="attach-money" size={20} color="#19E180" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.previewPricingLabel}>Typical projects from</Text>
+                <Text style={styles.previewPricingValue}>
+                  ${campaign.pricing.projectMinimum.toLocaleString()}
+                  {campaign.pricing.hourlyRate.max > 0
+                    ? ` – $${Math.floor(campaign.pricing.projectMinimum * 5).toLocaleString()}`
+                    : '+'}
+                </Text>
+              </View>
+            </View>
+          )}
+          {campaign.pricing.hourlyRate.max > 0 && (
+            <View style={styles.previewPricingRow}>
+              <MaterialIcons name="receipt" size={20} color="#60A5FA" />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.previewPricingLabel}>Hourly rate</Text>
+                <Text style={styles.previewPricingValue}>
+                  ${campaign.pricing.hourlyRate.min || campaign.pricing.hourlyRate.max}–${campaign.pricing.hourlyRate.max}/hr
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
+      {campaign.serviceAreas && campaign.serviceAreas.length > 0 && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Service Areas</Text>
+          {campaign.serviceAreas.map((area, index) => (
+            <View key={index} style={styles.previewAreaCard}>
+              <MaterialIcons name="location-on" size={18} color={neutralIconColor} />
+              <Text style={styles.previewAreaText}>
+                {area.city}, {area.state} ({area.radius} miles)
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.previewSection}>
+        <Text style={styles.previewSectionTitle}>Project Proof</Text>
+        {campaign.portfolio && campaign.portfolio.length > 0 ? (
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewPhotoScroll}>
+              {campaign.portfolio.slice(0, 3).map((photo, index) => (
+                <View key={index} style={styles.previewPhotoCard}>
+                  <Image source={{ uri: photo.uri }} style={styles.previewPhotoImage} />
+                  {index === 0 && (
+                    <View style={styles.previewFeaturedBadge}>
+                      <MaterialIcons name="star" size={10} color={neutralIconColor} />
+                    </View>
+                  )}
+                  {photo.caption && (
+                    <View style={styles.previewPhotoCaptionOverlay}>
+                      <Text style={styles.previewPhotoCaptionText} numberOfLines={2}>
+                        {photo.caption}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+            {campaign.portfolio.length > 3 && (
+              <Text style={styles.previewPortfolioMore}>View full portfolio →</Text>
+            )}
+          </>
+        ) : (
+          <View style={styles.previewPortfolioEmpty}>
+            <MaterialIcons name="photo-library" size={32} color="#6B7280" />
+            <Text style={styles.previewPortfolioEmptyText}>Add photos to improve visibility and trust</Text>
+          </View>
+        )}
+      </View>
+
+      {campaign.certifications && campaign.certifications.length > 0 && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Certifications</Text>
+          <View style={styles.previewChipsContainer}>
+            {campaign.certifications.map((cert, index) => (
+              <View
+                key={index}
+                style={[styles.previewChip, { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: '#3B82F6' }]}
+              >
+                <MaterialIcons name="verified" size={14} color={neutralIconColor} />
+                <Text style={[styles.previewChipText, { color: darkMode ? '#FFFFFF' : Colors.text, marginLeft: 4 }]}>
+                  {cert}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {campaign.responseTime && (
+        <View style={styles.previewSection}>
+          <View
+            style={[
+              styles.previewResponseCard,
+              (campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour') && styles.previewResponseCardFast,
+              campaign.responseTime === 'within_day' && styles.previewResponseCardMedium,
+              campaign.responseTime === 'within_week' && styles.previewResponseCardSlow,
+            ]}
+          >
+            <MaterialIcons
+              name={campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour' ? 'bolt' : 'schedule'}
+              size={24}
+              color={
+                campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour'
+                  ? '#19E180'
+                  : campaign.responseTime === 'within_day'
+                    ? '#F59E0B'
+                    : darkMode
+                      ? '#9CA3AF'
+                      : Colors.sub
+              }
+            />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.previewResponseLabel}>Typical Response Time</Text>
+              <Text
+                style={[
+                  styles.previewResponseValue,
+                  (campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour') && { color: '#19E180' },
+                  campaign.responseTime === 'within_day' && { color: '#F59E0B' },
+                  campaign.responseTime === 'within_week' && { color: darkMode ? '#9CA3AF' : Colors.sub },
+                ]}
+              >
+                {campaign.responseTime === 'immediate'
+                  ? 'Responds within 4 hours'
+                  : campaign.responseTime === 'within_hour'
+                    ? 'Responds within 4 hours'
+                    : campaign.responseTime === 'within_day'
+                      ? 'Responds within 24 hours'
+                      : 'Responds within 1 week'}
+              </Text>
+              <Text style={styles.previewResponseSubtext}>Faster responses improve selection priority</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      <View style={styles.previewSection}>
+        <Text style={styles.previewSectionTitle}>Contact Information</Text>
+        {campaign.phone && (
+          <View style={styles.previewContactRow}>
+            <MaterialIcons name="phone" size={18} color={neutralIconColor} />
+            <Text style={styles.previewContactText}>{campaign.phone}</Text>
+          </View>
+        )}
+        {campaign.email && (
+          <View style={styles.previewContactRow}>
+            <MaterialIcons name="email" size={18} color={neutralIconColor} />
+            <Text style={styles.previewContactText}>{campaign.email}</Text>
+          </View>
+        )}
+        {campaign.website && (
+          <View style={styles.previewContactRow}>
+            <MaterialIcons name="language" size={18} color={neutralIconColor} />
+            <Text style={styles.previewContactText}>{campaign.website}</Text>
+          </View>
+        )}
+        {campaign.instagram && (
+          <TouchableOpacity
+            style={styles.previewInstagramButton}
+            onPress={() => {
+              const username = campaign.instagram
+                ?.replace('@', '')
+                .replace('https://instagram.com/', '')
+                .replace('https://www.instagram.com/', '');
+              const instagramUrl = `https://instagram.com/${username}`;
+              Linking.openURL(instagramUrl);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+          >
+            <View style={styles.instagramBadgePreview}>
+              <IGLogo />
+              <Text style={styles.instagramBadgePreviewText}>Instagram</Text>
+            </View>
+            <Text style={styles.previewInstagramText}>
+              @{campaign.instagram
+                .replace('@', '')
+                .replace('https://instagram.com/', '')
+                .replace('https://www.instagram.com/', '')}
+            </Text>
+            <MaterialIcons name="open-in-new" size={16} color="#E1306C" style={{ marginLeft: 'auto' }} />
+          </TouchableOpacity>
+        )}
+      </View>
+    </>
+  );
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
       <KeyboardAvoidingView 
@@ -965,9 +1345,27 @@ export default function CampaignCreationModal({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <View style={styles.container}>
-          {/* Header */}
-          <View style={styles.header}>
+        <View
+          style={[
+            styles.container,
+            isWeb && { width: '100%', alignItems: 'center', minHeight: 0 },
+          ]}
+        >
+          <View
+            style={[
+              { flex: 1, width: '100%', minHeight: 0 },
+              isWeb && {
+                maxWidth: 1040,
+                alignSelf: 'center',
+              },
+            ]}
+          >
+          <View
+            style={[
+              styles.header,
+              isWeb && { paddingTop: Math.max(insets.top, 12) + 12 },
+            ]}
+          >
             <View style={styles.backBtnWrapper}>
               <LinearGradient
                 colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -981,7 +1379,10 @@ export default function CampaignCreationModal({
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
-                  style={styles.backBtn}
+                  style={[
+                    styles.backBtn,
+                    !darkMode && { backgroundColor: Colors.bg },
+                  ]}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
                 </GradientRingBackInner>
@@ -1006,56 +1407,101 @@ export default function CampaignCreationModal({
             </View>
           </View>
 
-          {/* Enhanced Progress Indicator */}
-          {renderProgressIndicator()}
-
-          {/* Content */}
-          <ScrollView
-            style={styles.content}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 20 }}
-            {...KEYBOARD_SCROLL_DEFAULTS}
-          >
-            {renderStepContent()}
-            
-            {/* Navigation - Inside ScrollView so it scrolls with content */}
-            <View style={styles.navigation}>
-              <TouchableOpacity 
-                style={[styles.navButton, { flex: 1 }, currentStep === 1 && { opacity: 0, pointerEvents: 'none' }]}
-                onPress={handlePrevious}
-                disabled={currentStep === 1}
+          {/* Enhanced Progress Indicator + form — web: same gradient border shell as Find Sub / Messages */}
+          {isWeb ? (
+            <CampaignWebFormOptionalChrome
+              isWeb={isWeb}
+              darkMode={darkMode}
+              Colors={Colors}
+              columnStyle={webColumn860}
+              fillVertical
+            >
+              {renderProgressIndicator()}
+              <ScrollView
+                style={[styles.content, { flex: 1, minHeight: 0, paddingHorizontal: 0 }]}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[{ paddingBottom: 20 }, isWeb && { paddingHorizontal: 0 }]}
+                {...KEYBOARD_SCROLL_DEFAULTS}
               >
-                <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
-                <Text style={styles.navButtonText}>Previous</Text>
-              </TouchableOpacity>
-              
-              <View style={styles.navSpacer} />
-              
-              {currentStep < totalSteps ? (
-                <TouchableOpacity 
-                  style={[styles.navButton, styles.primaryButton, { flex: 1 }]}
-                  onPress={handleNext}
-                >
-                  <Text style={styles.primaryButtonText}>Next</Text>
-                  <MaterialIcons name="arrow-forward" size={24} color={neutralIconColor} />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity 
-                  style={[styles.navButton, styles.saveButton, { flex: 1 }]}
-                  onPress={handleSave}
-                >
-                  <MaterialIcons name="publish" size={24} color={neutralIconColor} />
-                  <Text style={styles.saveButtonText}>{isEditMode ? 'Update Campaign' : 'Publish Campaign'}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
+                {renderStepContent()}
+
+                <View style={[styles.navigation, isWeb && { paddingHorizontal: 0 }]}>
+                  <TouchableOpacity
+                    style={[styles.navButton, { flex: 1 }, currentStep === 1 && { opacity: 0, pointerEvents: 'none' }]}
+                    onPress={handlePrevious}
+                    disabled={currentStep === 1}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
+                    <Text style={styles.navButtonText}>Previous</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.navSpacer} />
+
+                  {currentStep < totalSteps ? (
+                    <TouchableOpacity style={[styles.navButton, styles.primaryButton, { flex: 1 }]} onPress={handleNext}>
+                      <Text style={styles.primaryButtonText}>Next</Text>
+                      <MaterialIcons name="arrow-forward" size={24} color={neutralIconColor} />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={[styles.navButton, styles.saveButton, { flex: 1 }]} onPress={handleSave}>
+                      <MaterialIcons name="publish" size={24} color={neutralIconColor} />
+                      <Text style={styles.saveButtonText}>{isEditMode ? 'Update Campaign' : 'Publish Campaign'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
+            </CampaignWebFormOptionalChrome>
+          ) : (
+            <>
+              {renderProgressIndicator()}
+              <ScrollView
+                style={styles.content}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                {...KEYBOARD_SCROLL_DEFAULTS}
+              >
+                {renderStepContent()}
+
+                <View style={styles.navigation}>
+                  <TouchableOpacity
+                    style={[styles.navButton, { flex: 1 }, currentStep === 1 && { opacity: 0, pointerEvents: 'none' }]}
+                    onPress={handlePrevious}
+                    disabled={currentStep === 1}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
+                    <Text style={styles.navButtonText}>Previous</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.navSpacer} />
+
+                  {currentStep < totalSteps ? (
+                    <TouchableOpacity style={[styles.navButton, styles.primaryButton, { flex: 1 }]} onPress={handleNext}>
+                      <Text style={styles.primaryButtonText}>Next</Text>
+                      <MaterialIcons name="arrow-forward" size={24} color={neutralIconColor} />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={[styles.navButton, styles.saveButton, { flex: 1 }]} onPress={handleSave}>
+                      <MaterialIcons name="publish" size={24} color={neutralIconColor} />
+                      <Text style={styles.saveButtonText}>{isEditMode ? 'Update Campaign' : 'Publish Campaign'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
+            </>
+          )}
+          </View>
         </View>
       </KeyboardAvoidingView>
 
       {/* Campaign Preview Modal */}
       <Modal visible={showPreview} animationType="slide" presentationStyle="fullScreen">
-          <View style={styles.container}>
+          <View
+            style={[
+              styles.container,
+              isWeb && { width: '100%', alignItems: 'center', minHeight: 0 },
+            ]}
+          >
+          <View style={[{ flex: 1, width: '100%', minHeight: 0 }, isWeb && { maxWidth: 1040, alignSelf: 'center' }]}>
           {/* Preview Header */}
           <View style={styles.previewHeader}>
             <View style={styles.backBtnWrapper}>
@@ -1071,7 +1517,7 @@ export default function CampaignCreationModal({
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setShowPreview(false);
                   }}
-                  style={styles.backBtn}
+                  style={[styles.backBtn, !darkMode && { backgroundColor: Colors.bg }]}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
                 </GradientRingBackInner>
@@ -1083,278 +1529,27 @@ export default function CampaignCreationModal({
             </View>
           </View>
 
-          <ScrollView style={styles.previewContent} showsVerticalScrollIndicator={false}>
-            {/* Profile Header Card */}
-            <View style={styles.previewSection}>
-              <View style={styles.previewCompanyHeader}>
-                <View style={styles.previewCompanyIcon}>
-                  <Text style={styles.previewCompanyInitials}>
-                    {(campaign.companyName || 'C')[0].toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.previewCompanyName}>{campaign.companyName || 'Company Name'}</Text>
-                  {campaign.serviceAreas && campaign.serviceAreas.length > 0 && campaign.services && campaign.services.length > 0 && (
-                    <Text style={styles.previewCompanyLocation}>
-                      {campaign.serviceAreas[0].city}, {campaign.serviceAreas[0].state} · {campaign.services[0]}
-                    </Text>
-                  )}
-                </View>
-                <View style={[
-                  styles.previewStatusPill,
-                  campaign.status === 'active' && { backgroundColor: 'rgba(25, 225, 128, 0.2)', borderColor: '#19E180' },
-                  campaign.status === 'paused' && { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
-                  (campaign.status === 'draft' || !campaign.status) && { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: '#3B82F6' },
-                ]}>
-                  <View style={[
-                    styles.previewStatusDot,
-                    campaign.status === 'active' && { backgroundColor: '#19E180' },
-                    campaign.status === 'paused' && { backgroundColor: '#F59E0B' },
-                    (campaign.status === 'draft' || !campaign.status) && { backgroundColor: '#3B82F6' },
-                  ]} />
-                  <Text style={[
-                    styles.previewStatusText,
-                    campaign.status === 'active' && { color: '#19E180' },
-                    campaign.status === 'paused' && { color: '#F59E0B' },
-                    (campaign.status === 'draft' || !campaign.status) && { color: '#3B82F6' },
-                  ]}>
-                    {campaign.status === 'active' ? 'Active' : campaign.status === 'paused' ? 'Paused' : 'Optimizing'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Company Bio */}
-            {campaign.bio && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>About {campaign.companyName || 'Company'}</Text>
-                <View style={styles.previewBioCard}>
-                  <Text style={styles.previewBioText}>{campaign.bio}</Text>
-                </View>
-              </View>
-            )}
-
-            {/* Credibility Row */}
-            {(campaign.licenseNumber || campaign.insuranceProvider || campaign.yearsExperience) && (
-              <View style={styles.previewSection}>
-                <View style={styles.previewCredibilityRow}>
-                  {campaign.licenseNumber && campaign.insuranceProvider && (
-                    <View style={styles.previewCredibilityItem}>
-                      <MaterialIcons name="verified" size={16} color="#19E180" />
-                      <Text style={styles.previewCredibilityText}>Licensed & Insured</Text>
-                    </View>
-                  )}
-                  {campaign.yearsExperience && campaign.yearsExperience > 0 && (
-                    <View style={styles.previewCredibilityItem}>
-                      <MaterialIcons name="construction" size={16} color="#60A5FA" />
-                      <Text style={styles.previewCredibilityText}>{campaign.yearsExperience} yrs exp</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            )}
-
-            {/* Services */}
-            {campaign.services && campaign.services.length > 0 && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>Services</Text>
-                <View style={styles.previewChipsContainer}>
-                  {campaign.services.map((service, index) => (
-                    <View key={index} style={styles.previewChip}>
-                      <Text style={styles.previewChipText}>{service}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Specialties */}
-            {campaign.specialties && campaign.specialties.length > 0 && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>Specialties</Text>
-                <View style={styles.previewChipsContainer}>
-                  {campaign.specialties.map((specialty, index) => (
-                    <View key={index} style={styles.previewChip}>
-                      <Text style={styles.previewChipText}>{specialty}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Pricing */}
-            {campaign.pricing && (campaign.pricing.hourlyRate.max > 0 || campaign.pricing.projectMinimum > 0) && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>Pricing</Text>
-                {campaign.pricing.projectMinimum > 0 && (
-                  <View style={styles.previewPricingRow}>
-                    <MaterialIcons name="attach-money" size={20} color="#19E180" />
-                    <View style={{ flex: 1, marginLeft: 8 }}>
-                      <Text style={styles.previewPricingLabel}>Typical projects from</Text>
-                      <Text style={styles.previewPricingValue}>
-                        ${campaign.pricing.projectMinimum.toLocaleString()}{campaign.pricing.hourlyRate.max > 0 ? ` – $${Math.floor(campaign.pricing.projectMinimum * 5).toLocaleString()}` : '+'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-                {campaign.pricing.hourlyRate.max > 0 && (
-                  <View style={styles.previewPricingRow}>
-                    <MaterialIcons name="receipt" size={20} color="#60A5FA" />
-                    <View style={{ flex: 1, marginLeft: 8 }}>
-                      <Text style={styles.previewPricingLabel}>Hourly rate</Text>
-                      <Text style={styles.previewPricingValue}>
-                        ${campaign.pricing.hourlyRate.min || campaign.pricing.hourlyRate.max}–${campaign.pricing.hourlyRate.max}/hr
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Service Areas */}
-            {campaign.serviceAreas && campaign.serviceAreas.length > 0 && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>Service Areas</Text>
-                {campaign.serviceAreas.map((area, index) => (
-                  <View key={index} style={styles.previewAreaCard}>
-                    <MaterialIcons name="location-on" size={18} color={neutralIconColor} />
-                    <Text style={styles.previewAreaText}>
-                      {area.city}, {area.state} ({area.radius} miles)
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {/* Portfolio */}
-            <View style={styles.previewSection}>
-              <Text style={styles.previewSectionTitle}>Project Proof</Text>
-              {campaign.portfolio && campaign.portfolio.length > 0 ? (
-                <>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewPhotoScroll}>
-                    {campaign.portfolio.slice(0, 3).map((photo, index) => (
-                      <View key={index} style={styles.previewPhotoCard}>
-                        <Image source={{ uri: photo.uri }} style={styles.previewPhotoImage} />
-                        {index === 0 && (
-                          <View style={styles.previewFeaturedBadge}>
-                            <MaterialIcons name="star" size={10} color={neutralIconColor} />
-                          </View>
-                        )}
-                        {photo.caption && (
-                          <View style={styles.previewPhotoCaptionOverlay}>
-                            <Text style={styles.previewPhotoCaptionText} numberOfLines={2}>
-                              {photo.caption}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    ))}
-                  </ScrollView>
-                  {campaign.portfolio.length > 3 && (
-                    <Text style={styles.previewPortfolioMore}>View full portfolio →</Text>
-                  )}
-                </>
-              ) : (
-                <View style={styles.previewPortfolioEmpty}>
-                  <MaterialIcons name="photo-library" size={32} color="#6B7280" />
-                  <Text style={styles.previewPortfolioEmptyText}>Add photos to improve visibility and trust</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Certifications */}
-            {campaign.certifications && campaign.certifications.length > 0 && (
-              <View style={styles.previewSection}>
-                <Text style={styles.previewSectionTitle}>Certifications</Text>
-                <View style={styles.previewChipsContainer}>
-                  {campaign.certifications.map((cert, index) => (
-                    <View key={index} style={[styles.previewChip, { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: '#3B82F6' }]}>
-                      <MaterialIcons name="verified" size={14} color={neutralIconColor} />
-                      <Text style={[styles.previewChipText, { color: darkMode ? '#FFFFFF' : Colors.text, marginLeft: 4 }]}>{cert}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Response Time */}
-            {campaign.responseTime && (
-              <View style={styles.previewSection}>
-                <View style={[
-                  styles.previewResponseCard,
-                  (campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour') && styles.previewResponseCardFast,
-                  campaign.responseTime === 'within_day' && styles.previewResponseCardMedium,
-                  campaign.responseTime === 'within_week' && styles.previewResponseCardSlow,
-                ]}>
-                  <MaterialIcons 
-                    name={campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour' ? "bolt" : "schedule"} 
-                    size={24} 
-                    color={
-                      campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour' ? '#19E180' :
-                      campaign.responseTime === 'within_day' ? '#F59E0B' : (darkMode ? '#9CA3AF' : Colors.sub)
-                    } 
-                  />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.previewResponseLabel}>Typical Response Time</Text>
-                    <Text style={[
-                      styles.previewResponseValue,
-                      (campaign.responseTime === 'immediate' || campaign.responseTime === 'within_hour') && { color: '#19E180' },
-                      campaign.responseTime === 'within_day' && { color: '#F59E0B' },
-                      campaign.responseTime === 'within_week' && { color: darkMode ? '#9CA3AF' : Colors.sub },
-                    ]}>
-                      {campaign.responseTime === 'immediate' ? 'Responds within 4 hours' : 
-                       campaign.responseTime === 'within_hour' ? 'Responds within 4 hours' :
-                       campaign.responseTime === 'within_day' ? 'Responds within 24 hours' : 'Responds within 1 week'}
-                    </Text>
-                    <Text style={styles.previewResponseSubtext}>Faster responses improve selection priority</Text>
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {/* Contact Info */}
-            <View style={styles.previewSection}>
-              <Text style={styles.previewSectionTitle}>Contact Information</Text>
-              {campaign.phone && (
-                <View style={styles.previewContactRow}>
-                  <MaterialIcons name="phone" size={18} color={neutralIconColor} />
-                  <Text style={styles.previewContactText}>{campaign.phone}</Text>
-                </View>
-              )}
-              {campaign.email && (
-                <View style={styles.previewContactRow}>
-                  <MaterialIcons name="email" size={18} color={neutralIconColor} />
-                  <Text style={styles.previewContactText}>{campaign.email}</Text>
-                </View>
-              )}
-              {campaign.website && (
-                <View style={styles.previewContactRow}>
-                  <MaterialIcons name="language" size={18} color={neutralIconColor} />
-                  <Text style={styles.previewContactText}>{campaign.website}</Text>
-                </View>
-              )}
-              {campaign.instagram && (
-                <TouchableOpacity 
-                  style={styles.previewInstagramButton}
-                  onPress={() => {
-                    const username = campaign.instagram?.replace('@', '').replace('https://instagram.com/', '').replace('https://www.instagram.com/', '');
-                    const instagramUrl = `https://instagram.com/${username}`;
-                    Linking.openURL(instagramUrl);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                >
-                  <View style={styles.instagramBadgePreview}>
-                    <IGLogo />
-                    <Text style={styles.instagramBadgePreviewText}>Instagram</Text>
-                  </View>
-                  <Text style={styles.previewInstagramText}>
-                    @{campaign.instagram.replace('@', '').replace('https://instagram.com/', '').replace('https://www.instagram.com/', '')}
-                  </Text>
-                  <MaterialIcons name="open-in-new" size={16} color="#E1306C" style={{ marginLeft: 'auto' }} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
+          {isWeb ? (
+            <CampaignWebFormOptionalChrome
+              isWeb={isWeb}
+              darkMode={darkMode}
+              Colors={Colors}
+              columnStyle={webColumn860}
+              fillVertical
+            >
+              <ScrollView
+                style={[styles.previewContent, { flex: 1, minHeight: 0, paddingHorizontal: 0 }]}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 24 }}
+              >
+                {renderCampaignPreviewBody()}
+              </ScrollView>
+            </CampaignWebFormOptionalChrome>
+          ) : (
+            <ScrollView style={styles.previewContent} showsVerticalScrollIndicator={false}>
+              {renderCampaignPreviewBody()}
+            </ScrollView>
+          )}
 
           {/* Preview Footer */}
           <View style={styles.previewFooter}>
@@ -1364,6 +1559,7 @@ export default function CampaignCreationModal({
             >
               <Text style={styles.previewCloseButtonText}>Close Preview</Text>
             </TouchableOpacity>
+          </View>
           </View>
         </View>
       </Modal>

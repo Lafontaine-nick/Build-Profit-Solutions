@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 export default function ContactSupportScreen() {
   const router = useRouter();
@@ -177,10 +178,15 @@ export default function ContactSupportScreen() {
 
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+              contentContainerStyle={{
+                paddingTop: Platform.OS === 'web' ? 0 : 16,
+                paddingBottom: 40,
+                paddingHorizontal: 0,
+              }}
               showsVerticalScrollIndicator={true}
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
+              <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}
                 start={{ x: 0.05, y: 0.15 }}
@@ -367,6 +373,7 @@ export default function ContactSupportScreen() {
                   </View>
                 </View>
               </LinearGradient>
+              </WebPageShell>
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>

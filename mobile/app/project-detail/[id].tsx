@@ -70,6 +70,7 @@ import {
   WEB_DESKTOP_EDGE_HORIZONTAL,
 } from '@/constants/ScreenLayout';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import WebPageShell from '@/components/layout/WebPageShell';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughStepSheetContent,
@@ -279,13 +280,16 @@ function ProjectDetailContent() {
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { width: layoutWidth } = useWindowDimensions();
   const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
-  const webScrollContentCap = desktopWeb
-    ? {
-        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
-        width: '100%' as const,
-        alignSelf: 'center' as const,
-      }
-    : undefined;
+  const webScrollContentCap =
+    Platform.OS === 'web'
+      ? undefined
+      : desktopWeb
+        ? {
+            maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            width: '100%' as const,
+            alignSelf: 'center' as const,
+          }
+        : undefined;
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { t } = useTranslation();
   const { getToken } = useAuth();
@@ -2213,6 +2217,7 @@ function ProjectDetailContent() {
           ]}
           contentContainerStyle={[
             styles.scrollContent,
+            Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
             webScrollContentCap,
             apWtScrollPadBottom > 0 && {
               paddingBottom: 24 + apWtScrollPadBottom,
@@ -2223,6 +2228,7 @@ function ProjectDetailContent() {
           {...(Platform.OS === 'web' ? { keyboardShouldPersistTaps: 'always' as const } : {})}
           nestedScrollEnabled
         >
+        <WebPageShell size="projectDetail" scroll={false} contentStyle={{ paddingBottom: 0 }}>
           {/* HEADER */}
           <View style={[styles.headerRow, styles.wideContainer]}>
             <View style={styles.backButtonWrapper}>
@@ -2389,6 +2395,7 @@ function ProjectDetailContent() {
           </View>
 
           <View style={{ height: 32 }} />
+        </WebPageShell>
         </ScrollView>
 
         {apWtSheetVisible ? (

@@ -15,18 +15,21 @@ import {
   Platform,
   SafeAreaView,
   StatusBar,
-  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
-import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
 import { useProjectData } from "@/contexts/ProjectDataContext";
+import GradientRingBackInner from "@/components/GradientRingBackInner";
 
 const Colors = {
   bg: "#020617",
@@ -365,9 +368,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
   const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
   const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
-  const { width: teamModalLayoutWidth } = useWindowDimensions();
-  const teamFormDesktopWeb =
-    Platform.OS === "web" && isDesktopWebLayoutWidth(teamModalLayoutWidth);
+  const isWeb = Platform.OS === "web";
 
   const [name, setName] = useState(member.name);
   const [phone, setPhone] = useState(member.phone || "");
@@ -404,18 +405,282 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
-        <View
-          style={[
-            { flex: 1, width: "100%" },
-            teamFormDesktopWeb && { alignItems: "center" as const },
-          ]}
-        >
-          <View
-            style={[
-              { flex: 1, width: "100%" },
-              teamFormDesktopWeb && { maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH },
-            ]}
+        {isWeb ? (
+          <ScrollView
+            style={styles.addMemberScroll}
+            contentContainerStyle={styles.editMemberWebPageContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
+            <View
+              style={[
+                styles.editMemberWebHeaderRow,
+                {
+                  borderBottomColor: headerRule,
+                  paddingTop: 18,
+                },
+              ]}
+            >
+              <View style={styles.addMemberBackWrap}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.addMemberBackGradient}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onClose();
+                    }}
+                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.addMemberTitleBlock}>
+                <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Edit Team Member</Text>
+                <Text style={[styles.addMemberSubtitle, { color: supportSub }]} numberOfLines={2}>
+                  {member.name}
+                </Text>
+              </View>
+            </View>
+
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.editMemberWebFormCardGradient}
+            >
+              <View
+                style={[
+                  styles.editMemberWebFormCardInner,
+                  {
+                    backgroundColor: darkMode ? "#050807" : Colors.surface2,
+                  },
+                ]}
+              >
+              <View style={styles.addMemberField}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                  Name <Text style={styles.addMemberRequired}>*</Text>
+                </Text>
+                <TextInput
+                  style={inputStyle}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Full Name"
+                  placeholderTextColor={placeholderTint}
+                />
+              </View>
+
+              <View style={styles.addMemberField}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Phone</Text>
+                <TextInput
+                  style={inputStyle}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="(555) 123-4567"
+                  placeholderTextColor={placeholderTint}
+                  keyboardType="phone-pad"
+                />
+              </View>
+
+              <View style={styles.addMemberField}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
+                <TextInput
+                  style={inputStyle}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="email@example.com"
+                  placeholderTextColor={placeholderTint}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+                <View style={styles.addMemberChipWrap}>
+                  {trades.map((t) =>
+                    role === t ? (
+                      <TouchableOpacity
+                        key={t}
+                        onPress={() => {
+                          setRole(t);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        activeOpacity={0.9}
+                      >
+                        <View style={styles.addMemberChipSelectedSolid}>
+                          <Text style={styles.addMemberChipTextOnGreen}>{t}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        key={t}
+                        onPress={() => {
+                          setRole(t);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.addMemberChipIdle,
+                          {
+                            backgroundColor: chipIdleBg,
+                            borderColor: chipIdleBorder,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
+                </View>
+              </View>
+
+              <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Status</Text>
+                <View style={styles.addMemberChipWrap}>
+                  {(["active", "off_duty"] as Status[]).map((s) =>
+                    status === s ? (
+                      <TouchableOpacity
+                        key={s}
+                        onPress={() => {
+                          setStatus(s);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        activeOpacity={0.9}
+                      >
+                        {s === "active" ? (
+                          <View style={styles.addMemberChipSelectedSolid}>
+                            <Text style={styles.addMemberChipTextOnGreen}>{statusLabel[s]}</Text>
+                          </View>
+                        ) : (
+                          <View
+                            style={[
+                              styles.addMemberChipIdle,
+                              {
+                                backgroundColor: statusColor(s),
+                                borderColor: statusColor(s),
+                                alignItems: "center",
+                                justifyContent: "center",
+                              },
+                            ]}
+                          >
+                            <Text style={styles.editFormChipTextActive}>{statusLabel[s]}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        key={s}
+                        onPress={() => {
+                          setStatus(s);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        activeOpacity={0.85}
+                        style={[
+                          styles.addMemberChipIdle,
+                          {
+                            backgroundColor: chipIdleBg,
+                            borderColor: chipIdleBorder,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{statusLabel[s]}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  styles.editMemberStatusHelper,
+                  { color: darkMode ? "rgba(255,255,255,0.48)" : Colors.sub },
+                ]}
+              >
+                Active team members appear in project assignments and AI scheduling.
+              </Text>
+              </View>
+            </LinearGradient>
+
+            <View
+              style={[
+                styles.editMemberWebBottomActions,
+                {
+                  borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15, 23, 42, 0.12)",
+                  backgroundColor: Colors.bg,
+                  paddingBottom: Platform.OS === "ios" ? 24 : 16,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert(
+                    "Remove Team Member",
+                    `Are you sure you want to remove ${member.name} from the team?`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Remove",
+                        style: "destructive",
+                        onPress: () => onDelete(member.id),
+                      },
+                    ]
+                  );
+                }}
+                style={[
+                  styles.editMemberRemoveBtn,
+                  {
+                    backgroundColor: darkMode ? "rgba(239, 68, 68, 0.12)" : "rgba(239, 68, 68, 0.08)",
+                    borderColor: darkMode ? "rgba(248, 113, 113, 0.45)" : "rgba(239, 68, 68, 0.35)",
+                  },
+                ]}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[styles.editMemberRemoveText, { color: darkMode ? "#fca5a5" : "#dc2626" }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  Remove from Team
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSave}
+                style={[
+                  styles.addMemberSaveBtn,
+                  Platform.select({
+                    ios: {
+                      shadowColor: "#22c55e",
+                      shadowOffset: { width: 0, height: 3 },
+                      shadowOpacity: 0.22,
+                      shadowRadius: 10,
+                    },
+                    android: { elevation: 5 },
+                  }),
+                ]}
+                activeOpacity={0.9}
+              >
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.addMemberSaveGradient}
+                >
+                  <Text style={styles.addMemberSaveText}>✓ Save Changes</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : (
+        <View style={{ flex: 1, width: "100%" }}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
         <View
@@ -434,16 +699,16 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
               end={{ x: 0.95, y: 0.85 }}
               style={styles.addMemberBackGradient}
             >
-              <TouchableOpacity
+              <GradientRingBackInner
+                darkMode={darkMode}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onClose();
                 }}
                 style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
-              </TouchableOpacity>
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={styles.addMemberTitleBlock}>
@@ -512,16 +777,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                       }}
                       activeOpacity={0.9}
                     >
-                      <LinearGradient
-                        colors={["#22c55e", "#22d3ee"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.addMemberChipSelectedOuter}
-                      >
-                        <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
-                          <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{t}</Text>
-                        </View>
-                      </LinearGradient>
+                      <View style={styles.addMemberChipSelectedSolid}>
+                        <Text style={styles.addMemberChipTextOnGreen}>{t}</Text>
+                      </View>
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
@@ -560,16 +818,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                       activeOpacity={0.9}
                     >
                       {s === "active" ? (
-                        <LinearGradient
-                          colors={["#22c55e", "#22d3ee"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.addMemberChipSelectedOuter}
-                        >
-                          <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
-                            <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{statusLabel[s]}</Text>
-                          </View>
-                        </LinearGradient>
+                        <View style={styles.addMemberChipSelectedSolid}>
+                          <Text style={styles.addMemberChipTextOnGreen}>{statusLabel[s]}</Text>
+                        </View>
                       ) : (
                         <View
                           style={[
@@ -608,6 +859,15 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 )}
               </View>
             </View>
+
+            <Text
+              style={[
+                styles.editMemberStatusHelper,
+                { color: darkMode ? "rgba(255,255,255,0.48)" : Colors.sub },
+              ]}
+            >
+              Active team members appear in project assignments and AI scheduling.
+            </Text>
           </View>
         </ScrollView>
 
@@ -681,8 +941,8 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
             </LinearGradient>
           </TouchableOpacity>
         </View>
-          </View>
         </View>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -704,9 +964,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
   const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
   const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
   const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
-  const { width: addTeamModalLayoutWidth } = useWindowDimensions();
-  const teamFormDesktopWeb =
-    Platform.OS === "web" && isDesktopWebLayoutWidth(addTeamModalLayoutWidth);
+  const isWeb = Platform.OS === "web";
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -748,19 +1006,190 @@ const AddMemberModal = ({ onClose, onAdd }: {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
-        <View
-          style={[
-            { flex: 1, width: "100%" },
-            teamFormDesktopWeb && { alignItems: "center" as const },
-          ]}
-        >
-          <View
-            style={[
-              { flex: 1, width: "100%" },
-              teamFormDesktopWeb && { maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH },
-            ]}
+        {isWeb ? (
+          <ScrollView
+            style={styles.addMemberScroll}
+            contentContainerStyle={styles.editMemberWebPageContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            {...KEYBOARD_SCROLL_DEFAULTS}
           >
-        <StatusBar barStyle="light-content" />
+            <View
+              style={[
+                styles.editMemberWebHeaderRow,
+                {
+                  borderBottomColor: headerRule,
+                  paddingTop: 18,
+                },
+              ]}
+            >
+              <View style={styles.addMemberBackWrap}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.addMemberBackGradient}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onClose();
+                    }}
+                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.addMemberTitleBlock}>
+                <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Add Team Member</Text>
+                <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>Add a new team member</Text>
+              </View>
+            </View>
+
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.editMemberWebFormCardGradient}
+            >
+              <View
+                style={[
+                  styles.editMemberWebFormCardInner,
+                  {
+                    backgroundColor: darkMode ? "#050807" : Colors.surface2,
+                  },
+                ]}
+              >
+                <View style={styles.addMemberForm}>
+                  <View style={styles.addMemberField}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                      Name <Text style={styles.addMemberRequired}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={inputStyle}
+                      value={name}
+                      onChangeText={setName}
+                      placeholder="Full Name"
+                      placeholderTextColor={placeholderTint}
+                      autoFocus
+                    />
+                  </View>
+
+                  <View style={styles.addMemberField}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Phone</Text>
+                    <TextInput
+                      style={inputStyle}
+                      value={phone}
+                      onChangeText={setPhone}
+                      placeholder="(555) 123-4567"
+                      placeholderTextColor={placeholderTint}
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+
+                  <View style={styles.addMemberField}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
+                    <TextInput
+                      style={inputStyle}
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="email@example.com"
+                      placeholderTextColor={placeholderTint}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+
+                  <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+                    <View style={styles.addMemberChipWrap}>
+                      {trades.map((t) =>
+                        role === t ? (
+                          <TouchableOpacity
+                            key={t}
+                            onPress={() => {
+                              setRole(t);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                            activeOpacity={0.9}
+                          >
+                            <View style={styles.addMemberChipSelectedSolid}>
+                              <Text style={styles.addMemberChipTextOnGreen}>{t}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            key={t}
+                            onPress={() => {
+                              setRole(t);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                            activeOpacity={0.85}
+                            style={[
+                              styles.addMemberChipIdle,
+                              {
+                                backgroundColor: chipIdleBg,
+                                borderColor: chipIdleBorder,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </LinearGradient>
+
+            <View
+              style={[
+                styles.editMemberWebBottomActions,
+                {
+                  borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15, 23, 42, 0.12)",
+                  backgroundColor: Colors.bg,
+                  paddingBottom: 16,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={onClose}
+                style={[
+                  styles.addMemberCancelBtn,
+                  {
+                    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : "rgba(15, 23, 42, 0.04)",
+                    borderColor: darkMode ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+                  },
+                ]}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.addMemberCancelText, { color: supportSub }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  handleAdd();
+                }}
+                style={styles.addMemberSaveBtn}
+                activeOpacity={0.9}
+              >
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.addMemberSaveGradient}
+                >
+                  <Text style={styles.addMemberSaveText}>✓ Save</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : (
+        <>
+        <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         <View
           style={[
             styles.addMemberHeader,
@@ -777,16 +1206,16 @@ const AddMemberModal = ({ onClose, onAdd }: {
               end={{ x: 0.95, y: 0.85 }}
               style={styles.addMemberBackGradient}
             >
-              <TouchableOpacity
+              <GradientRingBackInner
+                darkMode={darkMode}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onClose();
                 }}
                 style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : "#000000"} />
-              </TouchableOpacity>
+                <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={styles.addMemberTitleBlock}>
@@ -797,7 +1226,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
 
         <ScrollView
           style={styles.addMemberScroll}
-          contentContainerStyle={styles.addMemberScrollContent}
+          contentContainerStyle={[styles.addMemberScrollContent, { paddingBottom: 150 }]}
           showsVerticalScrollIndicator={false}
           {...KEYBOARD_SCROLL_DEFAULTS}
         >
@@ -854,16 +1283,9 @@ const AddMemberModal = ({ onClose, onAdd }: {
                       }}
                       activeOpacity={0.9}
                     >
-                      <LinearGradient
-                        colors={["#22c55e", "#22d3ee"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.addMemberChipSelectedOuter}
-                      >
-                        <View style={[styles.addMemberChipSelectedInner, { backgroundColor: darkMode ? "rgba(2, 6, 23, 0.35)" : "rgba(255,255,255,0.95)" }]}>
-                          <Text style={[styles.addMemberChipTextSelected, { color: darkMode ? "#FFFFFF" : "#020617" }]}>{t}</Text>
-                        </View>
-                      </LinearGradient>
+                      <View style={styles.addMemberChipSelectedSolid}>
+                        <Text style={styles.addMemberChipTextOnGreen}>{t}</Text>
+                      </View>
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
@@ -942,8 +1364,8 @@ const AddMemberModal = ({ onClose, onAdd }: {
             </LinearGradient>
           </TouchableOpacity>
         </View>
-          </View>
-        </View>
+        </>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -957,6 +1379,8 @@ const NotifyTeamModal = ({ members, onClose }: {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const isWeb = Platform.OS === "web";
+  const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : Colors.line;
   const [message, setMessage] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(members.map(m => m.id)));
 
@@ -1081,7 +1505,217 @@ const NotifyTeamModal = ({ members, onClose }: {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }}>
-        <StatusBar barStyle="light-content" />
+        {isWeb ? (
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.editMemberWebPageContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <View
+              style={[
+                styles.editMemberWebHeaderRow,
+                {
+                  borderBottomColor: headerRule,
+                  paddingTop: 18,
+                },
+              ]}
+            >
+              <View style={styles.addMemberBackWrap}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.addMemberBackGradient}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      onClose();
+                    }}
+                    style={[styles.addMemberBackBtn, { backgroundColor: Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={22} color={darkMode ? "#FFFFFF" : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.addMemberTitleBlock}>
+                <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Notify Team</Text>
+                <Text style={[styles.addMemberSubtitle, { color: Colors.sub }]}>Send message to team members</Text>
+              </View>
+            </View>
+
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.editMemberWebFormCardGradient}
+            >
+              <View
+                style={[
+                  styles.editMemberWebFormCardInner,
+                  {
+                    backgroundColor: darkMode ? "#050807" : Colors.surface2,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                    Select recipients ({selectedIds.size}/{members.length})
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      toggleAll();
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }}
+                    style={{
+                      backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: darkMode ? "rgba(148, 163, 184, 0.2)" : Colors.line,
+                    }}
+                  >
+                    <Text style={{ color: Colors.sub, fontWeight: "600", fontSize: 13 }}>
+                      {selectedIds.size === members.length ? "Deselect All" : "Select All"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View
+                  style={{
+                    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.bg,
+                    borderRadius: 12,
+                    padding: 8,
+                    marginBottom: 20,
+                    maxHeight: 200,
+                    borderWidth: 1,
+                    borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+                  }}
+                >
+                  <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                    {members.map((item) => {
+                      const isSelected = selectedIds.has(item.id);
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          onPress={() => {
+                            toggleMember(item.id);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            padding: 12,
+                            borderRadius: 12,
+                            backgroundColor: isSelected ? "rgba(34, 197, 94, 0.15)" : "transparent",
+                            marginBottom: 6,
+                          }}
+                        >
+                          <View
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 6,
+                              borderWidth: 2,
+                              borderColor: isSelected ? "#22c55e" : Colors.line,
+                              backgroundColor: isSelected ? "#22c55e" : "transparent",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginRight: 12,
+                            }}
+                          >
+                            {isSelected ? (
+                              <Text style={{ color: "#020617", fontSize: 16, fontWeight: "900" }}>✓</Text>
+                            ) : null}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: Colors.text, fontSize: 15, fontWeight: isSelected ? "700" : "600" }}>{item.name}</Text>
+                            <Text style={{ color: Colors.sub, fontSize: 12 }}>{item.role}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                <View style={{ marginBottom: 4 }}>
+                  <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Message</Text>
+                  <TextInput
+                    style={{
+                      marginTop: 8,
+                      backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.bg,
+                      borderColor: darkMode ? "rgba(148, 163, 184, 0.16)" : Colors.line,
+                      borderWidth: 1,
+                      borderRadius: 12,
+                      color: Colors.text,
+                      fontSize: 14,
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      minHeight: 120,
+                      textAlignVertical: "top",
+                    }}
+                    value={message}
+                    onChangeText={setMessage}
+                    placeholder="Enter your message..."
+                    placeholderTextColor={Colors.sub}
+                    multiline
+                  />
+                </View>
+              </View>
+            </LinearGradient>
+
+            <View
+              style={[
+                styles.editMemberWebBottomActions,
+                {
+                  borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15, 23, 42, 0.12)",
+                  backgroundColor: Colors.bg,
+                  paddingBottom: 16,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onClose();
+                }}
+                style={[
+                  styles.addMemberCancelBtn,
+                  {
+                    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.06)" : "rgba(15, 23, 42, 0.04)",
+                    borderColor: darkMode ? "rgba(148, 163, 184, 0.28)" : Colors.line,
+                  },
+                ]}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.addMemberCancelText, { color: Colors.sub }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  handleSend();
+                }}
+                style={styles.addMemberSaveBtn}
+                activeOpacity={0.9}
+              >
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.addMemberSaveGradient}
+                >
+                  <Text style={styles.addMemberSaveText}>📢 Send ({selectedIds.size})</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : (
+        <>
+        <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         {/* Header with Back Arrow */}
         <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingTop: Platform.OS === "ios" ? 8 : 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
           <View style={{ marginRight: 12 }}>
@@ -1091,16 +1725,23 @@ const NotifyTeamModal = ({ members, onClose }: {
               end={{ x: 0.95, y: 0.85 }}
               style={{ borderRadius: 22, padding: 1, overflow: "hidden" }}
             >
-              <TouchableOpacity
+              <GradientRingBackInner
+                darkMode={darkMode}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   onClose();
                 }}
-                style={{ width: 44, height: 44, borderRadius: 21, backgroundColor: Colors.bg, justifyContent: "center", alignItems: "center" }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 21,
+                  backgroundColor: Colors.bg,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-              </TouchableOpacity>
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={{ flex: 1 }}>
@@ -1250,6 +1891,8 @@ const NotifyTeamModal = ({ members, onClose }: {
             </LinearGradient>
           </TouchableOpacity>
         </View>
+        </>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -2362,18 +3005,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  addMemberChipSelectedOuter: {
-    borderRadius: 15,
-    padding: 1.5,
+  /** Selected Trade/Role + Active status — solid brand green (not save-button gradient). */
+  addMemberChipSelectedSolid: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#22c55e",
+    borderWidth: 1,
+    borderColor: "#16a34a",
   },
-  addMemberChipSelectedInner: {
-    borderRadius: 13,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-  },
-  addMemberChipTextSelected: {
+  addMemberChipTextOnGreen: {
     fontSize: 13,
     fontWeight: "800",
+    color: "#FFFFFF",
   },
   addMemberActionBar: {
     position: "absolute",
@@ -2413,5 +3059,51 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     letterSpacing: 0.25,
+  },
+  editMemberWebPageContent: {
+    width: "100%",
+    maxWidth: 1040,
+    alignSelf: "center",
+    paddingHorizontal: 32,
+    paddingTop: 36,
+    paddingBottom: 32,
+  },
+  editMemberWebHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    paddingHorizontal: 0,
+    paddingBottom: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  /** Web: 1px neon frame via gradient (same tokens as materials / brand frame). */
+  editMemberWebFormCardGradient: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
+    borderRadius: 24,
+    padding: 1,
+    overflow: "hidden",
+  },
+  editMemberWebFormCardInner: {
+    width: "100%",
+    borderRadius: 23,
+    padding: 28,
+  },
+  editMemberWebBottomActions: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 24,
+    paddingTop: 18,
+    borderTopWidth: 1,
+  },
+  editMemberStatusHelper: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
   },
 });

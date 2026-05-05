@@ -29,6 +29,7 @@ export function neutralIconPressableWebStyle(): Record<string, unknown> | undefi
     WebkitTapHighlightColor: "transparent",
     WebkitUserSelect: "none",
     userSelect: "none",
+    touchAction: "manipulation",
   };
   return web;
 }

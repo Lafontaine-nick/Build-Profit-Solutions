@@ -56,6 +56,7 @@ import {
 import { useUser } from '@clerk/clerk-react';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
+import WebPageShell from '@/components/layout/WebPageShell';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 
 /** UI-only: polish unknown location strings without changing stored data. */
@@ -439,13 +440,16 @@ export default function ProjectsScreen() {
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
   const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
-  const webScrollContentCap = desktopWeb
-    ? {
-        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
-        width: "100%" as const,
-        alignSelf: "center" as const,
-      }
-    : undefined;
+  const webScrollContentCap =
+    Platform.OS === 'web'
+      ? undefined
+      : desktopWeb
+        ? {
+            maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            width: '100%' as const,
+            alignSelf: 'center' as const,
+          }
+        : undefined;
   const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
     () => getStyles(Colors, darkMode, tabScrollBottomInset, desktopWeb),
@@ -1312,6 +1316,7 @@ export default function ProjectsScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
+          Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
           webScrollContentCap,
           activeProjectWalkthroughScrollPadBottom > 0 && {
             paddingBottom: tabScrollBottomInset + activeProjectWalkthroughScrollPadBottom,
@@ -1319,9 +1324,10 @@ export default function ProjectsScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        <WebPageShell size="projects" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         {/* HEADER */}
         <TabScreenHeader
-          style={StyleSheet.flatten([styles.wideContainer, styles.projectsHeaderWrap])}
+          style={styles.wideContainer}
           title={t('projects.allProjects')}
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
           titleColor={darkMode ? '#F5F7FA' : Colors.text}
@@ -1678,6 +1684,7 @@ export default function ProjectsScreen() {
         </FirstEstimateWalkthroughHighlight>
 
         <View style={{ height: 32 }} />
+        </WebPageShell>
       </ScrollView>
 
       {/* Submit bid — floating glass toast (auto-dismiss + swipe up) */}
@@ -1851,9 +1858,6 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   wideContainer: {
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
-  },
-  projectsHeaderWrap: {
-    marginBottom: 4,
   },
   card: {
     borderRadius: ScreenLayout.card.radius,

@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  useWindowDimensions,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,12 +14,9 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import {
-  WEB_CENTERED_COLUMN_MAX_WIDTH,
-  WEB_CENTERED_COLUMN_MIN_WIDTH,
-} from '@/constants/ScreenLayout';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 interface StepCardProps {
   number: number;
@@ -75,9 +71,6 @@ const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: 
 
 export default function GettingStartedScreen() {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
-  const wideWeb =
-    Platform.OS === 'web' && windowWidth >= WEB_CENTERED_COLUMN_MIN_WIDTH;
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -155,9 +148,9 @@ export default function GettingStartedScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={[styles.pageShell, wideWeb && styles.pageShellWeb]}>
+          <View style={styles.pageShell}>
           {/* Header */}
-          <View style={[styles.headerRow, wideWeb && styles.headerRowWeb]}>
+          <View style={[styles.headerRow, Platform.OS === 'web' && styles.headerRowWeb]}>
             <View style={styles.backButtonWrapper}>
               <LinearGradient
                 colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -188,16 +181,21 @@ export default function GettingStartedScreen() {
           {/* Content Card */}
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+            contentContainerStyle={{
+              paddingTop: Platform.OS === 'web' ? 0 : 16,
+              paddingBottom: 40,
+              paddingHorizontal: 0,
+            }}
             showsVerticalScrollIndicator={true}
           >
+            <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
             <LinearGradient
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={[
                 styles.cardGradientBorder,
-                wideWeb ? styles.cardGradientBorderWeb : styles.cardGradientBorderMobile,
+                Platform.OS === 'web' ? styles.cardGradientBorderWeb : styles.cardGradientBorderMobile,
               ]}
             >
               <View
@@ -266,6 +264,7 @@ export default function GettingStartedScreen() {
                 </View>
               </View>
             </LinearGradient>
+            </WebPageShell>
           </ScrollView>
           </View>
         </SafeAreaView>
@@ -284,11 +283,6 @@ const styles = StyleSheet.create({
   pageShell: {
     flex: 1,
     width: '100%',
-  },
-  pageShellWeb: {
-    maxWidth: WEB_CENTERED_COLUMN_MAX_WIDTH,
-    alignSelf: 'center',
-    paddingHorizontal: 24,
   },
   headerRow: {
     flexDirection: 'row',

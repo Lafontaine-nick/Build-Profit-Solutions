@@ -14,11 +14,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import GradientRingBackInner from './GradientRingBackInner';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useChat, Conversation } from '../contexts/ChatContext';
@@ -30,6 +31,48 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
+import {
+  getProjectExpenseFormHorizontalPadding,
+  isDesktopWebLayoutWidth,
+} from '@/constants/ScreenLayout';
+
+/** Match estimate `LineItemModal` / Add Labor desktop web column (estimate-generator.jsx). */
+const MESSAGES_WEB_COLUMN_MAX = 900;
+const ADD_LABOR_STYLE_GLASS = ['#2DFFC4', '#00A6FF'] as const;
+
+/** Web-only: same gradient frame + inner fill as `GlassBorderCard` on Add Labor (estimate-generator). */
+function MessagesWebGlassFrame({
+  darkMode,
+  Colors,
+  children,
+}: {
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+  children: React.ReactNode;
+}) {
+  return (
+    <LinearGradient
+      colors={[...ADD_LABOR_STYLE_GLASS]}
+      start={{ x: 0.05, y: 0.15 }}
+      end={{ x: 0.95, y: 0.85 }}
+      style={{ borderRadius: 20, padding: 1, flex: 1, minHeight: 0, marginBottom: 8 }}
+    >
+      <View
+        style={{
+          flex: 1,
+          minHeight: 0,
+          backgroundColor: !darkMode ? Colors.bg : Colors.card,
+          borderRadius: 19,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: Colors.line,
+        }}
+      >
+        {children}
+      </View>
+    </LinearGradient>
+  );
+}
 
 interface MessagesInboxProps {
   visible: boolean;
@@ -58,21 +101,51 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const isWeb = Platform.OS === 'web';
   const lightText = !darkMode ? { color: Colors.text } : undefined;
   const lightSub = !darkMode ? { color: Colors.sub } : undefined;
-  const gradientColors = useMemo(
-    () => ['#0b1c38', '#1B365D', '#43cea2'],
-    []
-  );
-  const conversationBackground = 'rgba(24, 28, 36, 0.96)';
-  /** Brighter teal frame so cards read clearly on dark (was very faint gray). */
-  const conversationBorder = 'rgba(45, 255, 196, 0.42)';
-  const unreadBorder = '#0a0f14';
-  const unreadBackground = '#14B8A6';
 
-  /** Light mode only — conversation list on pale bg */
-  const lightConversationSurface = Colors.card;
-  const lightConversationBorder = 'rgba(13, 148, 136, 0.28)';
+  /** Web: softer teal frame + fill (native keeps higher-contrast greens). */
+  const listCardPalette = useMemo(() => {
+    if (!darkMode) {
+      return {
+        surface: Colors.card,
+        border: isWeb ? 'rgba(13, 148, 136, 0.2)' : 'rgba(13, 148, 136, 0.28)',
+        unreadSurface: isWeb ? 'rgba(16, 185, 129, 0.05)' : 'rgba(16, 185, 129, 0.07)',
+        unreadBorder: isWeb ? 'rgba(13, 148, 136, 0.24)' : 'rgba(13, 148, 136, 0.42)',
+        avatarRing: isWeb ? 'rgba(13, 148, 136, 0.2)' : 'rgba(13, 148, 136, 0.35)',
+        unreadDot: isWeb ? 'rgba(13, 148, 136, 0.75)' : '#14B8A6',
+        unreadPip: isWeb ? 'rgba(13, 148, 136, 0.45)' : '#43cea2',
+        badgeBg: isWeb ? 'rgba(13, 148, 136, 0.72)' : '#14B8A6',
+        badgeText: isWeb ? '#ecfdf5' : '#042f2e',
+      };
+    }
+    if (isWeb) {
+      return {
+        surface: 'rgba(17, 19, 24, 0.94)',
+        border: 'rgba(52, 211, 153, 0.2)',
+        unreadSurface: 'rgba(16, 185, 129, 0.06)',
+        unreadBorder: 'rgba(52, 211, 153, 0.28)',
+        avatarRing: 'rgba(52, 211, 153, 0.18)',
+        unreadDot: 'rgba(45, 212, 191, 0.65)',
+        unreadPip: 'rgba(45, 212, 191, 0.38)',
+        badgeBg: 'rgba(13, 148, 136, 0.72)',
+        badgeText: '#ecfdf5',
+      };
+    }
+    return {
+      surface: 'rgba(24, 28, 36, 0.96)',
+      border: 'rgba(45, 255, 196, 0.42)',
+      unreadSurface: 'rgba(20, 184, 166, 0.09)',
+      unreadBorder: 'rgba(45, 255, 196, 0.58)',
+      avatarRing: 'rgba(45, 255, 196, 0.48)',
+      unreadDot: '#14B8A6',
+      unreadPip: '#43cea2',
+      badgeBg: '#14B8A6',
+      badgeText: '#042f2e',
+    };
+  }, [isWeb, darkMode, Colors.card]);
+  const unreadBorder = '#0a0f14';
   
   // Sample conversations for preview (remove when real data is available)
   const sampleConversations = useMemo((): Conversation[] => {
@@ -168,6 +241,18 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
   const [refreshing, setRefreshing] = useState(false);
   const sendButtonScale = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const { width: messagesLayoutWidth } = useWindowDimensions();
+  const messagesWebDesktop =
+    isWeb && isDesktopWebLayoutWidth(messagesLayoutWidth);
+  const expensePad = useMemo(
+    () =>
+      isWeb
+        ? getProjectExpenseFormHorizontalPadding({
+            desktopWeb: messagesWebDesktop,
+          })
+        : { header: 20, scroll: 16, footer: 20 },
+    [isWeb, messagesWebDesktop]
+  );
 
   // Get selected conversation
   const selectedConversation = conversations.find(c => c.id === selectedConversationId);
@@ -277,6 +362,94 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
     );
   };
 
+  const chatScrollInner =
+    chatMessages.length === 0 ? (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingTop: 100,
+        }}
+      >
+        <MaterialIcons
+          name="chat-bubble-outline"
+          size={64}
+          color={darkMode ? 'rgba(255, 255, 255, 0.2)' : Colors.sub}
+        />
+        <Text
+          style={[
+            { fontSize: 16, marginTop: 16, textAlign: 'center' },
+            darkMode ? { color: '#a7bed9' } : lightSub,
+          ]}
+        >
+          No messages yet.{'\n'}Start the conversation!
+        </Text>
+      </View>
+    ) : (
+      chatMessages.map((message, index) => {
+        const isMe = message.senderName === currentUserName;
+        const showDate =
+          index === 0 ||
+          new Date(message.timestamp).toDateString() !==
+            new Date(chatMessages[index - 1].timestamp).toDateString();
+
+        return (
+          <View key={message.id}>
+            {showDate && (
+              <View style={styles.dateSeparatorWrap}>
+                <View style={styles.dateSeparatorPill}>
+                  <Text style={[styles.dateSeparatorText, lightSub]}>
+                    {new Date(message.timestamp).toLocaleDateString('en-US', {
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                </View>
+              </View>
+            )}
+            <View
+              style={[
+                styles.messageBlock,
+                isMe ? styles.messageBlockMe : styles.messageBlockThem,
+              ]}
+            >
+              <View
+                style={[
+                  styles.messageBubble,
+                  isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
+                  darkMode && !isMe && styles.messageBubbleThemDark,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.messageBubbleText,
+                    isMe
+                      ? styles.messageBubbleTextMe
+                      : darkMode
+                        ? styles.messageBubbleTextThemDark
+                        : { color: Colors.text },
+                  ]}
+                >
+                  {message.content}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.messageTime,
+                  isMe ? styles.messageTimeMe : styles.messageTimeThem,
+                  !darkMode && { color: Colors.sub },
+                ]}
+              >
+                {formatTime(message.timestamp)}
+              </Text>
+            </View>
+          </View>
+        );
+      })
+    );
+
   return (
     <Modal
       visible={visible}
@@ -289,160 +462,229 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
         style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
         keyboardVerticalOffset={0}
       >
-        <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
-          {/* Header with Back Arrow */}
+        <View
+          style={[
+            styles.container,
+            !darkMode && { backgroundColor: Colors.bg },
+            isWeb && { width: '100%', alignItems: 'center' },
+          ]}
+        >
           <View
             style={[
-              styles.headerContainer,
-              { paddingTop: Math.max(insets.top, 16) + 12 },
-              !darkMode && { borderBottomColor: Colors.line },
+              { flex: 1, width: '100%', minHeight: 0 },
+              isWeb && {
+                paddingTop: insets.top,
+                backgroundColor: darkMode ? '#000000' : Colors.bg,
+              },
+              isWeb &&
+                messagesWebDesktop && {
+                  maxWidth: MESSAGES_WEB_COLUMN_MAX,
+                  alignSelf: 'center',
+                },
             ]}
           >
-            <View style={styles.backBtnWrapper}>
-              <LinearGradient
-                colors={[...BRAND_FRAME_GRADIENT_COLORS]}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.backBtnBorder}
+            {isWeb ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: expensePad.header,
+                  paddingTop: 8,
+                  paddingBottom: 14,
+                  marginBottom: 8,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: darkMode
+                    ? 'rgba(148, 163, 184, 0.14)'
+                    : Colors.line,
+                }}
               >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (selectedConversationId) {
-                      handleBackFromChat();
-                    } else {
-                      onClose();
-                    }
-                  }}
-                  style={[
-                    styles.backBtn,
-                    !darkMode && { backgroundColor: Colors.bg },
-                  ]}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? "#FFFFFF" : "#000000"}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={[styles.headerContent, selectedConversation && styles.headerContentChat]}>
-              {selectedConversation ? (
-                <>
-                  <Text style={[styles.headerTitle, styles.headerTitleChat, lightText]}>
-                    {selectedConversation.participantName}
-                  </Text>
-                  {selectedConversation.participantCompany && (
-                    <Text style={[styles.headerSubtitle, styles.headerSubtitleChat, lightSub]}>
-                      {selectedConversation.participantCompany}
+                <View style={styles.backBtnWrapper}>
+                  <LinearGradient
+                    colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                    start={BRAND_FRAME_GRADIENT_START}
+                    end={BRAND_FRAME_GRADIENT_END}
+                    style={styles.backBtnBorder}
+                  >
+                    <GradientRingBackInner
+                      darkMode={darkMode}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        if (selectedConversationId) {
+                          handleBackFromChat();
+                        } else {
+                          onClose();
+                        }
+                      }}
+                      style={[
+                        styles.backBtn,
+                        !darkMode && { backgroundColor: Colors.bg },
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="arrow-back"
+                        size={24}
+                        color={darkMode ? '#FFFFFF' : '#000000'}
+                      />
+                    </GradientRingBackInner>
+                  </LinearGradient>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={{ marginRight: 12 }}>
+                    <LinearGradient
+                      colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                      start={BRAND_FRAME_GRADIENT_START}
+                      end={BRAND_FRAME_GRADIENT_END}
+                      style={{ borderRadius: 12, padding: 1 }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 11,
+                          backgroundColor: darkMode ? Colors.card : Colors.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialCommunityIcons
+                          name={
+                            selectedConversation ? 'message-text-outline' : 'forum'
+                          }
+                          size={24}
+                          color="#22c55e"
+                        />
+                      </View>
+                    </LinearGradient>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 24,
+                        fontWeight: '700',
+                        color: Colors.text,
+                        letterSpacing: -0.35,
+                        lineHeight: 30,
+                      }}
+                    >
+                      {selectedConversation
+                        ? selectedConversation.participantName
+                        : 'Messages'}
                     </Text>
+                    <Text style={{ fontSize: 13, color: Colors.sub, marginTop: 2 }}>
+                      {selectedConversation
+                        ? selectedConversation.participantCompany ||
+                          'Direct message'
+                        : 'Contractor conversations and campaign responses'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.headerContainer,
+                  { paddingTop: Math.max(insets.top, 16) + 12 },
+                  !darkMode && { borderBottomColor: Colors.line },
+                ]}
+              >
+                <View style={styles.backBtnWrapper}>
+                  <LinearGradient
+                    colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                    start={BRAND_FRAME_GRADIENT_START}
+                    end={BRAND_FRAME_GRADIENT_END}
+                    style={styles.backBtnBorder}
+                  >
+                    <GradientRingBackInner
+                      darkMode={darkMode}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        if (selectedConversationId) {
+                          handleBackFromChat();
+                        } else {
+                          onClose();
+                        }
+                      }}
+                      style={[
+                        styles.backBtn,
+                        !darkMode && { backgroundColor: Colors.bg },
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="arrow-back"
+                        size={24}
+                        color={darkMode ? '#FFFFFF' : '#000000'}
+                      />
+                    </GradientRingBackInner>
+                  </LinearGradient>
+                </View>
+                <View
+                  style={[styles.headerContent, selectedConversation && styles.headerContentChat]}
+                >
+                  {selectedConversation ? (
+                    <>
+                      <Text style={[styles.headerTitle, styles.headerTitleChat, lightText]}>
+                        {selectedConversation.participantName}
+                      </Text>
+                      {selectedConversation.participantCompany && (
+                        <Text
+                          style={[styles.headerSubtitle, styles.headerSubtitleChat, lightSub]}
+                        >
+                          {selectedConversation.participantCompany}
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.headerTitle, lightText]}>Messages</Text>
+                      <Text style={[styles.headerSubtitle, lightSub]}>
+                        Contractor conversations and campaign responses
+                      </Text>
+                    </>
                   )}
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.headerTitle, lightText]}>Messages</Text>
-                  <Text style={[styles.headerSubtitle, lightSub]}>
-                    Contractor conversations and campaign responses
-                  </Text>
-                </>
-              )}
-            </View>
-          </View>
+                </View>
+              </View>
+            )}
 
           {/* Conditional Render: Chat View or Conversations List */}
           {selectedConversation ? (
             <>
-              {/* Chat Messages */}
-              <ScrollView
-                ref={scrollViewRef}
-                style={styles.chatScroll}
-                contentContainerStyle={styles.chatScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-              >
-                {chatMessages.length === 0 ? (
-                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100 }}>
-                    <MaterialIcons
-                      name="chat-bubble-outline"
-                      size={64}
-                      color={darkMode ? 'rgba(255, 255, 255, 0.2)' : Colors.sub}
-                    />
-                    <Text
-                      style={[
-                        { fontSize: 16, marginTop: 16, textAlign: 'center' },
-                        darkMode ? { color: '#a7bed9' } : lightSub,
+              {isWeb ? (
+                <View
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    paddingHorizontal: expensePad.scroll,
+                    marginTop: 4,
+                  }}
+                >
+                  <MessagesWebGlassFrame darkMode={darkMode} Colors={Colors}>
+                    <ScrollView
+                      ref={scrollViewRef}
+                      style={[styles.chatScroll, { flex: 1, paddingHorizontal: 0 }]}
+                      contentContainerStyle={[
+                        styles.chatScrollContent,
+                        { flexGrow: 1 },
                       ]}
+                      showsVerticalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
                     >
-                      No messages yet.{'\n'}Start the conversation!
-                    </Text>
-                  </View>
-                ) : (
-                  chatMessages.map((message, index) => {
-                    const isMe = message.senderName === currentUserName;
-                    const showDate =
-                      index === 0 ||
-                      new Date(message.timestamp).toDateString() !==
-                        new Date(chatMessages[index - 1].timestamp).toDateString();
-
-                    return (
-                      <View key={message.id}>
-                        {showDate && (
-                          <View style={styles.dateSeparatorWrap}>
-                            <View style={styles.dateSeparatorPill}>
-                              <Text style={[styles.dateSeparatorText, lightSub]}>
-                                {new Date(message.timestamp).toLocaleDateString('en-US', {
-                                  month: 'long',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                })}
-                              </Text>
-                            </View>
-                          </View>
-                        )}
-                        <View
-                          style={[
-                            styles.messageBlock,
-                            isMe ? styles.messageBlockMe : styles.messageBlockThem,
-                          ]}
-                        >
-                          <View
-                            style={[
-                              styles.messageBubble,
-                              isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
-                              darkMode && !isMe && styles.messageBubbleThemDark,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.messageBubbleText,
-                                isMe
-                                  ? styles.messageBubbleTextMe
-                                  : darkMode
-                                    ? styles.messageBubbleTextThemDark
-                                    : { color: Colors.text },
-                              ]}
-                            >
-                              {message.content}
-                            </Text>
-                          </View>
-                          <Text
-                            style={[
-                              styles.messageTime,
-                              isMe ? styles.messageTimeMe : styles.messageTimeThem,
-                              !darkMode && { color: Colors.sub },
-                            ]}
-                          >
-                            {formatTime(message.timestamp)}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </ScrollView>
+                      {chatScrollInner}
+                    </ScrollView>
+                  </MessagesWebGlassFrame>
+                </View>
+              ) : (
+                <ScrollView
+                  ref={scrollViewRef}
+                  style={styles.chatScroll}
+                  contentContainerStyle={styles.chatScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
+                  {chatScrollInner}
+                </ScrollView>
+              )}
 
               {/* Chat Input */}
               <View
@@ -453,34 +695,74 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                     backgroundColor: darkMode ? '#000000' : Colors.bg,
                   },
                   !darkMode && { borderTopColor: Colors.line },
+                  isWeb && { paddingHorizontal: expensePad.footer },
                 ]}
               >
-                <View style={styles.chatInputRow}>
+                <View style={[styles.chatInputRow, isWeb && styles.chatInputRowWeb]}>
                   <View style={styles.chatInputFlex}>
                     <LinearGradient
                       colors={[...BRAND_FRAME_GRADIENT_COLORS]}
                       start={BRAND_FRAME_GRADIENT_START}
                       end={BRAND_FRAME_GRADIENT_END}
-                      style={styles.chatInputGradient}
+                      style={[styles.chatInputGradient, isWeb && styles.chatInputGradientWeb]}
                     >
                       <View
                         style={[
                           styles.chatInputInner,
-                          { backgroundColor: darkMode ? '#0a0d12' : Colors.surface2 },
+                          {
+                            backgroundColor: darkMode
+                              ? isWeb
+                                ? '#05070A'
+                                : '#0a0d12'
+                              : Colors.surface2,
+                          },
+                          !darkMode &&
+                            isWeb && {
+                              borderWidth: 1,
+                              borderColor: Colors.line,
+                            },
+                          isWeb && styles.chatInputInnerWeb,
                         ]}
                       >
+                        {isWeb && (
+                          <Ionicons
+                            name="chatbox-ellipses-outline"
+                            size={18}
+                            color={darkMode ? '#FFFFFF' : Colors.sub}
+                            style={styles.chatInputLeadIconWeb}
+                          />
+                        )}
                         <TextInput
                           value={messageText}
                           onChangeText={setMessageText}
                           placeholder="Type a message..."
-                          placeholderTextColor={darkMode ? 'rgba(148, 163, 184, 0.85)' : Colors.sub}
+                          placeholderTextColor={
+                            isWeb && darkMode
+                              ? 'rgba(226, 232, 240, 0.42)'
+                              : darkMode
+                                ? 'rgba(148, 163, 184, 0.85)'
+                                : Colors.sub
+                          }
                           style={[
                             styles.chatTextInput,
                             { color: darkMode ? '#e9f1ff' : Colors.text },
+                            isWeb && styles.chatTextInputWeb,
                           ]}
-                          multiline
+                          multiline={!isWeb}
                           maxLength={500}
                           textAlignVertical="center"
+                          underlineColorAndroid="transparent"
+                          returnKeyType={isWeb ? 'send' : 'default'}
+                          blurOnSubmit={false}
+                          onSubmitEditing={
+                            isWeb
+                              ? () => {
+                                  if (messageText.trim()) {
+                                    handleSendMessage();
+                                  }
+                                }
+                              : undefined
+                          }
                         />
                       </View>
                     </LinearGradient>
@@ -491,13 +773,13 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                       Never put opacity on the fill — gradient bleeds through if the fill is translucent.
                       Dark: black + white icon. Light: white fill + dark icon (see chatSendInnerLight).
                     */}
-                    <View style={styles.chatSendWrap}>
+                    <View style={[styles.chatSendWrap, isWeb && styles.chatSendWrapWeb]}>
                       <LinearGradient
                         pointerEvents="none"
                         colors={[...BRAND_FRAME_GRADIENT_COLORS]}
                         start={BRAND_FRAME_GRADIENT_START}
                         end={BRAND_FRAME_GRADIENT_END}
-                        style={styles.chatSendGradientBg}
+                        style={[styles.chatSendGradientBg, isWeb && styles.chatSendGradientBgWeb]}
                       />
                       <Pressable
                         onPress={handleSendMessage}
@@ -514,11 +796,12 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                           styles.chatSendInnerBlack,
                           !darkMode && styles.chatSendInnerLight,
                           Platform.OS === 'android' && styles.chatSendInnerBlackAndroid,
+                          isWeb && styles.chatSendInnerBlackWeb,
                         ]}
                       >
                         <Ionicons
                           name="send"
-                          size={17}
+                          size={isWeb ? 18 : 17}
                           color={darkMode ? '#FFFFFF' : Colors.text}
                         />
                       </Pressable>
@@ -527,143 +810,355 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                 </View>
               </View>
             </>
-          ) : (
-            <>
-              {/* Conversations List */}
-              {conversations.length === 0 ? (
-          <View style={styles.emptyState}>
+          ) : isWeb ? (
             <View
-              style={[
-                styles.emptyIconContainer,
-                !darkMode && { backgroundColor: Colors.iconBg },
-              ]}
+              style={{
+                flex: 1,
+                minHeight: 0,
+                paddingHorizontal: expensePad.scroll,
+                marginTop: 4,
+              }}
             >
-              <MaterialIcons
-                name="message"
-                size={58}
-                color={darkMode ? '#a7bed9' : Colors.sub}
-                style={{ opacity: darkMode ? 0.7 : 1 }}
-              />
-            </View>
-            <Text style={[styles.emptyTitle, lightText]}>No Conversations Yet</Text>
-            <Text style={[styles.emptySubtitle, lightSub]}>
-              When contractors respond to your campaigns, send you a message, or when you message people, conversations will appear here.
-            </Text>
-            <Text style={[styles.emptyTip, lightSub]}>
-              💡 Tip: Active campaigns receive faster responses
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={conversations}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor="#43cea2"
-              />
-            }
-            renderItem={({ item }) => {
-              const hasUnread = item.unreadCount > 0;
-
-              return (
-                <Swipeable
-                  renderRightActions={() => renderRightActions(item.id, item.participantName)}
-                  overshootRight={false}
-                  friction={2}
-                >
-                  <TouchableOpacity
+              <MessagesWebGlassFrame darkMode={darkMode} Colors={Colors}>
+                {conversations.length === 0 ? (
+                  <View
                     style={[
-                      styles.conversationCard,
-                      darkMode
-                        ? {
-                            backgroundColor: conversationBackground,
-                            borderColor: conversationBorder,
-                          }
-                        : {
-                            backgroundColor: lightConversationSurface,
-                            borderColor: lightConversationBorder,
-                          },
-                      hasUnread && darkMode && styles.conversationCardUnread,
-                      hasUnread && !darkMode && styles.conversationCardUnreadLight,
+                      styles.emptyState,
+                      {
+                        minHeight: 320,
+                        justifyContent: 'center',
+                        paddingVertical: 24,
+                      },
                     ]}
-                    onPress={() => handleConversationPress(item.id)}
-                    activeOpacity={0.7}
                   >
-                    <View style={styles.avatarContainer}>
-                      <View
-                        style={[
-                          styles.avatar,
-                          !darkMode && {
-                            backgroundColor: Colors.iconBg,
-                            borderColor: 'rgba(13, 148, 136, 0.35)',
+                    <View
+                      style={[
+                        styles.emptyIconContainer,
+                        !darkMode && { backgroundColor: Colors.iconBg },
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="message"
+                        size={58}
+                        color={darkMode ? '#a7bed9' : Colors.sub}
+                        style={{ opacity: darkMode ? 0.7 : 1 }}
+                      />
+                    </View>
+                    <Text style={[styles.emptyTitle, lightText]}>No Conversations Yet</Text>
+                    <Text style={[styles.emptySubtitle, lightSub]}>
+                      When contractors respond to your campaigns, send you a message, or when you
+                      message people, conversations will appear here.
+                    </Text>
+                    <Text style={[styles.emptyTip, lightSub]}>
+                      💡 Tip: Active campaigns receive faster responses
+                    </Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    style={{ flex: 1 }}
+                    data={conversations}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={[
+                      styles.listContent,
+                      { paddingHorizontal: 0, flexGrow: 1 },
+                    ]}
+                    refreshControl={
+                      <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={handleRefresh}
+                        tintColor="#43cea2"
+                      />
+                    }
+                    renderItem={({ item }) => {
+                      const hasUnread = item.unreadCount > 0;
+
+                      return (
+                        <Swipeable
+                          renderRightActions={() =>
+                            renderRightActions(item.id, item.participantName)
+                          }
+                          overshootRight={false}
+                          friction={2}
+                        >
+                          <TouchableOpacity
+                            style={[
+                              styles.conversationCard,
+                              {
+                                backgroundColor: listCardPalette.surface,
+                                borderColor: listCardPalette.border,
+                              },
+                              hasUnread &&
+                                !isWeb &&
+                                darkMode &&
+                                styles.conversationCardUnread,
+                              hasUnread &&
+                                !isWeb &&
+                                !darkMode &&
+                                styles.conversationCardUnreadLight,
+                              hasUnread &&
+                                isWeb && {
+                                  backgroundColor: listCardPalette.unreadSurface,
+                                  borderColor: listCardPalette.unreadBorder,
+                                },
+                            ]}
+                            onPress={() => handleConversationPress(item.id)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.avatarContainer}>
+                              <View
+                                style={[
+                                  styles.avatar,
+                                  !darkMode && {
+                                    backgroundColor: Colors.iconBg,
+                                  },
+                                  { borderColor: listCardPalette.avatarRing },
+                                ]}
+                              >
+                                <MaterialIcons
+                                  name="person"
+                                  size={26}
+                                  color={darkMode ? 'rgba(94, 234, 212, 0.75)' : Colors.sub}
+                                />
+                              </View>
+                              {hasUnread && (
+                                <View
+                                  style={[
+                                    styles.unreadDot,
+                                    {
+                                      borderColor: unreadBorder,
+                                      backgroundColor: listCardPalette.unreadDot,
+                                    },
+                                  ]}
+                                />
+                              )}
+                            </View>
+
+                            <View style={styles.conversationInfo}>
+                              <View style={styles.conversationHeader}>
+                                <Text
+                                  style={[styles.participantName, lightText]}
+                                  numberOfLines={1}
+                                >
+                                  {item.participantName}
+                                </Text>
+                                <View style={styles.timestampContainer}>
+                                  <Text style={[styles.timestamp, lightSub]}>
+                                    {getTimeAgo(item.updatedAt)}
+                                  </Text>
+                                  {hasUnread && (
+                                    <View
+                                      style={[
+                                        styles.unreadIndicator,
+                                        { backgroundColor: listCardPalette.unreadPip },
+                                      ]}
+                                    />
+                                  )}
+                                </View>
+                              </View>
+
+                              {item.participantCompany && (
+                                <Text style={[styles.companyName, lightSub]} numberOfLines={1}>
+                                  {item.participantCompany}
+                                </Text>
+                              )}
+
+                              <View style={styles.conversationFooter}>
+                                <Text style={[styles.lastMessage, lightSub]} numberOfLines={1}>
+                                  {item.lastMessage?.content || 'No messages yet'}
+                                </Text>
+                                {hasUnread && (
+                                  <View
+                                    style={[
+                                      styles.unreadBadge,
+                                      { backgroundColor: listCardPalette.badgeBg },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.unreadCount,
+                                        { color: listCardPalette.badgeText },
+                                      ]}
+                                    >
+                                      {item.unreadCount}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+
+                            <MaterialIcons
+                              name="chevron-right"
+                              size={24}
+                              color={darkMode ? '#a7bed9' : Colors.sub}
+                            />
+                          </TouchableOpacity>
+                        </Swipeable>
+                      );
+                    }}
+                  />
+                )}
+              </MessagesWebGlassFrame>
+            </View>
+          ) : conversations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View
+                style={[
+                  styles.emptyIconContainer,
+                  !darkMode && { backgroundColor: Colors.iconBg },
+                ]}
+              >
+                <MaterialIcons
+                  name="message"
+                  size={58}
+                  color={darkMode ? '#a7bed9' : Colors.sub}
+                  style={{ opacity: darkMode ? 0.7 : 1 }}
+                />
+              </View>
+              <Text style={[styles.emptyTitle, lightText]}>No Conversations Yet</Text>
+              <Text style={[styles.emptySubtitle, lightSub]}>
+                When contractors respond to your campaigns, send you a message, or when you
+                message people, conversations will appear here.
+              </Text>
+              <Text style={[styles.emptyTip, lightSub]}>
+                💡 Tip: Active campaigns receive faster responses
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={conversations}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  tintColor="#43cea2"
+                />
+              }
+              renderItem={({ item }) => {
+                const hasUnread = item.unreadCount > 0;
+
+                return (
+                  <Swipeable
+                    renderRightActions={() => renderRightActions(item.id, item.participantName)}
+                    overshootRight={false}
+                    friction={2}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.conversationCard,
+                        {
+                          backgroundColor: listCardPalette.surface,
+                          borderColor: listCardPalette.border,
+                        },
+                        hasUnread &&
+                          !isWeb &&
+                          darkMode &&
+                          styles.conversationCardUnread,
+                        hasUnread &&
+                          !isWeb &&
+                          !darkMode &&
+                          styles.conversationCardUnreadLight,
+                        hasUnread &&
+                          isWeb && {
+                            backgroundColor: listCardPalette.unreadSurface,
+                            borderColor: listCardPalette.unreadBorder,
                           },
-                        ]}
-                      >
-                        <MaterialIcons
-                          name="person"
-                          size={26}
-                          color={darkMode ? 'rgba(94, 234, 212, 0.75)' : Colors.sub}
-                        />
-                      </View>
-                      {hasUnread && (
+                      ]}
+                      onPress={() => handleConversationPress(item.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.avatarContainer}>
                         <View
                           style={[
-                            styles.unreadDot,
-                            { borderColor: unreadBorder, backgroundColor: unreadBackground },
+                            styles.avatar,
+                            !darkMode && {
+                              backgroundColor: Colors.iconBg,
+                            },
+                            { borderColor: listCardPalette.avatarRing },
                           ]}
-                        />
-                      )}
-                    </View>
+                        >
+                          <MaterialIcons
+                            name="person"
+                            size={26}
+                            color={darkMode ? 'rgba(94, 234, 212, 0.75)' : Colors.sub}
+                          />
+                        </View>
+                        {hasUnread && (
+                          <View
+                            style={[
+                              styles.unreadDot,
+                              {
+                                borderColor: unreadBorder,
+                                backgroundColor: listCardPalette.unreadDot,
+                              },
+                            ]}
+                          />
+                        )}
+                      </View>
 
-                    <View style={styles.conversationInfo}>
-                      <View style={styles.conversationHeader}>
-                        <Text style={[styles.participantName, lightText]} numberOfLines={1}>
-                          {item.participantName}
-                        </Text>
-                        <View style={styles.timestampContainer}>
-                          <Text style={[styles.timestamp, lightSub]}>
-                            {getTimeAgo(item.updatedAt)}
+                      <View style={styles.conversationInfo}>
+                        <View style={styles.conversationHeader}>
+                          <Text style={[styles.participantName, lightText]} numberOfLines={1}>
+                            {item.participantName}
+                          </Text>
+                          <View style={styles.timestampContainer}>
+                            <Text style={[styles.timestamp, lightSub]}>
+                              {getTimeAgo(item.updatedAt)}
+                            </Text>
+                            {hasUnread && (
+                              <View
+                                style={[
+                                  styles.unreadIndicator,
+                                  { backgroundColor: listCardPalette.unreadPip },
+                                ]}
+                              />
+                            )}
+                          </View>
+                        </View>
+
+                        {item.participantCompany && (
+                          <Text style={[styles.companyName, lightSub]} numberOfLines={1}>
+                            {item.participantCompany}
+                          </Text>
+                        )}
+
+                        <View style={styles.conversationFooter}>
+                          <Text style={[styles.lastMessage, lightSub]} numberOfLines={1}>
+                            {item.lastMessage?.content || 'No messages yet'}
                           </Text>
                           {hasUnread && (
-                            <View style={styles.unreadIndicator} />
+                            <View
+                              style={[
+                                styles.unreadBadge,
+                                { backgroundColor: listCardPalette.badgeBg },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.unreadCount,
+                                  { color: listCardPalette.badgeText },
+                                ]}
+                              >
+                                {item.unreadCount}
+                              </Text>
+                            </View>
                           )}
                         </View>
                       </View>
 
-                      {item.participantCompany && (
-                        <Text style={[styles.companyName, lightSub]} numberOfLines={1}>
-                          {item.participantCompany}
-                        </Text>
-                      )}
-
-                      <View style={styles.conversationFooter}>
-                        <Text style={[styles.lastMessage, lightSub]} numberOfLines={1}>
-                          {item.lastMessage?.content || 'No messages yet'}
-                        </Text>
-                        {hasUnread && (
-                          <View style={styles.unreadBadge}>
-                            <Text style={styles.unreadCount}>{item.unreadCount}</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-
-                    <MaterialIcons
-                      name="chevron-right"
-                      size={24}
-                      color={darkMode ? '#a7bed9' : Colors.sub}
-                    />
-                  </TouchableOpacity>
-                </Swipeable>
-              );
-            }}
-          />
-        )}
-            </>
+                      <MaterialIcons
+                        name="chevron-right"
+                        size={24}
+                        color={darkMode ? '#a7bed9' : Colors.sub}
+                      />
+                    </TouchableOpacity>
+                  </Swipeable>
+                );
+              }}
+            />
           )}
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -968,6 +1463,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 10,
   },
+  /** Web: match AIAssistantModal estimate composer row */
+  chatInputRowWeb: {
+    alignItems: 'center',
+    paddingRight: 6,
+  },
   chatInputFlex: {
     flex: 1,
   },
@@ -975,6 +1475,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 1,
     overflow: 'hidden',
+  },
+  chatInputGradientWeb: {
+    borderRadius: 18,
   },
   chatInputInner: {
     flexDirection: 'row',
@@ -984,6 +1487,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 11 : 9,
   },
+  chatInputInnerWeb: {
+    minHeight: 32,
+    borderRadius: 16,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  chatInputLeadIconWeb: {
+    marginLeft: 10,
+    marginRight: 6,
+    opacity: 0.88,
+  },
   chatTextInput: {
     flex: 1,
     fontSize: 15,
@@ -992,15 +1506,41 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     lineHeight: 20,
   },
+  /** Web: match AIAssistantModal `styles.input` web block (slim single-line pill). */
+  chatTextInputWeb: {
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
+    borderWidth: 0,
+    boxShadow: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    resize: 'none',
+    height: 32,
+    minHeight: 32,
+    maxHeight: 32,
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    paddingRight: 6,
+    margin: 0,
+    lineHeight: 20,
+  },
   chatSendWrap: {
     width: 46,
     height: 46,
     position: 'relative',
   },
+  chatSendWrapWeb: {
+    width: 32,
+    height: 32,
+  },
   chatSendGradientBg: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 23,
     zIndex: 0,
+  },
+  chatSendGradientBgWeb: {
+    borderRadius: 16,
   },
   /** Inset 1px so gradient only shows as ring; solid black must stay full opacity (no parent opacity). */
   chatSendInnerBlack: {
@@ -1015,6 +1555,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 2,
     overflow: 'hidden',
+  },
+  chatSendInnerBlackWeb: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
   },
   chatSendInnerLight: {
     backgroundColor: '#FFFFFF',

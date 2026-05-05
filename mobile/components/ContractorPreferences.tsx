@@ -8,6 +8,7 @@ import {
   Alert,
   Switch,
   TextInput,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -105,6 +106,18 @@ interface ContractorPreferencesProps {
 const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }) => {
   const { darkMode, theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === 'web';
+  /** RN Web: maxWidth on contentContainerStyle often does not center — constrain ScrollView width instead. */
+  const webScrollContent = useMemo(
+    () => ({
+      flexGrow: 1 as const,
+      paddingHorizontal: 28,
+      paddingTop: Math.max(insets.top, 16) + 8,
+      paddingBottom: 100,
+    }),
+    [insets.top]
+  );
   const { leads: allLeads, hydrated: leadsHydrated } = useScoredLeads();
   const [activeTab, setActiveTab] = useState<
     | 'trades'
@@ -1439,62 +1452,100 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
     </View>
   );
 
-  return (
-    <View style={[styles.container, { backgroundColor }]}>
-      {/* Header with Back Arrow */}
-      <View style={styles.headerContainer}>
-        <View style={styles.backBtnWrapper}>
-          <LinearGradient
-            colors={[...BRAND_FRAME_GRADIENT_COLORS]}
-            start={BRAND_FRAME_GRADIENT_START}
-            end={BRAND_FRAME_GRADIENT_END}
-            style={styles.backBtnBorder}
-          >
-            <GradientRingBackInner
-              darkMode={darkMode}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                if (onClose) onClose();
-              }}
-              style={[
-                styles.backBtn,
-                !darkMode && { backgroundColor: Colors.bg },
-              ]}
-            >
-              <MaterialIcons
-                name="arrow-back"
-                size={24}
-                color={darkMode ? "#FFFFFF" : "#000000"}
-              />
-            </GradientRingBackInner>
-          </LinearGradient>
-        </View>
-        <View style={styles.headerContent}>
-          <Text
+  const leadPrefsHeader = (
+    <View
+      style={[
+        styles.headerContainer,
+        isWeb && {
+          paddingTop: Math.max(insets.top, 12) + 8,
+          paddingBottom: 16,
+        },
+      ]}
+    >
+      <View style={styles.backBtnWrapper}>
+        <LinearGradient
+          colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+          start={BRAND_FRAME_GRADIENT_START}
+          end={BRAND_FRAME_GRADIENT_END}
+          style={styles.backBtnBorder}
+        >
+          <GradientRingBackInner
+            darkMode={darkMode}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (onClose) onClose();
+            }}
             style={[
-              styles.headerTitle,
-              !darkMode && { color: Colors.text },
+              styles.backBtn,
+              !darkMode && { backgroundColor: Colors.bg },
             ]}
           >
-            Lead Quality Controls
-          </Text>
-          <Text
-            style={[
-              styles.headerSubtitle,
-              !darkMode && { color: Colors.sub },
-            ]}
-          >
-            Control which jobs you see and how they're prioritized
-          </Text>
-        </View>
+            <MaterialIcons
+              name="arrow-back"
+              size={24}
+              color={darkMode ? '#FFFFFF' : '#000000'}
+            />
+          </GradientRingBackInner>
+        </LinearGradient>
       </View>
+      <View style={styles.headerContent}>
+        <Text
+          style={[
+            styles.headerTitle,
+            !darkMode && { color: Colors.text },
+          ]}
+        >
+          Lead Quality Controls
+        </Text>
+        <Text
+          style={[
+            styles.headerSubtitle,
+            !darkMode && { color: Colors.sub },
+          ]}
+        >
+          Control which jobs you see and how they're prioritized
+        </Text>
+      </View>
+    </View>
+  );
 
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+  return (
+    <View
+      style={[
+        styles.container,
+        { backgroundColor },
+        isWeb && { width: '100%', alignItems: 'center', minHeight: 0 },
+      ]}
+    >
+      {!isWeb && leadPrefsHeader}
+
+      <View
+        style={[
+          { flex: 1, width: '100%', minHeight: 0 },
+          isWeb && { alignItems: 'center' },
+        ]}
       >
-        <View style={styles.wideContainer}>
+        <ScrollView
+          style={[
+            styles.scrollView,
+            isWeb && {
+              width: '100%',
+              maxWidth: 1040,
+              flexGrow: 1,
+              alignSelf: 'center',
+            },
+          ]}
+          contentContainerStyle={isWeb ? webScrollContent : styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+        {isWeb && leadPrefsHeader}
+
+        <View
+          style={[
+            styles.wideContainer,
+            isWeb && { marginHorizontal: 0, paddingHorizontal: 0 },
+          ]}
+        >
           {/* Match Quality Confidence Bar */}
           {useMemo(() => {
           // Start with base score of 0 - quality improves as preferences are configured
@@ -1707,9 +1758,11 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 key={tab.key}
                 style={[
                   styles.filterPill,
-                  { 
-                    backgroundColor: cardColor,
-                    borderColor: isActive ? '#43cea2' : borderColor,
+                  {
+                    backgroundColor:
+                      isWeb && isActive ? '#22c55e' : cardColor,
+                    borderColor:
+                      isWeb && isActive ? '#22c55e' : isActive ? '#43cea2' : borderColor,
                     borderWidth: isActive ? 1.5 : 1,
                   },
                 ]}
@@ -1727,12 +1780,25 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 <MaterialIcons
                   name={tab.icon as any}
                   size={16}
-                  color={isActive ? '#43cea2' : textSecondaryColor}
+                  color={
+                    isWeb && isActive
+                      ? '#000000'
+                      : isActive
+                        ? '#43cea2'
+                        : textSecondaryColor
+                  }
                 />
                 <Text
                   style={[
                     styles.filterPillText,
-                    { color: isActive ? '#43cea2' : textColor },
+                    {
+                      color:
+                        isWeb && isActive
+                          ? '#000000'
+                          : isActive
+                            ? '#43cea2'
+                            : textColor,
+                    },
                   ]}
                   numberOfLines={1}
                 >
@@ -1741,7 +1807,13 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 <MaterialIcons
                   name="keyboard-arrow-down"
                   size={16}
-                  color={isActive ? '#43cea2' : textSecondaryColor}
+                  color={
+                    isWeb && isActive
+                      ? '#000000'
+                      : isActive
+                        ? '#43cea2'
+                        : textSecondaryColor
+                  }
                 />
               </TouchableOpacity>
             );
@@ -2016,6 +2088,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           </Text>
         </View>
       </ScrollView>
+      </View>
     </View>
   );
 };

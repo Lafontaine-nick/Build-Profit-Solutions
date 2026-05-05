@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { View, StyleSheet, Alert, Modal, TouchableOpacity, Text, StatusBar, ScrollView } from 'react-native';
+import { View, StyleSheet, Alert, Modal, TouchableOpacity, Text, StatusBar, ScrollView, Platform, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,12 +21,12 @@ import { distanceMi, geocodeCity, getStateCenter } from '@/lib/geo';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useRouter } from 'expo-router';
-import { Pressable } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { ScreenLayout } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 // Mock data with different lead sources
 const mockLeads: Lead[] = [
@@ -3474,11 +3474,16 @@ export default function LeadsScreen() {
         
         <ScrollView
           style={styles.mainScroll}
-          contentContainerStyle={[styles.scrollContent, styles.scrollContentGrow]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            styles.scrollContentGrow,
+            Platform.OS === 'web' && { paddingHorizontal: 0 },
+          ]}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
           {...KEYBOARD_SCROLL_DEFAULTS}
         >
+        <WebPageShell size="leads" scroll={false} contentStyle={{ paddingBottom: 0 }}>
           {/* Header */}
           <View style={[styles.headerRow, styles.wideContainer, { paddingTop: Math.max(insets.top, 0) + 20 }]}>
             <View style={styles.headerTextBlock}>
@@ -3661,6 +3666,7 @@ export default function LeadsScreen() {
       </View>
       
       <View style={{ height: 32 }} />
+      </WebPageShell>
       </ScrollView>
       
       {/* Lead Matching Preferences Modal */}

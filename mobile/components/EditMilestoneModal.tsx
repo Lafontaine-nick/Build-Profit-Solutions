@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView, useWindowDimensions } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -12,8 +12,6 @@ import GreyCalendar from "./GreyCalendar";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-
-const EDIT_MILESTONE_WEB_MAX_WIDTH = 520;
 
 type Props = {
   visible: boolean;
@@ -27,23 +25,11 @@ type Props = {
 
 export default function EditMilestoneModal({ visible, milestone, projectBudget = 0, paymentMilestones = [], onClose, onSave, onDelete }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
   const isWeb = Platform.OS === "web";
-  const webCardHeight = useMemo(() => {
-    if (!isWeb) return 640;
-    let h = windowHeight;
-    if (!(typeof h === "number" && h > 0)) {
-      if (typeof window !== "undefined" && typeof window.innerHeight === "number") {
-        h = window.innerHeight;
-      } else {
-        h = 800;
-      }
-    }
-    return Math.max(420, Math.min(Math.round(h * 0.88), 720));
-  }, [isWeb, windowHeight]);
+  const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : ThemeColors.line;
 
   const [title, setTitle] = useState("");
   const [plannedDate, setPlannedDate] = useState(new Date());
@@ -73,24 +59,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       setPaymentAmount(milestone.amount ? String(milestone.amount) : "");
     }
   }, [visible, milestone]);
-
-  const webCardShellStyle = useMemo(
-    () =>
-      isWeb
-        ? {
-            flex: 0 as const,
-            width: "100%" as const,
-            maxWidth: EDIT_MILESTONE_WEB_MAX_WIDTH,
-            height: webCardHeight,
-            minHeight: 420,
-            borderRadius: 20,
-            overflow: "hidden" as const,
-            alignSelf: "center" as const,
-            elevation: 8,
-          }
-        : undefined,
-    [isWeb, webCardHeight]
-  );
 
   const handleSave = () => {
     if (!milestone) {
@@ -170,61 +138,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     { value: 'completed', label: 'Completed', color: "#22c55e" },
   ];
 
-  const card = (
-    <View
-      style={[
-        styles.container,
-        !darkMode && { backgroundColor: ThemeColors.bg },
-        webCardShellStyle,
-      ]}
-    >
-        {!isWeb ? <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} /> : null}
-        <SafeAreaView style={[styles.safeArea, isWeb && { flex: 1, minHeight: 0 }]}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    if (Platform.OS === 'ios') {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
-                    onClose();
-                  }}
-                  style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
-              <Text style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}>{milestone.title}</Text>
-            </View>
-            <View style={{ width: 44 }} />
-          </View>
-
-          {/* Form */}
-          <ScrollView 
-            style={[
-              styles.form,
-              { backgroundColor: darkMode ? '#000000' : ThemeColors.bg },
-              isWeb && { flex: 1, minHeight: 0 },
-            ]} 
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.formContent, isWeb && { paddingBottom: 12 }]}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-            automaticallyAdjustContentInsets={false}
-            contentInsetAdjustmentBehavior="never"
-          >
+  const milestoneFormFields = (
+            <>
             <View style={styles.field}>
               <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Milestone Name</Text>
               <TextInput
@@ -280,7 +195,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     return isNaN(num) ? '' : num.toLocaleString('en-US');
                   })() : ''}
                   onChangeText={(text) => {
-                    // Remove all non-numeric characters except decimal point
                     const num = text.replace(/[^0-9.]/g, '').replace(/,/g, '');
                     setPaymentAmount(num);
                   }}
@@ -300,7 +214,6 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     onPress={() => {
                       console.log(`🔄 Status button clicked: ${s.value}`);
                       setStatus(s.value);
-                      // Don't change payment amount - keep it as is
                       console.log(`✅ Status changed to ${s.value} - payment amount remains $${paymentAmount}`);
                     }}
                     style={[
@@ -393,14 +306,19 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 keyboardAppearance={darkMode ? "dark" : "light"}
               />
             </View>
+            </>
+  );
 
-          </ScrollView>
-
-          {/* Actions */}
+  const milestoneActionRow = (
           <View style={[
-            isWeb ? styles.actionsWeb : styles.actions,
+            isWeb ? styles.editMilestoneWebBottomActions : styles.actions,
             !darkMode && { backgroundColor: ThemeColors.bg, borderTopColor: ThemeColors.line },
-            { paddingBottom: Math.max(insets.bottom, isWeb ? 16 : 20) + (isWeb ? 8 : 30) },
+            isWeb
+              ? {
+                  borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15, 23, 42, 0.12)",
+                  paddingBottom: Platform.OS === "ios" ? 24 : 16,
+                }
+              : { paddingBottom: Math.max(insets.bottom, 20) + 30 },
           ]}>
             <View style={styles.cancelButtonWrapper}>
               <LinearGradient
@@ -432,10 +350,127 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 end={{ x: 1, y: 1 }}
                 style={styles.saveButtonGradient}
               >
-                <Text style={styles.saveButtonText}>Save</Text>
+                <Text style={styles.saveButtonText}>{isWeb ? "✓ Save" : "Save"}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
+  );
+
+  const card = (
+    <View
+      style={[
+        styles.container,
+        !darkMode && { backgroundColor: ThemeColors.bg },
+        isWeb && styles.webPageRoot,
+      ]}
+    >
+        {!isWeb ? <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} /> : null}
+        <SafeAreaView style={[styles.safeArea, isWeb && { flex: 1, minHeight: 0 }]}>
+          {isWeb ? (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={styles.editMilestoneWebPageContent}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <View
+                style={[
+                  styles.editMilestoneWebHeaderRow,
+                  {
+                    borderBottomColor: headerRule,
+                    paddingTop: 18,
+                  },
+                ]}
+              >
+                <View style={styles.backButtonWrapper}>
+                  <LinearGradient
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
+                    start={BRAND_FRAME_GRADIENT_START}
+                    end={BRAND_FRAME_GRADIENT_END}
+                    style={styles.backButtonBorder}
+                  >
+                    <GradientRingBackInner
+                      darkMode={darkMode}
+                      onPress={() => {
+                        onClose();
+                      }}
+                      style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
+                    >
+                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
+                    </GradientRingBackInner>
+                  </LinearGradient>
+                </View>
+                <View style={styles.headerTitleContainer}>
+                  <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
+                  <Text style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}>{milestone.title}</Text>
+                </View>
+              </View>
+
+              <WebMilestoneFormChrome
+                isWeb={isWeb}
+                innerBackground={darkMode ? "#050807" : ThemeColors.surface2}
+              >
+                {milestoneFormFields}
+              </WebMilestoneFormChrome>
+
+              {milestoneActionRow}
+            </ScrollView>
+          ) : (
+            <>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <GradientRingBackInner
+                  darkMode={darkMode}
+                  onPress={() => {
+                    if (Platform.OS === 'ios') {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    onClose();
+                  }}
+                  style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
+                </GradientRingBackInner>
+              </LinearGradient>
+            </View>
+            <View style={styles.headerTitleContainer}>
+              <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
+              <Text style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}>{milestone.title}</Text>
+            </View>
+            <View style={{ width: 44 }} />
+          </View>
+
+          {/* Form */}
+          <ScrollView 
+            style={[
+              styles.form,
+              { backgroundColor: darkMode ? '#000000' : ThemeColors.bg },
+            ]} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.formContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+          >
+            <WebMilestoneFormChrome isWeb={false}>
+              {milestoneFormFields}
+            </WebMilestoneFormChrome>
+
+          </ScrollView>
+
+          {milestoneActionRow}
+            </>
+          )}
         </SafeAreaView>
       </View>
   );
@@ -443,42 +478,24 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   return (
     <Modal
       visible={visible}
-      animationType={isWeb ? "none" : "slide"}
-      transparent={isWeb}
-      {...(!isWeb
-        ? { presentationStyle: "fullScreen" as const, statusBarTranslucent: true }
+      animationType="slide"
+      transparent={false}
+      presentationStyle="fullScreen"
+      {...(Platform.OS !== "web"
+        ? { statusBarTranslucent: true as const }
         : {})}
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         style={[
           styles.keyboardAvoid,
-          isWeb
-            ? {
-                flex: 1,
-                backgroundColor: "rgba(0, 0, 0, 0.55)",
-              }
-            : { backgroundColor: darkMode ? "#000000" : ThemeColors.bg },
+          { flex: 1, backgroundColor: darkMode ? "#000000" : ThemeColors.bg },
         ]}
-        behavior={isWeb ? undefined : Platform.OS === "ios" ? "padding" : undefined}
-        enabled={!isWeb && Platform.OS === "ios"}
-        keyboardVerticalOffset={isWeb ? 0 : Platform.OS === "ios" ? -120 : 0}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        enabled={Platform.OS === "ios"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? -120 : 0}
       >
-        {isWeb ? (
-          <View style={styles.webModalRoot}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss"
-              onPress={onClose}
-              style={styles.webModalBackdrop}
-            />
-            <View pointerEvents="box-none" style={styles.webModalCenter}>
-              {card}
-            </View>
-          </View>
-        ) : (
-          card
-        )}
+        {card}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -488,27 +505,9 @@ const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
   },
-  /** RN Web: backdrop + card must be in separate layers or the full-screen dismiss Pressable stacks above the card. */
-  webModalRoot: {
+  webPageRoot: {
     flex: 1,
     width: "100%",
-    minHeight: 0,
-    position: "relative",
-  },
-  webModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1,
-  },
-  webModalCenter: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 2,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 16,
   },
   container: {
     flex: 1,
@@ -563,6 +562,47 @@ const styles = StyleSheet.create({
   formContent: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+  },
+  editMilestoneWebPageContent: {
+    width: "100%",
+    maxWidth: 1040,
+    alignSelf: "center",
+    paddingHorizontal: 32,
+    paddingTop: 36,
+    paddingBottom: 32,
+  },
+  editMilestoneWebHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    paddingBottom: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  editMilestoneWebBottomActions: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 24,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    backgroundColor: "#000000",
+  },
+  /** Web: 1px brand gradient frame around form (matches Edit Team Member / materials). */
+  editMilestoneWebFormCardGradient: {
+    width: "100%",
+    maxWidth: 860,
+    alignSelf: "center",
+    borderRadius: 24,
+    padding: 1,
+    overflow: "hidden",
+    marginBottom: 4,
+  },
+  editMilestoneWebFormCardInner: {
+    width: "100%",
+    borderRadius: 23,
+    padding: 28,
   },
   field: {
     marginBottom: 20,
@@ -642,17 +682,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#000000",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
-  },
-  /** Web: footer in document flow below scroll (no full-screen sheet). */
-  actionsWeb: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    gap: 12,
-    flexShrink: 0,
     backgroundColor: "#000000",
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
@@ -740,4 +769,30 @@ const styles = StyleSheet.create({
   categoryButtonTextActive: {
     color: "#22c55e",
   },
-}); 
+});
+
+function WebMilestoneFormChrome({
+  isWeb,
+  innerBackground,
+  children,
+}: {
+  isWeb: boolean;
+  innerBackground?: string;
+  children: React.ReactNode;
+}) {
+  if (!isWeb) {
+    return <>{children}</>;
+  }
+  return (
+    <LinearGradient
+      colors={BRAND_FRAME_GRADIENT_COLORS}
+      start={BRAND_FRAME_GRADIENT_START}
+      end={BRAND_FRAME_GRADIENT_END}
+      style={styles.editMilestoneWebFormCardGradient}
+    >
+      <View style={[styles.editMilestoneWebFormCardInner, { backgroundColor: innerBackground ?? "#050807" }]}>
+        {children}
+      </View>
+    </LinearGradient>
+  );
+}

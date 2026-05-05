@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   Dimensions,
   Animated,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { LineChart } from 'react-native-gifted-charts';
+import WebPageShell from '@/components/layout/WebPageShell';
 
 const { width, height } = Dimensions.get('window');
 
@@ -303,8 +305,10 @@ export default function AnalyticsScreen() {
     <LinearGradient colors={theme.background} style={styles.container}>
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={Platform.OS === 'web' ? { paddingHorizontal: 0 } : undefined}
         showsVerticalScrollIndicator={false}
       >
+        <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
             Analytics
@@ -396,6 +400,7 @@ export default function AnalyticsScreen() {
             </View>
           </View>
         </View>
+        </WebPageShell>
       </ScrollView>
     </LinearGradient>
   );

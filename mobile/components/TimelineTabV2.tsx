@@ -211,6 +211,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   const Colors = useMemo(() => getColors(theme), [theme]);
   const muted = timelineMuted(darkMode);
   const caption = timelineCaption(darkMode);
+  const isWeb = Platform.OS === "web";
 
   const { addExpense, updateExpense, deleteExpense, projectData, updateTimeline } = useProjectData();
   const { updateProject, getProjectById } = useProjectList();
@@ -1036,7 +1037,12 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       <ScrollView
         style={styles.scrollContent}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 16 }}
+        contentContainerStyle={{
+          paddingHorizontal: 0,
+          paddingTop: 0,
+          paddingBottom: 16,
+          ...(isWeb ? { alignItems: "center" as const } : {}),
+        }}
         nestedScrollEnabled={true}
         scrollEnabled={true}
         bounces={true}
@@ -1059,6 +1065,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             styles.timelineContainerWide,
             embedded && styles.timelineContainerEmbedded,
             !darkMode && { backgroundColor: Colors.bg },
+            isWeb && styles.timelineWebColumn,
           ]}
         >
           {/* Outer green-to-blue border wrapping Timeline Details header, Overall Progress, and Upcoming cards */}
@@ -1613,6 +1620,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 18,
+  },
+  /** Web: center timeline column (All Payments, deposit rows, etc.) like project WebPageShell. */
+  timelineWebColumn: {
+    width: "100%",
+    maxWidth: 1120,
+    alignSelf: "center",
+    paddingHorizontal: 20,
   },
   overviewBorder: {
     borderRadius: 20,
