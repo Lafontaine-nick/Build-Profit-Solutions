@@ -2,10 +2,8 @@ import React from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   StatusBar,
-  Platform,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -14,6 +12,9 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+
 type Props = {
   title?: string;
   onBack?: () => void;
@@ -35,21 +36,21 @@ export default function ProjectHeader({
           <View style={styles.headerRow}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onBack();
                   }}
                   style={styles.backBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <Text numberOfLines={1} style={styles.title}>

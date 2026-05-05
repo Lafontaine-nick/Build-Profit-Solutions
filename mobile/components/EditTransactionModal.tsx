@@ -3,8 +3,10 @@ import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView,
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import GradientRingBackInner from "./GradientRingBackInner";
 
 type Transaction = {
   id: string;
@@ -115,21 +117,21 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
           <View style={styles.header}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
                   style={styles.backBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>

@@ -26,6 +26,33 @@ const launchArgs = [
   '--disable-gpu',
 ];
 
+/** When bundled Chromium is missing, use a real browser if installed (common on macOS dev). */
+function findSystemChromeExecutable() {
+  if (process.platform === 'darwin') {
+    const candidates = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+    return null;
+  }
+  if (process.platform === 'linux') {
+    const candidates = [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return null;
+}
+
 async function launchBrowser(puppeteer) {
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     return puppeteer.launch({
@@ -56,9 +83,25 @@ async function launchBrowser(puppeteer) {
     }
   } else {
     console.error(
-      '[contracts] No Puppeteer Chrome at executablePath(). PUPPETEER_CACHE_DIR=%s — run: npx puppeteer browsers install chrome',
+      '[contracts] No Puppeteer Chrome at executablePath(). PUPPETEER_CACHE_DIR=%s — run from backend/: npx puppeteer browsers install chrome',
       process.env.PUPPETEER_CACHE_DIR || '(default)',
     );
+  }
+
+  const systemChrome = findSystemChromeExecutable();
+  if (systemChrome) {
+    try {
+      return await puppeteer.launch({
+        headless: true,
+        executablePath: systemChrome,
+        args: launchArgs,
+      });
+    } catch (e) {
+      console.warn(
+        '[contracts] Launch with system Chrome/Chromium failed:',
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
 
   // Local dev: optional system Chrome (skip on Render/production — avoids "Could not find Chrome" noise).

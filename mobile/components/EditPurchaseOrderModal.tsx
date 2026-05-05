@@ -3,6 +3,7 @@ import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView,
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import PricingModeSection, { PricingMode } from "./PricingModeSection";
 import {
@@ -17,6 +18,7 @@ import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import GradientRingBackInner from "./GradientRingBackInner";
 
 function parseISODateToLocal(iso: string | undefined): Date {
   if (!iso) return new Date();
@@ -141,27 +143,27 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           <View style={styles.header}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
                   style={[styles.backBtn, !darkMode && { backgroundColor: Colors.bg }]}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.headerIconBorder}

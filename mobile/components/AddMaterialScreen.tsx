@@ -16,8 +16,14 @@ import {
   Modal,
   ActivityIndicator,
   InputAccessoryView,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import {
   Ionicons,
   Feather,
@@ -37,6 +43,8 @@ import {
 } from "@/src/lib/keyboardMoney";
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import GradientRingBackInner from "@/components/GradientRingBackInner";
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -64,6 +72,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const projectId = params.projectId as string;
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const { width: layoutWidth } = useWindowDimensions();
+  const addMaterialDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.62)" : Colors.sub;
   const { addExpense } = useProjectData();
@@ -331,7 +342,21 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         </InputAccessoryView>
       )}
 
-      <View style={styles.container}>
+      <View
+        style={[
+          { flex: 1, width: "100%" },
+          addMaterialDesktopWeb && { alignItems: "center" as const },
+        ]}
+      >
+        <View
+          style={[
+            styles.container,
+            addMaterialDesktopWeb && {
+              width: "100%",
+              maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            },
+          ]}
+        >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -339,12 +364,22 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           <View style={styles.content}>
             {/* HEADER */}
             <View style={styles.headerRow}>
-              <Pressable
-                onPress={() => navigation?.goBack?.()}
-                style={styles.headerIconButton}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-              </Pressable>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={BRAND_FRAME_GRADIENT_START}
+                  end={BRAND_FRAME_GRADIENT_END}
+                  style={styles.backButtonBorder}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => navigation?.goBack?.()}
+                    style={styles.backButtonInner}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
 
               <View style={styles.headerTitleRow}>
                 <View style={styles.headerAvatar}>
@@ -620,19 +655,15 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 ]}
                 onPress={handleSave}
               >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.saveButtonGradient}
-                >
+                <View style={[styles.saveButtonGradient, { backgroundColor: BRAND_GREEN }]}>
                   <Text style={styles.saveText}>✓ Save</Text>
-                </LinearGradient>
+                </View>
               </Pressable>
             </View>
             )}
           </View>
         </KeyboardAvoidingView>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -659,16 +690,23 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingTop: 8,
     marginBottom: 18,
   },
-  headerIconButton: {
+  backButtonWrapper: {
+    marginRight: 16,
+  },
+  backButtonBorder: {
     width: 44,
     height: 44,
-    borderRadius: 14,
-    backgroundColor: isDark ? "rgba(34, 197, 94, 0.12)" : Colors.bg,
+    borderRadius: 22,
+    padding: 1,
+    overflow: "hidden" as const,
+  },
+  backButtonInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 21,
+    backgroundColor: isDark ? "#000000" : Colors.bg,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
-    borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.2)" : Colors.line,
   },
   headerTitleRow: {
     flexDirection: "row",

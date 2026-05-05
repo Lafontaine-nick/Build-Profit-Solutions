@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
@@ -18,6 +19,11 @@ import TeamTab from '../../components/TeamTab';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
 import { useProjectData } from '../../contexts/ProjectDataContext';
 import { buildSpendingTrendSamplePoints } from '../../src/lib/projectChartTimeline';
+import {
+  neutralIconPressableProps,
+  neutralIconPressableWebStyle,
+} from '@/constants/iconPressable';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
 
 type TabKey = 'Overview' | 'Budget' | 'Timeline' | 'Health' | 'Team';
 
@@ -175,17 +181,18 @@ export default function ProjectDetailContent() {
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backButtonBorder}
               >
-                <Pressable
+                <GradientRingBackInner
+                  darkMode
                   onPress={() => router.back()}
                   style={styles.backButton}
                 >
                   <Ionicons name='chevron-back' size={20} color='#FFFFFF' />
-                </Pressable>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
 
@@ -211,7 +218,12 @@ export default function ProjectDetailContent() {
                 return (
                   <Pressable
                     key={tab}
-                    style={[styles.tabItem, isActive && styles.tabItemActive]}
+                    {...neutralIconPressableProps(true)}
+                    style={[
+                      styles.tabItem,
+                      isActive && styles.tabItemActive,
+                      neutralIconPressableWebStyle(),
+                    ]}
                     onPress={() => setActiveTab(tab)}
                   >
                     <Text

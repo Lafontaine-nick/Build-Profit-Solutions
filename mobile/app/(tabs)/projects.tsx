@@ -1461,10 +1461,26 @@ export default function ProjectsScreen() {
                         style={[
                           styles.projectCardBorderLight,
                           darkMode && styles.projectCardBorderDark,
-                          !darkMode && { borderColor: Colors.line },
+                          !darkMode && {
+                            borderColor:
+                              Platform.OS === 'web'
+                                ? 'rgba(148, 163, 184, 0.48)'
+                                : Colors.line,
+                          },
                         ]}
                       >
-                        <View style={[styles.projectCardInner, !darkMode && { borderWidth: 1, borderColor: Colors.line }]}>
+                        <View
+                          style={[
+                            styles.projectCardInner,
+                            !darkMode && {
+                              borderWidth: 1,
+                              borderColor:
+                                Platform.OS === 'web'
+                                  ? 'rgba(148, 163, 184, 0.42)'
+                                  : Colors.line,
+                            },
+                          ]}
+                        >
                   <View style={styles.projectTopRow}>
                     <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                       <Text
@@ -1904,7 +1920,14 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
+    borderColor:
+      Platform.OS === 'web'
+        ? darkMode
+          ? 'rgba(203, 213, 225, 0.32)'
+          : 'rgba(148, 163, 184, 0.42)'
+        : darkMode
+          ? 'rgba(148, 163, 184, 0.22)'
+          : Colors.line,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -2299,6 +2322,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
+    ...(Platform.OS === 'web'
+      ? { alignItems: 'center' as const, paddingHorizontal: 16 }
+      : {}),
   },
   bottomSheet: {
     backgroundColor: darkMode ? Colors.card : Colors.cardDark,
@@ -2307,6 +2333,13 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     padding: 24,
     paddingBottom: 40,
     maxHeight: '50%',
+    ...(Platform.OS === 'web'
+      ? {
+          width: '100%',
+          maxWidth: 520,
+          alignSelf: 'center' as const,
+        }
+      : {}),
   },
   bottomSheetHandle: {
     width: 40,

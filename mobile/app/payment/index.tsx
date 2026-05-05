@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -20,6 +21,7 @@ import { stripeService } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-react';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
 
 export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();
@@ -308,21 +310,21 @@ export default function PaymentScreen() {
       <View style={styles.headerRow}>
         <View style={styles.backButtonWrapper}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.backButtonBorder}
           >
-            <TouchableOpacity
+            <GradientRingBackInner
+              darkMode={darkMode}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.back();
               }}
               style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-            </TouchableOpacity>
+            </GradientRingBackInner>
           </LinearGradient>
         </View>
         <View style={{ flex: 1 }}>

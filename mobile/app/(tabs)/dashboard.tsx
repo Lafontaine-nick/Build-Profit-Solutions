@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { BlurView } from "expo-blur";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -1149,6 +1150,10 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
   const { theme, darkMode } = useTheme();
   const Colors = React.useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
+  const { width: masterCalendarModalWidth } = useWindowDimensions();
+  /** Desktop web: date sheet + New/Edit Event align to dashboard content width */
+  const calendarDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(masterCalendarModalWidth);
   const [allEvents, setAllEvents] = React.useState<MasterCalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = React.useState<string | null>(() => toLocalISODate());
   const [upcomingFilter, setUpcomingFilter] = React.useState<UpcomingFilterKey>("all");
@@ -2024,25 +2029,36 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
           setShowDateEventsModal(false);
         }}
       >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          justifyContent: 'flex-end',
-          overflow: 'hidden',
-        }}>
-          <View style={{
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            maxHeight: '90%',
-            paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-            /* Match ProjectCalendar date modal (project detail calendar) */
-            backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'flex-end',
             overflow: 'hidden',
-            elevation: 0,
-            shadowColor: 'transparent',
-            shadowOpacity: 0,
-            shadowRadius: 0,
-          }}>
+            ...(calendarDesktopWeb ? { alignItems: 'center' as const } : {}),
+          }}
+        >
+          <View
+            style={{
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              maxHeight: '90%',
+              paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+              /* Match ProjectCalendar date modal (project detail calendar) */
+              backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
+              overflow: 'hidden',
+              elevation: 0,
+              shadowColor: 'transparent',
+              shadowOpacity: 0,
+              shadowRadius: 0,
+              ...(calendarDesktopWeb
+                ? {
+                    width: '100%',
+                    maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+                  }
+                : {}),
+            }}
+          >
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -2451,11 +2467,24 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         }}
       >
         <KeyboardAvoidingView
-          style={{ flex: 1, backgroundColor: darkMode ? "#0A0A0A" : "#F2F2F7" }}
+          style={{
+            flex: 1,
+            backgroundColor: darkMode ? "#0A0A0A" : "#F2F2F7",
+            ...(calendarDesktopWeb ? { alignItems: "center" as const } : {}),
+          }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? -80 : 0}
         >
-          <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) }}>
+          <View
+            style={{
+              flex: 1,
+              paddingTop: insets.top,
+              paddingBottom: Math.max(insets.bottom, 24),
+              ...(calendarDesktopWeb
+                ? { width: "100%", maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH }
+                : {}),
+            }}
+          >
             <View style={{
               flexDirection: "row",
               alignItems: "center",
@@ -4516,7 +4545,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           ]}
         >
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.aiPanelBorder}
@@ -4563,7 +4592,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         ]}
       >
         <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.aiPanelBorder}

@@ -7,11 +7,17 @@ import {
   StatusBar,
   ScrollView,
   Pressable,
+  TouchableOpacity,
   Animated,
   TextInput,
   Alert,
+  Platform,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+} from "@/constants/brandFrameGradient";
 import { Ionicons, Feather, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -19,6 +25,8 @@ import { useProjectData } from "@/contexts/ProjectDataContext";
 import AddTransactionModal from "./AddTransactionModal";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
+import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -33,6 +41,26 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   const router = useRouter();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const { width: layoutWidth } = useWindowDimensions();
+  const materialsDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
+  /** Native: same math as BudgetTab inside project-detail (outer 20 + wide strip -20 / +4). */
+  const useNativeBudgetBleed =
+    Platform.OS === "ios" || Platform.OS === "android";
+  const scrollOuterPadH = useMemo(() => {
+    if (materialsDesktopWeb) return WEB_DESKTOP_EDGE_HORIZONTAL;
+    return ScreenLayout.edge.horizontal;
+  }, [materialsDesktopWeb]);
+  const nativeCardStripStyle = useMemo(
+    () =>
+      useNativeBudgetBleed
+        ? {
+            marginHorizontal: -ScreenLayout.edge.horizontal,
+            paddingHorizontal: PROJECT_WIDE_CONTAINER_CARD_INSET,
+          }
+        : undefined,
+    [useNativeBudgetBleed]
+  );
   const { projectData, addExpense, updateExpense } = useProjectData();
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -128,22 +156,43 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     <SafeAreaView style={[styles.safeArea, !darkMode && { backgroundColor: Colors.bg }]}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
-      <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          { flex: 1, width: "100%" },
+          materialsDesktopWeb && { alignItems: "center" as const },
+        ]}
+      >
+        <View
+          style={[
+            styles.container,
+            !darkMode && { backgroundColor: Colors.bg },
+            materialsDesktopWeb && {
+              width: "100%",
+              maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            },
+          ]}
+        >
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingHorizontal: scrollOuterPadH },
+          ]}
         >
-          {/* HEADER */}
+          {/* HEADER — same horizontal inset as project tabs (outside wide strip) */}
           <View style={styles.headerRow}>
-            <Pressable
+            <TouchableOpacity
               onPress={() => navigation?.goBack?.()}
               style={[
                 styles.headerIconButton,
                 !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line },
+                neutralIconPressableWebStyle(),
               ]}
+              activeOpacity={0.88}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-            </Pressable>
+            </TouchableOpacity>
 
             <View style={styles.headerTitleRow}>
               <View style={[styles.headerAvatar, !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line }]}>
@@ -167,11 +216,12 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             </View>
           </View>
 
+          <View style={nativeCardStripStyle}>
           {/* TOTAL SPENT CARD */}
           <View style={styles.totalCardContainer}>
             {darkMode ? (
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.totalCardBorder}
@@ -243,16 +293,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               }
             }}
           >
-            <LinearGradient
-              colors={["#22c55e", "#22d3ee"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.addButtonGradient}
-            >
+            <View style={[styles.addButtonGradient, { backgroundColor: BRAND_GREEN }]}>
               <Text style={styles.addButtonText}>
                 + Add Materials & Equipment
               </Text>
-            </LinearGradient>
+            </View>
           </Pressable>
 
           {/* SECTION HEADER */}
@@ -337,7 +382,9 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               ))}
             </View>
           )}
+          </View>
         </ScrollView>
+        </View>
       </View>
 
       {/* Add Transaction Modal */}
@@ -403,7 +450,7 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
       >
         {darkMode ? (
         <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.txCardBorder}
@@ -520,7 +567,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
   },
   scrollContent: {
-    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 40,
   },

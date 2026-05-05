@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, RefreshControl, Platform } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
@@ -1053,7 +1054,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         >
           {/* Outer green-to-blue border wrapping Timeline Details header, Overall Progress, and Upcoming cards */}
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.overviewBorder}
@@ -1106,7 +1107,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           {/* Daily Logs Section - At the top for recent activity */}
           <View style={{ marginTop: 12 }}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.overviewBorder}
@@ -1227,7 +1228,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           {/* Upcoming Milestones Section */}
           <View style={{ marginTop: 12 }}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.overviewBorder}
@@ -1279,7 +1280,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           <View style={{ marginTop: 12 }}>
             {/* Outer green-to-blue border wrapping All Payments header and all milestone cards */}
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.overviewBorder}

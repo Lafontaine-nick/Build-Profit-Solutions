@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import PricingModeSection, { PricingMode } from "./PricingModeSection";
@@ -16,6 +17,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import GradientRingBackInner from "./GradientRingBackInner";
 
 type Props = {
   visible: boolean;
@@ -175,21 +177,21 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
         <View style={styles.header}>
           <View style={styles.backBtnWrapper}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.backBtnBorder}
             >
-              <TouchableOpacity
+              <GradientRingBackInner
+                darkMode
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   handleCancel();
                 }}
                 style={styles.backBtn}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-              </TouchableOpacity>
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={styles.headerTitleRow}>

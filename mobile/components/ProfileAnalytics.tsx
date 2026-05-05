@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -262,7 +263,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
       {/* Monthly completed-profit trend (same data as before; clearer label) */}
       <LinearGradient
-        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+        colors={BRAND_FRAME_GRADIENT_COLORS}
         start={{ x: 0.05, y: 0.15 }}
         end={{ x: 0.95, y: 0.85 }}
         style={styles.cardBorder}
@@ -333,7 +334,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
       {/* Profit Analytics & Profitability by Project Type - Combined */}
       <LinearGradient
-        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+        colors={BRAND_FRAME_GRADIENT_COLORS}
         start={{ x: 0.05, y: 0.15 }}
         end={{ x: 0.95, y: 0.85 }}
         style={[styles.cardBorder, styles.cardBorderStacked]}
@@ -408,7 +409,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
       {/* Revenue Forecast */}
       <LinearGradient
-        colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+        colors={BRAND_FRAME_GRADIENT_COLORS}
         start={{ x: 0.05, y: 0.15 }}
         end={{ x: 0.95, y: 0.85 }}
         style={[styles.cardBorder, styles.cardBorderStacked]}

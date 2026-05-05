@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, Pressable } from "react-native";
+import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, Pressable, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
@@ -11,6 +12,8 @@ import EditPurchaseOrderModal from "./EditPurchaseOrderModal";
 import { useProjectData } from "../contexts/ProjectDataContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
+import GradientRingBackInner from "@/components/GradientRingBackInner";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
 function parseLocalDate(dateString: string): Date {
@@ -34,6 +37,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     () => (darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub),
     [darkMode, Colors.sub]
   );
+  const { width: categoryLayoutWidth } = useWindowDimensions();
+  const categoryDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(categoryLayoutWidth);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
@@ -431,38 +437,59 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          {
+            flex: 1,
+            width: "100%",
+            backgroundColor: darkMode ? "#000000" : Colors.bg,
+          },
+          categoryDesktopWeb && { alignItems: "center" as const },
+        ]}
+      >
+        <View
+          style={[
+            styles.container,
+            !darkMode && { backgroundColor: Colors.bg },
+            categoryDesktopWeb && {
+              width: "100%",
+              maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+            },
+          ]}
+        >
         {/* Header */}
         <View style={[styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
           <View style={styles.headerTop}>
             <View style={styles.backButtonWrapper}>
               {darkMode ? (
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backButtonBorder}
               >
-                <TouchableOpacity
-                  onPress={onClose} 
-                    style={[styles.backButton, { backgroundColor: "#000000" }]}
+                <GradientRingBackInner
+                  darkMode
+                  onPress={onClose}
+                  style={[styles.backButton, { backgroundColor: "#000000" }]}
                 >
                     <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
               ) : (
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.backButtonBorder}
                 >
-                  <TouchableOpacity
+                  <GradientRingBackInner
+                    darkMode={false}
                     onPress={onClose}
                     style={[styles.backButton, { backgroundColor: Colors.bg }]}
                   >
                     <MaterialIcons name="arrow-back" size={24} color="#000000" />
-                  </TouchableOpacity>
+                  </GradientRingBackInner>
                 </LinearGradient>
               )}
             </View>
@@ -472,7 +499,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   <View style={styles.headerIconContainerWrapper}>
                   {darkMode ? (
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
                     style={styles.headerIconBorder}
@@ -483,7 +510,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   </LinearGradient>
                   ) : (
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.headerIconBorder}
@@ -604,7 +631,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           <View style={styles.totalCardContainer}>
             {darkMode ? (
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.totalCardBorder}
@@ -669,7 +696,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                     <View key={item.id} style={{ marginBottom: 12 }}>
                       {darkMode ? (
                         <LinearGradient
-                          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                          colors={BRAND_FRAME_GRADIENT_COLORS}
                           start={{ x: 0.05, y: 0.15 }}
                           end={{ x: 0.95, y: 0.85 }}
                           style={styles.transactionCardBorder}
@@ -1008,7 +1035,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   <View key={item.id} style={{ marginBottom: 12 }}>
                     {darkMode ? (
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={styles.transactionCardBorder}
@@ -1604,7 +1631,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
               <View style={styles.emptyIconContainerWrapper}>
                 {darkMode ? (
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={styles.emptyIconBorder}
@@ -1630,6 +1657,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           
           <View style={styles.bottomSpacer} />
         </ScrollView>
+        </View>
       </View>
 
       {/* Add Transaction Form */}

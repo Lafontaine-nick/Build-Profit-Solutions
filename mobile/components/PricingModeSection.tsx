@@ -246,16 +246,16 @@ export default function PricingModeSection({
             <View
               style={{
                 marginTop: 12,
-                backgroundColor: "rgba(45, 255, 196, 0.1)",
+                backgroundColor: "rgba(34, 197, 94, 0.12)",
                 borderRadius: 12,
                 padding: 16,
                 borderWidth: 1,
-                borderColor: "rgba(45, 255, 196, 0.3)",
+                borderColor: "rgba(34, 197, 94, 0.35)",
               }}
             >
               <Text
                 style={{
-                  color: "#2DFFC4",
+                  color: darkMode ? "#22c55e" : Colors.text,
                   fontSize: 18,
                   fontWeight: "700",
                   textAlign: "center",

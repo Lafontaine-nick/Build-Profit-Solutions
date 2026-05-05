@@ -14,6 +14,7 @@ import {
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SvgXml } from 'react-native-svg';
@@ -24,6 +25,7 @@ import { PricingCalculator } from './PricingCalculator';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
 
 const IG_GRADIENT = `
 <svg width="18" height="18" viewBox="0 0 448 512" xmlns="http://www.w3.org/2000/svg">
@@ -968,21 +970,21 @@ export default function CampaignCreationModal({
           <View style={styles.header}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
                   }}
                   style={styles.backBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={styles.headerContent}>
@@ -1058,21 +1060,21 @@ export default function CampaignCreationModal({
           <View style={styles.previewHeader}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setShowPreview(false);
                   }}
                   style={styles.backBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={neutralIconColor} />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={styles.headerContent}>

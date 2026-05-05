@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -24,8 +25,11 @@ import { useChat, Conversation } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 
-/** Same green→cyan as Bid Summary / leads section frames — brighter than soft rgba borders. */
-const MESSAGE_BRAND_GRADIENT = ['#2DFFC4', '#00A6FF'] as const;
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 
 interface MessagesInboxProps {
   visible: boolean;
@@ -296,12 +300,13 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
           >
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={[...MESSAGE_BRAND_GRADIENT]}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
+                colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                start={BRAND_FRAME_GRADIENT_START}
+                end={BRAND_FRAME_GRADIENT_END}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     if (selectedConversationId) {
@@ -314,14 +319,13 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                     styles.backBtn,
                     !darkMode && { backgroundColor: Colors.bg },
                   ]}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons
                     name="arrow-back"
                     size={24}
                     color={darkMode ? "#FFFFFF" : "#000000"}
                   />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={[styles.headerContent, selectedConversation && styles.headerContentChat]}>
@@ -454,9 +458,9 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                 <View style={styles.chatInputRow}>
                   <View style={styles.chatInputFlex}>
                     <LinearGradient
-                      colors={[...MESSAGE_BRAND_GRADIENT]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
+                      colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                      start={BRAND_FRAME_GRADIENT_START}
+                      end={BRAND_FRAME_GRADIENT_END}
                       style={styles.chatInputGradient}
                     >
                       <View
@@ -490,9 +494,9 @@ export function MessagesInbox({ visible, onClose, filterRole }: MessagesInboxPro
                     <View style={styles.chatSendWrap}>
                       <LinearGradient
                         pointerEvents="none"
-                        colors={[...MESSAGE_BRAND_GRADIENT]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
+                        colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                        start={BRAND_FRAME_GRADIENT_START}
+                        end={BRAND_FRAME_GRADIENT_END}
                         style={styles.chatSendGradientBg}
                       />
                       <Pressable

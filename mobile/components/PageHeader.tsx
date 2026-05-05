@@ -3,6 +3,7 @@ import { View, Switch, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { Typography } from '../constants/Typography';
+import { neutralIconPressableWebStyle } from '../constants/iconPressable';
 
 interface PageHeaderProps {
   title?: string;
@@ -22,11 +23,16 @@ export default function PageHeader({
       {title && (
         <View style={styles.titleContainer}>
           {onBackPress && (
-            <TouchableOpacity onPress={onBackPress} style={styles.backButton}>
+            <TouchableOpacity
+              onPress={onBackPress}
+              style={[styles.backButton, neutralIconPressableWebStyle()]}
+              activeOpacity={0.88}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <MaterialIcons
                 name='arrow-back'
                 size={24}
-                color={darkMode ? '#43cea2' : '#1976d2'}
+                color={darkMode ? '#FFFFFF' : '#000000'}
               />
             </TouchableOpacity>
           )}

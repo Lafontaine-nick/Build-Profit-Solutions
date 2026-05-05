@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, InputAccessoryView } from "react-native";
-import { Feather } from '@expo/vector-icons';
+import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, InputAccessoryView, useWindowDimensions } from "react-native";
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -21,6 +22,11 @@ import {
   sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
+import GradientRingBackInner from "./GradientRingBackInner";
+import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
+
+/** Matches estimate-generator `LineItemModal` desktop web column cap (Add Labor step 4). */
+const ESTIMATE_LINE_ITEM_WEB_MAX_WIDTH = 900;
 
 type Props = {
   visible: boolean;
@@ -94,19 +100,19 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const descriptionRef = useRef<TextInput>(null);
   const poRef = useRef<TextInput>(null);
 
-  const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
-  const isChangeOrdersCategory = categoryName.toLowerCase().includes('change order');
+  const categoryNameLower = categoryName.toLowerCase();
+  const isPurchaseOrdersCategory = categoryNameLower.includes('purchase order');
+  const isChangeOrdersCategory = categoryNameLower.includes('change order');
 
   const supportsPerSqftPricing = useMemo(() => {
-    const c = categoryName.toLowerCase();
     return (
-      c.includes("material") ||
-      c.includes("equipment") ||
-      c.includes("labor") ||
-      c.includes("purchase order") ||
-      c.includes("change order")
+      categoryNameLower.includes("material") ||
+      categoryNameLower.includes("equipment") ||
+      categoryNameLower.includes("labor") ||
+      categoryNameLower.includes("purchase order") ||
+      categoryNameLower.includes("change order")
     );
-  }, [categoryName]);
+  }, [categoryNameLower]);
 
   useEffect(() => {
     if (visible) {
@@ -544,8 +550,191 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   // Format category name for display
   const displayCategoryName = categoryName.replace('/', ' & ');
 
+  const { width: addTxnLayoutWidth } = useWindowDimensions();
+  /** Web-only: match estimate Add Labor / Add PO shell for budget “add expense” categories (not native). */
+  const webBudgetExpenseShell =
+    Platform.OS === "web" &&
+    (isPurchaseOrdersCategory ||
+      isChangeOrdersCategory ||
+      categoryNameLower.includes("material") ||
+      categoryNameLower.includes("equipment") ||
+      categoryNameLower.includes("labor") ||
+      categoryNameLower.includes("subs"));
+  const webPoDesktopWide =
+    webBudgetExpenseShell && isDesktopWebLayoutWidth(addTxnLayoutWidth);
+  const webPoFormPad = useMemo(() => {
+    if (!webBudgetExpenseShell) {
+      return { header: 20, scroll: 20, footer: 20 };
+    }
+    if (webPoDesktopWide) {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: true });
+    }
+    return getProjectExpenseFormHorizontalPadding({ desktopWeb: false });
+  }, [webBudgetExpenseShell, webPoDesktopWide]);
+
+  const webShellHeaderMci = useMemo(() => {
+    if (!webBudgetExpenseShell) return null;
+    if (categoryNameLower.includes("labor") || categoryNameLower.includes("subs")) {
+      return "account-hard-hat" as const;
+    }
+    if (categoryNameLower.includes("change")) {
+      return "file-document-edit-outline" as const;
+    }
+    return "package-variant-closed" as const;
+  }, [webBudgetExpenseShell, categoryNameLower]);
+
+  const webVendorFeatherIcon = useMemo(() => {
+    if (!webBudgetExpenseShell) return "package" as const;
+    if (categoryNameLower.includes("labor") || categoryNameLower.includes("subs")) {
+      return "user" as const;
+    }
+    if (categoryNameLower.includes("change")) {
+      return "file-text" as const;
+    }
+    return "package" as const;
+  }, [webBudgetExpenseShell, categoryNameLower]);
+
+  const poWebChrome = useMemo(() => {
+    if (!webBudgetExpenseShell) return null;
+    return {
+      headerRow: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        paddingHorizontal: webPoFormPad.header,
+        paddingTop: 8,
+        paddingBottom: 14,
+        marginBottom: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+      },
+      materialTitle: {
+        fontSize: 24,
+        fontWeight: "800" as const,
+        color: Colors.text,
+        letterSpacing: -0.35,
+        lineHeight: 30,
+      },
+      materialSubtitle: {
+        fontSize: 13,
+        color: Colors.sub,
+        marginTop: 5,
+        lineHeight: 18,
+        fontWeight: "500" as const,
+        opacity: 0.92,
+      },
+      iconBorder: { borderRadius: 12, padding: 1 },
+      fieldGroup: { marginBottom: 18 },
+      materialLabel: {
+        fontSize: 13,
+        fontWeight: "600" as const,
+        color: Colors.text,
+        marginBottom: 8,
+        letterSpacing: 0.25,
+      },
+      materialInputWrap: {
+        borderRadius: 16,
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        paddingHorizontal: 14,
+        backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : Colors.surface2,
+        borderWidth: 1,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.32)" : Colors.line,
+        paddingVertical: 12,
+        minHeight: 48,
+      },
+      materialInput: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: "500" as const,
+        color: Colors.text,
+        ...(Platform.OS === "web" ? { outlineStyle: "none" as const, outlineWidth: 0 } : {}),
+      },
+      pricingRow: { flexDirection: "row" as const, gap: 10 },
+      pricingOpt: (active: boolean) => ({
+        flex: 1,
+        paddingVertical: 14,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        minHeight: 48,
+        borderColor: active ? "#22c55e" : Colors.line,
+        backgroundColor: active
+          ? "#22c55e"
+          : darkMode
+            ? "rgba(255, 255, 255, 0.06)"
+            : Colors.bg,
+      }),
+      pricingText: (active: boolean) => ({
+        color: active ? "#050B13" : Colors.text,
+        fontWeight: (active ? "700" : "600") as "700" | "600",
+        fontSize: 14,
+      }),
+      amountShell: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.32)" : Colors.line,
+        backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : Colors.surface2,
+      },
+      dollarSign: {
+        fontSize: 18,
+        fontWeight: "600" as const,
+        color: "#22c55e",
+        marginLeft: 12,
+        marginRight: 4,
+      },
+      amountInput: {
+        flex: 1,
+        fontSize: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 12,
+        paddingLeft: 4,
+        color: Colors.text,
+        ...(Platform.OS === "web" ? { outlineStyle: "none" as const, outlineWidth: 0 } : {}),
+      },
+      footerFlow: {
+        paddingHorizontal: webPoFormPad.footer,
+        paddingTop: 14,
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        justifyContent: "space-between" as const,
+        gap: 10,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: Colors.line,
+        backgroundColor: Colors.bg,
+      },
+      cancelBtn: {
+        flex: 1,
+        marginRight: 8,
+        paddingVertical: 15,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: Colors.line,
+        backgroundColor: Colors.surface2,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      cancelText: { fontSize: 15, fontWeight: "600" as const, color: Colors.text },
+      saveBtnWrap: { flex: 1, marginLeft: 8, borderRadius: 14, overflow: "hidden" as const },
+      saveBtnInner: {
+        paddingVertical: 15,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        backgroundColor: "#22c55e",
+      },
+      saveBtnText: { fontSize: 15, fontWeight: "700" as const, color: "#050B13", letterSpacing: 0.3 },
+    };
+  }, [webBudgetExpenseShell, webPoFormPad, darkMode, Colors]);
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" statusBarTranslucent>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      {...(webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
+    >
       {Platform.OS === 'ios' && (
         <InputAccessoryView
           nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
@@ -556,47 +745,69 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       )}
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -240 : 0}
+        behavior={webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
+        enabled={webBudgetExpenseShell ? false : Platform.OS === 'ios'}
+        keyboardVerticalOffset={webBudgetExpenseShell ? 0 : (Platform.OS === 'ios' ? -240 : 0)}
       >
-      <View style={[styles.container, !darkMode && { backgroundColor: Colors.bg }]}>
+      <View style={[
+        styles.container,
+        !darkMode && { backgroundColor: Colors.bg },
+        webBudgetExpenseShell && { paddingTop: insets.top, paddingBottom: 0 },
+        webPoDesktopWide && { maxWidth: ESTIMATE_LINE_ITEM_WEB_MAX_WIDTH, width: '100%', alignSelf: 'center' },
+      ]}>
           {/* Header */}
-          <View style={[styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
+          <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.headerRow : [styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     handleCancel();
                   }}
                   style={[styles.backBtn, { backgroundColor: Colors.bg }]}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : Colors.text} />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={styles.headerTitleRow}>
               <View style={styles.headerIconContainerWrapper}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
-                  style={styles.headerIconBorder}
+                  style={webBudgetExpenseShell && poWebChrome ? poWebChrome.iconBorder : styles.headerIconBorder}
                 >
-                  <View style={[styles.headerIconContainer, { backgroundColor: Colors.bg }]}>
-                    <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
+                  <View style={[
+                    styles.headerIconContainer,
+                    { backgroundColor: Colors.bg },
+                    webBudgetExpenseShell && poWebChrome && {
+                      width: 40,
+                      height: 40,
+                      borderRadius: 11,
+                    },
+                  ]}>
+                    {webBudgetExpenseShell && webShellHeaderMci ? (
+                      <MaterialCommunityIcons name={webShellHeaderMci} size={24} color="#22c55e" />
+                    ) : (
+                      <Text style={{ fontSize: 24 }}>{categoryIcon}</Text>
+                    )}
                   </View>
                 </LinearGradient>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.title, { color: Colors.text }]}>Add {displayCategoryName}</Text>
-                <Text style={[styles.subtitle, { color: Colors.sub }]}>Log your expense</Text>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialTitle : [styles.title, { color: Colors.text }]}>
+                  Add {displayCategoryName}
+                </Text>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub }]}>
+                  Log your expense
+                </Text>
               </View>
             </View>
           </View>
@@ -604,8 +815,20 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
           {/* Form */}
           <ScrollView 
             ref={scrollViewRef}
-            style={[styles.form, { backgroundColor: darkMode ? '#000000' : Colors.bg }]} 
-            contentContainerStyle={{ paddingBottom: 24 }}
+            style={[
+              !webBudgetExpenseShell && styles.form,
+              { backgroundColor: darkMode ? '#000000' : Colors.bg },
+              webBudgetExpenseShell && { flex: 1 },
+            ]} 
+            contentContainerStyle={
+              webBudgetExpenseShell
+                ? {
+                    paddingHorizontal: webPoFormPad.scroll,
+                    paddingTop: 8,
+                    paddingBottom: 24,
+                  }
+                : { paddingBottom: 24 }
+            }
             showsVerticalScrollIndicator={false} 
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -613,8 +836,61 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
           >
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
+            <LinearGradient
+              colors={webBudgetExpenseShell ? BRAND_FRAME_GRADIENT_COLORS : ['transparent', 'transparent']}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={{
+                borderRadius: webBudgetExpenseShell ? 20 : 0,
+                padding: webBudgetExpenseShell ? 1 : 0,
+                marginBottom: webBudgetExpenseShell ? 8 : 0,
+              }}
+            >
+              <View
+                style={{
+                  borderRadius: webBudgetExpenseShell ? 19 : 0,
+                  padding: webBudgetExpenseShell ? 16 : 0,
+                  backgroundColor: webBudgetExpenseShell
+                    ? (darkMode ? Colors.card : Colors.bg)
+                    : 'transparent',
+                  borderWidth: webBudgetExpenseShell ? 1 : 0,
+                  borderColor: Colors.line,
+                }}
+              >
+            <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+              <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
+              {webBudgetExpenseShell && poWebChrome ? (
+                <View style={poWebChrome.materialInputWrap}>
+                  <Feather name={webVendorFeatherIcon} size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                  <TextInput
+                    ref={vendorRef}
+                    style={poWebChrome.materialInput}
+                    placeholder={vendorPlaceholder}
+                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                    value={vendor}
+                    onChangeText={setVendor}
+                    autoCapitalize="words"
+                    inputAccessoryViewID={projectExpensePlainAccessoryId}
+                    returnKeyType="next"
+                    onSubmitEditing={() => {
+                      if (isChangeOrdersCategory && pricingMode !== "sqft") {
+                        materialsAmountRef.current?.focus();
+                      } else if (supportsPerSqftPricing && pricingMode === "sqft") {
+                        if (isChangeOrdersCategory) {
+                          materialSqftRef.current?.focus();
+                        } else {
+                          sqftRef.current?.focus();
+                        }
+                      } else {
+                        amountRef.current?.focus();
+                      }
+                    }}
+                    blurOnSubmit={false}
+                    selectionColor="#22c55e"
+                    underlineColorAndroid="transparent"
+                  />
+                </View>
+              ) : (
               <TextInput
                 ref={vendorRef}
                 style={[
@@ -649,12 +925,13 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 }}
                 blurOnSubmit={false}
               />
+              )}
             </View>
 
             {supportsPerSqftPricing && (
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
-                <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Pricing *</Text>
+                <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.pricingRow : { flexDirection: "row", gap: 12 }}>
                   <TouchableOpacity
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -666,24 +943,32 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       setSqftInput("");
                       setRatePerSqftInput("");
                     }}
-                    style={{
-                      flex: 1,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: pricingMode === "flat" ? "#22c55e" : Colors.line,
-                      backgroundColor: pricingMode === "flat" ? "#22c55e" : Colors.surface2,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+                    style={
+                      webBudgetExpenseShell && poWebChrome
+                        ? poWebChrome.pricingOpt(pricingMode === "flat")
+                        : {
+                            flex: 1,
+                            paddingVertical: 12,
+                            paddingHorizontal: 16,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: pricingMode === "flat" ? "#22c55e" : Colors.line,
+                            backgroundColor: pricingMode === "flat" ? "#22c55e" : Colors.surface2,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }
+                    }
                   >
                     <Text
-                      style={{
-                        color: pricingMode === "flat" ? "#000000" : Colors.text,
-                        fontWeight: "600",
-                        fontSize: 14,
-                      }}
+                      style={
+                        webBudgetExpenseShell && poWebChrome
+                          ? poWebChrome.pricingText(pricingMode === "flat")
+                          : {
+                              color: pricingMode === "flat" ? "#000000" : Colors.text,
+                              fontWeight: "600",
+                              fontSize: 14,
+                            }
+                      }
                     >
                       💵 Flat amount
                     </Text>
@@ -700,24 +985,32 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       setLaborRatePerSqftInput("");
                       setAmount("");
                     }}
-                    style={{
-                      flex: 1,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: pricingMode === "sqft" ? "#22c55e" : Colors.line,
-                      backgroundColor: pricingMode === "sqft" ? "#22c55e" : Colors.surface2,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+                    style={
+                      webBudgetExpenseShell && poWebChrome
+                        ? poWebChrome.pricingOpt(pricingMode === "sqft")
+                        : {
+                            flex: 1,
+                            paddingVertical: 12,
+                            paddingHorizontal: 16,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: pricingMode === "sqft" ? "#22c55e" : Colors.line,
+                            backgroundColor: pricingMode === "sqft" ? "#22c55e" : Colors.surface2,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }
+                    }
                   >
                     <Text
-                      style={{
-                        color: pricingMode === "sqft" ? "#000000" : Colors.text,
-                        fontWeight: "600",
-                        fontSize: 14,
-                      }}
+                      style={
+                        webBudgetExpenseShell && poWebChrome
+                          ? poWebChrome.pricingText(pricingMode === "sqft")
+                          : {
+                              color: pricingMode === "sqft" ? "#000000" : Colors.text,
+                              fontWeight: "600",
+                              fontSize: 14,
+                            }
+                      }
                     >
                       📐 Per sq ft
                     </Text>
@@ -812,9 +1105,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
               </View>
             )}
 
-            <View style={styles.field}>
+            <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={[styles.label, { color: Colors.text }]}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? [poWebChrome.materialLabel, { marginBottom: 0 }] : [styles.label, { color: Colors.text }]}>
                   {supportsPerSqftPricing && pricingMode === "sqft"
                     ? "Total (calculated) *"
                     : isChangeOrdersCategory
@@ -1086,16 +1379,16 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     <View
                       style={{
                         marginTop: 12,
-                        backgroundColor: "rgba(45, 255, 196, 0.1)",
+                        backgroundColor: "rgba(34, 197, 94, 0.12)",
                         borderRadius: 12,
                         padding: 16,
                         borderWidth: 1,
-                        borderColor: "rgba(45, 255, 196, 0.3)",
+                        borderColor: "rgba(34, 197, 94, 0.35)",
                       }}
                     >
                       <Text
                         style={{
-                          color: "#2DFFC4",
+                          color: "#22c55e",
                           fontSize: 14,
                           fontWeight: "600",
                           textAlign: "center",
@@ -1117,7 +1410,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       </Text>
                       <Text
                         style={{
-                          color: "#2DFFC4",
+                          color: "#22c55e",
                           fontSize: 18,
                           fontWeight: "700",
                           textAlign: "center",
@@ -1144,15 +1437,19 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           Square feet *
                         </Text>
                         <View
-                          style={[
-                            styles.amountInputContainer,
-                            {
-                              backgroundColor: Colors.surface2,
-                              borderColor: Colors.line,
-                              borderWidth: 1,
-                              borderRadius: 12,
-                            },
-                          ]}
+                          style={
+                            webBudgetExpenseShell && poWebChrome
+                              ? poWebChrome.amountShell
+                              : [
+                                  styles.amountInputContainer,
+                                  {
+                                    backgroundColor: Colors.surface2,
+                                    borderColor: Colors.line,
+                                    borderWidth: 1,
+                                    borderRadius: 12,
+                                  },
+                                ]
+                          }
                         >
                           <Feather
                             name="maximize-2"
@@ -1162,15 +1459,19 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           />
                           <TextInput
                             ref={sqftRef}
-                            style={[
-                              styles.input,
-                              styles.amountInput,
-                              {
-                                backgroundColor: "transparent",
-                                borderWidth: 0,
-                                color: Colors.text,
-                              },
-                            ]}
+                            style={
+                              webBudgetExpenseShell && poWebChrome
+                                ? poWebChrome.amountInput
+                                : [
+                                    styles.input,
+                                    styles.amountInput,
+                                    {
+                                      backgroundColor: "transparent",
+                                      borderWidth: 0,
+                                      color: Colors.text,
+                                    },
+                                  ]
+                            }
                             placeholder="0"
                             placeholderTextColor={
                               darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
@@ -1190,28 +1491,36 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                           Rate ($/sq ft) *
                         </Text>
                         <View
-                          style={[
-                            styles.amountInputContainer,
-                            {
-                              backgroundColor: Colors.surface2,
-                              borderColor: Colors.line,
-                              borderWidth: 1,
-                              borderRadius: 12,
-                            },
-                          ]}
+                          style={
+                            webBudgetExpenseShell && poWebChrome
+                              ? poWebChrome.amountShell
+                              : [
+                                  styles.amountInputContainer,
+                                  {
+                                    backgroundColor: Colors.surface2,
+                                    borderColor: Colors.line,
+                                    borderWidth: 1,
+                                    borderRadius: 12,
+                                  },
+                                ]
+                          }
                         >
-                          <Text style={styles.dollarSign}>$</Text>
+                          <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.dollarSign : styles.dollarSign}>$</Text>
                           <TextInput
                             ref={ratePerSqftRef}
-                            style={[
-                              styles.input,
-                              styles.amountInput,
-                              {
-                                backgroundColor: "transparent",
-                                borderWidth: 0,
-                                color: Colors.text,
-                              },
-                            ]}
+                            style={
+                              webBudgetExpenseShell && poWebChrome
+                                ? poWebChrome.amountInput
+                                : [
+                                    styles.input,
+                                    styles.amountInput,
+                                    {
+                                      backgroundColor: "transparent",
+                                      borderWidth: 0,
+                                      color: Colors.text,
+                                    },
+                                  ]
+                            }
                             placeholder="0"
                             placeholderTextColor={
                               darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
@@ -1230,16 +1539,16 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     <View
                       style={{
                         marginTop: 12,
-                        backgroundColor: "rgba(45, 255, 196, 0.1)",
+                        backgroundColor: "rgba(34, 197, 94, 0.12)",
                         borderRadius: 12,
                         padding: 16,
                         borderWidth: 1,
-                        borderColor: "rgba(45, 255, 196, 0.3)",
+                        borderColor: "rgba(34, 197, 94, 0.35)",
                       }}
                     >
                       <Text
                         style={{
-                          color: "#2DFFC4",
+                          color: "#22c55e",
                           fontSize: 18,
                           fontWeight: "700",
                           textAlign: "center",
@@ -1258,28 +1567,36 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 )
               ) : (
                 <View
-                  style={[
-                    styles.amountInputContainer,
-                    {
-                      backgroundColor: Colors.surface2,
-                      borderColor: Colors.line,
-                      borderWidth: 1,
-                      borderRadius: 12,
-                    },
-                  ]}
+                  style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? poWebChrome.amountShell
+                      : [
+                          styles.amountInputContainer,
+                          {
+                            backgroundColor: Colors.surface2,
+                            borderColor: Colors.line,
+                            borderWidth: 1,
+                            borderRadius: 12,
+                          },
+                        ]
+                  }
                 >
-                  <Text style={styles.dollarSign}>$</Text>
+                  <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.dollarSign : styles.dollarSign}>$</Text>
                   <TextInput
                     ref={amountRef}
-                    style={[
-                      styles.input,
-                      styles.amountInput,
-                      {
-                        backgroundColor: "transparent",
-                        borderWidth: 0,
-                        color: Colors.text,
-                      },
-                    ]}
+                    style={
+                      webBudgetExpenseShell && poWebChrome
+                        ? poWebChrome.amountInput
+                        : [
+                            styles.input,
+                            styles.amountInput,
+                            {
+                              backgroundColor: "transparent",
+                              borderWidth: 0,
+                              color: Colors.text,
+                            },
+                          ]
+                    }
                     placeholder="0"
                     placeholderTextColor={
                       darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
@@ -1304,8 +1621,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
             </View>
 
             {/* Receipt Capture */}
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: Colors.text }]}>Receipt (Optional)</Text>
+            <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+              <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Receipt (Optional)</Text>
               {receiptUri ? (
                 <View style={{ marginTop: 8 }}>
                   <View style={{ position: 'relative', marginBottom: 8 }}>
@@ -1363,20 +1680,24 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
             {/* Expected Delivery (Purchase Orders only) */}
             {isPurchaseOrdersCategory && (
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: Colors.text }]}>Expected Delivery *</Text>
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Expected Delivery *</Text>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setShowDeliveryDatePicker(prev => !prev);
                   }}
-                  style={[
-                    styles.dateButton,
-                    {
-                      backgroundColor: Colors.surface2,
-                      borderColor: Colors.line,
-                    }
-                  ]}
+                  style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? [poWebChrome.materialInputWrap, { minHeight: 52 }]
+                      : [
+                          styles.dateButton,
+                          {
+                            backgroundColor: Colors.surface2,
+                            borderColor: Colors.line,
+                          },
+                        ]
+                  }
                 >
                   <Feather name="calendar" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
                   <Text style={[styles.dateButtonText, { color: Colors.text }]}>
@@ -1413,54 +1734,87 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
             )}
 
             {/* Planned vs Unplanned Toggle */}
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: Colors.text }]}>Budget Status *</Text>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+              <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Budget Status *</Text>
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.pricingRow : { flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setIsPlanned(true);
                   }}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: isPlanned ? '#22c55e' : Colors.line,
-                    backgroundColor: isPlanned ? '#22c55e' : Colors.surface2,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? poWebChrome.pricingOpt(isPlanned)
+                      : {
+                          flex: 1,
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: isPlanned ? '#22c55e' : Colors.line,
+                          backgroundColor: isPlanned ? '#22c55e' : Colors.surface2,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }
+                  }
                 >
-                  <Text style={{
-                    color: isPlanned ? '#000000' : Colors.text,
-                    fontWeight: '600',
-                    fontSize: 14,
-                  }}>✓ Planned</Text>
+                  <Text style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? poWebChrome.pricingText(isPlanned)
+                      : {
+                          color: isPlanned ? '#000000' : Colors.text,
+                          fontWeight: '600',
+                          fontSize: 14,
+                        }
+                  }>✓ Planned</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setIsPlanned(false);
                   }}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 16,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: !isPlanned ? '#f59e0b' : Colors.line,
-                    backgroundColor: !isPlanned ? 'rgba(245, 158, 11, 0.2)' : Colors.surface2,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? (!isPlanned
+                          ? {
+                              flex: 1,
+                              paddingVertical: 14,
+                              paddingHorizontal: 12,
+                              borderRadius: 14,
+                              borderWidth: 1.5,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              minHeight: 48,
+                              borderColor: '#f59e0b',
+                              backgroundColor: 'rgba(245, 158, 11, 0.22)',
+                            }
+                          : poWebChrome.pricingOpt(false))
+                      : {
+                          flex: 1,
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: !isPlanned ? '#f59e0b' : Colors.line,
+                          backgroundColor: !isPlanned ? 'rgba(245, 158, 11, 0.2)' : Colors.surface2,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }
+                  }
                 >
-                  <Text style={{
-                    color: !isPlanned ? '#f59e0b' : Colors.text,
-                    fontWeight: '600',
-                    fontSize: 14,
-                  }}>⚠ Unplanned</Text>
+                  <Text style={
+                    webBudgetExpenseShell && poWebChrome
+                      ? {
+                          color: !isPlanned ? '#b45309' : Colors.text,
+                          fontWeight: (!isPlanned ? '700' : '600') as '700' | '600',
+                          fontSize: 14,
+                        }
+                      : {
+                          color: !isPlanned ? '#f59e0b' : Colors.text,
+                          fontWeight: '600',
+                          fontSize: 14,
+                        }
+                  }>⚠ Unplanned</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1581,9 +1935,32 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 keyboardAppearance={darkMode ? "dark" : "light"}
               />
             </View>
+              </View>
+            </LinearGradient>
           </ScrollView>
 
           {/* Actions */}
+          {webBudgetExpenseShell && poWebChrome ? (
+            <View style={[poWebChrome.footerFlow, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <Pressable
+                onPress={handleCancel}
+                style={({ pressed }) => [poWebChrome.cancelBtn, pressed && { opacity: 0.75 }]}
+              >
+                <Text style={poWebChrome.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss();
+                  handleSave();
+                }}
+                style={({ pressed }) => [poWebChrome.saveBtnWrap, pressed && { opacity: 0.92 }]}
+              >
+                <View style={poWebChrome.saveBtnInner}>
+                  <Text style={poWebChrome.saveBtnText}>✓ Save</Text>
+                </View>
+              </Pressable>
+            </View>
+          ) : (
           <View
             style={[
               styles.actions,
@@ -1593,7 +1970,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
           >
             <View style={styles.cancelButtonWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.cancelButtonBorder}
@@ -1613,16 +1990,12 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
               }} 
               style={styles.saveButton}
             >
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.saveButtonGradient}
-              >
+              <View style={[styles.saveButtonGradient, { backgroundColor: "#22c55e" }]}>
                 <Text style={styles.saveButtonText}>✓ Save</Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           </View>
+          )}
       </View>
       </KeyboardAvoidingView>
     </Modal>

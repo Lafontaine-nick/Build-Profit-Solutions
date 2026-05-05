@@ -8,14 +8,15 @@ import {
   ContractTemplateState,
   BUILDER_FEE_LABEL,
   computeClientPricingBreakdown,
+  DEFAULT_PROJECT_ASSUMPTION_BULLETS,
   getScheduleSummaryForContract,
-  getStateLegalSummary,
   normalizeContractPdfMode,
   normalizeContractAudience,
   normalizeProjectContractCopy,
   filterContractWarningsForAudience,
   resolvePdfHeaderCompany,
   sanitizeContractDoc,
+  stripEditorListPrefix,
 } from "./contractTemplate";
 
 const money = (n: number | undefined | null) =>
@@ -99,6 +100,9 @@ type ProposalInput = {
   contractType?: "home-improvement" | "construction";
   /** Default `client` — omit internal draft / checklist copy on the terms page. */
   contractAudience?: ContractAudience;
+  customProjectAssumptions?: string[];
+  customBusinessTerms?: string[];
+  customWorkTypeAssumptions?: string[];
 };
 
 const formatDate = (value?: string) => {
@@ -128,6 +132,9 @@ const resolveProposalOptions = (input?: ProposalInput): ContractBuildOptions => 
   contractType: input?.contractType || "construction",
   branding: input?.branding || {},
   contractAudience: normalizeContractAudience(input?.contractAudience),
+  customProjectAssumptions: input?.customProjectAssumptions,
+  customBusinessTerms: input?.customBusinessTerms,
+  customWorkTypeAssumptions: input?.customWorkTypeAssumptions,
 });
 
 export function getContractPdfPrintFooterParts(
@@ -159,6 +166,12 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const pdfMode = normalizeContractPdfMode(options.pdfMode);
   const sanitizedDoc = sanitizeContractDoc(doc, options);
   const sections = buildContractSections(sanitizedDoc, options);
+  const businessTermsForPdf = Array.isArray(options.customBusinessTerms)
+    ? options.customBusinessTerms
+    : sections.baseTerms;
+  const workTypeClausesForPdf = Array.isArray(options.customWorkTypeAssumptions)
+    ? options.customWorkTypeAssumptions
+    : sections.projectPack.clauses;
   const brand = options.branding.accentColorHex || "#22c7a8";
   const brandDark = "#10243b";
   const muted = "#64748b";
@@ -399,23 +412,15 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
 
   const notes =
     input?.notes ||
-    [
-      "Pricing is all-inclusive for the scope described. Nothing is hidden.",
-      "Permits, plans, and inspections are billed at actual cost; receipts available on request.",
-      "Project management covers scheduling, supervision, and documentation — not additional profit.",
-      "Change orders are priced and approved in writing before work continues.",
-      "Selections, finishes, and owner-furnished items must be approved before ordering.",
-      "Lead times begin after approvals, deposit receipt, and material release.",
-      "Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
-      "Access to the work area, parking, and utilities must remain available during active work hours.",
-    ];
+    (Array.isArray(options.customProjectAssumptions)
+      ? options.customProjectAssumptions
+      : DEFAULT_PROJECT_ASSUMPTION_BULLETS);
 
   const docTitle =
     options.contractType === "home-improvement"
       ? "Home Improvement Agreement"
       : "Construction Services Agreement";
 
-  const stateLegalSummary = getStateLegalSummary(options.state);
   const projectAssumptionNote = sections.projectPack.disclaimer
     ? esc(sections.projectPack.disclaimer)
     : "";
@@ -571,7 +576,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         </div>
         <div>
           <h3 class="block-title">Project assumptions</h3>
-          <ul class="bullet-list flush">${notes.map((note) => `<li>${esc(note)}</li>`).join("")}</ul>
+          <ul class="bullet-list flush">${notes.map((note) => `<li>${esc(stripEditorListPrefix(note))}</li>`).join("")}</ul>
         </div>
       </div>
 
@@ -684,21 +689,16 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       <div class="section-block">
         <h3 class="block-title">Business terms</h3>
         <ol class="legal-list">
-          ${sections.baseTerms.map((term) => `<li>${esc(term)}</li>`).join("")}
+          ${businessTermsForPdf.map((term) => `<li>${esc(stripEditorListPrefix(term))}</li>`).join("")}
         </ol>
       </div>
 
       <div class="section-block">
-        <h3 class="block-title">Work-type assumptions</h3>
+        <h3 class="block-title">Job-specific assumptions</h3>
         <ul class="bullet-list flush">
-          ${sections.projectPack.clauses.map((c) => `<li>${esc(c)}</li>`).join("")}
+          ${workTypeClausesForPdf.map((c) => `<li>${esc(stripEditorListPrefix(c))}</li>`).join("")}
         </ul>
         ${projectAssumptionNote ? `<p class="subtle-p">${projectAssumptionNote}</p>` : ""}
-      </div>
-
-      <div class="section-block state-block">
-        <h3 class="block-title">State &amp; jurisdiction</h3>
-        <p class="state-paragraph">${esc(stateLegalSummary)}</p>
       </div>
     </section>`;
   };
@@ -1083,11 +1083,6 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       padding-left: 18px;
     }
     .compact-warn-list li { margin-bottom: 3px; }
-    .state-block .state-paragraph {
-      margin: 0 0 10px;
-      font-size: 9.5pt;
-      line-height: 1.45;
-    }
     .subtle-p {
       margin: 8px 0 0;
       font-size: 8.5pt;

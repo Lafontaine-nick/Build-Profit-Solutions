@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import GradientRingBackInner from './GradientRingBackInner';
 import Slider from '@react-native-community/slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
@@ -20,9 +21,11 @@ import { usePrefsStore } from '../store/prefs';
 import { useScoredLeads } from '../store/leads';
 import * as Haptics from 'expo-haptics';
 import { geocodeCity } from '../lib/geo';
-
-/** Same green→cyan frame as Estimates Bid Summary / leads sections (`#2DFFC4` → `#00A6FF`). */
-const SECTION_GRADIENT_BORDER_COLORS = ['#2DFFC4', '#00A6FF'] as const;
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 
 interface ContractorPreferences {
   // Trade Types
@@ -829,9 +832,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
 
   const renderTradesTab = () => (
     <LinearGradient
-      colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-      start={{ x: 0.05, y: 0.15 }}
-      end={{ x: 0.95, y: 0.85 }}
+      colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+      start={BRAND_FRAME_GRADIENT_START}
+      end={BRAND_FRAME_GRADIENT_END}
       style={styles.tradesGradientBorder}
     >
       <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>
@@ -1442,12 +1445,13 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
       <View style={styles.headerContainer}>
         <View style={styles.backBtnWrapper}>
           <LinearGradient
-            colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
+            colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
             style={styles.backBtnBorder}
           >
-            <TouchableOpacity
+            <GradientRingBackInner
+              darkMode={darkMode}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 if (onClose) onClose();
@@ -1456,14 +1460,13 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 styles.backBtn,
                 !darkMode && { backgroundColor: Colors.bg },
               ]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons
                 name="arrow-back"
                 size={24}
                 color={darkMode ? "#FFFFFF" : "#000000"}
               />
-            </TouchableOpacity>
+            </GradientRingBackInner>
           </LinearGradient>
         </View>
         <View style={styles.headerContent}>
@@ -1563,9 +1566,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
+              colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
               style={styles.matchQualityGradientBorder}
             >
               <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>
@@ -1626,9 +1629,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           
           return (
             <LinearGradient
-              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
+              colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
               style={styles.impactGradientBorder}
             >
               <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>
@@ -1760,9 +1763,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           <View style={styles.deliverySection}>
             <View style={styles.wideContainer}>
               <LinearGradient
-                colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
+                colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+                start={BRAND_FRAME_GRADIENT_START}
+                end={BRAND_FRAME_GRADIENT_END}
                 style={styles.availabilityGradientBorder}
               >
                 <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>
@@ -1922,9 +1925,9 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
           {/* AI Matching Rules - Collapsible */}
           <View style={styles.wideContainer}>
             <LinearGradient
-              colors={[...SECTION_GRADIENT_BORDER_COLORS]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
+              colors={[...BRAND_FRAME_GRADIENT_COLORS]}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
               style={styles.aiMatchingGradientBorder}
             >
               <View style={[styles.sectionCard, !darkMode && { backgroundColor: Colors.bg }]}>

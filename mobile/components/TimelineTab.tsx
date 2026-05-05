@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { COLORS } from "../src/theme/colors";
@@ -370,7 +371,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
           {/* Overall Progress Section */}
           <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.sectionCardBorder}
@@ -395,7 +396,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
           {/* Upcoming Milestones Section */}
           <View style={styles.sectionCardContainer}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.sectionCardBorder}
@@ -430,7 +431,7 @@ export default function TimelineTab({ project, theme = "dark" }: TimelineTabProp
           {/* All Payments Section */}
           <View style={styles.sectionCardContainer}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.sectionCardBorder}

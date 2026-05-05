@@ -2,13 +2,14 @@ require('express-async-errors');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-// Puppeteer: keep the browser download inside the deploy directory so Render build `browsers install`
-// and runtime resolve the same path. Default ~/.cache/puppeteer on Render does NOT contain the binary
-// installed during build — that lives next to the app (see render.yaml buildCommand + startCommand).
+// Puppeteer: keep Chrome under backend/.puppeteer-cache (matches postinstall + Render).
+// Cursor and other sandboxes often inject PUPPETEER_CACHE_DIR into a temp dir without the browser binary.
 const PUPPETEER_CACHE_IN_APP = path.resolve(__dirname, '..', '.puppeteer-cache');
-if (process.env.RENDER === 'true') {
-  process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
-} else if (!process.env.PUPPETEER_CACHE_DIR && process.env.NODE_ENV === 'production') {
+const incomingPuppeteerCache = (process.env.PUPPETEER_CACHE_DIR || '').trim();
+const puppeteerCacheUnsetOrSandbox =
+  !incomingPuppeteerCache ||
+  /cursor-sandbox|sandbox-cache/i.test(incomingPuppeteerCache);
+if (puppeteerCacheUnsetOrSandbox) {
   process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
 }
 

@@ -26,6 +26,33 @@ export function isDesktopWebLayoutWidth(width: number): boolean {
   return Platform.OS === 'web' && width >= DESKTOP_WEB_MIN_WIDTH;
 }
 
+/**
+ * Horizontal padding inside project-detail `wideContainer` on phone (non-desktop web).
+ * Budget “Categories” / overview gradient cards use this inset after the -edge margin.
+ */
+export const PROJECT_WIDE_CONTAINER_CARD_INSET = 4;
+
+/**
+ * Header / scroll / footer horizontal padding for project expense modals (Add Transaction, PO, etc.).
+ * Matches Add Material + Budget tab: tight inset on native, roomier on web / desktop web.
+ */
+export function getProjectExpenseFormHorizontalPadding(options: {
+  desktopWeb: boolean;
+}): { header: number; scroll: number; footer: number } {
+  const { desktopWeb } = options;
+  if (desktopWeb) {
+    return { header: 20, scroll: 20, footer: 20 };
+  }
+  if (Platform.OS === 'web') {
+    return { header: 20, scroll: 12, footer: 20 };
+  }
+  return {
+    header: PROJECT_WIDE_CONTAINER_CARD_INSET,
+    scroll: PROJECT_WIDE_CONTAINER_CARD_INSET,
+    footer: PROJECT_WIDE_CONTAINER_CARD_INSET,
+  };
+}
+
 export const ScreenLayout = {
   edge: {
     horizontal: 20,

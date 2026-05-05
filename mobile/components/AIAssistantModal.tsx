@@ -40,6 +40,12 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
 } from "@/constants/ScreenLayout";
+import GradientRingBackInner from "@/components/GradientRingBackInner";
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
@@ -701,11 +707,6 @@ const CARD_GRADIENT: [string, string] = [
   "rgba(16, 242, 151, 0)",
 ];
 
-const ASSISTANT_BORDER_GRADIENT: [string, string] = [
-  "rgba(45, 255, 196, 0.45)",
-  "rgba(56, 189, 248, 0.35)",
-];
-
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -826,6 +827,11 @@ const AIAssistantModal: React.FC<Props> = ({
   const { width: aiLayoutWidth } = useWindowDimensions();
   const aiDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(aiLayoutWidth);
+  /**
+   * Match project-detail `[id].tsx` `wideContainer` inner padding (after scroll `edge` is cancelled):
+   * 8 on desktop web, 4 on native / narrow web — same gutters as the Project Overview gradient card.
+   */
+  const aiWideColumnPadding = useMemo(() => (aiDesktopWeb ? 8 : 4), [aiDesktopWeb]);
   const dotAnim1 = useRef(new Animated.Value(0.4)).current;
   const dotAnim2 = useRef(new Animated.Value(0.4)).current;
   const dotAnim3 = useRef(new Animated.Value(0.4)).current;
@@ -4401,9 +4407,9 @@ const AIAssistantModal: React.FC<Props> = ({
         ) : (
           <View style={styles.assistantBubbleWrapper}>
             <LinearGradient
-              colors={ASSISTANT_BORDER_GRADIENT}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
               style={styles.assistantBubbleBorder}
             >
               <View
@@ -4423,9 +4429,9 @@ const AIAssistantModal: React.FC<Props> = ({
                 {(item.pdfUri || item.attachment) && (
                   <View style={styles.pdfAttachmentWrapper}>
                     <LinearGradient
-                      colors={ASSISTANT_BORDER_GRADIENT}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={BRAND_FRAME_GRADIENT_START}
+                      end={BRAND_FRAME_GRADIENT_END}
                       style={styles.pdfAttachmentBorder}
                     >
                       <TouchableOpacity
@@ -4538,9 +4544,9 @@ const AIAssistantModal: React.FC<Props> = ({
       <View style={styles.typingIndicatorContainer}>
         <View style={styles.assistantBubbleWrapper}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
             style={styles.assistantBubbleBorder}
           >
             <View
@@ -4589,6 +4595,13 @@ const AIAssistantModal: React.FC<Props> = ({
                 },
               ]}
             >
+            <View
+              style={{
+                flex: 1,
+                minHeight: 0,
+                paddingHorizontal: aiWideColumnPadding,
+              }}
+            >
             {/* Header — full title strip when idle; back-only when keyboard is open */}
             <View
               style={[
@@ -4601,23 +4614,22 @@ const AIAssistantModal: React.FC<Props> = ({
             >
               <View style={styles.backButtonWrapper}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={BRAND_FRAME_GRADIENT_START}
+                  end={BRAND_FRAME_GRADIENT_END}
                   style={styles.backButtonBorder}
                 >
-                  <TouchableOpacity
+                  <GradientRingBackInner
+                    darkMode={darkMode}
                     onPress={() => {
                       console.log('🔙 Back button pressed in AIAssistantModal');
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       onClose();
                     }}
                     style={[styles.backButton, light({ backgroundColor: ThemeColors.bg })]}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    activeOpacity={0.7}
                   >
                     <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </TouchableOpacity>
+                  </GradientRingBackInner>
                 </LinearGradient>
               </View>
               {!keyboardOpen && (
@@ -4911,9 +4923,9 @@ const AIAssistantModal: React.FC<Props> = ({
                   {!isProjectsScreenContext && !isGlobalAssistantContext && !isEstimateContext && (
                   <View style={styles.managerCardContainer}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={BRAND_FRAME_GRADIENT_START}
+                      end={BRAND_FRAME_GRADIENT_END}
                       style={styles.managerCardBorder}
                     >
                       <View style={[styles.managerCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
@@ -4999,9 +5011,9 @@ const AIAssistantModal: React.FC<Props> = ({
                   {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
                     <View style={styles.projectStripContainer}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
+                        colors={BRAND_FRAME_GRADIENT_COLORS}
+                        start={BRAND_FRAME_GRADIENT_START}
+                        end={BRAND_FRAME_GRADIENT_END}
                         style={styles.projectStripBorder}
                       >
                         <View style={[styles.projectStrip, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
@@ -5149,9 +5161,9 @@ const AIAssistantModal: React.FC<Props> = ({
                 <View style={[styles.greetingWrapper, light({ backgroundColor: ThemeColors.bg }), isProjectsScreenContext && { marginBottom: 8 }]}>
                   <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={BRAND_FRAME_GRADIENT_START}
+                      end={BRAND_FRAME_GRADIENT_END}
                       style={styles.greetingIconCircleBorder}
                     >
                       <View style={[styles.greetingIconCircle, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
@@ -5187,9 +5199,9 @@ const AIAssistantModal: React.FC<Props> = ({
                   {recentSummary && (
                     <View style={styles.recentSummaryContainer}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
+                        colors={BRAND_FRAME_GRADIENT_COLORS}
+                        start={BRAND_FRAME_GRADIENT_START}
+                        end={BRAND_FRAME_GRADIENT_END}
                         style={styles.recentSummaryBorder}
                       >
                         <View style={[styles.recentSummaryInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
@@ -5246,9 +5258,9 @@ const AIAssistantModal: React.FC<Props> = ({
                   <View style={styles.primaryActions}>
                     <View style={styles.primaryButtonWrapper}>
                       <LinearGradient
-                        colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                        start={{ x: 0.05, y: 0.15 }}
-                        end={{ x: 0.95, y: 0.85 }}
+                        colors={BRAND_FRAME_GRADIENT_COLORS}
+                        start={BRAND_FRAME_GRADIENT_START}
+                        end={BRAND_FRAME_GRADIENT_END}
                         style={styles.primaryButtonBorder}
                       >
                         <TouchableOpacity
@@ -5272,13 +5284,14 @@ const AIAssistantModal: React.FC<Props> = ({
               }
             />
             </View>
+            </View>
 
-            {/* Input bar - Fixed at bottom */}
+            {/* Input bar — explicit L/R gutters (absolute children may ignore parent padding in some layouts) */}
             <View style={[styles.inputContainer, { 
               position: 'absolute',
               bottom: 0,
-              left: 0,
-              right: 0,
+              left: aiWideColumnPadding,
+              right: aiWideColumnPadding,
               paddingBottom: Math.max(insets.bottom, 10) + 6,
               paddingTop: 6,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
@@ -5524,9 +5537,9 @@ const AIAssistantModal: React.FC<Props> = ({
               <View style={styles.inputRow}>
               <View style={styles.inputInnerWrapper}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={BRAND_FRAME_GRADIENT_START}
+                  end={BRAND_FRAME_GRADIENT_END}
                   style={styles.inputInnerBorder}
                 >
                   <View style={[styles.inputInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
@@ -5551,7 +5564,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     ) : (
                       <TextInput
                         style={[styles.input, light({ color: ThemeColors.text })]}
-                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets, or ask anything…" : isEstimateContext ? "Ask about this estimate, line items, or margins…" : "Ask anything about this project…")}
+                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets…" : isEstimateContext ? "Ask about this estimate, line items…" : "Ask anything about this project…")}
                         placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
@@ -5596,9 +5609,9 @@ const AIAssistantModal: React.FC<Props> = ({
               </View>
               <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.52)", "rgba(0, 166, 255, 0.5)"]}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={BRAND_FRAME_GRADIENT_START}
+                  end={BRAND_FRAME_GRADIENT_END}
                   style={styles.sendButtonBorder}
                 >
                   <TouchableOpacity
@@ -5656,7 +5669,7 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 6,
     paddingBottom: 14,
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "center",
@@ -5748,7 +5761,7 @@ const styles = StyleSheet.create({
   messagesContainer: {
     paddingBottom: 180,
     paddingTop: 14,
-    paddingHorizontal: 18,
+    paddingHorizontal: 0,
   },
   messageRow: {
     flexDirection: "row",
@@ -6050,11 +6063,10 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: "column",
-    alignItems: "flex-end",
-    paddingHorizontal: 18,
+    alignItems: "stretch",
+    paddingHorizontal: 0,
     backgroundColor: "rgba(0,0,0,0.96)",
     gap: 10,
-    width: "100%",
     zIndex: 100,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -12 },
@@ -6069,6 +6081,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    /** Gradient ring + device curve; avoids clipping the send control at the right edge */
+    paddingRight: 6,
   },
   inputInnerWrapper: {
     flex: 1,
@@ -6155,6 +6169,7 @@ const styles = StyleSheet.create({
   },
   sendButtonWrapper: {
     marginLeft: 0,
+    flexShrink: 0,
   },
   sendButtonBorder: {
     borderRadius: 16,
@@ -6617,7 +6632,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   footerSuggestionsWrap: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 0,
     paddingTop: 12,
     paddingBottom: 6,
   },
@@ -6639,7 +6654,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   bottomRailSection: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 0,
     marginBottom: 8,
   },
   bottomRailScroll: {

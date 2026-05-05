@@ -4,8 +4,30 @@ import {
   useProjectData,
 } from '../../contexts/ProjectDataContext';
 import { useProjectList, UnifiedProject } from '../../contexts/ProjectListContext';
-import { View, ScrollView, StyleSheet, Text, Pressable, StatusBar, SafeAreaView, Dimensions, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Alert, BackHandler } from 'react-native';
+import {
+  View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Pressable,
+  StatusBar,
+  SafeAreaView,
+  Dimensions,
+  TouchableOpacity,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  Alert,
+  BackHandler,
+  useWindowDimensions,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from "@/constants/brandFrameGradient";
 import { BlurView } from 'expo-blur';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -33,6 +55,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import AIAssistantModal from '../../components/AIAssistantModal';
+import GradientRingBackInner from '../../components/GradientRingBackInner';
 import ProjectActivationFlow from '../../components/ProjectActivationFlow';
 import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
 import api from '../../services/BackendAPI';
@@ -41,6 +64,11 @@ import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  WEB_DESKTOP_EDGE_HORIZONTAL,
+} from '@/constants/ScreenLayout';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughStepSheetContent,
@@ -248,7 +276,16 @@ function ProjectDetailContent() {
   const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder, updateTeam } = useProjectData();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
+  const { width: layoutWidth } = useWindowDimensions();
+  const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
+  const webScrollContentCap = desktopWeb
+    ? {
+        maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+        width: '100%' as const,
+        alignSelf: 'center' as const,
+      }
+    : undefined;
+  const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { t } = useTranslation();
   const { getToken } = useAuth();
   const {
@@ -1652,9 +1689,9 @@ function ProjectDetailContent() {
           return (
             <View style={styles.wideContainer}>
               <LinearGradient
-                colors={['#2DFFC4', '#00A6FF']}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={BRAND_FRAME_GRADIENT_START}
+                end={BRAND_FRAME_GRADIENT_END}
                 style={styles.overviewGradientRing}
               >
                 <View style={[styles.overviewInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
@@ -2083,14 +2120,9 @@ function ProjectDetailContent() {
     return status.charAt(0).toUpperCase() + status.slice(1);
   }, [safeProjectData?.status, showJustActivated, justActivatedDismissed]);
 
-  const projectSegmentScroll = useMemo(
-    () => (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.segmentInner}
-        style={styles.segmentScrollView}
-      >
+  const projectSegmentScroll = useMemo(() => {
+    const tabs = (
+      <>
         <SegmentTab
           label="Overview"
           icon="grid-outline"
@@ -2126,10 +2158,28 @@ function ProjectDetailContent() {
           onPress={() => handleTabPress('Team')}
           styles={styles}
         />
+      </>
+    );
+
+    if (Platform.OS === 'web') {
+      return (
+        <View style={styles.segmentScrollRowWeb}>
+          <View style={[styles.segmentInner, styles.segmentInnerWeb]}>{tabs}</View>
+        </View>
+      );
+    }
+
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.segmentInner}
+        style={styles.segmentScrollView}
+      >
+        {tabs}
       </ScrollView>
-    ),
-    [activeTab, styles, handleTabPress]
-  );
+    );
+  }, [activeTab, styles, handleTabPress]);
 
   if (missingProjectData) {
     console.error('❌ Project data is undefined!');
@@ -2144,7 +2194,9 @@ function ProjectDetailContent() {
 
   try {
     return (
-      <SafeAreaView style={styles.root}>
+      <SafeAreaView
+        style={[styles.root, Platform.OS === 'web' && desktopWeb && styles.rootDesktopWeb]}
+      >
         <StatusBar barStyle="light-content" />
 
         {/* Background — opaque black so ScrollView never shows default system gray between sections */}
@@ -2154,6 +2206,7 @@ function ProjectDetailContent() {
           style={darkMode ? { backgroundColor: '#000000' } : undefined}
           contentContainerStyle={[
             styles.scrollContent,
+            webScrollContentCap,
             apWtScrollPadBottom > 0 && {
               paddingBottom: 24 + apWtScrollPadBottom,
             },
@@ -2164,12 +2217,13 @@ function ProjectDetailContent() {
           <View style={[styles.headerRow, styles.wideContainer]}>
             <View style={styles.backButtonWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backButtonBorder}
               >
-                <Pressable
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     if (backToProjects) {
@@ -2181,7 +2235,7 @@ function ProjectDetailContent() {
                   style={styles.backButton}
                 >
                   <Ionicons name="arrow-back" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </Pressable>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={{ flex: 1 }}>
@@ -3550,7 +3604,9 @@ function ProjectDetailContent() {
   } catch (error) {
     console.error('Error rendering project detail:', error);
     return (
-      <SafeAreaView style={styles.root}>
+      <SafeAreaView
+        style={[styles.root, Platform.OS === 'web' && desktopWeb && styles.rootDesktopWeb]}
+      >
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 18, textAlign: 'center', marginBottom: 20 }}>
@@ -3620,21 +3676,26 @@ export default function ProjectDetailScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
+const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
+  const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : 20;
+  return StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.bg,
   },
+  rootDesktopWeb: {
+    backgroundColor: Colors.bg === '#000000' ? Colors.bg : '#f1f5f9',
+  },
   scrollContent: {
-    paddingTop: 20,
-    paddingHorizontal: 20,
+    paddingTop: desktopWeb ? 24 : 20,
+    paddingHorizontal: edge,
     paddingBottom: 24,
     flexGrow: 1,
     ...(darkMode ? { backgroundColor: '#000000' } : {}),
   },
   wideContainer: {
-    marginHorizontal: -20,
-    paddingHorizontal: 4,
+    marginHorizontal: -edge,
+    paddingHorizontal: desktopWeb ? 8 : 4,
   },
   /** Green → blue gradient frame (1px ring via padding) */
   overviewGradientRing: {
@@ -4021,6 +4082,10 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexGrow: 0,
     backgroundColor: "transparent",
   },
+  /** Web: full-width row so tabs can use flex — replaces horizontal ScrollView in JSX */
+  segmentScrollRowWeb: {
+    width: "100%",
+  },
   segmentInner: {
     flexDirection: "row",
     alignItems: "center",
@@ -4028,11 +4093,18 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     gap: 4,
     backgroundColor: "transparent",
   },
+  segmentInnerWeb: {
+    width: "100%",
+    gap: 0,
+  },
   segmentTab: {
     flexShrink: 0,
     minWidth: 88,
     borderRadius: 999,
     marginHorizontal: 1,
+    ...(Platform.OS === "web"
+      ? { flex: 1, minWidth: 0, marginHorizontal: 0 }
+      : {}),
   },
   segmentTabActive: {
     overflow: "hidden",
@@ -4832,4 +4904,5 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: '600',
     color: Colors.sub,
   },
-});
+  });
+};

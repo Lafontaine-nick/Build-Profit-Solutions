@@ -18,6 +18,11 @@ import { useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 
 interface LeadAnalyticsDashboardProps {
   leads: Lead[];
@@ -346,9 +351,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {todaysFocus.newLeadsCount > 0 && (
         <View style={styles.wideContainer}>
           <LinearGradient
-            colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
             style={styles.todaysFocusGradientBorder}
           >
             <View
@@ -477,9 +482,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {/* Revenue Pipeline */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
+          start={BRAND_FRAME_GRADIENT_START}
+          end={BRAND_FRAME_GRADIENT_END}
           style={styles.campaignGradientBorder}
         >
         <View
@@ -567,9 +572,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {/* Pipeline Health - Funnel with Benchmarks */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
+          start={BRAND_FRAME_GRADIENT_START}
+          end={BRAND_FRAME_GRADIENT_END}
           style={styles.campaignGradientBorder}
         >
         <View
@@ -777,9 +782,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
       {/* AI Insights */}
       <View style={styles.wideContainer}>
         <LinearGradient
-          colors={['rgba(45, 255, 196, 0.45)', 'rgba(0, 166, 255, 0.4)']}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
+          start={BRAND_FRAME_GRADIENT_START}
+          end={BRAND_FRAME_GRADIENT_END}
           style={styles.campaignGradientBorder}
         >
         <View

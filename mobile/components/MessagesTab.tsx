@@ -15,11 +15,13 @@ import {
 } from "react-native";
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
 
 // ---------------- Theme ----------------
 const Colors = {
@@ -522,21 +524,21 @@ export default function MessagesTab({ onNavigateToTab, onClose }: MessagesTabPro
       <View style={styles.headerContainer}>
         <View style={styles.backBtnWrapper}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.backBtnBorder}
           >
-            <TouchableOpacity
+            <GradientRingBackInner
+              darkMode
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 if (onClose) onClose();
               }}
               style={styles.backBtn}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
+            </GradientRingBackInner>
           </LinearGradient>
         </View>
         <View style={styles.headerContent}>

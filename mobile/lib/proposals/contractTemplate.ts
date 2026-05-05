@@ -46,7 +46,41 @@ export type ContractBuildOptions = {
   branding: ContractBranding;
   /** Defaults to `client` when omitted (estimate export). */
   contractAudience?: ContractAudience;
+  /**
+   * When set, replaces default “Project assumptions” bullets on the Scope & pricing PDF page.
+   * Omit or leave undefined to use template defaults.
+   */
+  customProjectAssumptions?: string[];
+  /** When set, replaces numbered “Business terms” on the contract terms page. */
+  customBusinessTerms?: string[];
+  /** When set, replaces “Job-specific assumptions” bullets on the contract terms page. */
+  customWorkTypeAssumptions?: string[];
 };
+
+/** Strips a leading editor marker (-, •, etc.) before PDF/HTML list rendering so bullets are not duplicated. */
+export const stripEditorListPrefix = (value: string): string =>
+  String(value ?? "")
+    .trim()
+    .replace(/^\s*[-–—•*]\s*/, "");
+
+/** Default proposal price-lock window when the bid has no explicit validity field (matches other in-app copy). */
+export const DEFAULT_PROPOSAL_VALIDITY_DAYS = 30;
+
+/** Default right-column bullets on the Scope & pricing page (same as legacy `buildProposalHtml` list). */
+export const DEFAULT_PROJECT_ASSUMPTION_BULLETS: string[] = [
+  "- Pricing is all-inclusive for the scope described. Nothing is hidden unless specifically excluded in the proposal.",
+  "- This proposal is based on the visible site conditions and information available at the time of estimate.",
+  "- Permits, plans, engineering, utility fees, inspections, and other project-related fees are billed at actual cost unless specifically included in the proposal.",
+  "- Project management covers scheduling, supervision, coordination, and documentation for the scope described.",
+  "- Change orders are priced and approved in writing before additional work continues.",
+  "- Selections, finishes, fixtures, appliances, and owner-furnished items must be approved before ordering or installation.",
+  "- Lead times begin after signed approval, deposit receipt, required selections, and material release.",
+  "- Work schedule is subject to material availability, permit approvals, inspections, weather, owner selections, access, and change-order approvals.",
+  "- Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
+  "- Access to the work area, parking, power, water, and utilities must remain available during active work hours.",
+  "- Hidden damage, concealed conditions, framing deficiencies, code corrections, engineering changes, hazardous-material findings, and owner-requested revisions are excluded unless specifically listed.",
+  `- Pricing is valid for ${DEFAULT_PROPOSAL_VALIDITY_DAYS} days from the proposal date due to labor, material, and supplier price changes.`,
+];
 
 type ClausePack = {
   heading: string;
@@ -372,19 +406,22 @@ export const filterContractWarningsForAudience = (
 
 export const getBaseBusinessTerms = (
   doc: ContractDoc,
-  options: ContractBuildOptions,
+  _options: ContractBuildOptions,
 ): string[] => {
-  const permitHolder = options.state === "other" ? "Contractor" : "Contractor";
-  const permitPayer = options.branding.insuranceStatus ? "Owner unless otherwise listed in the proposal" : "Owner";
   const warrantyYears = doc.terms.warrantyYears || 1;
 
   return [
-    "Scope & Approvals: The attached proposal summary and scope pages describe the work included in this agreement. Any modifications must be approved in writing before work proceeds.",
-    "Pricing & Changes: The contract total reflects the current scope, assumptions, and schedule. Added work, hidden conditions, substitutions, and owner-requested revisions are handled through written change orders.",
-    "Payments: Payments are due according to the attached payment schedule. Delinquent balances may pause scheduling, procurement, or project progress until resolved.",
-    `Permits & Inspections: ${permitHolder} is responsible for securing permits and coordinating inspections unless this proposal states otherwise. Permit fees are paid by ${permitPayer.toLowerCase()}.`,
-    `Warranty: Workmanship is covered for ${warrantyYears} year${warrantyYears === 1 ? "" : "s"} from substantial completion unless a narrower written warranty applies. Manufacturer warranties remain with the product maker.`,
-    "Access & Protection: Owner will provide reasonable access, utilities, and decision-making in time to keep work moving. Contractor will use standard dust protection and site safety practices appropriate for the job.",
+    "- Scope & Approvals: The attached proposal summary, pricing pages, drawings, selections, and scope notes describe the work included in this agreement. Any work not specifically listed is excluded unless approved in a written change order.",
+    "- Pricing & Changes: The contract total reflects the current scope, assumptions, schedule, and available information at the time of proposal. Added work, hidden conditions, substitutions, owner-requested revisions, and code-required changes are handled through written change orders.",
+    "- Deposit & Start of Work: Work will not be scheduled, ordered, or started until the required deposit, signed agreement, and required selections or approvals are received.",
+    "- Payments: Payments are due according to the attached payment schedule. Delinquent balances may pause scheduling, procurement, inspections, and project progress until resolved.",
+    "- Permits & Inspections: Contractor is responsible for coordinating permits and inspections only when included in the proposal. Permit fees, plan fees, engineering, utility fees, and inspection-related charges are paid by owner unless otherwise listed.",
+    "- Concealed Conditions: Hidden damage, framing deficiencies, rot, mold, asbestos, hazardous materials, utility conflicts, code corrections, and other concealed conditions are outside the base scope and require written change-order approval.",
+    "- Owner Selections & Materials: Owner selections, finishes, fixtures, appliances, and owner-furnished materials must be approved before ordering or installation. Delays or changes in selections may affect price, schedule, and warranty coverage.",
+    "- Access & Protection: Owner will provide reasonable access, parking, utilities, and decision-making in time to keep work moving. Contractor will use reasonable dust protection, cleanup, and site safety practices appropriate for the job.",
+    `- Warranty: Workmanship is covered for ${warrantyYears} year${warrantyYears === 1 ? "" : "s"} from substantial completion unless a different written warranty applies. Manufacturer warranties remain with the product maker. Warranty does not cover owner-furnished materials, misuse, normal wear, lack of maintenance, or work performed by others.`,
+    "- Schedule & Delays: Project timelines are estimates and may be affected by weather, inspections, permitting, material availability, change orders, owner decisions, hidden conditions, or circumstances outside contractor control.",
+    "- Legal & Jurisdiction Notices: Required licensing, lien, cancellation, dispute-resolution, insurance, and consumer-protection notices must be confirmed for the project location before client use.",
   ];
 };
 
@@ -475,43 +512,23 @@ export const computeClientPricingBreakdown = (doc: ContractDoc): ClientPricingBr
   };
 };
 
-export const getProjectTypePackForKind = (kind: EstimateProjectKind): ClausePack => {
-  switch (kind) {
-    case "new_build":
-      return {
-        heading: "New Build Clauses",
-        clauses: [
-          "Construction sequencing, inspections, and trade coordination are based on the approved plans and may adjust if engineering, permitting, or utility requirements change.",
-          "Selections and owner-furnished items must be approved in time to avoid schedule impacts. Late selections may delay completion and require change-order pricing.",
-        ],
-        warnings: [],
-        disclaimer:
-          "Project-specific construction assumptions should be reviewed against the final plans and specifications.",
-      };
-    case "service":
-      return {
-        heading: "Service Work Clauses",
-        clauses: [
-          "Service work pricing is based on the observable condition of the work area at the time of estimate. Hidden conditions discovered after arrival or access may require revised pricing.",
-          "Temporary repairs, diagnostics, and exploratory work are limited to the scope stated in this proposal unless expanded by written authorization.",
-        ],
-        warnings: [],
-        disclaimer:
-          "Service work templates should be reviewed to confirm the exact site condition and repair scope.",
-      };
-    default:
-      return {
-        heading: "Residential remodel clauses",
-        clauses: [
-          "Remodel pricing assumes reasonable access to the existing work area and existing conditions that are materially consistent with the visible site at the time of estimate.",
-          "Hidden damage, framing deficiencies, code corrections, and hazardous-material findings discovered after demolition are outside the base scope and require written change-order approval.",
-        ],
-        warnings: [],
-        disclaimer:
-          "Remodel scope assumptions should be reviewed against final selections and site conditions before signature.",
-      };
-  }
-};
+/** Default job-specific bullets on the contract terms page (all estimate kinds). */
+export const DEFAULT_JOB_SPECIFIC_ASSUMPTION_CLAUSES: string[] = [
+  "- This pricing is based on the project type, scope, site conditions, and information available at the time of estimate.",
+  "- Existing or site-specific conditions that differ from the information provided may affect price, schedule, materials, labor, inspections, and required approvals.",
+  "- Hidden conditions, code corrections, utility conflicts, engineering changes, plan revisions, hazardous materials, unsuitable soils, structural issues, and other unforeseen conditions are outside the base scope unless specifically included.",
+  "- Owner selections, finish changes, fixture changes, appliance changes, layout changes, design changes, and owner-furnished materials may affect price, schedule, ordering, installation, and warranty coverage.",
+  "- Lead times, labor availability, inspection timing, weather, material availability, site access, owner decisions, change orders, and third-party delays may affect the project schedule.",
+  "- Any work not specifically listed in the proposal, scope summary, drawings, selections, or approved change order is excluded from the contract total.",
+  "- Project-specific assumptions should be reviewed and adjusted before sending the agreement to the client.",
+];
+
+export const getProjectTypePackForKind = (_kind: EstimateProjectKind): ClausePack => ({
+  heading: "Job-specific assumptions",
+  clauses: [...DEFAULT_JOB_SPECIFIC_ASSUMPTION_CLAUSES],
+  warnings: [],
+  disclaimer: "",
+});
 
 /** @deprecated Prefer getProjectTypePackForKind(getEffectiveEstimateKind(...)) for PDFs */
 export const getProjectTypePack = (projectType?: string): ClausePack =>
@@ -732,18 +749,6 @@ export const normalizeProjectContractCopy = (
   };
 };
 
-/** Single paragraph for the legal page — avoids repeating headers + disclaimers + clause bullets. */
-export const getStateLegalSummary = (state: ContractTemplateState): string => {
-  switch (state) {
-    case "nevada":
-      return "Nevada residential work: confirm licensing, deposit limits, and notice rules against your final scope before client delivery. Disputes are typically reviewed under Nevada law in the county where the project is located unless otherwise agreed in writing.";
-    case "utah":
-      return "Utah residential work: confirm contractor registration, cancellation rights, and required consumer notices for your sale type; attach statutory disclosures before signature where applicable. Disputes are typically reviewed under Utah law in the county where the project is located unless otherwise agreed in writing.";
-    default:
-      return "Confirm local licensing, consumer cancellation, and dispute-resolution rules for the project location and sale type.";
-  }
-};
-
 export const buildContractSections = (
   doc: ContractDoc,
   options: ContractBuildOptions,
@@ -807,4 +812,70 @@ export const buildContractSections = (
     draftLabel,
     disclaimer,
   };
+};
+
+const splitDraftLines = (text: string) =>
+  String(text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** Empty / whitespace-only draft is treated as “use template default” (avoids blank PDF before drafts hydrate). */
+const parseDraftLinesOrDefault = (text: string, fallback: string[]) => {
+  if (!String(text || "").trim()) return [...fallback];
+  return splitDraftLines(text);
+};
+
+/** Defaults that will appear on the contract PDF unless the user overrides them in the estimate UI. */
+export const getContractLanguageDefaults = (
+  doc: ContractDoc,
+  options: ContractBuildOptions,
+): {
+  projectAssumptions: string[];
+  businessTerms: string[];
+  workTypeAssumptions: string[];
+} => {
+  const sanitized = sanitizeContractDoc(doc, options);
+  const sections = buildContractSections(sanitized, options);
+  return {
+    projectAssumptions: [...DEFAULT_PROJECT_ASSUMPTION_BULLETS],
+    businessTerms: [...sections.baseTerms],
+    workTypeAssumptions: [...sections.projectPack.clauses],
+  };
+};
+
+/**
+ * Applies multiline draft text from the estimate “contract wording” editor.
+ * Only sets `custom*` fields when content differs from template defaults (keeps PDF options clean).
+ */
+export const mergeContractLanguageDraftsIntoOptions = (
+  doc: ContractDoc,
+  base: ContractBuildOptions,
+  drafts: {
+    projectAssumptionsText: string;
+    businessTermsText: string;
+    workTypeAssumptionsText: string;
+  },
+): ContractBuildOptions => {
+  const defaults = getContractLanguageDefaults(doc, base);
+  const pa = parseDraftLinesOrDefault(drafts.projectAssumptionsText, defaults.projectAssumptions);
+  const bt = parseDraftLinesOrDefault(drafts.businessTermsText, defaults.businessTerms);
+  const wta = parseDraftLinesOrDefault(drafts.workTypeAssumptionsText, defaults.workTypeAssumptions);
+  const next: ContractBuildOptions = { ...base };
+  if (JSON.stringify(pa) !== JSON.stringify(defaults.projectAssumptions)) {
+    next.customProjectAssumptions = pa;
+  } else {
+    delete next.customProjectAssumptions;
+  }
+  if (JSON.stringify(bt) !== JSON.stringify(defaults.businessTerms)) {
+    next.customBusinessTerms = bt;
+  } else {
+    delete next.customBusinessTerms;
+  }
+  if (JSON.stringify(wta) !== JSON.stringify(defaults.workTypeAssumptions)) {
+    next.customWorkTypeAssumptions = wta;
+  } else {
+    delete next.customWorkTypeAssumptions;
+  }
+  return next;
 };

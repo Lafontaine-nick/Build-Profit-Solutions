@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -8,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors, COLORS } from "../src/theme/colors";
 import type { Milestone, MilestoneStatus, MilestoneCostCategory } from "../src/types/timeline";
 import GreyCalendar from "./GreyCalendar";
+import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 
@@ -154,12 +156,13 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           <View style={styles.header}>
             <View style={styles.backButtonWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backButtonBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     if (Platform.OS === 'ios') {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -167,10 +170,9 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     onClose();
                   }}
                   style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={styles.headerTitleContainer}>
@@ -370,7 +372,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           ]}>
             <View style={styles.cancelButtonWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.cancelButtonBorder}

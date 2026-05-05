@@ -14,14 +14,15 @@ import {
   BUILDER_FEE_LABEL,
   computeClientPricingBreakdown,
   ContractBuildOptions,
+  DEFAULT_PROJECT_ASSUMPTION_BULLETS,
   getScheduleSummaryForContract,
-  getStateLegalSummary,
   normalizeContractAudience,
   normalizeContractPdfMode,
   filterContractWarningsForAudience,
   normalizeProjectContractCopy,
   resolvePdfHeaderCompany,
   sanitizeContractDoc,
+  stripEditorListPrefix,
 } from "./contractTemplate";
 
 type ContractPdfDocumentProps = {
@@ -775,7 +776,7 @@ const BulletList = ({ items }: { items: string[] }) => (
     {items.map((item, index) => (
       <Text key={`${item}-${index}`} style={styles.bullet}>
         <Text style={styles.bulletSymbol}>• </Text>
-        {item}
+        {stripEditorListPrefix(item)}
       </Text>
     ))}
   </View>
@@ -932,6 +933,12 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
   const sanitizedDoc = sanitizeContractDoc(doc, options);
   const contractCopy = normalizeProjectContractCopy(sanitizedDoc, options);
   const sections = buildContractSections(sanitizedDoc, options);
+  const businessTermsForPdf = Array.isArray(options.customBusinessTerms)
+    ? options.customBusinessTerms
+    : sections.baseTerms;
+  const workTypeClausesForPdf = Array.isArray(options.customWorkTypeAssumptions)
+    ? options.customWorkTypeAssumptions
+    : sections.projectPack.clauses;
 
   const today = new Date().toLocaleDateString("en-US", {
     month: "short",
@@ -988,16 +995,9 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
     { label: BUILDER_FEE_LABEL, value: builderFeeAmount },
     { label: "Contract total", value: contractTotalPricing },
   ];
-  const notes = [
-    "Pricing is all-inclusive for the scope described. Nothing is hidden.",
-    "Permits, plans, and inspections are billed at actual cost; receipts available on request.",
-    "Project management covers scheduling, supervision, and documentation — not additional profit.",
-    "Change orders are priced and approved in writing before work continues.",
-    "Selections, finishes, and owner-furnished items must be approved before ordering.",
-    "Lead times begin after approvals, deposit receipt, and material release.",
-    "Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
-    "Access to the work area, parking, and utilities must remain available during active work hours.",
-  ];
+  const notes = Array.isArray(options.customProjectAssumptions)
+    ? options.customProjectAssumptions
+    : DEFAULT_PROJECT_ASSUMPTION_BULLETS;
   const dedupedWarnings = sections.warnings.filter(
     (w, i, arr) => arr.findIndex((x) => x.message === w.message) === i,
   );
@@ -1483,25 +1483,20 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
 
         <View style={styles.sectionBlock}>
           <Text style={styles.blockTitle}>Business terms</Text>
-          {sections.baseTerms.map((term, index) => (
+          {businessTermsForPdf.map((term, index) => (
             <Text key={`${term}-${index}`} style={styles.legalItem}>
               <Text style={styles.legalItemNum}>{index + 1}. </Text>
-              {term}
+              {stripEditorListPrefix(term)}
             </Text>
           ))}
         </View>
 
         <View style={styles.sectionBlock}>
-          <Text style={styles.blockTitle}>Work-type assumptions</Text>
-          <BulletList items={sections.projectPack.clauses} />
+          <Text style={styles.blockTitle}>Job-specific assumptions</Text>
+          <BulletList items={workTypeClausesForPdf} />
           {sections.projectPack.disclaimer ? (
             <Text style={styles.subtle}>{sections.projectPack.disclaimer}</Text>
           ) : null}
-        </View>
-
-        <View style={styles.sectionBlock}>
-          <Text style={styles.blockTitle}>State & jurisdiction</Text>
-          <Text style={styles.legalItem}>{getStateLegalSummary(options.state)}</Text>
         </View>
       </Page>
 

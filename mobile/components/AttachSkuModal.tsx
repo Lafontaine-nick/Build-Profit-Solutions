@@ -58,6 +58,8 @@ function getApiBase() {
 }
 
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -174,6 +176,25 @@ export default function AttachSkuModal({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = Colors.bg === '#000000';
+
+  /** Same shell as Estimates step 1–2 `AppTextField` (`estimateAccessoryShellStyle` in estimate-generator). */
+  const skuTextFieldShellStyle = useMemo(
+    () =>
+      darkMode
+        ? {
+            borderRadius: 18,
+            backgroundColor: '#0B0B0D',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.10)',
+          }
+        : {
+            borderRadius: 12,
+            backgroundColor: Colors.surface2,
+            borderWidth: 1,
+            borderColor: Colors.line,
+          },
+    [darkMode, Colors.surface2, Colors.line],
+  );
 
   // Debug logging
   React.useEffect(() => {
@@ -705,7 +726,7 @@ export default function AttachSkuModal({
             <View style={webConstrainedForm}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={{
@@ -716,7 +737,8 @@ export default function AttachSkuModal({
                   marginRight: 12,
                 }}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     onClose();
@@ -735,11 +757,11 @@ export default function AttachSkuModal({
                     size={24}
                     color={darkMode ? '#FFFFFF' : Colors.text}
                   />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={{
@@ -921,25 +943,18 @@ export default function AttachSkuModal({
               }}>
                 Search Query *
               </Text>
-              <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={{
-                  borderRadius: 20,
-                  padding: 1,
-                }}
+              <View
+                style={[
+                  skuTextFieldShellStyle,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    minHeight: 58,
+                  },
+                ]}
               >
-                <View style={{
-                  borderRadius: 18,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingHorizontal: 14,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
-                  paddingVertical: 10,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
-                }}>
                   <Feather
                     name="search"
                     size={16}
@@ -961,8 +976,8 @@ export default function AttachSkuModal({
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                     onSubmitEditing={search}
                     keyboardAppearance={darkMode ? 'dark' : 'light'}
-                    selectionColor="#2EE6A6"
-                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                    selectionColor="#22c55e"
+                    cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                     underlineColorAndroid="transparent"
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
@@ -983,8 +998,7 @@ export default function AttachSkuModal({
                       />
                     </TouchableOpacity>
                   )}
-                </View>
-              </LinearGradient>
+              </View>
             </View>
 
             {/* ZIP Input */}
@@ -998,25 +1012,18 @@ export default function AttachSkuModal({
               }}>
                 ZIP Code *
               </Text>
-              <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={{
-                  borderRadius: 20,
-                  padding: 1,
-                }}
+              <View
+                style={[
+                  skuTextFieldShellStyle,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    minHeight: 58,
+                  },
+                ]}
               >
-                <View style={{
-                  borderRadius: 18,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingHorizontal: 14,
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
-                  paddingVertical: 10,
-                  borderWidth: 1,
-                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
-                }}>
                   <Feather
                     name="map-pin"
                     size={16}
@@ -1029,8 +1036,8 @@ export default function AttachSkuModal({
                     value={zip}
                     onChangeText={setZip}
                     keyboardAppearance={darkMode ? 'dark' : 'light'}
-                    selectionColor="#2EE6A6"
-                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                    selectionColor="#22c55e"
+                    cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                     style={{
                       flex: 1,
                       fontSize: 15,
@@ -1043,8 +1050,7 @@ export default function AttachSkuModal({
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
                   />
-                </View>
-              </LinearGradient>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -1062,11 +1068,9 @@ export default function AttachSkuModal({
                 opacity: (loading || !q || !zip) ? 0.5 : 1,
               }}
             >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+                <View
                   style={{
+                    backgroundColor: '#22c55e',
                     paddingVertical: 13,
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1085,7 +1089,7 @@ export default function AttachSkuModal({
                   }}>
                     {loading ? 'Searching...' : 'Search'}
                   </Text>
-                </LinearGradient>
+                </View>
               </TouchableOpacity>
 
             {loading && <ActivityIndicator color="#22c55e" size="large" style={{ marginTop: 16 }} />}

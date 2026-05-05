@@ -43,6 +43,7 @@ import LeadsHeader from './LeadsHeader';
 import LeadCardManager, { CardDisplayMode } from './LeadCardManager';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
 import {
   getTimeAgo,
   calculateUrgencyScore,
@@ -87,10 +88,10 @@ import {
 } from '../utils/competitorIntelligence';
 import { LeadAnalyticsDashboard } from './LeadAnalyticsDashboard';
 
-/** Same green→cyan border as Estimates Bid Summary (Total Bid / Cost Breakdown): `#2DFFC4` → `#00A6FF`. */
+/** Same frame as Estimates / Messages / AI Assistant (`brandFrameGradient`). */
 const LEADS_SECTION_GRADIENT = {
-  dark: ['#2DFFC4', '#00A6FF'] as const,
-  light: ['#2DFFC4', '#00A6FF'] as const,
+  dark: [...BRAND_FRAME_GRADIENT_COLORS] as [string, string],
+  light: [...BRAND_FRAME_GRADIENT_COLORS] as [string, string],
 };
 
 interface EnhancedLeadsPageProps {
@@ -2716,9 +2717,9 @@ export default function EnhancedLeadsPage({
                 {selectedTrades.map((trade, idx) => (
                   <LinearGradient
                     key={idx}
-                    colors={['rgba(45, 255, 196, 0.5)', 'rgba(0, 166, 255, 0.45)']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
+                    start={BRAND_FRAME_GRADIENT_START}
+                    end={BRAND_FRAME_GRADIENT_END}
                     style={styles.tradeTokenGradient}
                   >
                     <View style={styles.tradeToken}>

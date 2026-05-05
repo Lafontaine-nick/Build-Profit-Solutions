@@ -12,6 +12,7 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,6 +26,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 
 export type CalendarEvent = {
   id: string;
@@ -199,6 +201,10 @@ export default function ProjectCalendar({
   const { theme, darkMode } = useTheme();
   const TC = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
+  const { width: layoutWidth } = useWindowDimensions();
+  /** Desktop web: cap calendar modals + New/Edit Event to same column as dashboard / date sheet */
+  const calendarDesktopWeb =
+    Platform.OS === 'web' && isDesktopWebLayoutWidth(layoutWidth);
   const COLORS = useMemo(
     () =>
       darkMode
@@ -1345,8 +1351,25 @@ export default function ProjectCalendar({
           setShowDateEventsModal(false);
         }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface, paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <View
+          style={[
+            styles.modalOverlay,
+            calendarDesktopWeb && { alignItems: 'center' as const },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: darkMode ? '#1a1a1a' : COLORS.surface,
+                paddingBottom: Math.max(insets.bottom, 20),
+              },
+              calendarDesktopWeb && {
+                width: '100%',
+                maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+              },
+            ]}
+          >
             {/* iOS-style drag indicator */}
             <View style={styles.dragIndicatorWrapper}>
               <View style={[styles.dragIndicator, { backgroundColor: darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }]} />
@@ -1654,11 +1677,24 @@ export default function ProjectCalendar({
         }}
       >
         <KeyboardAvoidingView
-          style={[styles.eventModalFullPage, { backgroundColor: darkMode ? '#0A0A0A' : '#F2F2F7' }]}
+          style={[
+            styles.eventModalFullPage,
+            { backgroundColor: darkMode ? '#0A0A0A' : '#F2F2F7' },
+            calendarDesktopWeb && { alignItems: 'center' as const },
+          ]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? -80 : 0}
         >
-          <View style={[styles.eventModalContent, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) }]}>
+          <View
+            style={[
+              styles.eventModalContent,
+              { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) },
+              calendarDesktopWeb && {
+                width: '100%',
+                maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+              },
+            ]}
+          >
             {/* iOS-style navigation bar */}
             <View style={[styles.eventFormNavBar, { borderBottomColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]}>
               <TouchableOpacity

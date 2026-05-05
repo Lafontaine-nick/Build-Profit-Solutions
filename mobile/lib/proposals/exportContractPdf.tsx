@@ -159,29 +159,8 @@ export async function exportContractPdf(
   const safeBase = sanitizeFilenamePart(fileBase);
   const filename = `${safeBase}.pdf`;
 
-  // @react-pdf/renderer uses yoga-layout-prebuilt (Emscripten/WASM). Hermes/Expo Go does not
-  // provide HEAPU32 etc., so React PDF crashes on native. Use Web-only React PDF; native uses
-  // buildProposalHtml + backend Puppeteer (same content, HTML/CSS pipeline).
-  if (Platform.OS === "web") {
-    try {
-      const [{ generateAndSavePdf }, contractMod, React] = await Promise.all([
-        import("../../utils/pdfGenerator"),
-        import("./ContractPdfDocument"),
-        import("react"),
-      ]);
-      const ContractPdfDocument = contractMod.ContractPdfDocument ?? contractMod.default;
-      console.log("📄 Contract PDF: generating in browser with React PDF…");
-      return await generateAndSavePdf(
-        React.createElement(ContractPdfDocument, { doc, options }),
-        { filename, autoShare: true },
-      );
-    } catch (reactPdfError) {
-      console.warn(
-        "📄 React PDF (web) failed; falling back to backend HTML:",
-        reactPdfError instanceof Error ? reactPdfError.message : reactPdfError,
-      );
-    }
-  }
+  // Same pipeline on all platforms: buildProposalHtml + backend Puppeteer (Chrome print).
+  // React PDF is not used here — it diverged from native layout/fonts; web now matches the app.
 
   const html = buildProposalHtml(doc, options);
   const { footerLeft, footerCenter } = getContractPdfPrintFooterParts(doc, options);

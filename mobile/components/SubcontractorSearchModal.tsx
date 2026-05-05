@@ -22,6 +22,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
@@ -702,7 +704,7 @@ function SubcontractorSearchModal({
               <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webConstrainedForm]}>
               <View style={{ width: 52, alignItems: 'flex-start' }}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={{
@@ -712,7 +714,8 @@ function SubcontractorSearchModal({
                     padding: 1,
                   }}
                 >
-                  <TouchableOpacity
+                  <GradientRingBackInner
+                    darkMode={darkMode}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       onClose();
@@ -731,7 +734,7 @@ function SubcontractorSearchModal({
                       size={24}
                       color={darkMode ? '#FFFFFF' : Colors.text}
                     />
-                  </TouchableOpacity>
+                  </GradientRingBackInner>
                 </LinearGradient>
               </View>
 
@@ -1302,7 +1305,7 @@ function SubcontractorSearchModal({
               }}>
                 <View style={{ marginRight: 12 }}>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
                     style={{
@@ -1312,7 +1315,8 @@ function SubcontractorSearchModal({
                       padding: 1,
                     }}
                   >
-                    <TouchableOpacity
+                    <GradientRingBackInner
+                      darkMode={darkMode}
                       onPress={handleBackFromRequest}
                       style={{
                         width: '100%',
@@ -1324,7 +1328,7 @@ function SubcontractorSearchModal({
                       }}
                     >
                       <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
-                    </TouchableOpacity>
+                    </GradientRingBackInner>
                   </LinearGradient>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -1357,7 +1361,7 @@ function SubcontractorSearchModal({
                 zIndex: 10,
               }}>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={{
@@ -1367,7 +1371,8 @@ function SubcontractorSearchModal({
                     padding: 1,
                   }}
                 >
-                  <TouchableOpacity
+                  <GradientRingBackInner
+                    darkMode={darkMode}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setShowProfile(false);
@@ -1386,7 +1391,7 @@ function SubcontractorSearchModal({
                       size={24}
                       color={darkMode ? '#FFFFFF' : Colors.text}
                     />
-                  </TouchableOpacity>
+                  </GradientRingBackInner>
                 </LinearGradient>
               </View>
 

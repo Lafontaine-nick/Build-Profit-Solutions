@@ -14,6 +14,7 @@ import {
   InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
@@ -42,6 +43,7 @@ import EditPurchaseOrderModal from './EditPurchaseOrderModal';
 import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import GradientRingBackInner from './GradientRingBackInner';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -1436,12 +1438,13 @@ export default function BudgetTab({
           <View style={styles.modalHeader}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={styles.backBtnBorder}
               >
-                <TouchableOpacity
+                <GradientRingBackInner
+                  darkMode
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setShowChangeOrderModal(false);
@@ -1449,10 +1452,9 @@ export default function BudgetTab({
                     setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
                   }}
                   style={styles.backBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
+                </GradientRingBackInner>
               </LinearGradient>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>

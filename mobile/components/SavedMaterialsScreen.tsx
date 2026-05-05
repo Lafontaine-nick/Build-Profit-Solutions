@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import GradientRingBackInner from './GradientRingBackInner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { 
@@ -211,7 +213,7 @@ export default function SavedMaterialsScreen({
       {/* Header */}
       <View style={styles.header}>
         <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={{
@@ -222,7 +224,8 @@ export default function SavedMaterialsScreen({
             marginRight: 12,
           }}
         >
-          <TouchableOpacity
+          <GradientRingBackInner
+            darkMode
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onClose();
@@ -237,7 +240,7 @@ export default function SavedMaterialsScreen({
             }}
           >
             <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
+          </GradientRingBackInner>
         </LinearGradient>
         
         <View style={styles.headerContent}>

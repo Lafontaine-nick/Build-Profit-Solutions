@@ -1,0 +1,25 @@
+---
+description: Website (Expo web) UI changes must not alter native iOS/Android dev app appearance or layout.
+globs: mobile/**/*.{tsx,ts,jsx,js}
+alwaysApply: false
+---
+
+# Web-only UI (do not affect native dev app)
+
+The **website** is the Expo **web** bundle (`npm run web` / Metro web). The **dev app** is **iOS/Android** (Expo dev client, simulator, TestFlight). They share `mobile/` but **native must stay unchanged** unless the user explicitly asks to change the app.
+
+## Required pattern
+
+- Put **layout, spacing, typography, colors, and component structure** that exist only for the website behind **`Platform.OS === 'web'`** (or helpers that are **false on native**, e.g. `isDesktopWebLayoutWidth` from `@/constants/ScreenLayout`, which already includes `Platform.OS === 'web'`).
+- For edge cases (odd Metro web + dev-client setups), **`isExpoWebRuntime()`** from `@/utils/isExpoWebRuntime` may be used instead of `Platform.OS === 'web'` when the goal is truly “browser only.”
+- **Do not** change shared theme tokens (`getColors`, `ThemeContext`), global `ScreenLayout` defaults, or **un-gated** `StyleSheet` entries to serve web—native will pick those up.
+
+## Anti-patterns
+
+- Defaulting to a web layout and “fixing native later.”
+- Using only `useWindowDimensions()` thresholds without `Platform.OS === 'web'` (large phones / iPad can match desktop widths).
+- Duplicating a screen for web vs native unless the user asks for a split implementation.
+
+## When native *should* change
+
+Only when the user **clearly requests** iOS/Android behavior or a **shared bugfix** (e.g. crash, wrong data) that is not a web-only visual tweak.

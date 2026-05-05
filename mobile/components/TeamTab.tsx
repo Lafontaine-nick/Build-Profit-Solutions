@@ -15,14 +15,17 @@ import {
   Platform,
   SafeAreaView,
   StatusBar,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 
 const Colors = {
@@ -362,6 +365,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
   const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
   const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+  const { width: teamModalLayoutWidth } = useWindowDimensions();
+  const teamFormDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(teamModalLayoutWidth);
 
   const [name, setName] = useState(member.name);
   const [phone, setPhone] = useState(member.phone || "");
@@ -398,6 +404,18 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
+        <View
+          style={[
+            { flex: 1, width: "100%" },
+            teamFormDesktopWeb && { alignItems: "center" as const },
+          ]}
+        >
+          <View
+            style={[
+              { flex: 1, width: "100%" },
+              teamFormDesktopWeb && { maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH },
+            ]}
+          >
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
         <View
@@ -411,7 +429,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
         >
           <View style={styles.addMemberBackWrap}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.addMemberBackGradient}
@@ -663,6 +681,8 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
             </LinearGradient>
           </TouchableOpacity>
         </View>
+          </View>
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -684,6 +704,9 @@ const AddMemberModal = ({ onClose, onAdd }: {
   const chipIdleBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
   const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
   const actionBarRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line;
+  const { width: addTeamModalLayoutWidth } = useWindowDimensions();
+  const teamFormDesktopWeb =
+    Platform.OS === "web" && isDesktopWebLayoutWidth(addTeamModalLayoutWidth);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -725,6 +748,18 @@ const AddMemberModal = ({ onClose, onAdd }: {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
+        <View
+          style={[
+            { flex: 1, width: "100%" },
+            teamFormDesktopWeb && { alignItems: "center" as const },
+          ]}
+        >
+          <View
+            style={[
+              { flex: 1, width: "100%" },
+              teamFormDesktopWeb && { maxWidth: DASHBOARD_WEB_MAX_CONTENT_WIDTH },
+            ]}
+          >
         <StatusBar barStyle="light-content" />
         <View
           style={[
@@ -737,7 +772,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
         >
           <View style={styles.addMemberBackWrap}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={styles.addMemberBackGradient}
@@ -907,6 +942,8 @@ const AddMemberModal = ({ onClose, onAdd }: {
             </LinearGradient>
           </TouchableOpacity>
         </View>
+          </View>
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -1049,7 +1086,7 @@ const NotifyTeamModal = ({ members, onClose }: {
         <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingTop: Platform.OS === "ios" ? 8 : 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.line }}>
           <View style={{ marginRight: 12 }}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={{ borderRadius: 22, padding: 1, overflow: "hidden" }}
@@ -1170,7 +1207,7 @@ const NotifyTeamModal = ({ members, onClose }: {
         <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 34 : 20, flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: Colors.line, backgroundColor: Colors.bg }}>
           <View style={{ flex: 1 }}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={{ borderRadius: 12, padding: 1 }}
@@ -1479,7 +1516,7 @@ export default function TeamTab({
       >
         {/* Outer green-to-blue border wrapping Team Details header, Team card, and Search card */}
         <LinearGradient
-          colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+          colors={BRAND_FRAME_GRADIENT_COLORS}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
           style={styles.overviewBorder}
@@ -1721,7 +1758,7 @@ export default function TeamTab({
         {/* Team List Section */}
         <View style={styles.teamListContainer}>
           <LinearGradient
-            colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+            colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
             style={styles.teamListBorder}

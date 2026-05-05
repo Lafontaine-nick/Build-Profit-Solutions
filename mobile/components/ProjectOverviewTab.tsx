@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import SpendingTrendChart from './SpendingTrendChart';
 import { useProjectData } from '../contexts/ProjectDataContext';
@@ -12,7 +13,7 @@ const GradientCard: React.FC<{
   innerStyle?: any;
 }> = ({ children, style = {}, innerStyle = {} }) => (
   <LinearGradient
-    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+    colors={BRAND_FRAME_GRADIENT_COLORS}
     start={{ x: 0.05, y: 0.15 }}
     end={{ x: 0.95, y: 0.85 }}
     style={[{ borderRadius: 20, padding: 1 }, style]}
@@ -448,7 +449,7 @@ const ActionButton: React.FC<{
   theme?: any;
 }> = ({ label, onPress }) => (
   <LinearGradient
-    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+    colors={BRAND_FRAME_GRADIENT_COLORS}
     start={{ x: 0.05, y: 0.15 }}
     end={{ x: 0.95, y: 0.85 }}
     style={{ borderRadius: 16, padding: 1 }}

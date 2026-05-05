@@ -27,6 +27,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { BlurView } from 'expo-blur';
 import GreyCalendar from '../../components/GreyCalendar';
 import * as Haptics from 'expo-haptics';
@@ -43,6 +44,7 @@ import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import GradientRingBackInner from '../../components/GradientRingBackInner';
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
@@ -54,6 +56,13 @@ import {
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import EmptyStateCard from '../../components/EmptyStateCard';
 import ContractSettingsCompact from '../../components/ContractSettingsCompact';
+import { ContractWordingEditor } from '../../components/ContractWordingEditor';
+import {
+  parseAssumptionLinesFromDefaults,
+  serializeAssumptionLines,
+  parseBusinessTermsText,
+  serializeBusinessTerms,
+} from '../../lib/proposals/contractWordingSerialization';
 import BottomToast from '../../components/BottomToast';
 import {
   FirstEstimateWalkthroughSheetShell,
@@ -70,7 +79,7 @@ import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { useKeyboard } from '@/services/MobileOptimization';
 // Contract PDF export
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
-import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight } from '../../lib/proposals/contractTemplate';
+import { resolveContractBranding, resolveBrandImageUrl, validateContractPreflight, getContractLanguageDefaults, mergeContractLanguageDraftsIntoOptions } from '../../lib/proposals/contractTemplate';
 import { applyDocumentContactEmailToProfile, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 import { useProjectList } from '../../contexts/ProjectListContext';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
@@ -95,6 +104,7 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
+  getProjectExpenseFormHorizontalPadding,
 } from '@/constants/ScreenLayout';
 
 // Colors will be defined inside the component using theme
@@ -150,6 +160,18 @@ const normalizeContractTemplateState = (value) => {
 const getContractTypeForProject = (projectType) => {
   const normalized = String(projectType || '').trim().toLowerCase();
   return normalized === 'new_build' ? 'construction' : 'home-improvement';
+};
+
+/** Apply per-bid PDF branding overrides (empty override = keep profile value). */
+const mergeBrandingFromBid = (branding, bidData) => {
+  const next = { ...branding };
+  const c = String(bidData?.contractBrandingCompany || '').trim();
+  const n = String(bidData?.contractBrandingContractorName || '').trim();
+  const t = String(bidData?.contractBrandingContractorTitle || '').trim();
+  if (c) next.companyName = c;
+  if (n) next.contractorName = n;
+  if (t) next.contractorTitle = t;
+  return next;
 };
 
 const SECTIONS = {
@@ -301,7 +323,7 @@ const RENTAL_CATEGORIES = [
     name: 'Heavy Equipment',
     icon: '🚜',
     description: 'Excavators, loaders, dozers',
-    color: '#38d39f',
+    color: '#22c55e',
   },
   {
     id: 'power',
@@ -695,15 +717,6 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: '500',
     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } : {}),
   },
-  /** Estimates Add Material / Add Labor — grouped body (same on native + web; gate web-only layout elsewhere). */
-  materialFormSheet: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(45, 255, 196, 0.22)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
-  },
   materialPricingRow: {
     flexDirection: 'row',
     gap: 10,
@@ -720,7 +733,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   materialPricingOptionActive: {
     borderColor: '#22c55e',
-    backgroundColor: '#38d39f',
+    backgroundColor: '#22c55e',
   },
   materialPricingOptionIdle: {
     borderColor: Colors.line,
@@ -997,24 +1010,25 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
         <View style={[modalStyles.materialHeader, headerStyle]} collapsable={false}>
           <View style={modalStyles.backButtonWrapper}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={modalStyles.backButtonBorder}
             >
-              <Pressable
+              <GradientRingBackInner
+                darkMode={darkMode}
                 onPress={onClose}
                 style={modalStyles.backButton}
               >
                 <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-              </Pressable>
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
 
           <View style={modalStyles.headerTitleRow}>
             <View style={modalStyles.headerIconContainerWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={modalStyles.headerIconBorder}
@@ -1055,7 +1069,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Milestone Name *</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1104,7 +1118,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Amount *</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1133,7 +1147,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1162,7 +1176,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
                 <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1200,7 +1214,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
                       markedDates={{
                         [scheduledDate || '']: {
                           selected: true,
-                          selectedColor: '#38d39f',
+                          selectedColor: '#22c55e',
                           selectedTextColor: '#000000',
                         }
                       }}
@@ -1230,14 +1244,9 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
                 ]}
                 onPress={handleSave}
               >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={modalStyles.materialSaveButtonGradient}
-                >
+                <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
                   <Text style={modalStyles.materialSaveText}>✓ Save</Text>
-                </LinearGradient>
+                </View>
               </Pressable>
             </View>
             </KeyboardAvoidingView>
@@ -1357,24 +1366,25 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
         <View style={[modalStyles.materialHeader, headerStyle]} collapsable={false}>
           <View style={modalStyles.backButtonWrapper}>
             <LinearGradient
-              colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+              colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={modalStyles.backButtonBorder}
             >
-              <Pressable
+              <GradientRingBackInner
+                darkMode={darkMode}
                 onPress={onClose}
                 style={modalStyles.backButton}
               >
                 <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-              </Pressable>
+              </GradientRingBackInner>
             </LinearGradient>
           </View>
 
           <View style={modalStyles.headerTitleRow}>
             <View style={modalStyles.headerIconContainerWrapper}>
               <LinearGradient
-                colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
                 style={modalStyles.headerIconBorder}
@@ -1414,7 +1424,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Week Number *</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1462,7 +1472,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Amount *</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1490,7 +1500,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1518,7 +1528,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
                 <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
                 <LinearGradient
-                  colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
                   style={modalStyles.materialInputBorder}
@@ -1556,7 +1566,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
                       markedDates={{
                         [scheduledDate || '']: {
                           selected: true,
-                          selectedColor: '#38d39f',
+                          selectedColor: '#22c55e',
                           selectedTextColor: '#000000',
                         }
                       }}
@@ -1586,14 +1596,9 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
                 ]}
                 onPress={handleSave}
               >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={modalStyles.materialSaveButtonGradient}
-                >
+                <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
                   <Text style={modalStyles.materialSaveText}>✓ Save</Text>
-                </LinearGradient>
+                </View>
               </Pressable>
             </View>
             </KeyboardAvoidingView>
@@ -1775,6 +1780,19 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
     if (!visible) setMaterialVendorFocused(false);
   }, [visible]);
 
+  const lineItemNativeFullBleedForm = Platform.OS === 'ios' || Platform.OS === 'android';
+  /** Native: match tab screens (`ScreenLayout.edge.horizontal`). Web: keep expense-modal tokens. */
+  const lineItemLayoutPad = useMemo(() => {
+    if (lineItemWebConstrained) {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: true });
+    }
+    if (Platform.OS === 'web') {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: false });
+    }
+    const h = ScreenLayout.edge.horizontal;
+    return { header: h, scroll: h, footer: h };
+  }, [lineItemWebConstrained]);
+
   const lineItemMaterialVendorKeyboardBoost =
     visible && isMaterialForm && isKeyboardVisible && materialVendorFocused
       ? Platform.OS === 'ios'
@@ -1818,15 +1836,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
               ]}
             >
               {/* Header */}
-              <View style={modalStyles.materialHeader}>
+              <View style={[modalStyles.materialHeader, { paddingHorizontal: lineItemLayoutPad.header }]}>
                 <View style={modalStyles.backButtonWrapper}>
                   <LinearGradient
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
                     style={modalStyles.backButtonBorder}
                   >
-                    <TouchableOpacity
+                    <GradientRingBackInner
+                      darkMode={darkMode}
                       onPress={onClose}
                       style={modalStyles.backButton}
                     >
@@ -1835,13 +1854,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         size={24}
                         color={darkMode ? "#FFFFFF" : "#000000"}
                       />
-                    </TouchableOpacity>
+                    </GradientRingBackInner>
                   </LinearGradient>
                 </View>
                 <View style={modalStyles.headerTitleRow}>
                       <View style={modalStyles.headerIconContainerWrapper}>
                     <LinearGradient
-                      colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={modalStyles.headerIconBorder}
@@ -1880,13 +1899,13 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 automaticallyAdjustContentInsets={false}
                 contentInsetAdjustmentBehavior="never"
                 contentContainerStyle={{
-                  paddingHorizontal: 20,
+                  paddingHorizontal: lineItemLayoutPad.scroll,
                   paddingTop: 8,
                   paddingBottom: 16 + lineItemMaterialVendorKeyboardBoost,
                 }}
               >
                 {isLaborForm ? (
-                  <View style={modalStyles.materialFormSheet}>
+                  <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
                     {/* Labor Name (Description) */}
                     <View style={modalStyles.materialFieldGroup}>
                       <Text style={modalStyles.materialLabel}>Item Name *</Text>
@@ -1929,10 +1948,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             borderRadius: 12,
                             borderWidth: 1,
                             borderColor: mode === 'hourly'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                             backgroundColor: mode === 'hourly'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1953,10 +1972,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             borderRadius: 12,
                             borderWidth: 1,
                             borderColor: mode === 'sqft'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                             backgroundColor: mode === 'sqft'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1984,10 +2003,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             borderRadius: 12,
                             borderWidth: 1,
                             borderColor: laborType === 'inhouse'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                             backgroundColor: laborType === 'inhouse'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -2008,10 +2027,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             borderRadius: 12,
                             borderWidth: 1,
                             borderColor: laborType === 'subcontractor'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                             backgroundColor: laborType === 'subcontractor'
-                              ? '#38d39f'
+                              ? '#22c55e'
                               : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -2079,8 +2098,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
-                            selectionColor="#2EE6A6"
-                            cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                            selectionColor="#22c55e"
+                            cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                             underlineColorAndroid="transparent"
                             inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
@@ -2091,14 +2110,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                     {/* Total Display */}
                     <View style={[modalStyles.materialFieldGroup, { marginTop: 8 }]}>
                       <View style={{
-                        backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.12)',
                         borderRadius: 12,
                         padding: 16,
                         borderWidth: 1,
-                        borderColor: 'rgba(45, 255, 196, 0.3)',
+                        borderColor: 'rgba(34, 197, 94, 0.35)',
                       }}>
                         <Text style={{
-                          color: darkMode ? '#2DFFC4' : Colors.text,
+                          color: darkMode ? '#22c55e' : Colors.text,
                           fontSize: 18,
                           fontWeight: '700',
                           textAlign: 'center',
@@ -2107,9 +2126,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         </Text>
                       </View>
                     </View>
-                  </View>
+                  </LineItemFormShell>
                 ) : (
-                  <View style={modalStyles.materialFormSheet}>
+                  <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
                       {/* Material Name (Description) */}
                       <View style={modalStyles.materialFieldGroup}>
                         <Text style={modalStyles.materialLabel}>Description *</Text>
@@ -2282,8 +2301,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     onSubmitEditing={() =>
                                       materialRateInputRef.current?.focus?.()
                                     }
-                                    selectionColor="#2EE6A6"
-                                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                                    selectionColor="#22c55e"
+                                    cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
                                     inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
@@ -2336,8 +2355,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     returnKeyType="done"
                                     blurOnSubmit={false}
                                     onSubmitEditing={() => Keyboard.dismiss()}
-                                    selectionColor="#2EE6A6"
-                                    cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                                    selectionColor="#22c55e"
+                                    cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
                                     inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
@@ -2347,16 +2366,16 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             <View
                               style={{
                                 marginTop: 12,
-                                backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                                backgroundColor: 'rgba(34, 197, 94, 0.12)',
                                 borderRadius: 12,
                                 padding: 16,
                                 borderWidth: 1,
-                                borderColor: 'rgba(45, 255, 196, 0.3)',
+                                borderColor: 'rgba(34, 197, 94, 0.35)',
                               }}
                             >
                               <Text
                                 style={{
-                                  color: darkMode ? '#2DFFC4' : Colors.text,
+                                  color: darkMode ? '#22c55e' : Colors.text,
                                   fontSize: 18,
                                   fontWeight: '700',
                                   textAlign: 'center',
@@ -2409,8 +2428,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 returnKeyType="done"
                                 blurOnSubmit={false}
                                 onSubmitEditing={() => Keyboard.dismiss()}
-                                selectionColor="#2EE6A6"
-                                cursorColor={Platform.OS === 'ios' ? '#2EE6A6' : undefined}
+                                selectionColor="#22c55e"
+                                cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                 underlineColorAndroid="transparent"
                                 inputAccessoryViewID={bpsKeyboardAccessoryId}
                               />
@@ -2444,14 +2463,17 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           ))}
                         </View>
                       </View>
-                  </View>
+                  </LineItemFormShell>
                 )}
               </ScrollView>
 
               <View
                 style={[
                   modalStyles.materialFooterFlow,
-                  { paddingBottom: Math.max(insets.bottom, 16) },
+                  {
+                    paddingBottom: Math.max(insets.bottom, 16),
+                    paddingHorizontal: lineItemLayoutPad.footer,
+                  },
                 ]}
               >
                 <Pressable
@@ -2474,14 +2496,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   android_disableSound
                   delayPressIn={0}
                 >
-                  <LinearGradient
-                    colors={["#22c55e", "#22d3ee"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={modalStyles.materialSaveButtonGradient}
-                  >
+                  <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
                     <Text style={modalStyles.materialSaveText}>✓ Save</Text>
-                  </LinearGradient>
+                  </View>
                 </Pressable>
               </View>
             </View>
@@ -3044,6 +3061,11 @@ const blankState = () => ({
   customerZip: '',
   customerCompany: '',
   customerNotes: '',
+
+  /** Optional PDF-only overrides; empty = use contractor profile / Clerk. */
+  contractBrandingCompany: '',
+  contractBrandingContractorName: '',
+  contractBrandingContractorTitle: '',
   
   // Unit mode
   unitMode: 'sqft',
@@ -3707,6 +3729,26 @@ const GlassBorderCard = ({
         {safeChildren}
       </View>
     </LinearGradient>
+  );
+};
+
+/**
+ * Estimates Add Material / Add Labor: on native app, form is full-page (no gradient ring).
+ * Web keeps GlassBorderCard for parity with desktop layout.
+ */
+const LineItemFormShell = ({ nativeFullBleed, darkMode, Colors, children }) => {
+  if (nativeFullBleed) {
+    const innerBg = darkMode ? Colors.card : Colors.bg;
+    return (
+      <View style={{ marginBottom: 8, paddingVertical: 8, backgroundColor: innerBg }}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <GlassBorderCard radius={20} innerRadius={19} pad={16} lightBg style={{ marginBottom: 8 }}>
+      {children}
+    </GlassBorderCard>
   );
 };
 
@@ -4502,7 +4544,7 @@ export default function EstimateGeneratorScreen() {
     return Math.min(100, Math.round(points));
   }, [bid, materialsCart, calc]);
 
-  const healthColor = healthScore >= 80 ? '#38d39f' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
+  const healthColor = healthScore >= 80 ? '#22c55e' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
@@ -5881,6 +5923,11 @@ export default function EstimateGeneratorScreen() {
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
   const [paymentTimelineExpanded, setPaymentTimelineExpanded] = useState(false);
   const [finalStepLegalExpanded, setFinalStepLegalExpanded] = useState(false);
+  const [contractWordingExpanded, setContractWordingExpanded] = useState(false);
+  const [contractLangAssumptions, setContractLangAssumptions] = useState([]);
+  const [contractLangBusinessTerms, setContractLangBusinessTerms] = useState([]);
+  const [contractLangWorkNotes, setContractLangWorkNotes] = useState([]);
+  const contractLangDraftsKeyRef = useRef('');
   
   // Enhanced materials state
   const [activeScope, setActiveScope] = useState('kitchen');
@@ -8838,6 +8885,21 @@ export default function EstimateGeneratorScreen() {
     }
   }, [bid?.projectType, bid?.projectCategory, bid?.category, bid?.template, activeScope, normalizeScope]);
 
+  const handleSaveContractSettings = useCallback((payload) => {
+    setContractTemplateState(payload.contractTemplateState);
+    setBid((prev) => ({
+      ...prev,
+      customerName: payload.customerName,
+      customerAddress: payload.customerAddress,
+      customerCity: payload.customerCity,
+      customerState: payload.customerState,
+      customerZip: payload.customerZip,
+      contractBrandingCompany: payload.contractBrandingCompany ?? '',
+      contractBrandingContractorName: payload.contractBrandingContractorName ?? '',
+      contractBrandingContractorTitle: payload.contractBrandingContractorTitle ?? '',
+    }));
+  }, []);
+
   // Build Contract Document from Bid Data (optional profile snapshot for PDF export = fresh branding)
   const buildDocFromBid = (bidData, calcData, profileSnapshot = null) => {
     const cp = profileSnapshot || contractorProfile;
@@ -9019,6 +9081,89 @@ export default function EstimateGeneratorScreen() {
     };
   };
 
+  const contractLangApplyTemplateDefaults = useCallback(() => {
+    const doc = buildDocFromBid(bid, calc, contractorProfile);
+    const opts = {
+      pdfMode: 'detailed',
+      state: contractTemplateState,
+      projectType: bid.projectType,
+      contractType: getContractTypeForProject(bid.projectType),
+      branding: resolveContractBranding(contractorProfile),
+      contractAudience: 'client',
+    };
+    const d = getContractLanguageDefaults(doc, opts);
+    return {
+      assumptions: parseAssumptionLinesFromDefaults(d.projectAssumptions),
+      businessTerms: parseBusinessTermsText(d.businessTerms.join('\n')),
+      workNotes: parseAssumptionLinesFromDefaults(d.workTypeAssumptions),
+    };
+  }, [bid, calc, contractorProfile, contractTemplateState]);
+
+  useEffect(() => {
+    if (step !== 8) return;
+    const key = `${bid.id}|${contractTemplateState}|${String(bid.projectType || '')}`;
+    if (contractLangDraftsKeyRef.current === key) return;
+    contractLangDraftsKeyRef.current = key;
+    try {
+      const x = contractLangApplyTemplateDefaults();
+      setContractLangAssumptions(x.assumptions);
+      setContractLangBusinessTerms(x.businessTerms);
+      setContractLangWorkNotes(x.workNotes);
+    } catch (e) {
+      console.warn('Contract language drafts init:', e);
+    }
+  }, [step, bid.id, contractTemplateState, bid.projectType, contractLangApplyTemplateDefaults]);
+
+  const resetContractLanguageDraftsToTemplate = useCallback(() => {
+    try {
+      const x = contractLangApplyTemplateDefaults();
+      setContractLangAssumptions(x.assumptions);
+      setContractLangBusinessTerms(x.businessTerms);
+      setContractLangWorkNotes(x.workNotes);
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Reset contract language drafts:', e);
+    }
+  }, [contractLangApplyTemplateDefaults]);
+
+  const resetContractLangAssumptionsSection = useCallback(() => {
+    try {
+      const x = contractLangApplyTemplateDefaults();
+      setContractLangAssumptions(x.assumptions);
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Reset contract assumptions section:', e);
+    }
+  }, [contractLangApplyTemplateDefaults]);
+
+  const resetContractLangBusinessSection = useCallback(() => {
+    try {
+      const x = contractLangApplyTemplateDefaults();
+      setContractLangBusinessTerms(x.businessTerms);
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Reset contract business terms section:', e);
+    }
+  }, [contractLangApplyTemplateDefaults]);
+
+  const resetContractLangWorkNotesSection = useCallback(() => {
+    try {
+      const x = contractLangApplyTemplateDefaults();
+      setContractLangWorkNotes(x.workNotes);
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Reset contract work notes section:', e);
+    }
+  }, [contractLangApplyTemplateDefaults]);
+
   const resolveContractBrandAsset = async (profile) => {
     const assetPath = resolveBrandImageUrl(profile);
     if (!assetPath || !String(assetPath).startsWith('file://')) {
@@ -9067,9 +9212,9 @@ export default function EstimateGeneratorScreen() {
 
       const contractType = getContractTypeForProject(bid.projectType);
       const profileForPdf = await resolveProfileForContractExport(contractorProfile, clerkUser);
-      const branding = resolveContractBranding(profileForPdf);
+      const branding = mergeBrandingFromBid(resolveContractBranding(profileForPdf), bid);
       const doc = buildDocFromBid(bid, calc, profileForPdf);
-      const contractOptions = {
+      const contractOptionsBase = {
         branding,
         pdfMode: 'detailed',
         state: contractTemplateState,
@@ -9077,6 +9222,11 @@ export default function EstimateGeneratorScreen() {
         contractType,
         contractAudience: 'client',
       };
+      const contractOptions = mergeContractLanguageDraftsIntoOptions(doc, contractOptionsBase, {
+        projectAssumptionsText: serializeAssumptionLines(contractLangAssumptions),
+        businessTermsText: serializeBusinessTerms(contractLangBusinessTerms),
+        workTypeAssumptionsText: serializeAssumptionLines(contractLangWorkNotes),
+      });
       const preflightWarnings = validateContractPreflight(doc, contractOptions);
 
       const runExport = async () => {
@@ -9374,10 +9524,152 @@ export default function EstimateGeneratorScreen() {
 
   // Submit bid to client (changes status to bid_submitted)
   const handleSubmitBid = () => {
-    console.log('🔍 handleSubmitBid called');
-    console.log('🔍 calc object:', calc);
-    console.log('🔍 bid object:', bid);
-    
+    const runSubmit = async () => {
+      const sourceBid = await getLatestBidForActions();
+      console.log('🔍 Submit confirmed — running submit');
+      if (Platform.OS !== 'web') {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+      }
+
+      try {
+        const location = `${sourceBid.customerCity || 'Unknown'}, ${sourceBid.customerState || 'Unknown'}`;
+        const estimatedCost = Number(calc?.subtotal || 0);
+        const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
+        const markup = Number(sourceBid.markupPct || 0);
+        const profitRaw = calc?.profit ?? 0;
+        const netProfit = profitRaw - (calc?.companyOverhead ?? 0);
+        const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
+        const savedFinancialFields = getEstimateSavedFinancialFields({
+          materials: calc?.materials,
+          labor: calc?.labor,
+          financials: {
+            companyOverheadTotal: calc?.companyOverhead,
+            projectCosts: { totalProjectCosts: calc?.totalProjectCosts },
+            overheadContextTotal: calc?.costContextTotal,
+          },
+          subtotal: calc?.subtotal ?? estimatedCost,
+          bidPrice,
+          netProfit,
+        });
+
+        console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
+
+        const estimateData = {
+          id: sourceBid.id,
+          title: sourceBid.title || 'Untitled Bid',
+          status: 'bid_submitted',
+          ...savedFinancialFields,
+          actualCost: 0,
+          margin,
+          markup,
+          location,
+          city: sourceBid.customerCity,
+          state: sourceBid.customerState,
+          zip: sourceBid.customerZip,
+          startDate: sourceBid.startDate || sourceBid.projectStartDate || new Date().toISOString().split('T')[0],
+          endDate: sourceBid.endDate || sourceBid.projectEndDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          progress: 0,
+          client: sourceBid.customerName || sourceBid.clientName || 'Unknown Client',
+          clientEmail: sourceBid.customerEmail || sourceBid.clientEmail,
+          clientPhone: sourceBid.customerPhone,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          estimateData: { ...sourceBid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
+        };
+
+        console.log('🔍 Debug - submitting bid with data:', estimateData);
+        await addEstimate(estimateData);
+
+        if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
+          try {
+            const leadId = sourceBid.leadId;
+            console.log(`🔄 Updating lead ${leadId} stage to proposal after submitting bid`);
+            console.log(`🔄 Lead source: ${sourceBid.leadSource}, Lead ID: ${leadId}`);
+
+            const { trackBidSubmitted } = await import('../../services/engagementTracking');
+            await trackBidSubmitted(leadId);
+
+            try {
+              await unifiedLeadService.updateLeadStage(leadId, 'proposal');
+              console.log(`✅ Updated backend lead ${leadId} stage to proposal`);
+
+              const leadsData = await AsyncStorage.getItem('leadsData');
+              if (leadsData) {
+                const leads = JSON.parse(leadsData);
+                const existingIndex = leads.findIndex((l) => l.id === leadId);
+                if (existingIndex >= 0) {
+                  leads[existingIndex] = {
+                    ...leads[existingIndex],
+                    stage: 'proposal',
+                    updatedAt: new Date().toISOString(),
+                  };
+                  await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
+                  console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
+                }
+              }
+            } catch (updateError) {
+              console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
+              const leadsData = await AsyncStorage.getItem('leadsData');
+              if (leadsData) {
+                const leads = JSON.parse(leadsData);
+                const updatedLeads = leads.map((l) =>
+                  l.id === leadId ? { ...l, stage: 'proposal', updatedAt: new Date().toISOString() } : l,
+                );
+                await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
+                console.log(`✅ Updated frontend lead ${leadId} stage to proposal in AsyncStorage`);
+              }
+            }
+          } catch (leadUpdateError) {
+            console.warn('⚠️ Failed to update lead stage after proposal submission:', leadUpdateError);
+          }
+        }
+
+        console.log(`📤 Submitted bid: ${bid.title} ($${bidPrice.toLocaleString()})`);
+
+        await AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true');
+        await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
+        await AsyncStorage.removeItem('bps.forceEstimateOnboarding');
+        await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+        await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+        await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+        setIsOnboardingReset(false);
+        if (!hasSubmittedFirstEstimate) {
+          setHasSubmittedFirstEstimate(true);
+          console.log('✅ First estimate submitted - hiding walkthrough cards');
+        }
+
+        await AsyncStorage.setItem('bps.pendingProjectsTab', 'submitted');
+        await AsyncStorage.setItem('bps.fromSubmitBid', 'true');
+        console.log('🔄 Navigating to Projects → Submitted tab');
+        setTimeout(() => {
+          router.push('/(tabs)/projects');
+        }, 300);
+
+        if (bid.leadId && bid.leadSource === 'qualified_lead') {
+          console.log('🔄 Lead stage will be updated in background');
+        }
+      } catch (error) {
+        console.error('❌ Error submitting bid:', error);
+        const msg = `Failed to submit bid: ${error.message}`;
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(msg);
+        } else {
+          Alert.alert('Error', msg);
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const ok =
+        typeof window !== 'undefined' &&
+        typeof window.confirm === 'function' &&
+        window.confirm(
+          'Submit Bid to Client?\n\nThis will mark the estimate as submitted and track it as a pending bid.',
+        );
+      if (ok) void runSubmit();
+      return;
+    }
+
     Alert.alert(
       'Submit Bid to Client?',
       'This will mark the estimate as submitted and track it as a pending bid.',
@@ -9385,155 +9677,11 @@ export default function EstimateGeneratorScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Submit',
-          onPress: async () => {
-            const sourceBid = await getLatestBidForActions();
-            console.log('🔍 Submit button pressed');
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            
-            // First ensure the estimate is saved, then update status
-            try {
-              // Save the estimate first if it doesn't exist
-              const location = `${sourceBid.customerCity || 'Unknown'}, ${sourceBid.customerState || 'Unknown'}`;
-              const estimatedCost = Number(calc?.subtotal || 0);
-              const bidPrice = Number(calc?.grandTotal || calc?.total || 0);
-              const markup = Number(sourceBid.markupPct || 0);
-              const profitRaw = calc?.profit ?? 0;
-              const netProfit = profitRaw - (calc?.companyOverhead ?? 0);
-              const margin = bidPrice > 0 ? (netProfit / bidPrice) * 100 : 0;
-              const savedFinancialFields = getEstimateSavedFinancialFields({
-                materials: calc?.materials,
-                labor: calc?.labor,
-                financials: {
-                  companyOverheadTotal: calc?.companyOverhead,
-                  projectCosts: { totalProjectCosts: calc?.totalProjectCosts },
-                  overheadContextTotal: calc?.costContextTotal,
-                },
-                subtotal: calc?.subtotal ?? estimatedCost,
-                bidPrice,
-                netProfit,
-              });
-              
-              console.log('🔍 Calculated values:', { estimatedCost, bidPrice, margin, markup, netProfit });
-              
-              const estimateData = {
-                id: sourceBid.id,
-                title: sourceBid.title || 'Untitled Bid',
-                status: 'bid_submitted', // Set status to bid_submitted so it shows as "Submitted" in projects
-                ...savedFinancialFields,
-                actualCost: 0,
-                margin,
-                markup,
-                location,
-                city: sourceBid.customerCity,
-                state: sourceBid.customerState,
-                zip: sourceBid.customerZip,
-                startDate: sourceBid.startDate || sourceBid.projectStartDate || new Date().toISOString().split('T')[0],
-                endDate: sourceBid.endDate || sourceBid.projectEndDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                progress: 0,
-                client: sourceBid.customerName || sourceBid.clientName || 'Unknown Client',
-                clientEmail: sourceBid.customerEmail || sourceBid.clientEmail,
-                clientPhone: sourceBid.customerPhone,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                estimateData: { ...sourceBid, margin, marginPercent: margin, profit: netProfit, grandTotal: bidPrice, bidPrice, total: bidPrice },
-              };
-              
-              console.log('🔍 Debug - submitting bid with data:', estimateData);
-              await addEstimate(estimateData);
-              
-              // Update lead stage to "proposal" if this bid came from a qualified lead
-              if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
-                try {
-                  const leadId = sourceBid.leadId;
-                  console.log(`🔄 Updating lead ${leadId} stage to proposal after submitting bid`);
-                  console.log(`🔄 Lead source: ${sourceBid.leadSource}, Lead ID: ${leadId}`);
-                  
-                  // Track that bid was submitted
-                  const { trackBidSubmitted } = await import('../../services/engagementTracking');
-                  await trackBidSubmitted(leadId);
-                  
-                  // Update backend lead (including MOCK- leads which are backend-managed)
-                  try {
-                    await unifiedLeadService.updateLeadStage(leadId, 'proposal');
-                    console.log(`✅ Updated backend lead ${leadId} stage to proposal`);
-                    
-                    // Also update AsyncStorage as backup so leads screen picks up the change
-                    const leadsData = await AsyncStorage.getItem('leadsData');
-                    if (leadsData) {
-                      const leads = JSON.parse(leadsData);
-                      const existingIndex = leads.findIndex((l) => l.id === leadId);
-                      if (existingIndex >= 0) {
-                        leads[existingIndex] = {
-                          ...leads[existingIndex],
-                          stage: 'proposal',
-                          updatedAt: new Date().toISOString()
-                        };
-                        await AsyncStorage.setItem('leadsData', JSON.stringify(leads));
-                        console.log(`✅ Also updated AsyncStorage backup for backend lead ${leadId}`);
-                      }
-                    }
-                  } catch (updateError) {
-                    // If backend update fails (e.g., 404 for frontend-only leads), update AsyncStorage only
-                    console.warn(`⚠️ Backend update failed for ${leadId}, updating AsyncStorage only:`, updateError);
-                    const leadsData = await AsyncStorage.getItem('leadsData');
-                    if (leadsData) {
-                      const leads = JSON.parse(leadsData);
-                      const updatedLeads = leads.map((l) => 
-                        l.id === leadId ? { ...l, stage: 'proposal', updatedAt: new Date().toISOString() } : l
-                      );
-                      await AsyncStorage.setItem('leadsData', JSON.stringify(updatedLeads));
-                      console.log(`✅ Updated frontend lead ${leadId} stage to proposal in AsyncStorage`);
-                    }
-                  }
-                } catch (leadUpdateError) {
-                  console.warn('⚠️ Failed to update lead stage after proposal submission:', leadUpdateError);
-                  // Don't block the submission if lead update fails
-                }
-              }
-              
-              console.log(`📤 Submitted bid: ${bid.title} ($${bidPrice.toLocaleString()})`);
-              
-              // Mark first estimate as submitted if this is the first one
-              // 
-              // LIVE IMPLEMENTATION: This logic works for both testing and production.
-              // After first estimate is submitted:
-              // - Set firstEstimateSubmitted flag (persists across app restarts)
-              // - Clear onboarding flags so walkthrough never shows again
-              // - Hide walkthrough immediately
-              // - Future "New Bid" actions will keep walkthrough hidden
-              // CRITICAL: When bid is submitted, clear walkthrough flags
-              // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
-              await AsyncStorage.setItem('bps.firstEstimateSubmitted', 'true');
-              await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
-              await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
-              await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
-              await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
-              await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-              setIsOnboardingReset(false);
-              if (!hasSubmittedFirstEstimate) {
-                setHasSubmittedFirstEstimate(true);
-                console.log('✅ First estimate submitted - hiding walkthrough cards');
-              }
-              
-              // Navigate to Projects → Submitted tab (AsyncStorage used because tab params can be empty with tab navigator)
-              await AsyncStorage.setItem('bps.pendingProjectsTab', 'submitted');
-              await AsyncStorage.setItem('bps.fromSubmitBid', 'true');
-              console.log('🔄 Navigating to Projects → Submitted tab');
-              setTimeout(() => {
-                router.push('/(tabs)/projects');
-              }, 300);
-              
-              // If this came from a lead, also update lead stage
-              if (bid.leadId && bid.leadSource === 'qualified_lead') {
-                console.log('🔄 Lead stage will be updated in background');
-              }
-            } catch (error) {
-              console.error('❌ Error submitting bid:', error);
-              Alert.alert('Error', `Failed to submit bid: ${error.message}`);
-            }
-          }
-        }
-      ]
+          onPress: () => {
+            void runSubmit();
+          },
+        },
+      ],
     );
   };
 
@@ -11195,7 +11343,7 @@ export default function EstimateGeneratorScreen() {
                       markedDates={{
                         [bid.startDate || '']: {
                           selected: true,
-                          selectedColor: '#38d39f',
+                          selectedColor: '#22c55e',
                           selectedTextColor: '#000000',
                         }
                       }}
@@ -11225,7 +11373,7 @@ export default function EstimateGeneratorScreen() {
                       markedDates={{
                         [bid.endDate || '']: {
                           selected: true,
-                          selectedColor: '#38d39f',
+                          selectedColor: '#22c55e',
                           selectedTextColor: '#000000',
                         }
                       }}
@@ -11562,7 +11710,7 @@ export default function EstimateGeneratorScreen() {
                                 <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                   Total Materials
                                 </Text>
-                                <Text style={{ color: darkMode ? '#2DFFC4' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                                <Text style={{ color: darkMode ? '#22c55e' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                   {money(materialsCart.reduce((sum, item) => sum + (item.total || 0), 0))}
                                 </Text>
                               </View>
@@ -12202,7 +12350,7 @@ export default function EstimateGeneratorScreen() {
                               <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
                                 Total Labor
                               </Text>
-                              <Text style={{ color: darkMode ? '#2DFFC4' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
+                              <Text style={{ color: darkMode ? '#22c55e' : '#000000', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 }}>
                                 {money(totalLabor)}
                               </Text>
                             </View>
@@ -12354,7 +12502,7 @@ export default function EstimateGeneratorScreen() {
         const marginOnBidLockedByMarkupPctOnly =
           businessOverheadDeduct < 0.005 &&
           Math.abs((calc?.markupBaseSubtotal ?? 0) - (calc?.subtotal ?? 0)) < 0.005;
-        const netProfitAccentColor = netProfit >= 0 ? '#38d39f' : '#f87171';
+        const netProfitAccentColor = netProfit >= 0 ? '#22c55e' : '#f87171';
         
         // AI badge always shows - determine message and button text
         let showApplyButton = true; // Always show the AI badge
@@ -12425,7 +12573,7 @@ export default function EstimateGeneratorScreen() {
             contextualMessage = {
               type: 'above',
               text: 'Above typical range — higher profitability',
-              color: '#38d39f',
+              color: '#22c55e',
             };
           } else if (currentMarkupNum < recommendedMarkupNum) {
             // Within range but below recommended
@@ -12434,7 +12582,7 @@ export default function EstimateGeneratorScreen() {
             contextualMessage = {
               type: 'inRange',
               text: 'Within typical range — consider recommended',
-              color: '#38d39f',
+              color: '#22c55e',
             };
           } else {
             // Within range, above recommended but not far above
@@ -12492,7 +12640,7 @@ export default function EstimateGeneratorScreen() {
         // Always show feedback, even if no subtotal yet
         let markupStatus = 'good';
         let markupStatusText = 'Right percentage – within typical range';
-        let markupStatusColor = '#38d39f';
+        let markupStatusColor = '#22c55e';
         
         if (subtotal > 0) {
           // Status based on net profit (after overhead) — true profitability
@@ -12511,11 +12659,11 @@ export default function EstimateGeneratorScreen() {
           } else if (netProfitPct >= 15) {
             markupStatus = 'strong';
             markupStatusText = 'Right percentage – strong profitability';
-            markupStatusColor = '#38d39f'; // Green for "strong"
+            markupStatusColor = '#22c55e'; // Green for "strong"
           } else {
             markupStatus = 'good';
             markupStatusText = 'Right percentage – healthy and profitable';
-            markupStatusColor = '#38d39f';
+            markupStatusColor = '#22c55e';
           }
         } else if (recommendationInfo) {
           // If no subtotal yet, validate based on markup vs pricing profile range
@@ -12539,7 +12687,7 @@ export default function EstimateGeneratorScreen() {
           } else {
             markupStatus = 'good';
             markupStatusText = 'Right percentage – within typical range';
-            markupStatusColor = '#38d39f';
+            markupStatusColor = '#22c55e';
           }
         } else {
           // Generic validation if no contractor type
@@ -12558,7 +12706,7 @@ export default function EstimateGeneratorScreen() {
           } else {
             markupStatus = 'good';
             markupStatusText = 'Right percentage – within typical range';
-            markupStatusColor = '#38d39f';
+            markupStatusColor = '#22c55e';
           }
         }
 
@@ -13438,8 +13586,8 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{
                       color: contextualMessage.type === 'low' ? '#ef4444' :
                              contextualMessage.type === 'high' ? '#fbbf24' :
-                             contextualMessage.type === 'inRange' ? '#38d39f' :
-                             '#38d39f',
+                             contextualMessage.type === 'inRange' ? '#22c55e' :
+                             '#22c55e',
                       fontSize: ew(12.5, 14.5),
                       fontWeight: '600',
                       lineHeight: ew(18, 21),
@@ -13460,12 +13608,12 @@ export default function EstimateGeneratorScreen() {
                   paddingVertical: 11,
                   paddingHorizontal: 13,
                   borderRadius: 12,
-                  backgroundColor: markupStatusColor === '#38d39f' ? 'rgba(56, 211, 159, 0.1)' :
+                  backgroundColor: markupStatusColor === '#22c55e' ? 'rgba(56, 211, 159, 0.1)' :
                                   markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.1)' :
                                   markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.1)' :
                                   'rgba(56, 211, 159, 0.1)',
                   borderWidth: 1,
-                  borderColor: markupStatusColor === '#38d39f' ? 'rgba(56, 211, 159, 0.35)' :
+                  borderColor: markupStatusColor === '#22c55e' ? 'rgba(56, 211, 159, 0.35)' :
                                markupStatusColor === '#fbbf24' ? 'rgba(251, 191, 36, 0.35)' :
                                markupStatusColor === '#ef4444' ? 'rgba(239, 68, 68, 0.35)' :
                                'rgba(56, 211, 159, 0.35)',
@@ -13517,9 +13665,9 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ color: '#38d39f', fontSize: ew(13, 15), fontWeight: '700' }}>+ Markup</Text>
+                    <Text style={{ color: '#22c55e', fontSize: ew(13, 15), fontWeight: '700' }}>+ Markup</Text>
                     <Text style={{
-                      color: '#38d39f',
+                      color: '#22c55e',
                       fontSize: 16,
                       fontWeight: '700',
                       textAlign: 'right',
@@ -13774,7 +13922,7 @@ export default function EstimateGeneratorScreen() {
             acc[item.scheduledDate] = {
               ...(acc[item.scheduledDate] || {}),
               marked: true,
-              dotColor: item.id === activeItemId ? '#2DFFC4' : '#38d39f',
+              dotColor: item.id === activeItemId ? '#2DFFC4' : '#22c55e',
             };
             return acc;
           }, {});
@@ -14003,7 +14151,7 @@ export default function EstimateGeneratorScreen() {
                         borderRadius: 14,
                         borderWidth: 2,
                         borderColor: scheduleType === 'milestone-based'
-                          ? '#38d39f'
+                          ? '#22c55e'
                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                         backgroundColor: scheduleType === 'milestone-based'
                           ? 'rgba(56, 211, 159, 0.12)'
@@ -14037,7 +14185,7 @@ export default function EstimateGeneratorScreen() {
                   >
                     <Text style={[
                       {
-                        color: scheduleType === 'milestone-based' ? '#38d39f' : Colors.text,
+                        color: scheduleType === 'milestone-based' ? '#22c55e' : Colors.text,
                         fontSize: 13,
                         fontWeight: scheduleType === 'milestone-based' ? '700' : '600',
                         textAlign: 'center',
@@ -14054,7 +14202,7 @@ export default function EstimateGeneratorScreen() {
                         borderRadius: 14,
                         borderWidth: 2,
                         borderColor: scheduleType === 'weekly'
-                          ? '#38d39f'
+                          ? '#22c55e'
                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
                         backgroundColor: scheduleType === 'weekly'
                           ? 'rgba(56, 211, 159, 0.12)'
@@ -14088,7 +14236,7 @@ export default function EstimateGeneratorScreen() {
                   >
                     <Text style={[
                       {
-                        color: scheduleType === 'weekly' ? '#38d39f' : Colors.text,
+                        color: scheduleType === 'weekly' ? '#22c55e' : Colors.text,
                         fontSize: 13,
                         fontWeight: scheduleType === 'weekly' ? '700' : '600',
                         textAlign: 'center',
@@ -14397,7 +14545,7 @@ export default function EstimateGeneratorScreen() {
                             borderRadius: 20,
                             backgroundColor: 'rgba(45, 255, 196, 0.15)',
                             borderWidth: 1,
-                            borderColor: 'rgba(45, 255, 196, 0.3)',
+                            borderColor: 'rgba(34, 197, 94, 0.35)',
                             position: 'relative',
                             width: '100%',
                           }}
@@ -14461,7 +14609,7 @@ export default function EstimateGeneratorScreen() {
                                 markedDates={{
                                   [(bid.startDate || bid.projectStartDate) || '']: {
                                     selected: true,
-                                    selectedColor: '#38d39f',
+                                    selectedColor: '#22c55e',
                                     selectedTextColor: '#000000',
                                   }
                                 }}
@@ -14491,7 +14639,7 @@ export default function EstimateGeneratorScreen() {
                                 markedDates={{
                                   [(bid.endDate || bid.projectEndDate) || '']: {
                                     selected: true,
-                                    selectedColor: '#38d39f',
+                                    selectedColor: '#22c55e',
                                     selectedTextColor: '#000000',
                                   }
                                 }}
@@ -14539,7 +14687,7 @@ export default function EstimateGeneratorScreen() {
                                     return depositMilestone?.scheduledDate || '';
                                   })()]: {
                                     selected: true,
-                                    selectedColor: '#38d39f',
+                                    selectedColor: '#22c55e',
                                     selectedTextColor: '#000000',
                                   }
                                 }}
@@ -15410,7 +15558,7 @@ export default function EstimateGeneratorScreen() {
                             borderRadius: 20,
                             backgroundColor: 'rgba(45, 255, 196, 0.15)',
                             borderWidth: 1,
-                            borderColor: 'rgba(45, 255, 196, 0.3)',
+                            borderColor: 'rgba(34, 197, 94, 0.35)',
                             position: 'relative',
                             width: '100%',
                           }}
@@ -15476,7 +15624,7 @@ export default function EstimateGeneratorScreen() {
                                     markedDates={{
                                       [(bid.startDate || bid.projectStartDate) || '']: {
                                         selected: true,
-                                        selectedColor: '#38d39f',
+                                        selectedColor: '#22c55e',
                                         selectedTextColor: '#000000',
                                       }
                                     }}
@@ -15508,7 +15656,7 @@ export default function EstimateGeneratorScreen() {
                                     markedDates={{
                                       [(bid.endDate || bid.projectEndDate) || '']: {
                                         selected: true,
-                                        selectedColor: '#38d39f',
+                                        selectedColor: '#22c55e',
                                         selectedTextColor: '#000000',
                                       }
                                     }}
@@ -15730,7 +15878,7 @@ export default function EstimateGeneratorScreen() {
                                         borderRadius: 14,
                                         borderWidth: 2,
                                         borderColor: isSelected
-                                          ? '#38d39f'
+                                          ? '#22c55e'
                                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : '#94A3B8'),
                                         backgroundColor: isSelected
                                           ? 'rgba(56, 211, 159, 0.12)'
@@ -15740,7 +15888,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                     >
                                       <Text style={{ 
-                                        color: isSelected ? '#38d39f' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
+                                        color: isSelected ? '#22c55e' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                         fontSize: 13, 
                                         fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
@@ -16109,7 +16257,7 @@ export default function EstimateGeneratorScreen() {
                   
                   {milestones.length > 0 && scheduleType !== 'hybrid' && (
                     <View style={{
-                      backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
                       borderRadius: 16,
                       padding: 15,
                       borderWidth: 1,
@@ -16197,7 +16345,7 @@ export default function EstimateGeneratorScreen() {
                                         markedDates={{
                                           [(bid.startDate || bid.projectStartDate) || '']: {
                                             selected: true,
-                                            selectedColor: '#38d39f',
+                                            selectedColor: '#22c55e',
                                             selectedTextColor: '#000000',
                                           }
                                         }}
@@ -16229,7 +16377,7 @@ export default function EstimateGeneratorScreen() {
                                         markedDates={{
                                           [(bid.endDate || bid.projectEndDate) || '']: {
                                             selected: true,
-                                            selectedColor: '#38d39f',
+                                            selectedColor: '#22c55e',
                                             selectedTextColor: '#000000',
                                           }
                                         }}
@@ -16286,7 +16434,7 @@ export default function EstimateGeneratorScreen() {
                                             return depositPayment?.scheduledDate || depositMilestone?.scheduledDate || '';
                                           })()]: {
                                             selected: true,
-                                            selectedColor: '#38d39f',
+                                            selectedColor: '#22c55e',
                                             selectedTextColor: '#000000',
                                           }
                                         }}
@@ -16453,7 +16601,7 @@ export default function EstimateGeneratorScreen() {
                                         borderRadius: 14,
                                         borderWidth: 2,
                                         borderColor: isSelected
-                                          ? '#38d39f'
+                                          ? '#22c55e'
                                           : (darkMode ? 'rgba(255, 255, 255, 0.15)' : '#94A3B8'),
                                         backgroundColor: isSelected
                                           ? 'rgba(56, 211, 159, 0.12)'
@@ -16463,7 +16611,7 @@ export default function EstimateGeneratorScreen() {
                                       }}
                                     >
                                       <Text style={{ 
-                                        color: isSelected ? '#38d39f' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
+                                        color: isSelected ? '#22c55e' : (displayText === 'Custom' ? estimateStepMutedInputColor : Colors.text), 
                                         fontSize: 13, 
                                         fontWeight: isSelected ? '800' : '600',
                                         textAlign: 'center',
@@ -16850,7 +16998,7 @@ export default function EstimateGeneratorScreen() {
                             borderRadius: 20,
                             backgroundColor: 'rgba(45, 255, 196, 0.15)',
                             borderWidth: 1,
-                            borderColor: 'rgba(45, 255, 196, 0.3)',
+                            borderColor: 'rgba(34, 197, 94, 0.35)',
                             position: 'relative',
                             width: '100%',
                           }}
@@ -16957,7 +17105,7 @@ export default function EstimateGeneratorScreen() {
                   
                   {weeklyPayments.length > 0 && scheduleType !== 'hybrid' && (
                     <View style={{
-                      backgroundColor: 'rgba(45, 255, 196, 0.1)',
+                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
                       borderRadius: 16,
                       padding: 15,
                       borderWidth: 1,
@@ -17147,7 +17295,7 @@ export default function EstimateGeneratorScreen() {
         
         // Check if all items are complete
         const allChecklistItemsComplete = checklistItems.every(item => item.checked);
-        const contractBrandingPreview = resolveContractBranding(contractorProfile);
+        const contractBrandingPreview = mergeBrandingFromBid(resolveContractBranding(contractorProfile), bid);
         const selectedContractType = getContractTypeForProject(bid.projectType);
         const contractPreviewDoc = buildDocFromBid(bid, calc);
         const contractPreflightWarnings = validateContractPreflight(contractPreviewDoc, {
@@ -17158,12 +17306,6 @@ export default function EstimateGeneratorScreen() {
           contractType: selectedContractType,
         });
         const suggestedContractState = normalizeContractTemplateState(bid.projectState || bid.customerState);
-        const compactProjectAddress = [
-          bid.customerAddress,
-          [bid.customerCity, bid.customerState, bid.customerZip].filter(Boolean).join(', '),
-        ]
-          .filter(Boolean)
-          .join(' · ') || String(bid.siteAddress || '').trim() || '';
         const contractStateHelperText =
           contractTemplateState === 'other'
             ? suggestedContractState !== 'other'
@@ -17175,13 +17317,6 @@ export default function EstimateGeneratorScreen() {
           suggestedContractState !== 'other' &&
           contractTemplateState !== 'other' &&
           suggestedContractState !== contractTemplateState;
-        const brandingSummary = [
-          contractBrandingPreview.companyName || contractorProfile.company,
-          contractBrandingPreview.contractorName,
-          contractBrandingPreview.contractorTitle,
-        ]
-          .filter(Boolean)
-          .join(' · ') || 'Company profile';
         const compactPaymentLabel =
           paymentScheduleType === 'Weekly'
             ? 'Weekly payments'
@@ -17190,6 +17325,7 @@ export default function EstimateGeneratorScreen() {
               : paymentScheduleType || 'Payment schedule not set';
         const readinessHeadline = shouldGateAdvanced ? 'Needs Review' : 'Ready to Generate';
         const readinessSummary = `${money(calc?.total || 0)} total · ${netProfitPct.toFixed(1)}% estimated profit · ${compactPaymentLabel}`;
+        const isWordingWeb = Platform.OS === 'web';
         
         // AI Insight text (refined to sound more advisor-like)
         let aiInsightText = '';
@@ -17374,7 +17510,7 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7 }}>
                       Proposal Readiness
                     </Text>
-                    <Text style={{ color: shouldGateAdvanced ? '#fbbf24' : '#38d39f', fontSize: 18, fontWeight: '800', marginTop: 4 }}>
+                    <Text style={{ color: shouldGateAdvanced ? '#fbbf24' : '#22c55e', fontSize: 18, fontWeight: '800', marginTop: 4 }}>
                       {readinessHeadline}
                     </Text>
                   </View>
@@ -17421,7 +17557,7 @@ export default function EstimateGeneratorScreen() {
                           <MaterialIcons
                             name={item.checked ? 'check-circle' : 'warning'}
                             size={16}
-                            color={item.checked ? '#38d39f' : '#fbbf24'}
+                            color={item.checked ? '#22c55e' : '#fbbf24'}
                           />
                           <Text style={{ color: Colors.sub, fontSize: 12, flex: 1 }}>
                             {item.text}
@@ -17479,7 +17615,7 @@ export default function EstimateGeneratorScreen() {
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                           <Text style={{ color: Colors.sub, fontSize: 12 }}>Estimated net profit</Text>
-                          <Text style={{ color: netProfit >= 0 ? '#38d39f' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
+                          <Text style={{ color: netProfit >= 0 ? '#22c55e' : '#ff7a7a', fontSize: 12, fontWeight: '700' }}>
                             {money(netProfit)} ({netProfitPct.toFixed(1)}%)
                           </Text>
                         </View>
@@ -17530,9 +17666,20 @@ export default function EstimateGeneratorScreen() {
                 colors={Colors}
                 darkMode={darkMode}
                 contractTemplateState={contractTemplateState}
-                onContractTemplateStateChange={setContractTemplateState}
-                brandingLabel={brandingSummary}
-                projectAddress={compactProjectAddress}
+                onSave={handleSaveContractSettings}
+                customerName={bid.customerName || ''}
+                customerAddress={bid.customerAddress || ''}
+                customerCity={bid.customerCity || ''}
+                customerState={bid.customerState || ''}
+                customerZip={bid.customerZip || ''}
+                contractBrandingCompany={bid.contractBrandingCompany || ''}
+                contractBrandingContractorName={bid.contractBrandingContractorName || ''}
+                contractBrandingContractorTitle={bid.contractBrandingContractorTitle || ''}
+                profileDefaultCompany={String(contractorProfile.company || '').trim()}
+                profileDefaultContractorName={String(contractorProfile.name || '').trim()}
+                profileDefaultContractorTitle={String(
+                  contractorProfile.contractorTitle || contractorProfile.role || '',
+                ).trim()}
               />
 
               {contractTemplateStateMismatch ? (
@@ -17579,12 +17726,74 @@ export default function EstimateGeneratorScreen() {
                 </View>
               )}
 
+              <View
+                style={{
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface2,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : Colors.line,
+                  borderRadius: 16,
+                  padding: 18,
+                  marginBottom: 16,
+                }}
+              >
+                <View
+                  style={{
+                    width: 40,
+                    height: 3,
+                    borderRadius: 2,
+                    backgroundColor: '#2DFFC4',
+                    marginBottom: 12,
+                  }}
+                />
+                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', letterSpacing: -0.2, marginBottom: 10 }}>
+                  Contract wording on the PDF
+                </Text>
+                <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 21, marginBottom: 14 }}>
+                  The text below is what will appear on the agreement by default—the same layout and styling you see today. Would you like to change or add anything before you generate?
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setContractWordingExpanded(!contractWordingExpanded);
+                    if (Platform.OS !== 'web') {
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    }
+                  }}
+                  activeOpacity={0.75}
+                  style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingRight: 8 }}
+                >
+                  <Text style={{ color: '#2DFFC4', fontSize: 14, fontWeight: '700' }}>
+                    {contractWordingExpanded ? 'Hide wording editor' : 'Review or edit wording'}
+                  </Text>
+                </TouchableOpacity>
+
+                {contractWordingExpanded ? (
+                  <View style={{ marginTop: 20 }}>
+                    <ContractWordingEditor
+                      colors={Colors}
+                      darkMode={darkMode}
+                      isWeb={isWordingWeb}
+                      desktopTwoColumn={isWordingWeb && desktopWeb}
+                      assumptions={contractLangAssumptions}
+                      onChangeAssumptions={setContractLangAssumptions}
+                      businessTerms={contractLangBusinessTerms}
+                      onChangeBusinessTerms={setContractLangBusinessTerms}
+                      workNotes={contractLangWorkNotes}
+                      onChangeWorkNotes={setContractLangWorkNotes}
+                      onResetAssumptions={resetContractLangAssumptionsSection}
+                      onResetBusinessTerms={resetContractLangBusinessSection}
+                      onResetWorkNotes={resetContractLangWorkNotesSection}
+                      onResetAll={resetContractLanguageDraftsToTemplate}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
               <View style={{ marginBottom: 8 }}>
                 {allChecklistItemsComplete && !shouldGateAdvanced && (
                   <View style={{ alignItems: 'center', gap: 4, marginBottom: 10 }}>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Pricing validated</Text>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Payments balanced</Text>
-                    <Text style={{ color: '#38d39f', fontSize: 12, fontWeight: '700' }}>Required fields complete</Text>
+                    <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>Pricing validated</Text>
+                    <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>Payments balanced</Text>
+                    <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>Required fields complete</Text>
                   </View>
                 )}
                 <View style={{ gap: 10 }}>
@@ -17593,7 +17802,7 @@ export default function EstimateGeneratorScreen() {
                     activeOpacity={0.8}
                   >
                     <LinearGradient
-                      colors={['rgba(45, 255, 196, 0.88)', 'rgba(0, 166, 255, 0.88)']}
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
                       start={{ x: 0.05, y: 0.15 }}
                       end={{ x: 0.95, y: 0.85 }}
                       style={{
@@ -17882,7 +18091,7 @@ export default function EstimateGeneratorScreen() {
                     colors={['#22c55e', '#22d3ee']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={[s.navBtn, s.navNextActive]}
+                    style={[s.navBtn, s.navNextActive, { borderRadius: 999 }]}
                   >
                     <TouchableOpacity
                       onPress={() => {
@@ -17896,11 +18105,11 @@ export default function EstimateGeneratorScreen() {
                         }
                       }}
                       activeOpacity={0.85}
-                      style={s.navBtnInner}
+                      style={[s.navBtnInner, { flex: 1 }]}
                       disabled={step === 0}
                     >
-                      <Ionicons name="chevron-back" size={18} color="#050B13" />
-                      <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '600' }}>Back</Text>
+                      <Ionicons name="chevron-back" size={18} color={darkMode ? '#050B13' : '#071018'} />
+                      <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Back</Text>
                     </TouchableOpacity>
                   </LinearGradient>
                 ) : (
@@ -17932,7 +18141,7 @@ export default function EstimateGeneratorScreen() {
                     colors={['#22c55e', '#22d3ee']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={[s.navCenterBtn, s.navNextActive]}
+                    style={[s.navCenterBtn, s.navNextActive, { borderRadius: 999 }]}
                   >
                     <TouchableOpacity
                       onPress={() => {
@@ -17940,9 +18149,9 @@ export default function EstimateGeneratorScreen() {
                         setActiveNavButton('summary');
                       }}
                       activeOpacity={0.85}
-                      style={s.navCenterBtnInner}
+                      style={[s.navCenterBtnInner, { flex: 1 }]}
                     >
-                      <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '600' }}>Summary</Text>
+                      <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Summary</Text>
                     </TouchableOpacity>
                   </LinearGradient>
                 ) : (
@@ -17966,18 +18175,18 @@ export default function EstimateGeneratorScreen() {
                     colors={['#22c55e', '#22d3ee']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={[s.navNextWrap, s.navNextActive]}
+                    style={[s.navNextWrap, s.navNextActive, { borderRadius: 999 }]}
                   >
                     <TouchableOpacity
                       activeOpacity={0.85}
-                      style={s.navNextInner}
+                      style={[s.navNextInner, { flex: 1 }]}
                       onPress={async () => {
                         setStep(step + 1);
                         setActiveNavButton('next');
                       }}
                     >
-                      <Text style={{ color: '#050B13', fontSize: 15, fontWeight: '600' }}>Next</Text>
-                      <Ionicons name="arrow-forward" size={18} color="#050B13" />
+                      <Text style={{ color: darkMode ? '#050B13' : '#071018', fontSize: 15, fontWeight: '600' }}>Next</Text>
+                      <Ionicons name="arrow-forward" size={18} color={darkMode ? '#050B13' : '#071018'} />
                     </TouchableOpacity>
                   </LinearGradient>
                 ) : (
@@ -18612,7 +18821,7 @@ export default function EstimateGeneratorScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                 <View style={{ width: 52, alignItems: 'flex-start' }}>
                   <LinearGradient
-                    colors={['rgba(45, 255, 196, 0.8)', 'rgba(0, 166, 255, 0.8)']}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
                     style={{
@@ -18737,7 +18946,7 @@ export default function EstimateGeneratorScreen() {
                 {savedEstimates.map((item, index) => (
                   <LinearGradient
                     key={item.id}
-                    colors={["rgba(45, 255, 196, 0.8)", "rgba(0, 166, 255, 0.8)"]}
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
                     start={{ x: 0.05, y: 0.15 }}
                     end={{ x: 0.95, y: 0.85 }}
                     style={{
