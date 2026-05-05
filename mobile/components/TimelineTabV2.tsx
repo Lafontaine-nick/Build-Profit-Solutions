@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, RefreshControl, Platform } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Alert, ScrollView, RefreshControl, Platform } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
@@ -109,20 +109,28 @@ function MilestoneCardV2({
   const metaLines =
     (item.assignee ? 1 : 0) + (dependencyTitle ? 1 : 0);
 
+  const cardPressStyle = useCallback(
+    ({ pressed }: { pressed: boolean }) => [
+      styles.mCard,
+      {
+        backgroundColor: Colors.surface2,
+        borderWidth: 1,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+        borderRadius: 14,
+        opacity: pressed ? 0.92 : 1,
+      },
+      Platform.OS === "web" && ({ cursor: "pointer" } as const),
+    ],
+    [Colors.surface2, darkMode]
+  );
+
   return (
     <View style={styles.milestoneCardContainer}>
-        <TouchableOpacity
-          activeOpacity={0.9}
+        <Pressable
           onPress={() => onPress(item)}
-          style={[
-            styles.mCard,
-            {
-              backgroundColor: Colors.surface2,
-              borderWidth: 1,
-              borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
-              borderRadius: 14,
-            },
-          ]}
+          style={cardPressStyle}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${item.title || "milestone"}`}
         >
           <Text style={[styles.mTitle, !darkMode && { color: Colors.text }]} numberOfLines={2}>
             {item.title}
@@ -181,7 +189,7 @@ function MilestoneCardV2({
           <View style={styles.mProgressContainer}>
             <ProgressBar value={pct} emphasis />
           </View>
-        </TouchableOpacity>
+        </Pressable>
     </View>
   );
 }
@@ -1034,6 +1042,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         bounces={true}
         alwaysBounceVertical={false}
         {...KEYBOARD_SCROLL_DEFAULTS}
+        {...(Platform.OS === 'web' ? { keyboardShouldPersistTaps: 'always' as const } : {})}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1054,6 +1063,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         >
           {/* Outer green-to-blue border wrapping Timeline Details header, Overall Progress, and Upcoming cards */}
           <LinearGradient
+            pointerEvents="box-none"
             colors={BRAND_FRAME_GRADIENT_COLORS}
             start={{ x: 0.05, y: 0.15 }}
             end={{ x: 0.95, y: 0.85 }}
@@ -1280,6 +1290,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           <View style={{ marginTop: 12 }}>
             {/* Outer green-to-blue border wrapping All Payments header and all milestone cards */}
             <LinearGradient
+              pointerEvents="box-none"
               colors={BRAND_FRAME_GRADIENT_COLORS}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}

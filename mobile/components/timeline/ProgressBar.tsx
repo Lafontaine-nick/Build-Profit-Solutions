@@ -4,7 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 export default function ProgressBar({ value = 0, emphasis = false }: { value: number; emphasis?: boolean }) {
   const h = emphasis ? 12 : 10;
   return (
-    <View style={[styles.track, { height: h }]}>
+    <View style={[styles.track, { height: h }]} pointerEvents="none">
       <LinearGradient
         colors={["#22c55e", "#22d3ee"]}
         start={{ x: 0, y: 0 }}

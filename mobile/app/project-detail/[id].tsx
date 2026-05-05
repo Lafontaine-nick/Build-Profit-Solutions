@@ -69,6 +69,7 @@ import {
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
 } from '@/constants/ScreenLayout';
+import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughStepSheetContent,
@@ -2200,10 +2201,16 @@ function ProjectDetailContent() {
         <StatusBar barStyle="light-content" />
 
         {/* Background — opaque black so ScrollView never shows default system gray between sections */}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: darkMode ? '#000000' : Colors.bg }]} />
+        <View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+        />
 
         <ScrollView
-          style={darkMode ? { backgroundColor: '#000000' } : undefined}
+          style={[
+            darkMode ? { backgroundColor: '#000000' } : undefined,
+            Platform.OS === 'web' && { flex: 1 },
+          ]}
           contentContainerStyle={[
             styles.scrollContent,
             webScrollContentCap,
@@ -2212,6 +2219,9 @@ function ProjectDetailContent() {
             },
           ]}
           showsVerticalScrollIndicator={false}
+          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...(Platform.OS === 'web' ? { keyboardShouldPersistTaps: 'always' as const } : {})}
+          nestedScrollEnabled
         >
           {/* HEADER */}
           <View style={[styles.headerRow, styles.wideContainer]}>

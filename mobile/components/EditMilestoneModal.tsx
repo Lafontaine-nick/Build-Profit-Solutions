@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { MaterialIcons, Ionicons } from "@expo/vector-icons";
+import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors, COLORS } from "../src/theme/colors";
@@ -12,6 +12,8 @@ import GreyCalendar from "./GreyCalendar";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+
+const EDIT_MILESTONE_WEB_MAX_WIDTH = 520;
 
 type Props = {
   visible: boolean;
@@ -25,10 +27,24 @@ type Props = {
 
 export default function EditMilestoneModal({ visible, milestone, projectBudget = 0, paymentMilestones = [], onClose, onSave, onDelete }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { theme } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
-  
+  const isWeb = Platform.OS === "web";
+  const webCardHeight = useMemo(() => {
+    if (!isWeb) return 640;
+    let h = windowHeight;
+    if (!(typeof h === "number" && h > 0)) {
+      if (typeof window !== "undefined" && typeof window.innerHeight === "number") {
+        h = window.innerHeight;
+      } else {
+        h = 800;
+      }
+    }
+    return Math.max(420, Math.min(Math.round(h * 0.88), 720));
+  }, [isWeb, windowHeight]);
+
   const [title, setTitle] = useState("");
   const [plannedDate, setPlannedDate] = useState(new Date());
   const [status, setStatus] = useState<MilestoneStatus>("pending");
@@ -57,6 +73,24 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       setPaymentAmount(milestone.amount ? String(milestone.amount) : "");
     }
   }, [visible, milestone]);
+
+  const webCardShellStyle = useMemo(
+    () =>
+      isWeb
+        ? {
+            flex: 0 as const,
+            width: "100%" as const,
+            maxWidth: EDIT_MILESTONE_WEB_MAX_WIDTH,
+            height: webCardHeight,
+            minHeight: 420,
+            borderRadius: 20,
+            overflow: "hidden" as const,
+            alignSelf: "center" as const,
+            elevation: 8,
+          }
+        : undefined,
+    [isWeb, webCardHeight]
+  );
 
   const handleSave = () => {
     if (!milestone) {
@@ -136,22 +170,16 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     { value: 'completed', label: 'Completed', color: "#22c55e" },
   ];
 
-  return (
-    <Modal 
-      visible={visible} 
-      animationType="slide" 
-      presentationStyle="fullScreen"
-      statusBarTranslucent
-      onRequestClose={onClose}
+  const card = (
+    <View
+      style={[
+        styles.container,
+        !darkMode && { backgroundColor: ThemeColors.bg },
+        webCardShellStyle,
+      ]}
     >
-      <KeyboardAvoidingView
-        style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : ThemeColors.bg }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -120 : 0}
-      >
-      <View style={[styles.container, !darkMode && { backgroundColor: ThemeColors.bg }]}>
-        <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
-        <SafeAreaView style={styles.safeArea}>
+        {!isWeb ? <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} /> : null}
+        <SafeAreaView style={[styles.safeArea, isWeb && { flex: 1, minHeight: 0 }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.backButtonWrapper}>
@@ -184,9 +212,13 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
 
           {/* Form */}
           <ScrollView 
-            style={[styles.form, { backgroundColor: darkMode ? '#000000' : ThemeColors.bg }]} 
+            style={[
+              styles.form,
+              { backgroundColor: darkMode ? '#000000' : ThemeColors.bg },
+              isWeb && { flex: 1, minHeight: 0 },
+            ]} 
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.formContent}
+            contentContainerStyle={[styles.formContent, isWeb && { paddingBottom: 12 }]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
@@ -366,9 +398,9 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
 
           {/* Actions */}
           <View style={[
-            styles.actions,
+            isWeb ? styles.actionsWeb : styles.actions,
             !darkMode && { backgroundColor: ThemeColors.bg, borderTopColor: ThemeColors.line },
-            { paddingBottom: Math.max(insets.bottom, 20) + 30 },
+            { paddingBottom: Math.max(insets.bottom, isWeb ? 16 : 20) + (isWeb ? 8 : 30) },
           ]}>
             <View style={styles.cancelButtonWrapper}>
               <LinearGradient
@@ -406,6 +438,47 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           </View>
         </SafeAreaView>
       </View>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType={isWeb ? "none" : "slide"}
+      transparent={isWeb}
+      {...(!isWeb
+        ? { presentationStyle: "fullScreen" as const, statusBarTranslucent: true }
+        : {})}
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        style={[
+          styles.keyboardAvoid,
+          isWeb
+            ? {
+                flex: 1,
+                backgroundColor: "rgba(0, 0, 0, 0.55)",
+              }
+            : { backgroundColor: darkMode ? "#000000" : ThemeColors.bg },
+        ]}
+        behavior={isWeb ? undefined : Platform.OS === "ios" ? "padding" : undefined}
+        enabled={!isWeb && Platform.OS === "ios"}
+        keyboardVerticalOffset={isWeb ? 0 : Platform.OS === "ios" ? -120 : 0}
+      >
+        {isWeb ? (
+          <View style={styles.webModalRoot}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              onPress={onClose}
+              style={styles.webModalBackdrop}
+            />
+            <View pointerEvents="box-none" style={styles.webModalCenter}>
+              {card}
+            </View>
+          </View>
+        ) : (
+          card
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -414,6 +487,28 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
 const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
+  },
+  /** RN Web: backdrop + card must be in separate layers or the full-screen dismiss Pressable stacks above the card. */
+  webModalRoot: {
+    flex: 1,
+    width: "100%",
+    minHeight: 0,
+    position: "relative",
+  },
+  webModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+  },
+  webModalCenter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 2,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 16,
   },
   container: {
     flex: 1,
@@ -547,6 +642,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    backgroundColor: "#000000",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  /** Web: footer in document flow below scroll (no full-screen sheet). */
+  actionsWeb: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 12,
+    flexShrink: 0,
     backgroundColor: "#000000",
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
