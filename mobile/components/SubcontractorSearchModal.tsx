@@ -105,64 +105,6 @@ const TRADE_OPTIONS = [
   'Landscaping',
 ];
 
-/**
- * UI-only samples when Yelp is off and there are no campaign subs — not real Yelp listings.
- * (Previously labeled "Yelp Business" without an API; restored as honest "Sample" rows.)
- */
-const DEMO_SUBCONTRACTORS: any[] = [
-  {
-    id: 'demo-1',
-    name: 'Elite Plumbing Services',
-    trade: 'Plumbing',
-    rating: 4.9,
-    reviews: 156,
-    hourlyRate: { min: 85, max: 120 },
-    location: 'Las Vegas, NV',
-    distance: 3.2,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Emergency'],
-    source: 'sample',
-    sourceLabel: 'Sample',
-  },
-  {
-    id: 'demo-2',
-    name: 'Apex Electrical Contractors',
-    trade: 'Electrical',
-    rating: 4.8,
-    reviews: 203,
-    hourlyRate: { min: 95, max: 140 },
-    location: 'Henderson, NV',
-    distance: 5.7,
-    licensed: true,
-    insured: true,
-    availability: 'Available in 3 days',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Industrial', 'Solar'],
-    source: 'sample',
-    sourceLabel: 'Sample',
-  },
-  {
-    id: 'demo-3',
-    name: 'Desert Framing Crew',
-    trade: 'Framing',
-    rating: 4.7,
-    reviews: 89,
-    hourlyRate: { min: 65, max: 95 },
-    location: 'North Las Vegas, NV',
-    distance: 8.1,
-    licensed: true,
-    insured: true,
-    availability: 'Available Now',
-    image: 'https://via.placeholder.com/80',
-    specialties: ['Residential', 'Commercial', 'Metal Framing'],
-    source: 'sample',
-    sourceLabel: 'Sample',
-  },
-];
-
 /** Map Google Places API (backend) row → in-app subcontractor card model. */
 function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
   const tradeLabel =
@@ -434,13 +376,6 @@ function SubcontractorSearchModal({
     [selectedTrade, searchQuery, campaigns, campaignSubcontractors]
   );
 
-  /** UI-only demos when there is no BPS campaign data and no Google rows yet. Never labeled "verified". */
-  const sampleRows = useMemo(() => {
-    const show = realBpsRows.length === 0 && googlePlacesResults.length === 0;
-    if (!show) return [];
-    return filterByTradeAndQuery(DEMO_SUBCONTRACTORS);
-  }, [selectedTrade, searchQuery, realBpsRows, googlePlacesResults]);
-
   const googleRowsFiltered = useMemo(
     () => filterByTradeAndQuery(googlePlacesResults),
     [selectedTrade, searchQuery, googlePlacesResults]
@@ -455,13 +390,6 @@ function SubcontractorSearchModal({
         rows: realBpsRows,
       });
     }
-    if (sampleRows.length > 0) {
-      sections.push({
-        key: 'sample',
-        title: 'Sample listings (demo only)',
-        rows: sampleRows,
-      });
-    }
     if (googleRowsFiltered.length > 0) {
       sections.push({
         key: 'google',
@@ -470,7 +398,7 @@ function SubcontractorSearchModal({
       });
     }
     return sections;
-  }, [realBpsRows, sampleRows, googleRowsFiltered]);
+  }, [realBpsRows, googleRowsFiltered]);
 
   const hasAnyResults = resultSections.length > 0;
 
@@ -1118,8 +1046,8 @@ function SubcontractorSearchModal({
             {!loading && hasAnyResults && (
               <View>
                 <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
-                  {realBpsRows.length + sampleRows.length + googleRowsFiltered.length} Subcontractor
-                  {realBpsRows.length + sampleRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
+                  {realBpsRows.length + googleRowsFiltered.length} Subcontractor
+                  {realBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
 
                 {resultSections.map((section) => (
