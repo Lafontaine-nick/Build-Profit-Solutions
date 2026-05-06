@@ -47,6 +47,7 @@ import {
   StatusBar,
   StyleSheet,
   InputAccessoryView,
+  useWindowDimensions,
 } from "react-native";
 
 /** Get API base URL dynamically (recomputes each time to ensure fresh detection) */
@@ -75,19 +76,29 @@ import {
   textInputPhonePadDoneAccessory,
 } from '@/constants/inputKeyboardPresets';
 import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import {
+  getProjectExpenseFormHorizontalPadding,
+  isDesktopWebLayoutWidth,
+} from '@/constants/ScreenLayout';
 
-/** Web: gradient card (860); native: padded column. */
+/** Match Estimates Add Labor / line-item modals (desktop web column cap). */
+const SKU_SEARCH_WEB_FORM_MAX_WIDTH = 900;
+
+/** Web: green→blue gradient ring; native: padded column. */
 function SkuWebFormOptionalChrome({
   isWeb,
   darkMode,
   Colors,
   columnStyle,
+  frameMaxWidth = SKU_SEARCH_WEB_FORM_MAX_WIDTH,
   children,
 }: {
   isWeb: boolean;
   darkMode: boolean;
   Colors: any;
   columnStyle?: Record<string, unknown>;
+  /** Max width of the gradient frame on web (aligns with `LINE_ITEM_MODAL_WEB_MAX_WIDTH`). */
+  frameMaxWidth?: number;
   children: React.ReactNode;
 }) {
   if (isWeb) {
@@ -98,7 +109,7 @@ function SkuWebFormOptionalChrome({
         end={BRAND_FRAME_GRADIENT_END}
         style={{
           width: "100%",
-          maxWidth: 860,
+          maxWidth: frameMaxWidth,
           alignSelf: "center",
           borderRadius: 24,
           padding: 1,
@@ -310,7 +321,8 @@ function SkuResultThumb({
 
   return (
     <Image
-      source={{ uri, cache: 'force-cache' }}
+      /** RN Web: `cache: 'force-cache'` can prevent images from loading; native keeps disk cache. */
+      source={Platform.OS === 'web' ? { uri } : { uri, cache: 'force-cache' }}
       style={{ width: '100%', height: '100%' }}
       resizeMode="cover"
       onError={() => {
@@ -382,15 +394,24 @@ export default function AttachSkuModal({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Item[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isInputFocused, setIsInputFocused] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [quantities, setQuantities] = useState<Map<string, number>>(new Map()); // Quantity per SKU
   const [watchedItems, setWatchedItems] = useState<Set<string>>(new Set()); // Watched/Saved items
   const insets = useSafeAreaInsets();
+  const { width: skuModalLayoutWidth } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
+  const skuWebDesktopLayout = isWeb && isDesktopWebLayoutWidth(skuModalLayoutWidth);
+  const skuWebHorizontalPad = useMemo(() => {
+    if (!isWeb) return { header: 20, scroll: 20, footer: 20 };
+    return getProjectExpenseFormHorizontalPadding({ desktopWeb: skuWebDesktopLayout });
+  }, [isWeb, skuWebDesktopLayout]);
   const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : "rgba(0,0,0,0.08)";
-  const webColumn860 = isWeb
-    ? { width: "100%" as const, maxWidth: 860, alignSelf: "center" as const }
+  const webColumnCentered = isWeb
+    ? {
+        width: "100%" as const,
+        maxWidth: SKU_SEARCH_WEB_FORM_MAX_WIDTH,
+        alignSelf: "center" as const,
+      }
     : undefined;
 
   const inputWebOutline =
@@ -891,7 +912,7 @@ export default function AttachSkuModal({
             borderBottomWidth: StyleSheet.hairlineWidth,
             borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(0,0,0,0.08)',
           }}>
-            <View style={webColumn860}>
+            <View style={webColumnCentered}>
               <SkuModalHeaderRow
                 darkMode={darkMode}
                 Colors={Colors}
@@ -910,9 +931,9 @@ export default function AttachSkuModal({
                 ? {
                     flexGrow: 1,
                     width: '100%',
-                    maxWidth: 1040,
+                    maxWidth: SKU_SEARCH_WEB_FORM_MAX_WIDTH,
                     alignSelf: 'center',
-                    paddingHorizontal: 32,
+                    paddingHorizontal: skuWebHorizontalPad.scroll,
                     paddingTop: Math.max(insets.top, 12),
                     paddingBottom: 32,
                   }
@@ -933,6 +954,7 @@ export default function AttachSkuModal({
                 flexDirection: 'row',
                 alignItems: 'center',
                 marginBottom: 24,
+                paddingTop: 24,
                 paddingBottom: 18,
                 borderBottomWidth: StyleSheet.hairlineWidth,
                 borderBottomColor: headerRule,
@@ -947,7 +969,7 @@ export default function AttachSkuModal({
               />
             </View>
           )}
-          <SkuWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
+          <SkuWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumnCentered}>
             {/* Retailer Selection */}
             <View>
               <Text style={{
@@ -1075,15 +1097,12 @@ export default function AttachSkuModal({
                     selectionColor="#22c55e"
                     cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                     underlineColorAndroid="transparent"
-                    onFocus={() => setIsInputFocused(true)}
-                    onBlur={() => setIsInputFocused(false)}
                   />
                   {q.length > 0 && (
                     <TouchableOpacity
                       onPress={() => {
                         setQ("");
                         setResults([]);
-                        setIsInputFocused(false);
                       }}
                       style={{ marginLeft: 8, padding: 4 }}
                     >
@@ -1143,8 +1162,6 @@ export default function AttachSkuModal({
                     }}
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                     underlineColorAndroid="transparent"
-                    onFocus={() => setIsInputFocused(true)}
-                    onBlur={() => setIsInputFocused(false)}
                   />
               </View>
             </View>
@@ -1187,6 +1204,28 @@ export default function AttachSkuModal({
                   </Text>
                 </View>
               </TouchableOpacity>
+
+            <View
+              style={{
+                marginTop: 14,
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
+                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 11.5,
+                  lineHeight: 17,
+                  color: darkMode ? 'rgba(226, 232, 240, 0.82)' : Colors.sub,
+                }}
+              >
+                Product data is provided for estimating convenience only. Build Profit Solutions is not affiliated with, endorsed by, or sponsored by The Home Depot, Lowe's, or any listed retailer. Prices, product images, and availability may change and should be verified directly with the retailer before purchase or bid submission.
+              </Text>
+            </View>
 
             {loading && <ActivityIndicator color="#22c55e" size="large" style={{ marginTop: 16 }} />}
             {error && <Text style={{ color: "#f87171", textAlign: 'center', marginTop: 12, fontSize: 14, lineHeight: 20, paddingHorizontal: 8 }}>{error}</Text>}
@@ -1478,29 +1517,6 @@ export default function AttachSkuModal({
               </View>
             )}
 
-            {!isInputFocused && (
-              <View style={{ 
-                backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.07)' : 'rgba(251, 191, 36, 0.1)', 
-                paddingHorizontal: 12, 
-                paddingVertical: 12, 
-                borderRadius: 12, 
-                borderWidth: 1, 
-                borderColor: darkMode ? 'rgba(251, 191, 36, 0.22)' : 'rgba(217, 119, 6, 0.28)',
-                marginTop: results.length > 0 ? 12 : 8,
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-                  <MaterialIcons name="warning" size={22} color={darkMode ? '#fbbf24' : '#d97706'} style={{ marginTop: 1 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, color: darkMode ? "#fbbf24" : "#b45309", fontWeight: "700", marginBottom: 4, letterSpacing: 0.2 }}>
-                      Price estimates
-                    </Text>
-                    <Text style={{ fontSize: 12, color: darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub, lineHeight: 17 }}>
-                      Prices are estimates from public search results and may change. Always verify current pricing and availability on the retailer's website before purchasing. Build Profit Solutions is not affiliated with Home Depot or Lowe's.
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )}
           </SkuWebFormOptionalChrome>
           </ScrollView>
         </View>

@@ -192,6 +192,62 @@ export function YelpResultsFooter({ style }: { style?: any }) {
   );
 }
 
+/** Required attribution for Google Maps Platform (Places) data shown in-app. */
+export function GooglePlacesResultsFooter({
+  style,
+  darkMode = true,
+}: {
+  style?: any;
+  darkMode?: boolean;
+}) {
+  const openPolicies = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Linking.openURL('https://developers.google.com/maps/documentation/places/web-service/policies');
+  };
+  const openGoogle = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Linking.openURL('https://maps.google.com');
+  };
+
+  return (
+    <View
+      style={[
+        {
+          marginTop: 14,
+          padding: 14,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)',
+          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
+        },
+        style,
+      ]}
+    >
+      <TouchableOpacity onPress={openGoogle} activeOpacity={0.75} style={{ marginBottom: 8 }}>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: darkMode ? '#e2e8f0' : '#0f172a' }}>
+          Nearby results from Google Maps Platform
+        </Text>
+      </TouchableOpacity>
+      <Text
+        style={{
+          fontSize: 11,
+          lineHeight: 16,
+          color: darkMode ? 'rgba(226, 232, 240, 0.78)' : '#475569',
+          marginBottom: 8,
+        }}
+      >
+        Nearby results are provided by Google and have not been verified by Build Profit Solutions. Verify license,
+        insurance, pricing, and availability before hiring.
+      </Text>
+      <TouchableOpacity onPress={openPolicies} activeOpacity={0.7}>
+        <Text style={{ fontSize: 11, color: '#43cea2', textDecorationLine: 'underline' }}>
+          Google Maps Platform terms & attribution
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // Helper function to get configuration for each attribution type
 function getAttributionConfig(type: AttributionType) {
   const configs = {

@@ -43,3 +43,20 @@ export function decimalMoneyInputToNumber(raw: string): number {
   const parsed = parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+/**
+ * Thousands separators in the integer part while typing (e.g. 2000 → 2,000).
+ * Pass raw input; commas are stripped before sanitize. Safe for TextInput value.
+ */
+export function formatDecimalMoneyDisplay(raw: string): string {
+  const normalized = sanitizeDecimalMoneyInput(String(raw ?? "").replace(/,/g, ""));
+  if (!normalized) return "";
+  const dot = normalized.indexOf(".");
+  if (dot === -1) {
+    return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  const whole = normalized.slice(0, dot);
+  const frac = normalized.slice(dot + 1);
+  const wholeFmt = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${wholeFmt}.${frac}`;
+}

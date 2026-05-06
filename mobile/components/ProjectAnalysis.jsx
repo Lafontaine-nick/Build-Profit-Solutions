@@ -635,7 +635,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   return (
     <View style={styles.container}>
       {/* Content */}
-      <ScrollView showsVerticalScrollIndicator={false}>
+      {/* View (not ScrollView): parent estimate screen already scrolls; nested ScrollView caused +/− taps to jump scroll on web & native */}
+      <View>
             <View style={styles.cardHeader}>
               <Text style={[styles.cardTitle, { color: darkMode ? palette.text : '#000000' }]}>
                 🎯 Outcome scenario presets
@@ -711,39 +712,67 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </TouchableOpacity>
             </View>
             
-            {/* Preset Applied Indicator */}
-            {getPresetDetails && (
+            {/* Preset applied / insight — keep a block mounted when sliders leave a preset so layout height
+                does not collapse (avoids first fine-tune tap scroll jump on web from scroll anchoring). */}
+            {(getPresetDetails || (hasChanges && !getActivePreset)) && (
               <View>
-                <View style={[
-                  styles.presetAppliedIndicator,
-                  getPresetDetails.name === 'Typical Friction' && {
-                    backgroundColor: 'rgba(234, 179, 8, 0.12)',
-                    borderColor: 'rgba(234, 179, 8, 0.25)',
-                  },
-                  getPresetDetails.name === 'High Friction Job' && {
-                    backgroundColor: 'rgba(249, 115, 22, 0.12)',
-                    borderColor: 'rgba(249, 115, 22, 0.25)',
-                  }
-                ]}>
-                  <Text style={styles.presetAppliedText}>
-                    <Text style={{ fontWeight: '700' }}>{getPresetDetails.name} applied:</Text> {getPresetDetails.details}
-                  </Text>
-                </View>
-                {getPresetDetails.name === 'Typical Friction' && (
-                  <Text style={styles.presetDefaultNote}>
-                    Typical Friction is the default preset — moderate execution drag for stress-testing (not a universal benchmark).
-                  </Text>
-                )}
-                {/* AI Explanation */}
-                <View style={styles.aiExplanationCard}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                    <MaterialIcons name="psychology" size={16} color={palette.accent} style={{ marginRight: 6 }} />
-                    <Text style={styles.aiExplanationLabel}>AI Project Manager Insight</Text>
+                {getPresetDetails ? (
+                  <>
+                    <View style={[
+                      styles.presetAppliedIndicator,
+                      getPresetDetails.name === 'Typical Friction' && {
+                        backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                        borderColor: 'rgba(234, 179, 8, 0.25)',
+                      },
+                      getPresetDetails.name === 'High Friction Job' && {
+                        backgroundColor: 'rgba(249, 115, 22, 0.12)',
+                        borderColor: 'rgba(249, 115, 22, 0.25)',
+                      }
+                    ]}>
+                      <Text style={styles.presetAppliedText}>
+                        <Text style={{ fontWeight: '700' }}>{getPresetDetails.name} applied:</Text> {getPresetDetails.details}
+                      </Text>
+                    </View>
+                    {getPresetDetails.name === 'Typical Friction' && (
+                      <Text style={styles.presetDefaultNote}>
+                        Typical Friction is the default preset — moderate execution drag for stress-testing (not a universal benchmark).
+                      </Text>
+                    )}
+                    <View style={styles.aiExplanationCard}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                        <MaterialIcons name="psychology" size={16} color={palette.accent} style={{ marginRight: 6 }} />
+                        <Text style={styles.aiExplanationLabel}>AI Project Manager Insight</Text>
+                      </View>
+                      <Text style={styles.aiExplanationText}>
+                        {getPresetDetails.aiExplanation}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.presetInsightCustomMin}>
+                    <View style={[
+                      styles.presetAppliedIndicator,
+                      {
+                        backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                        borderColor: 'rgba(148, 163, 184, 0.22)',
+                      },
+                    ]}>
+                      <Text style={styles.presetAppliedText}>
+                        <Text style={{ fontWeight: '700' }}>Custom scenario:</Text>{' '}
+                        Your sliders no longer match a preset template. Totals below use these exact percentages.
+                      </Text>
+                    </View>
+                    <View style={styles.aiExplanationCard}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                        <MaterialIcons name="tune" size={16} color={palette.accent} style={{ marginRight: 6 }} />
+                        <Text style={styles.aiExplanationLabel}>Fine-tune active</Text>
+                      </View>
+                      <Text style={styles.aiExplanationText}>
+                        Many jobs diverge from any template once you adjust labor, materials, overhead, timeline, or bid. Tap a scenario preset to jump back to a named stress-test, or keep refining here.
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={styles.aiExplanationText}>
-                    {getPresetDetails.aiExplanation}
-                  </Text>
-                </View>
+                )}
               </View>
             )}
 
@@ -1039,7 +1068,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </Text>
               )}
             </View>
-        </ScrollView>
+        </View>
 
       {/* More Details Modal */}
       <Modal
@@ -1426,6 +1455,10 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     marginTop: 4,
     marginBottom: 12,
     paddingHorizontal: 14,
+  },
+  /** Keeps custom-insight height from dropping below Typical + default note + AI (avoids first fine-tune scroll jump). */
+  presetInsightCustomMin: {
+    minHeight: ew(288, 308),
   },
   aiExplanationCard: {
     marginTop: 8,

@@ -51,6 +51,7 @@ import {
   decimalMoneyInputToNumber,
   digitsOnly,
   dollarsToCentsDigits,
+  formatDecimalMoneyDisplay,
   sanitizeDecimalMoneyInput,
 } from '@/src/lib/keyboardMoney';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
@@ -890,14 +891,29 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
 });
 
+/** Desktop web (≥1024px): centered column — match `isDesktopWebLayoutWidth` (not tablet). */
+const LINE_ITEM_MODAL_WEB_MAX_WIDTH = 900;
+
 // Module-level variable to persist header top position across component remounts
 let paymentMilestoneHeaderTop = null;
 let weeklyPaymentHeaderTop = null;
 
 // Payment Milestone Modal
-const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) => {
+const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grandTotal }) => {
   const insets = useSafeAreaInsets();
   const tabScrollBottomInset = useTabScrollBottomInset();
+  const { width: paymentModalLayoutWidth } = useWindowDimensions();
+  const paymentWebConstrained =
+    Platform.OS === 'web' && isDesktopWebLayoutWidth(paymentModalLayoutWidth);
+  const paymentLayoutPad = useMemo(() => {
+    if (paymentWebConstrained) {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: true });
+    }
+    if (Platform.OS === 'web') {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: false });
+    }
+    return { header: 20, scroll: 20, footer: 20 };
+  }, [paymentWebConstrained]);
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
@@ -979,10 +995,14 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
   
   const handleSave = () => {
     if (!name.trim()) {
-      Alert.alert('Error', 'Please enter a milestone name');
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert('Please enter a milestone name');
+      } else {
+        Alert.alert('Error', 'Please enter a milestone name');
+      }
       return;
     }
-    
+
     const milestoneData = {
       ...(item?.id && { id: item.id }),
       name: name.trim(),
@@ -993,10 +1013,310 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
       scheduledDate: scheduledDate || undefined,
       dueDate: scheduledDate || undefined,
     };
-    
+
     onSave(milestoneData);
   };
-  
+
+  /** Native: gradient ring per field. Web: ring only on outer `LineItemFormShell` (Add Labor parity). */
+  const GradientFieldShell = ({ children }) => {
+    if (Platform.OS === 'web') {
+      return <>{children}</>;
+    }
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
+        style={modalStyles.materialInputBorder}
+      >
+        {children}
+      </LinearGradient>
+    );
+  };
+
+  const milestoneFormBody = (
+    <>
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Milestone Name *</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="tag" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={modalStyles.materialInput}
+              value={name}
+              onChangeText={setName}
+              returnKeyType="next"
+              placeholder="e.g., Deposit, Framing Complete"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Description (Optional)</Text>
+        <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
+          <Feather
+            name="file-text"
+            size={16}
+            color="#8DA0B8"
+            style={[modalStyles.materialInputIcon, { marginTop: 4 }]}
+          />
+          <TextInput
+            style={[modalStyles.materialInput, { minHeight: 80, textAlignVertical: 'top' }]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Optional description"
+            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.text}
+            multiline
+          />
+        </View>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Amount *</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="dollar-sign" size={16} color="#22c55e" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={modalStyles.materialInput}
+              value={amount}
+              onChangeText={handleAmountChange}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              placeholder="$ 0.00"
+              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="percent" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={modalStyles.materialInput}
+              value={percentage}
+              onChangeText={handlePercentageChange}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              placeholder="0"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
+        <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
+        <GradientFieldShell>
+          <TouchableOpacity
+            style={modalStyles.materialInputWrapper}
+            onPress={() => setShowDatePicker(!showDatePicker)}
+          >
+            <Feather name="calendar" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 15,
+                color: scheduledDate
+                  ? darkMode
+                    ? '#FFFFFF'
+                    : Colors.text
+                  : darkMode
+                    ? 'rgba(255,255,255,0.4)'
+                    : Colors.text,
+                fontWeight: '500',
+                paddingVertical: 12,
+              }}
+            >
+              {scheduledDate
+                ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : 'Select date'}
+            </Text>
+          </TouchableOpacity>
+        </GradientFieldShell>
+        {showDatePicker && (
+          <View style={{ marginTop: 12 }}>
+            <GreyCalendar
+              onDayPress={(day) => {
+                setScheduledDate(day.dateString);
+                setShowDatePicker(false);
+              }}
+              markedDates={{
+                [scheduledDate || '']: {
+                  selected: true,
+                  selectedColor: '#22c55e',
+                  selectedTextColor: '#000000',
+                },
+              }}
+              initialDate={scheduledDate}
+            />
+          </View>
+        )}
+      </View>
+    </>
+  );
+
+  if (Platform.OS === 'web') {
+    return (
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: Colors.bg, paddingTop: insets.top }}>
+          <StatusBar
+            barStyle={Colors.bg === '#000000' ? 'light-content' : 'dark-content'}
+            translucent={false}
+          />
+          <View
+            style={[
+              { flex: 1, width: '100%' },
+              paymentWebConstrained && {
+                maxWidth: LINE_ITEM_MODAL_WEB_MAX_WIDTH,
+                width: '100%',
+                alignSelf: 'center',
+              },
+            ]}
+          >
+            <View
+              style={[
+                modalStyles.materialHeader,
+                { paddingHorizontal: paymentLayoutPad.header, paddingTop: 32 },
+              ]}
+            >
+              <View style={modalStyles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={modalStyles.backButtonBorder}
+                >
+                  <GradientRingBackInner darkMode={darkMode} onPress={onClose} style={modalStyles.backButton}>
+                    <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={modalStyles.headerTitleRow}>
+                <View style={modalStyles.headerIconContainerWrapper}>
+                  <LinearGradient
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={modalStyles.headerIconBorder}
+                  >
+                    <View style={modalStyles.headerIconContainer}>
+                      <MaterialCommunityIcons name="cash-multiple" size={20} color="#22c55e" />
+                    </View>
+                  </LinearGradient>
+                </View>
+                <View style={modalStyles.headerTextBlock}>
+                  <Text style={modalStyles.materialTitle}>
+                    {item ? 'Edit' : 'Add'} Payment Milestone
+                  </Text>
+                  <Text style={modalStyles.materialSubtitle}>Set payment amount and schedule</Text>
+                </View>
+              </View>
+            </View>
+
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'android' ? 'padding' : undefined}
+              enabled={Platform.OS === 'android'}
+              style={{ flex: 1, backgroundColor: Colors.bg }}
+              keyboardVerticalOffset={0}
+            >
+              <ScrollView
+                {...KEYBOARD_SCROLL_DEFAULTS}
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: paymentLayoutPad.scroll,
+                  paddingTop: 8,
+                  paddingBottom: 16 + tabScrollBottomInset,
+                }}
+              >
+                <LineItemFormShell nativeFullBleed={false} darkMode={darkMode} Colors={Colors}>
+                  {milestoneFormBody}
+                </LineItemFormShell>
+              </ScrollView>
+
+              <View
+                style={[
+                  modalStyles.materialFooterFlow,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 16),
+                    paddingHorizontal: paymentLayoutPad.footer,
+                  },
+                ]}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    width: '100%',
+                    gap: 10,
+                  }}
+                >
+                  {item?.id && onDelete ? (
+                    <Pressable
+                      onPress={() => onDelete(item.id)}
+                      style={({ pressed }) => [
+                        {
+                          paddingVertical: 15,
+                          paddingHorizontal: 14,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: 'rgba(248, 113, 113, 0.45)',
+                          backgroundColor: 'rgba(248, 113, 113, 0.12)',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        },
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      android_disableSound
+                      delayPressIn={0}
+                    >
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: '#f87171' }}>Delete</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    onPress={onClose}
+                    style={({ pressed }) => [
+                      modalStyles.materialCancelBtn,
+                      { flex: 1 },
+                      pressed && { opacity: 0.75 },
+                    ]}
+                    android_disableSound
+                    delayPressIn={0}
+                  >
+                    <Text style={modalStyles.materialCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleSave}
+                    style={({ pressed }) => [
+                      modalStyles.materialSaveBtn,
+                      { flex: 1 },
+                      pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
+                    ]}
+                    android_disableSound
+                    delayPressIn={0}
+                  >
+                    <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
+                      <Text style={modalStyles.materialSaveText}>✓ Save</Text>
+                    </View>
+                  </Pressable>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       visible={visible}
@@ -1066,164 +1386,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, grandTotal }) =
               showsVerticalScrollIndicator={false}
               contentContainerStyle={scrollViewContentStyle}
             >
-              {/* Milestone Name */}
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Milestone Name *</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="tag"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={name}
-                      onChangeText={setName}
-                      returnKeyType="next"
-                      placeholder="e.g., Deposit, Framing Complete"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
-                    />
-                  </View>
-                </LinearGradient>
-              </View>
-              
-              {/* Description */}
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Description (Optional)</Text>
-                <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
-                  <Feather
-                    name="file-text"
-                    size={16}
-                    color="#8DA0B8"
-                    style={[modalStyles.materialInputIcon, { marginTop: 4 }]}
-                  />
-                  <TextInput
-                    style={[modalStyles.materialInput, { minHeight: 80, textAlignVertical: 'top' }]}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder="Optional description"
-                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.text}
-                    multiline
-                  />
-                </View>
-              </View>
-              
-              {/* Amount */}
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Amount *</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="dollar-sign"
-                      size={16}
-                      color="#22c55e"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={amount}
-                      onChangeText={handleAmountChange}
-                      keyboardType="decimal-pad"
-                      returnKeyType="next"
-                      placeholder="$ 0.00"
-                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                    />
-                  </View>
-                </LinearGradient>
-              </View>
-              
-              {/* Percentage */}
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="percent"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={percentage}
-                      onChangeText={handlePercentageChange}
-                      keyboardType="decimal-pad"
-                      returnKeyType="next"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
-                    />
-                  </View>
-                </LinearGradient>
-              </View>
-              
-              {/* Scheduled Date */}
-              <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
-                <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <TouchableOpacity
-                    style={modalStyles.materialInputWrapper}
-                    onPress={() => setShowDatePicker(!showDatePicker)}
-                  >
-                    <Feather
-                      name="calendar"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <Text style={{ 
-                      flex: 1, 
-                      fontSize: 15, 
-                      color: scheduledDate
-                        ? (darkMode ? '#FFFFFF' : Colors.text)
-                        : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.text),
-                      fontWeight: '500',
-                      paddingVertical: 12,
-                    }}>
-                      {scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
-                    </Text>
-                  </TouchableOpacity>
-                </LinearGradient>
-                {showDatePicker && (
-                  <View style={{ marginTop: 12 }}>
-                    <GreyCalendar
-                      onDayPress={(day) => {
-                        setScheduledDate(day.dateString);
-                        setShowDatePicker(false);
-                      }}
-                      markedDates={{
-                        [scheduledDate || '']: {
-                          selected: true,
-                          selectedColor: '#22c55e',
-                          selectedTextColor: '#000000',
-                        }
-                      }}
-                      initialDate={scheduledDate}
-                    />
-                  </View>
-                )}
-              </View>
+              {milestoneFormBody}
             </ScrollView>
             
             {/* BOTTOM ACTION BAR */}
@@ -1581,9 +1744,6 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   );
 };
 
-/** Desktop web (≥1024px): centered column — match `isDesktopWebLayoutWidth` (not tablet). */
-const LINE_ITEM_MODAL_WEB_MAX_WIDTH = 900;
-
 const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => {
   const insets = useSafeAreaInsets();
   const { width: lineItemLayoutWidth } = useWindowDimensions();
@@ -1629,7 +1789,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 
   useEffect(() => {
     if (item) {
-      setName(item.name || '');
+      setName(item.name || item.description || '');
       setQuantity(item.quantity || 1);
       setUnit(item.unit || 'lot');
       setUnitPrice(item.unitPrice || 0);
@@ -1641,18 +1801,22 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         );
         setUnitPriceText(
           item.unitPrice != null && item.unitPrice !== ''
-            ? sanitizeDecimalMoneyInput(String(item.unitPrice))
+            ? formatDecimalMoneyDisplay(String(item.unitPrice))
             : ''
         );
       } else {
         setQuantityText(item.quantity?.toString() || '');
-        setUnitPriceText(item.unitPrice?.toString() || '');
+        setUnitPriceText(
+          item.unitPrice != null && item.unitPrice !== ''
+            ? formatDecimalMoneyDisplay(String(item.unitPrice))
+            : ''
+        );
       }
       setHours(item.hours || '');
       if (isLaborForm) {
         setLaborRateDigits(
           item.rate != null && item.rate !== ''
-            ? sanitizeDecimalMoneyInput(String(Number(item.rate)))
+            ? formatDecimalMoneyDisplay(String(Number(item.rate)))
             : ''
         );
       } else {
@@ -1707,7 +1871,8 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         trade: String(trade || '').trim(),
         hours: Number(hours) || 0,
         rate: laborRateNum,
-        total: (Number(hours) || 0) * laborRateNum
+        total: (Number(hours) || 0) * laborRateNum,
+        description: String(name || '').trim(),
       } : {
         ...(isMaterialForm && { mode: mode === 'sqft' ? 'sqft' : 'flat' }),
         quantity: isMaterialForm
@@ -1816,8 +1981,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                 },
               ]}
             >
-              {/* Header */}
-              <View style={[modalStyles.materialHeader, { paddingHorizontal: lineItemLayoutPad.header }]}>
+              {/* Header — web: extra top breathing room below browser chrome (materials + labor) */}
+              <View
+                style={[
+                  modalStyles.materialHeader,
+                  { paddingHorizontal: lineItemLayoutPad.header },
+                  Platform.OS === 'web' && { paddingTop: 32 },
+                ]}
+              >
                 <View style={modalStyles.backButtonWrapper}>
                   <LinearGradient
                     colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -2097,7 +2268,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholder="$ 0.00"
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={laborRateDigits}
-                            onChangeText={(text) => setLaborRateDigits(sanitizeDecimalMoneyInput(text))}
+                            onChangeText={(text) => setLaborRateDigits(formatDecimalMoneyDisplay(text))}
                             keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? 'dark' : 'light'}
                             textContentType="none"
@@ -2349,7 +2520,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     }
                                     value={unitPriceText || ''}
                                     onChangeText={(text) => {
-                                      const d = sanitizeDecimalMoneyInput(text);
+                                      const d = formatDecimalMoneyDisplay(text);
                                       setUnitPriceText(d);
                                       setUnitPrice(decimalMoneyInputToNumber(d));
                                     }}
@@ -2422,7 +2593,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 }
                                 value={unitPriceText || ''}
                                 onChangeText={(text) => {
-                                  const d = sanitizeDecimalMoneyInput(text);
+                                  const d = formatDecimalMoneyDisplay(text);
                                   setUnitPriceText(d);
                                   setUnitPrice(decimalMoneyInputToNumber(d));
                                 }}
@@ -2653,7 +2824,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           <TextInput
                             style={modalStyles.input}
                             value={laborRateDigits}
-                            onChangeText={(text) => setLaborRateDigits(sanitizeDecimalMoneyInput(text))}
+                            onChangeText={(text) => setLaborRateDigits(formatDecimalMoneyDisplay(text))}
                             keyboardType="decimal-pad"
                             textContentType="none"
                             autoComplete="off"
@@ -2710,11 +2881,14 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         <Text style={modalStyles.label}>Unit Price ($)</Text>
                         <TextInput
                           style={modalStyles.input}
-                          value={unitPriceText || (unitPrice > 0 ? unitPrice.toString() : '')}
+                          value={
+                            unitPriceText ||
+                            (unitPrice > 0 ? formatDecimalMoneyDisplay(String(unitPrice)) : '')
+                          }
                           onChangeText={(text) => {
-                            const cleanText = sanitizeDecimalMoneyInput(text);
-                            setUnitPriceText(cleanText);
-                            setUnitPrice(decimalMoneyInputToNumber(cleanText));
+                            const d = formatDecimalMoneyDisplay(text);
+                            setUnitPriceText(d);
+                            setUnitPrice(decimalMoneyInputToNumber(d));
                           }}
                           keyboardType="decimal-pad"
                           returnKeyType="done"
@@ -8749,22 +8923,33 @@ export default function EstimateGeneratorScreen() {
   };
 
   const handleDeleteMilestone = (milestoneId) => {
-    Alert.alert(
-      'Delete Milestone',
-      'Are you sure you want to delete this payment milestone?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            const updatedMilestones = (bid.paymentMilestones || []).filter(m => m.id !== milestoneId);
-            updateBid('paymentMilestones', updatedMilestones);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          },
-        },
-      ]
-    );
+    const runDelete = () => {
+      const updatedMilestones = (bid.paymentMilestones || []).filter((m) => m.id !== milestoneId);
+      updateBid('paymentMilestones', updatedMilestones);
+      setMilestoneModal((prev) =>
+        prev.visible && prev.item?.id === milestoneId ? { visible: false, item: null } : prev
+      );
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const ok = window.confirm(
+        'Delete this payment milestone? This cannot be undone.'
+      );
+      if (ok) runDelete();
+      return;
+    }
+
+    Alert.alert('Delete Milestone', 'Are you sure you want to delete this payment milestone?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: runDelete,
+      },
+    ]);
   };
 
   // Weekly Payment Management
@@ -10398,7 +10583,15 @@ export default function EstimateGeneratorScreen() {
   };
 
   const addLabor = () => setLaborModal({ visible: true, item: null });
-  const editLabor = (item) => setLaborModal({ visible: true, item });
+  const editLabor = (item) =>
+    setLaborModal({
+      visible: true,
+      item: {
+        ...item,
+        name: item.name || item.description || 'Labor',
+        description: item.description || item.name,
+      },
+    });
   const saveLabor = (item) => {
     if (item.id) {
       // Update existing
@@ -11772,22 +11965,31 @@ export default function EstimateGeneratorScreen() {
                                           )}
                                           <TouchableOpacity
                                             onPress={() => {
-                                              Alert.alert(
-                                                'Delete Material?',
-                                                `Remove "${item.name || item.description || 'Material'}" from the cart?`,
-                                                [
-                                                  { text: 'Cancel', style: 'cancel' },
-                                                  {
-                                                    text: 'Delete',
-                                                    style: 'destructive',
-                                                    onPress: () => {
-                                                      setMaterialsCart(prev => prev.filter((_, i) => i !== index));
-                                                      if (editingCartItem === index) setEditingCartItem(null);
-                                                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                                    }
-                                                  }
-                                                ]
-                                              );
+                                              const title = 'Delete Material?';
+                                              const msg = `Remove "${item.name || item.description || 'Material'}" from the cart?`;
+                                              const doDelete = () => {
+                                                setMaterialsCart((prev) => prev.filter((_, i) => i !== index));
+                                                if (editingCartItem === index) setEditingCartItem(null);
+                                                if (Platform.OS !== 'web') {
+                                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                                }
+                                              };
+                                              if (
+                                                Platform.OS === 'web' &&
+                                                typeof window !== 'undefined' &&
+                                                typeof window.confirm === 'function'
+                                              ) {
+                                                if (window.confirm(`${title}\n\n${msg}`)) doDelete();
+                                                return;
+                                              }
+                                              Alert.alert(title, msg, [
+                                                { text: 'Cancel', style: 'cancel' },
+                                                {
+                                                  text: 'Delete',
+                                                  style: 'destructive',
+                                                  onPress: doDelete,
+                                                },
+                                              ]);
                                             }}
                                             style={{
                                               width: 32,
@@ -11812,6 +12014,20 @@ export default function EstimateGeneratorScreen() {
                               {materialsCart.length > 1 && (
                                 <TouchableOpacity
                                   onPress={() => {
+                                    if (
+                                      Platform.OS === 'web' &&
+                                      typeof window !== 'undefined' &&
+                                      typeof window.confirm === 'function'
+                                    ) {
+                                      if (
+                                        window.confirm(
+                                          'Clear Cart?\n\nThis will remove all items from your cart.',
+                                        )
+                                      ) {
+                                        setMaterialsCart([]);
+                                      }
+                                      return;
+                                    }
                                     Alert.alert('Clear Cart?', 'This will remove all items from your cart.', [
                                       { text: 'Cancel', style: 'cancel' },
                                       { text: 'Clear', style: 'destructive', onPress: () => setMaterialsCart([]) },
@@ -12412,38 +12628,60 @@ export default function EstimateGeneratorScreen() {
                                     <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, letterSpacing: -0.2 }}>
                                       {money(item.total || 0)}
                                     </Text>
-                                    <TouchableOpacity
-                                      onPress={() => {
-                                        Alert.alert(
-                                          'Delete Labor Item?',
-                                          `Remove "${item.description || item.name || 'Labor'}"?`,
-                                          [
-                                            { text: 'Cancel', style: 'cancel' },
-                                            {
-                                              text: 'Delete',
-                                              style: 'destructive',
-                                              onPress: () => {
-                                                const updated = laborItems.filter(l => l.id !== item.id);
-                                                updateBid('laborLineItems', updated);
-                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                              }
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      <TouchableOpacity
+                                        onPress={() => editLabor(item)}
+                                        style={{
+                                          width: 32,
+                                          height: 32,
+                                          borderRadius: 16,
+                                          backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                                          justifyContent: 'center',
+                                          alignItems: 'center',
+                                          borderWidth: 1,
+                                          borderColor: 'rgba(34, 197, 94, 0.22)',
+                                        }}
+                                      >
+                                        <Ionicons name="create-outline" size={15} color="#4ade80" />
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={() => {
+                                          const title = 'Delete Labor Item?';
+                                          const msg = `Remove "${item.description || item.name || 'Labor'}"?`;
+                                          const doDelete = () => {
+                                            const updated = laborItems.filter((l) => l.id !== item.id);
+                                            updateBid('laborLineItems', updated);
+                                            if (Platform.OS !== 'web') {
+                                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                             }
-                                          ]
-                                        );
-                                      }}
-                                      style={{
-                                        width: 32,
-                                        height: 32,
-                                        borderRadius: 16,
-                                        backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                        borderWidth: 1,
-                                        borderColor: 'rgba(248, 113, 113, 0.28)',
-                                      }}
-                                    >
-                                      <Ionicons name="trash-outline" size={15} color="#f87171" />
-                                    </TouchableOpacity>
+                                          };
+                                          if (
+                                            Platform.OS === 'web' &&
+                                            typeof window !== 'undefined' &&
+                                            typeof window.confirm === 'function'
+                                          ) {
+                                            if (window.confirm(`${title}\n\n${msg}`)) doDelete();
+                                            return;
+                                          }
+                                          Alert.alert(title, msg, [
+                                            { text: 'Cancel', style: 'cancel' },
+                                            { text: 'Delete', style: 'destructive', onPress: doDelete },
+                                          ]);
+                                        }}
+                                        style={{
+                                          width: 32,
+                                          height: 32,
+                                          borderRadius: 16,
+                                          backgroundColor: darkMode ? 'rgba(248, 113, 113, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                                          justifyContent: 'center',
+                                          alignItems: 'center',
+                                          borderWidth: 1,
+                                          borderColor: 'rgba(248, 113, 113, 0.28)',
+                                        }}
+                                      >
+                                        <Ionicons name="trash-outline" size={15} color="#f87171" />
+                                      </TouchableOpacity>
+                                    </View>
                                   </View>
                                 </View>
                               </View>
@@ -12452,6 +12690,20 @@ export default function EstimateGeneratorScreen() {
                             {laborItems.length > 1 && (
                               <TouchableOpacity
                                 onPress={() => {
+                                  if (
+                                    Platform.OS === 'web' &&
+                                    typeof window !== 'undefined' &&
+                                    typeof window.confirm === 'function'
+                                  ) {
+                                    if (
+                                      window.confirm(
+                                        'Clear All?\n\nThis will remove all labor items.',
+                                      )
+                                    ) {
+                                      updateBid('laborLineItems', []);
+                                    }
+                                    return;
+                                  }
                                   Alert.alert('Clear All?', 'This will remove all labor items.', [
                                     { text: 'Cancel', style: 'cancel' },
                                     { text: 'Clear', style: 'destructive', onPress: () => updateBid('laborLineItems', []) },
@@ -18927,6 +19179,7 @@ export default function EstimateGeneratorScreen() {
         onClose={() => setMilestoneModal({ visible: false, item: null })}
         item={milestoneModal.item}
         onSave={handleSaveMilestone}
+        onDelete={handleDeleteMilestone}
         grandTotal={calc?.grandTotal || calc?.total || 0}
       />
       

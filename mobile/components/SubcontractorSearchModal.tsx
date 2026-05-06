@@ -29,9 +29,8 @@ import {
 import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { YelpResultsFooter } from '@/components/AttributionBadge';
+import { GooglePlacesResultsFooter } from '@/components/AttributionBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useChat } from '../contexts/ChatContext';
 import { ChatModal } from './ChatModal';
@@ -92,13 +91,6 @@ function SubWebFormOptionalChrome({
   );
 }
 
-/** Off by default — set `EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED=true` + `YELP_API_KEY` on backend when you enable Yelp. */
-function isYelpSubSearchEnabled(): boolean {
-  if (process.env.EXPO_PUBLIC_YELP_SUB_SEARCH_ENABLED === 'true') return true;
-  const extra = Constants.expoConfig?.extra as { yelpSubSearchEnabled?: boolean } | undefined;
-  return extra?.yelpSubSearchEnabled === true;
-}
-
 const TRADE_OPTIONS = [
   'All Trades',
   'Plumbing',
@@ -132,7 +124,7 @@ const DEMO_SUBCONTRACTORS: any[] = [
     availability: 'Available Now',
     image: 'https://via.placeholder.com/80',
     specialties: ['Residential', 'Commercial', 'Emergency'],
-    source: 'demo',
+    source: 'sample',
     sourceLabel: 'Sample',
   },
   {
@@ -149,7 +141,7 @@ const DEMO_SUBCONTRACTORS: any[] = [
     availability: 'Available in 3 days',
     image: 'https://via.placeholder.com/80',
     specialties: ['Residential', 'Industrial', 'Solar'],
-    source: 'demo',
+    source: 'sample',
     sourceLabel: 'Sample',
   },
   {
@@ -166,10 +158,53 @@ const DEMO_SUBCONTRACTORS: any[] = [
     availability: 'Available Now',
     image: 'https://via.placeholder.com/80',
     specialties: ['Residential', 'Commercial', 'Metal Framing'],
-    source: 'demo',
+    source: 'sample',
     sourceLabel: 'Sample',
   },
 ];
+
+/** Map Google Places API (backend) row → in-app subcontractor card model. */
+function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
+  const tradeLabel =
+    selectedTrade !== 'All Trades'
+      ? selectedTrade
+      : row.primaryTypeDisplayName || 'Contractor';
+  const specialties = (row.types || [])
+    .filter((t: string) => t && !t.startsWith('establishment'))
+    .slice(0, 5)
+    .map((t: string) => String(t).replace(/_/g, ' '));
+  const status = row.businessStatus
+    ? String(row.businessStatus).replace(/_/g, ' ').toLowerCase()
+    : '—';
+  return {
+    id: row.placeId,
+    placeId: row.placeId,
+    name: row.name,
+    trade: tradeLabel,
+    rating: row.rating ?? 0,
+    reviews: row.reviewCount ?? 0,
+    hourlyRate: { min: 0, max: 0 },
+    hideHourlyRate: true,
+    location: row.formattedAddress || '—',
+    distance: null,
+    licensed: false,
+    insured: false,
+    availability: status,
+    image: null,
+    specialties: specialties.length ? specialties : [tradeLabel],
+    phone: row.phone || null,
+    website: row.website || null,
+    url: row.website || row.googleMapsUri || null,
+    googleMapsUri: row.googleMapsUri || null,
+    businessStatus: row.businessStatus || null,
+    formattedAddress: row.formattedAddress || null,
+    fetchedAt: row.fetchedAt || null,
+    primaryTypeDisplayName: row.primaryTypeDisplayName || null,
+    source: 'google_places',
+    sourceLabel: 'Google',
+    unverifiedLabel: 'Not verified by BPS',
+  };
+}
 
 interface SubcontractorSearchModalProps {
   visible: boolean;
@@ -191,7 +226,6 @@ function SubcontractorSearchModal({
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
-  const yelpSubSearchEnabled = useMemo(() => isYelpSubSearchEnabled(), []);
   /** Shared UI tokens — Find Subcontractors + Contractor Profile polish */
   const subMeta = darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub;
   const subMeta2 = darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub;
@@ -229,7 +263,7 @@ function SubcontractorSearchModal({
   const [selectedTrade, setSelectedTrade] = useState('All Trades');
   const [zipCode, setZipCode] = useState(defaultZip);
   const [searchQuery, setSearchQuery] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [googlePlacesResults, setGooglePlacesResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedSubcontractor, setSelectedSubcontractor] = useState<any>(null);
   const [showProfile, setShowProfile] = useState(false);
@@ -333,9 +367,9 @@ function SubcontractorSearchModal({
       email: campaign.email,
       phone: campaign.phone,
       website: campaign.website,
-      // Source identification
-      source: 'campaign',
-      sourceLabel: 'Campaign Creator',
+      // Source identification — BPS campaign profiles (not Google/Yelp).
+      source: 'bps_verified',
+      sourceLabel: 'BPS Network',
       sourceColor: '#8B5CF6',
     };
   };
@@ -344,8 +378,8 @@ function SubcontractorSearchModal({
   useEffect(() => {
     if (visible) {
       loadCampaigns();
-      // Real Yelp rows load when user taps Search (see fetchYelpSubcontractors).
-      setYelpResults([]);
+      // Real Google Places rows load when user taps Search / Refresh (see fetchGooglePlacesContractors).
+      setGooglePlacesResults([]);
       setSelectedTrade('All Trades');
       setSearchQuery('');
     }
@@ -354,103 +388,84 @@ function SubcontractorSearchModal({
   // Reset photo viewer state when profile modal closes
 
 
-  // Convert Yelp business to subcontractor format
-  const convertYelpToSubcontractor = (yelpBusiness: any): any => {
-    // Extract primary category as trade
-    const primaryCategory = yelpBusiness.categories?.[0]?.title || 'General Contracting';
-    
-    // Calculate distance in miles if available
-    const distance = yelpBusiness.distance ? (yelpBusiness.distance / 1609.34) : null;
-    
-    // Determine availability based on hours (if open now, show "Available Now")
-    let availability = 'Available Soon'; // Default
-    if (yelpBusiness.is_closed === false) {
-      availability = 'Available Now';
-    } else if (yelpBusiness.hours && yelpBusiness.hours[0]?.is_open_now) {
-      availability = 'Available Now';
+  const filterByTradeAndQuery = (subs: any[]) => {
+    let filtered = [...subs];
+    if (selectedTrade !== 'All Trades') {
+      const canon = normalizeTrade(selectedTrade);
+      filtered = filtered.filter((sub) => normalizeTrade(sub.trade) === canon);
     }
-    
-    // Estimate hourly rate from price level (Yelp uses $, $$, $$$, $$$$)
-    // Rough estimate: $ = $50-75/hr, $$ = $75-100/hr, $$$ = $100-150/hr, $$$$ = $150+/hr
-    let hourlyRate = { min: 50, max: 100 };
-    if (yelpBusiness.price === '$') {
-      hourlyRate = { min: 50, max: 75 };
-    } else if (yelpBusiness.price === '$$') {
-      hourlyRate = { min: 75, max: 100 };
-    } else if (yelpBusiness.price === '$$$') {
-      hourlyRate = { min: 100, max: 150 };
-    } else if (yelpBusiness.price === '$$$$') {
-      hourlyRate = { min: 150, max: 200 };
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (sub) =>
+          sub.name?.toLowerCase().includes(q) ||
+          sub.trade?.toLowerCase().includes(q) ||
+          (sub.certifications &&
+            sub.certifications.some((cert: string) => cert.toLowerCase().includes(q)))
+      );
     }
-    
-    return {
-      id: `yelp-${yelpBusiness.id}`,
-      name: yelpBusiness.name,
-      trade: primaryCategory,
-      rating: yelpBusiness.rating || 0,
-      reviews: yelpBusiness.review_count || 0,
-      hourlyRate,
-      location: yelpBusiness.location?.city && yelpBusiness.location?.state 
-        ? `${yelpBusiness.location.city}, ${yelpBusiness.location.state}`
-        : yelpBusiness.location?.display_address?.[0] || 'Location not available',
-      distance: distance ? parseFloat(distance.toFixed(1)) : null,
-      licensed: true, // Yelp doesn't provide this, default to true
-      insured: true, // Yelp doesn't provide this, default to true
-      availability,
-      image: yelpBusiness.image_url || 'https://via.placeholder.com/80',
-      specialties: yelpBusiness.categories?.map((c: any) => c.title) || [],
-      phone: yelpBusiness.phone,
-      url: yelpBusiness.url,
-      address: yelpBusiness.location?.address1 || '',
-      city: yelpBusiness.location?.city || '',
-      state: yelpBusiness.location?.state || '',
-      zip: yelpBusiness.location?.zip_code || '',
-      // Source identification
-      source: 'yelp',
-      sourceLabel: 'Yelp Business',
-      sourceColor: '#FF1A1A',
-      yelpId: yelpBusiness.id,
-    };
+    return filtered;
   };
 
-  // Fetch subcontractors via backend → Yelp Fusion (requires YELP_API_KEY on server)
-  const fetchYelpSubcontractors = async () => {
-    if (!yelpSubSearchEnabled) return;
+  const campaignSubcontractors = useMemo(
+    () => campaigns.map(convertCampaignToSubcontractor),
+    [campaigns]
+  );
+
+  const verifiedBpsRows = useMemo(() => {
+    const base = filterByTradeAndQuery(campaignSubcontractors);
+    const noNetwork =
+      googlePlacesResults.length === 0 && campaignSubcontractors.length === 0;
+    if (noNetwork) {
+      return filterByTradeAndQuery([...base, ...DEMO_SUBCONTRACTORS]);
+    }
+    return base;
+  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, googlePlacesResults]);
+
+  const googleRowsFiltered = useMemo(
+    () => filterByTradeAndQuery(googlePlacesResults),
+    [selectedTrade, searchQuery, googlePlacesResults]
+  );
+
+  const resultSections = useMemo(() => {
+    const sections: { key: string; title: string; rows: any[] }[] = [];
+    if (verifiedBpsRows.length > 0) {
+      sections.push({
+        key: 'bps',
+        title: 'Verified BPS Subcontractors',
+        rows: verifiedBpsRows,
+      });
+    }
+    if (googleRowsFiltered.length > 0) {
+      sections.push({
+        key: 'google',
+        title: 'Nearby Google Results',
+        rows: googleRowsFiltered,
+      });
+    }
+    return sections;
+  }, [verifiedBpsRows, googleRowsFiltered]);
+
+  const hasAnyResults = resultSections.length > 0;
+
+  const fetchGooglePlacesContractors = async () => {
     try {
-      setLoading(true);
       const zip = zipCode.replace(/\D/g, '');
       if (zip.length < 5) {
         Alert.alert('ZIP code', 'Enter a 5-digit ZIP so we can search near the job site.');
-        setLoading(false);
         return;
       }
-
-      // Map trade to Yelp search term
-      const tradeMap: { [key: string]: string } = {
-        'All Trades': 'contractors',
-        'Plumbing': 'plumber',
-        'Electrical': 'electrician',
-        'HVAC': 'hvac',
-        'Framing': 'framing contractor',
-        'Drywall': 'drywall contractor',
-        'Painting': 'painting contractor',
-        'Roofing': 'roofer',
-        'Flooring': 'flooring contractor',
-        'Concrete': 'concrete contractor',
-        'Landscaping': 'landscaper',
-      };
-
-      const searchTerm = tradeMap[selectedTrade] || selectedTrade.toLowerCase();
       const apiBase = resolveBackendRestApiBaseUrl();
-      const url = `${apiBase}/yelp/search?term=${encodeURIComponent(searchTerm)}&location=${encodeURIComponent(zip)}&categories=contractors&limit=20&sort_by=rating`;
+      const url = `${apiBase}/places/contractors/search?trade=${encodeURIComponent(
+        selectedTrade
+      )}&zip=${encodeURIComponent(zip)}&limit=15`;
 
       const response = await fetch(url);
-
       if (!response.ok) {
         let detail = '';
         try {
           const errBody = await response.json();
-          detail = errBody?.error || errBody?.details || '';
+          detail = errBody?.error || '';
         } catch {
           /* ignore */
         }
@@ -458,81 +473,89 @@ function SubcontractorSearchModal({
       }
 
       const data = await response.json();
-      const yelpSubcontractors = (data.businesses || []).map(convertYelpToSubcontractor);
-      setYelpResults(yelpSubcontractors);
-
-      if (data.metadata?.isMockData) {
-        console.warn('Yelp:', data.metadata?.message || 'Server returned mock businesses (set YELP_API_KEY on backend for live Yelp).');
+      if (data.metadata?.disabled) {
+        setGooglePlacesResults([]);
+        console.warn('Google Places:', data.metadata?.message || 'Disabled on server.');
+        return;
       }
+      const mapped = (data.results || []).map((r: any) => mapGooglePlacesRowToSub(r, selectedTrade));
+      setGooglePlacesResults(mapped);
     } catch (error: any) {
-      console.error('Error fetching Yelp subcontractors:', error);
-      setYelpResults([]);
+      console.error('Error fetching Google Places contractors:', error);
+      setGooglePlacesResults([]);
       Alert.alert(
         'Search unavailable',
         typeof error?.message === 'string' && error.message
           ? error.message
-          : 'Could not load businesses. Check your connection and that the backend has Yelp configured.',
+          : 'Could not load nearby businesses. Check your connection and that the backend has GOOGLE_PLACES_API_KEY set.'
       );
+    }
+  };
+
+  const handleSearch = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadCampaigns(), fetchGooglePlacesContractors()]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Store raw Yelp results separately to avoid filtering issues
-  const [yelpResults, setYelpResults] = useState<any[]>([]);
+  const openGoogleMaps = (sub: any) => {
+    const uri = sub.googleMapsUri;
+    if (uri) Linking.openURL(uri);
+  };
 
-  // Enhanced filtering with campaign data
-  useEffect(() => {
-    const campaignSubcontractors = campaigns.map(convertCampaignToSubcontractor);
-    let filtered = [...yelpResults, ...campaignSubcontractors];
+  const dialPhone = (sub: any) => {
+    const raw = (sub.phone || '').replace(/\D/g, '');
+    if (raw.length >= 10) Linking.openURL(`tel:${sub.phone}`);
+  };
 
-    // When Yelp search is off and there is no network data, show labeled samples (not Yelp).
-    const noNetwork =
-      !yelpSubSearchEnabled && yelpResults.length === 0 && campaignSubcontractors.length === 0;
-    if (noNetwork) {
-      filtered = [...filtered, ...DEMO_SUBCONTRACTORS];
-    }
+  const openWebsite = (sub: any) => {
+    const w = sub.website || sub.url;
+    if (w) Linking.openURL(w.startsWith('http') ? w : `https://${w}`);
+  };
 
-    // Filter by trade
-    if (selectedTrade !== 'All Trades') {
-      const canon = normalizeTrade(selectedTrade);
-      filtered = filtered.filter(sub => normalizeTrade(sub.trade) === canon);
+  const openContractorProfile = async (sub: any) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (sub.source === 'google_places' && sub.placeId) {
+      try {
+        const apiBase = resolveBackendRestApiBaseUrl();
+        const q = encodeURIComponent(sub.placeId);
+        const res = await fetch(`${apiBase}/places/contractors/details?placeId=${q}`);
+        if (res.ok) {
+          const data = await res.json();
+          const merged = {
+            ...sub,
+            ...mapGooglePlacesRowToSub(data.details || data, selectedTrade),
+            editorialSummary: data.editorialSummary,
+            currentOpeningHours: data.currentOpeningHours,
+            profileLocation: data.location,
+          };
+          setSelectedSubcontractor(merged);
+          setShowProfile(true);
+          return;
+        }
+      } catch (e) {
+        console.warn('Place details fetch failed', e);
+      }
     }
-    
-    // Filter by search query
-    if (searchQuery.trim()) {
-      filtered = filtered.filter(sub => 
-        sub.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        sub.trade.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        ((sub as any).certifications && (sub as any).certifications.some((cert: string) => 
-          cert.toLowerCase().includes(searchQuery.toLowerCase())
-        ))
-      );
-    }
-    
-    setResults(filtered);
-  }, [selectedTrade, searchQuery, campaigns, yelpResults, yelpSubSearchEnabled]);
-
-  const handleSearch = async () => {
-    if (yelpSubSearchEnabled) {
-      await fetchYelpSubcontractors();
-      return;
-    }
-    setLoading(true);
-    try {
-      await loadCampaigns();
-    } finally {
-      setLoading(false);
-    }
+    setSelectedSubcontractor(sub);
+    setShowProfile(true);
   };
 
   const handleSelectSubcontractor = (sub: any) => {
     console.log('🔄 handleSelectSubcontractor called with:', sub.name);
     try {
+      const isGoogle = sub.source === 'google_places';
+      const defaultRate =
+        sub.hourlyRate && typeof sub.hourlyRate.min === 'number' && sub.hourlyRate.min > 0
+          ? sub.hourlyRate.min
+          : 0;
       const subData = {
         name: sub.name,
         trade: sub.trade,
-        rate: sub.hourlyRate.min, // Use minimum rate as default
+        rate: isGoogle || sub.hideHourlyRate ? 0 : defaultRate,
         mode: 'hourly',
         laborType: 'subcontractor',
         hours: 0,
@@ -540,8 +563,10 @@ function SubcontractorSearchModal({
           rating: sub.rating,
           reviews: sub.reviews,
           location: sub.location,
-          licensed: sub.licensed,
-          insured: sub.insured,
+          licensed: isGoogle ? false : !!sub.licensed,
+          insured: isGoogle ? false : !!sub.insured,
+          source: sub.source,
+          placeId: sub.placeId,
         }
       };
       console.log('📤 Calling onSelect with:', subData);
@@ -834,6 +859,7 @@ function SubcontractorSearchModal({
                 flexDirection: 'row',
                 alignItems: 'center',
                 marginBottom: 24,
+                paddingTop: 24,
                 paddingBottom: 18,
                 borderBottomWidth: StyleSheet.hairlineWidth,
                 borderBottomColor: headerRule,
@@ -994,13 +1020,7 @@ function SubcontractorSearchModal({
                   }}
                 >
                   <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
-                    {loading
-                      ? yelpSubSearchEnabled
-                        ? 'Searching...'
-                        : 'Refreshing...'
-                      : yelpSubSearchEnabled
-                        ? 'Search Subcontractors'
-                        : 'Refresh list'}
+                    {loading ? 'Searching...' : 'Search / Refresh'}
                   </Text>
                 </View>
               ) : (
@@ -1021,13 +1041,7 @@ function SubcontractorSearchModal({
                 }}
               >
                 <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
-                  {loading
-                    ? yelpSubSearchEnabled
-                      ? 'Searching...'
-                      : 'Refreshing...'
-                    : yelpSubSearchEnabled
-                      ? 'Search Subcontractors'
-                      : 'Refresh list'}
+                  {loading ? 'Searching...' : 'Search / Refresh'}
                 </Text>
               </LinearGradient>
               )}
@@ -1068,325 +1082,513 @@ function SubcontractorSearchModal({
             {loading && (
               <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#22c55e" />
-                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>
-                  {yelpSubSearchEnabled ? 'Searching...' : 'Refreshing...'}
-                </Text>
+                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>Searching...</Text>
               </View>
             )}
 
             {/* Results */}
-            {!loading && results.length > 0 && (
+            {!loading && hasAnyResults && (
               <View>
                 <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
-                  {results.length} Subcontractor{results.length !== 1 ? 's' : ''} Found
+                  {verifiedBpsRows.length + googleRowsFiltered.length} Subcontractor
+                  {verifiedBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
-                
-                {results.map(sub => (
-                <View
-                  key={sub.id}
-                  style={{
-                    marginBottom: 10,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
-                    borderLeftWidth: 3,
-                    borderLeftColor: 'rgba(45, 255, 196, 0.45)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <View
-                    style={{
-                      borderRadius: 11,
-                      overflow: 'hidden',
-                      backgroundColor: darkMode ? Colors.card : Colors.bg,
-                      borderWidth: 0,
-                    }}
-                  >
-                  <TouchableOpacity
-                    style={{
-                      paddingHorizontal: 14,
-                      paddingVertical: 12,
-                      backgroundColor: 'transparent',
-                    }}
-                    onPress={() => {
-                      setSelectedSubcontractor(sub);
-                      setShowProfile(true);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                  {/* Header Row */}
-                  <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                        <Text style={{ color: darkMode ? '#f8fafc' : '#000000', fontSize: 16, fontWeight: '700', lineHeight: 22, flex: 1 }}>
-                        {sub.name}
-                      </Text>
-                        {/* Source Badge — toned down */}
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          alignItems: 'center', 
-                          flexShrink: 0,
-                          gap: 4
-                        }}>
-                          <View style={{
-                            backgroundColor:
-                              sub.source === 'yelp'
-                                ? (darkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
-                                : sub.source === 'demo'
-                                  ? (darkMode ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)')
-                                  : (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2),
-                            paddingHorizontal: 7,
-                            paddingVertical: 3,
-                            borderRadius: 8,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            borderWidth: 1,
-                            borderColor:
-                              sub.source === 'yelp'
-                                ? 'rgba(248, 113, 113, 0.28)'
-                                : sub.source === 'demo'
-                                  ? 'rgba(245, 158, 11, 0.35)'
-                                  : (darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line),
-                          }}>
-                            <MaterialIcons
-                              name={
-                                sub.source === 'campaign' ? 'campaign' :
-                                sub.source === 'yelp' ? 'business' :
-                                sub.source === 'demo' ? 'science' :
-                                sub.source === 'app' ? 'person' : 'apps'
-                              }
-                              size={11}
-                              color={
-                                sub.source === 'yelp'
-                                  ? (darkMode ? '#fca5a5' : '#b91c1c')
-                                  : sub.source === 'demo'
-                                    ? (darkMode ? '#fbbf24' : '#b45309')
-                                    : (darkMode ? 'rgba(226,232,240,0.75)' : Colors.sub)
-                              }
-                            />
-                            <Text
-                              style={{
-                                color:
-                                  sub.source === 'yelp'
-                                    ? (darkMode ? '#fca5a5' : '#b91c1c')
-                                    : sub.source === 'demo'
-                                      ? (darkMode ? '#fcd34d' : '#b45309')
-                                      : (darkMode ? 'rgba(226,232,240,0.85)' : Colors.text),
-                                fontSize: 10,
-                                fontWeight: '600',
-                                marginLeft: 3,
-                              }}
-                            >
-                              {sub.sourceLabel || 'Network'}
-                            </Text>
-                          </View>
-                          {sub.campaignVerified && (
-                            <MaterialIcons name="verified" size={14} color="#10B981" />
-                          )}
-                        </View>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                        <MaterialIcons name="star" size={15} color="#fbbf24" style={{ marginRight: 4 }} />
-                        <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>
-                          {typeof sub.rating === 'number' && !Number.isNaN(sub.rating)
-                            ? sub.rating.toFixed(1)
-                            : sub.rating}
-                        </Text>
-                        <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <View
-                          style={{
-                            backgroundColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.2)',
-                            paddingHorizontal: 9,
-                            paddingVertical: 4,
-                            borderRadius: 8,
-                            borderWidth: 1,
-                            borderColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.35)',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: isWeb ? '#000000' : darkMode ? '#86efac' : '#166534',
-                              fontSize: 11,
-                              fontWeight: '700',
-                            }}
-                          >
-                            {sub.trade}
-                          </Text>
-                        </View>
-                        {sub.licensed && (
-                          <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>✓ Licensed</Text>
-                        )}
-                        {sub.insured && (
-                          <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>✓ Insured</Text>
-                        )}
-                        {/* Campaign Info */}
-                        {sub.hasCampaign && (
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                            <View style={{ 
-                              backgroundColor: '#8B5CF6', 
-                              paddingHorizontal: 6, 
-                              paddingVertical: 2, 
-                              borderRadius: 8,
-                              flexDirection: 'row',
-                              alignItems: 'center'
-                            }}>
-                              <MaterialIcons name="campaign" size={10} color="#FFFFFF" />
-                              <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
-                                CAMPAIGN CREATOR
-                              </Text>
-                            </View>
-                            {sub.portfolioPhotos && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <MaterialIcons name="photo-library" size={12} color="#43cea2" />
-                                <Text style={{ color: '#43cea2', fontSize: 11, marginLeft: 2 }}>
-                                  {sub.portfolioPhotos}
-                                </Text>
-                              </View>
-                            )}
-                            {sub.yearsExperience && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <MaterialIcons name="work" size={12} color="#F59E0B" />
-                                <Text style={{ color: '#F59E0B', fontSize: 11, marginLeft: 2 }}>
-                                  {sub.yearsExperience}y
-                                </Text>
-                              </View>
-                            )}
-                            {sub.responseTime && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <MaterialIcons name="schedule" size={12} color="#3B82F6" />
-                                <Text style={{ color: '#3B82F6', fontSize: 11, marginLeft: 2 }}>
-                                  {sub.responseTime.replace('_', ' ')}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
 
-                  {/* Details */}
-                  <View style={{ marginBottom: 8, gap: 6 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name="place" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
-                        {sub.location} ({sub.distance} mi)
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name="payments" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
-                        ${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <MaterialIcons name="event-available" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
-                        {sub.availability}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Specialties */}
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                    {sub.specialties.map((spec: string) => (
-                      <View key={spec} style={{ backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line }}>
-                        <Text style={{ color: darkMode ? 'rgba(248, 250, 252, 0.9)' : Colors.text, fontSize: 11, fontWeight: '500' }}>{spec}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {/* Actions */}
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity
+                {resultSections.map((section) => (
+                  <View key={section.key} style={{ marginBottom: 6 }}>
+                    <Text
                       style={{
-                        flex: 1,
-                        backgroundColor: '#22c55e',
-                        paddingVertical: 9,
-                        borderRadius: 10,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        shadowColor: '#000000',
-                        shadowOpacity: 0.12,
-                        shadowRadius: 4,
-                        shadowOffset: { width: 0, height: 1 },
-                        elevation: 2,
-                      }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        handleSelectSubcontractor(sub);
+                        color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text,
+                        fontSize: 13,
+                        fontWeight: '700',
+                        letterSpacing: 0.2,
+                        textTransform: 'uppercase',
+                        marginBottom: 10,
+                        marginTop: section.key === 'google' ? 14 : 0,
                       }}
                     >
-                      <Text style={{ color: '#020617', fontWeight: '700', fontSize: 14 }}>Add to Bid</Text>
-                    </TouchableOpacity>
-                    {sub.hasCampaign ? (
-                      <TouchableOpacity
-                        style={{
-                          flex: 1,
-                          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                          paddingVertical: 9,
-                          borderRadius: 10,
-                          borderWidth: 1,
-                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
-                          alignItems: 'center',
-                          flexDirection: 'row',
-                          justifyContent: 'center',
-                        }}
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          console.log('🖱️ Contact button pressed for:', sub.name);
-                          console.log('📞 Contact info:', {
-                            company: sub.name,
-                            phone: sub.phone || 'Not provided',
-                            email: sub.email || 'Not provided'
-                          });
-                          // Just log for now to test if this prevents freezing
-                        }}
-                      >
-                        <MaterialIcons name="campaign" size={16} color={darkMode ? 'rgba(248,250,252,0.85)' : Colors.text} />
-                        <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13, marginLeft: 4 }}>
-                          Contact
-                        </Text>
-                      </TouchableOpacity>
-                    ) : (
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                        paddingVertical: 9,
+                      {section.title}
+                    </Text>
+                    {section.rows.map((sub) => {
+                      const isGoogle = sub.source === 'google_places';
+                      const isSample = sub.source === 'sample' || sub.source === 'demo';
+                      const locLine =
+                        sub.location +
+                        (sub.distance != null && sub.distance !== ''
+                          ? ` (${sub.distance} mi)`
+                          : '');
+                      const sourceBadgeBg =
+                        isGoogle
+                          ? darkMode
+                            ? 'rgba(59, 130, 246, 0.14)'
+                            : 'rgba(37, 99, 235, 0.08)'
+                          : sub.source === 'yelp'
+                            ? darkMode
+                              ? 'rgba(239, 68, 68, 0.1)'
+                              : 'rgba(239, 68, 68, 0.08)'
+                            : isSample
+                              ? darkMode
+                                ? 'rgba(245, 158, 11, 0.12)'
+                                : 'rgba(245, 158, 11, 0.08)'
+                              : darkMode
+                                ? 'rgba(255, 255, 255, 0.06)'
+                                : Colors.surface2;
+                      const sourceBadgeBorder =
+                        isGoogle
+                          ? 'rgba(96, 165, 250, 0.35)'
+                          : sub.source === 'yelp'
+                            ? 'rgba(248, 113, 113, 0.28)'
+                            : isSample
+                              ? 'rgba(245, 158, 11, 0.35)'
+                              : darkMode
+                                ? 'rgba(148, 163, 184, 0.22)'
+                                : Colors.line;
+                      const sourceIcon =
+                        sub.source === 'bps_verified' || sub.hasCampaign
+                          ? 'campaign'
+                          : sub.source === 'yelp'
+                            ? 'business'
+                            : isGoogle
+                              ? 'map'
+                              : isSample
+                                ? 'science'
+                                : sub.source === 'app'
+                                  ? 'person'
+                                  : 'apps';
+                      const sourceIconColor =
+                        isGoogle
+                          ? darkMode
+                            ? '#93c5fd'
+                            : '#1d4ed8'
+                          : sub.source === 'yelp'
+                            ? darkMode
+                              ? '#fca5a5'
+                              : '#b91c1c'
+                            : isSample
+                              ? darkMode
+                                ? '#fbbf24'
+                                : '#b45309'
+                              : darkMode
+                                ? 'rgba(226,232,240,0.75)'
+                                : Colors.sub;
+                      const sourceTextColor =
+                        isGoogle
+                          ? darkMode
+                            ? '#bfdbfe'
+                            : '#1e3a8a'
+                          : sub.source === 'yelp'
+                            ? darkMode
+                              ? '#fca5a5'
+                              : '#b91c1c'
+                            : isSample
+                              ? darkMode
+                                ? '#fcd34d'
+                                : '#b45309'
+                              : darkMode
+                                ? 'rgba(226,232,240,0.85)'
+                                : Colors.text;
+                      const googleQuickBtn = {
+                        flexDirection: 'row' as const,
+                        alignItems: 'center' as const,
+                        gap: 5,
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setSelectedSubcontractor(sub);
-                        setShowProfile(true);
-                      }}
-                    >
-                      <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13 }}>View Profile</Text>
-                    </TouchableOpacity>
-                    )}
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
+                      };
+
+                      return (
+                        <View
+                          key={String(sub.id || sub.placeId)}
+                          style={{
+                            marginBottom: 10,
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
+                            borderLeftWidth: 3,
+                            borderLeftColor: isGoogle ? 'rgba(96, 165, 250, 0.5)' : 'rgba(45, 255, 196, 0.45)',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <View
+                            style={{
+                              borderRadius: 11,
+                              overflow: 'hidden',
+                              backgroundColor: darkMode ? Colors.card : Colors.bg,
+                              borderWidth: 0,
+                            }}
+                          >
+                            <TouchableOpacity
+                              style={{
+                                paddingHorizontal: 14,
+                                paddingVertical: 12,
+                                backgroundColor: 'transparent',
+                              }}
+                              onPress={() => openContractorProfile(sub)}
+                              activeOpacity={0.85}
+                            >
+                              <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'flex-start',
+                                      justifyContent: 'space-between',
+                                      gap: 8,
+                                      marginBottom: 6,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        color: darkMode ? '#f8fafc' : '#000000',
+                                        fontSize: 16,
+                                        fontWeight: '700',
+                                        lineHeight: 22,
+                                        flex: 1,
+                                      }}
+                                    >
+                                      {sub.name}
+                                    </Text>
+                                    <View
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        flexShrink: 0,
+                                        gap: 4,
+                                        flexWrap: 'wrap',
+                                        justifyContent: 'flex-end',
+                                      }}
+                                    >
+                                      <View
+                                        style={{
+                                          backgroundColor: sourceBadgeBg,
+                                          paddingHorizontal: 7,
+                                          paddingVertical: 3,
+                                          borderRadius: 8,
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          borderWidth: 1,
+                                          borderColor: sourceBadgeBorder,
+                                        }}
+                                      >
+                                        <MaterialIcons name={sourceIcon as any} size={11} color={sourceIconColor} />
+                                        <Text
+                                          style={{
+                                            color: sourceTextColor,
+                                            fontSize: 10,
+                                            fontWeight: '600',
+                                            marginLeft: 3,
+                                          }}
+                                        >
+                                          {sub.sourceLabel || 'Network'}
+                                        </Text>
+                                      </View>
+                                      {isGoogle && sub.unverifiedLabel ? (
+                                        <View
+                                          style={{
+                                            backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15,23,42,0.06)',
+                                            paddingHorizontal: 7,
+                                            paddingVertical: 3,
+                                            borderRadius: 8,
+                                            borderWidth: 1,
+                                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              color: darkMode ? 'rgba(226,232,240,0.82)' : Colors.sub,
+                                              fontSize: 10,
+                                              fontWeight: '600',
+                                            }}
+                                          >
+                                            {sub.unverifiedLabel}
+                                          </Text>
+                                        </View>
+                                      ) : null}
+                                      {sub.campaignVerified && !isGoogle ? (
+                                        <MaterialIcons name="verified" size={14} color="#10B981" />
+                                      ) : null}
+                                    </View>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                    <MaterialIcons name="star" size={15} color="#fbbf24" style={{ marginRight: 4 }} />
+                                    <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>
+                                      {typeof sub.rating === 'number' && !Number.isNaN(sub.rating)
+                                        ? sub.rating.toFixed(1)
+                                        : sub.rating}
+                                    </Text>
+                                    <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <View
+                                      style={{
+                                        backgroundColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.2)',
+                                        paddingHorizontal: 9,
+                                        paddingVertical: 4,
+                                        borderRadius: 8,
+                                        borderWidth: 1,
+                                        borderColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.35)',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          color: isWeb ? '#000000' : darkMode ? '#86efac' : '#166534',
+                                          fontSize: 11,
+                                          fontWeight: '700',
+                                        }}
+                                      >
+                                        {sub.trade}
+                                      </Text>
+                                    </View>
+                                    {isGoogle ? (
+                                      <Text style={{ color: subMeta, fontSize: 11, fontWeight: '500' }}>
+                                        Public Google listing
+                                      </Text>
+                                    ) : null}
+                                    {!isGoogle && sub.licensed ? (
+                                      <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>
+                                        ✓ Licensed
+                                      </Text>
+                                    ) : null}
+                                    {!isGoogle && sub.insured ? (
+                                      <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>
+                                        ✓ Insured
+                                      </Text>
+                                    ) : null}
+                                    {sub.hasCampaign ? (
+                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                        <View
+                                          style={{
+                                            backgroundColor: '#8B5CF6',
+                                            paddingHorizontal: 6,
+                                            paddingVertical: 2,
+                                            borderRadius: 8,
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                          }}
+                                        >
+                                          <MaterialIcons name="campaign" size={10} color="#FFFFFF" />
+                                          <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
+                                            CAMPAIGN CREATOR
+                                          </Text>
+                                        </View>
+                                        {sub.portfolioPhotos ? (
+                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="photo-library" size={12} color="#43cea2" />
+                                            <Text style={{ color: '#43cea2', fontSize: 11, marginLeft: 2 }}>
+                                              {sub.portfolioPhotos}
+                                            </Text>
+                                          </View>
+                                        ) : null}
+                                        {sub.yearsExperience ? (
+                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="work" size={12} color="#F59E0B" />
+                                            <Text style={{ color: '#F59E0B', fontSize: 11, marginLeft: 2 }}>
+                                              {sub.yearsExperience}y
+                                            </Text>
+                                          </View>
+                                        ) : null}
+                                        {sub.responseTime ? (
+                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <MaterialIcons name="schedule" size={12} color="#3B82F6" />
+                                            <Text style={{ color: '#3B82F6', fontSize: 11, marginLeft: 2 }}>
+                                              {String(sub.responseTime).replace('_', ' ')}
+                                            </Text>
+                                          </View>
+                                        ) : null}
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                </View>
+                              </View>
+
+                              <View style={{ marginBottom: 8, gap: 6 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <MaterialIcons name="place" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>{locLine}</Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <MaterialIcons name="payments" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
+                                    {sub.hideHourlyRate
+                                      ? 'Pricing not listed — contact for quote'
+                                      : `$${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr`}
+                                  </Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                  <MaterialIcons name="event-available" size={16} color={subMeta2} style={{ marginTop: 1 }} />
+                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
+                                    {sub.availability}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                                {(sub.specialties || []).map((spec: string) => (
+                                  <View
+                                    key={spec}
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
+                                      paddingHorizontal: 9,
+                                      paddingVertical: 4,
+                                      borderRadius: 10,
+                                      borderWidth: 1,
+                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        color: darkMode ? 'rgba(248, 250, 252, 0.9)' : Colors.text,
+                                        fontSize: 11,
+                                        fontWeight: '500',
+                                      }}
+                                    >
+                                      {spec}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+
+                              {isGoogle ? (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                                  {sub.phone ? (
+                                    <TouchableOpacity
+                                      style={googleQuickBtn}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    dialPhone(sub);
+                                  }}
+                                    >
+                                      <MaterialIcons name="call" size={16} color="#34d399" />
+                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
+                                        Call
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                  {sub.website || sub.url ? (
+                                    <TouchableOpacity
+                                      style={googleQuickBtn}
+                                      onPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        openWebsite(sub);
+                                      }}
+                                    >
+                                      <MaterialIcons name="language" size={16} color="#60a5fa" />
+                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
+                                        Website
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                  {sub.googleMapsUri ? (
+                                    <TouchableOpacity
+                                      style={googleQuickBtn}
+                                      onPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        openGoogleMaps(sub);
+                                      }}
+                                    >
+                                      <MaterialIcons name="map" size={16} color="#fbbf24" />
+                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
+                                        Google Maps
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              <View style={{ flexDirection: 'row', gap: 10 }}>
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    backgroundColor: '#22c55e',
+                                    paddingVertical: 9,
+                                    borderRadius: 10,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    shadowColor: '#000000',
+                                    shadowOpacity: 0.12,
+                                    shadowRadius: 4,
+                                    shadowOffset: { width: 0, height: 1 },
+                                    elevation: 2,
+                                  }}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    handleSelectSubcontractor(sub);
+                                  }}
+                                >
+                                  <Text style={{ color: '#020617', fontWeight: '700', fontSize: 14 }}>Add to Bid</Text>
+                                </TouchableOpacity>
+                                {sub.hasCampaign ? (
+                                  <TouchableOpacity
+                                    style={{
+                                      flex: 1,
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                      paddingVertical: 9,
+                                      borderRadius: 10,
+                                      borderWidth: 1,
+                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
+                                      alignItems: 'center',
+                                      flexDirection: 'row',
+                                      justifyContent: 'center',
+                                    }}
+                                    onPress={() => {
+                                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                      console.log('🖱️ Contact button pressed for:', sub.name);
+                                    }}
+                                  >
+                                    <MaterialIcons name="campaign" size={16} color={darkMode ? 'rgba(248,250,252,0.85)' : Colors.text} />
+                                    <Text
+                                      style={{
+                                        color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text,
+                                        fontWeight: '600',
+                                        fontSize: 13,
+                                        marginLeft: 4,
+                                      }}
+                                    >
+                                      Contact
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : (
+                                  <TouchableOpacity
+                                    style={{
+                                      flex: 1,
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                                      paddingVertical: 9,
+                                      borderRadius: 10,
+                                      borderWidth: 1,
+                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                    onPress={() => {
+                                      openContractorProfile(sub);
+                                    }}
+                                  >
+                                    <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13 }}>
+                                      View Profile
+                                    </Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
-                  </TouchableOpacity>
-                  </View>
-                </View>
                 ))}
-                
-                {yelpSubSearchEnabled && yelpResults.length > 0 ? (
-                  <YelpResultsFooter style={{ marginTop: 16, marginBottom: 20 }} />
+
+                {googleRowsFiltered.length > 0 ? (
+                  <GooglePlacesResultsFooter darkMode={darkMode} style={{ marginTop: 8, marginBottom: 20 }} />
                 ) : null}
               </View>
             )}
 
             {/* No Results */}
-            {!loading && results.length === 0 && (
+            {!loading && !hasAnyResults && (
               <View style={{ justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingVertical: 60 }}>
                 <MaterialIcons name="search-off" size={64} color="#8DA0B8" />
                 <Text style={{ color: '#FFFFFF', fontSize: 18, textAlign: 'center', marginTop: 16, fontWeight: '600' }}>
@@ -1455,7 +1657,7 @@ function SubcontractorSearchModal({
             >
               {/* Header — respects status bar / notch */}
               <View style={{
-                paddingTop: Math.max(insets.top, 0) + 14,
+                paddingTop: Math.max(insets.top, 0) + 14 + (isWeb ? 24 : 0),
                 paddingHorizontal: 22,
                 paddingBottom: 16,
                 flexDirection: 'row',
@@ -1580,16 +1782,28 @@ function SubcontractorSearchModal({
                     <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
                       <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
                     </View>
-                    {selectedSubcontractor.licensed && (
+                    {selectedSubcontractor.source === 'google_places' ? (
+                      <>
+                        <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.14)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(96, 165, 250, 0.35)' }}>
+                          <Text style={{ color: darkMode ? '#bfdbfe' : '#1e40af', fontSize: 12, fontWeight: '700' }}>Google</Text>
+                        </View>
+                        <View style={{ backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15,23,42,0.06)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line }}>
+                          <Text style={{ color: subMeta, fontSize: 12, fontWeight: '600' }}>
+                            {selectedSubcontractor.unverifiedLabel || 'Not verified by BPS'}
+                          </Text>
+                        </View>
+                      </>
+                    ) : null}
+                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.licensed ? (
                       <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
                         <Text style={{ color: darkMode ? '#a7f3d0' : '#166534', fontSize: 12, fontWeight: '600' }}>✓ Licensed</Text>
                       </View>
-                    )}
-                    {selectedSubcontractor.insured && (
+                    ) : null}
+                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.insured ? (
                       <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.28)' }}>
                         <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 12, fontWeight: '600' }}>✓ Insured</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={{ color: '#fbbf24', fontSize: 18, fontWeight: '700', marginRight: 8 }}>
@@ -1607,15 +1821,24 @@ function SubcontractorSearchModal({
                   <View style={{ ...subCard, padding: 18 }}>
                     <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>📍 Location</Text>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
-                      {selectedSubcontractor.location} ({selectedSubcontractor.distance} miles away)
+                      {selectedSubcontractor.location}
+                      {selectedSubcontractor.distance != null && selectedSubcontractor.distance !== ''
+                        ? ` (${selectedSubcontractor.distance} miles away)`
+                        : ''}
                     </Text>
                   </View>
 
                   <View style={{ ...subCard, padding: 18 }}>
                     <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>💰 Hourly Rate</Text>
-                    <Text style={{ color: '#4ade80', fontSize: 19, fontWeight: '800', letterSpacing: -0.2 }}>
-                      ${selectedSubcontractor.hourlyRate.min} - ${selectedSubcontractor.hourlyRate.max}/hr
-                    </Text>
+                    {selectedSubcontractor.hideHourlyRate || selectedSubcontractor.source === 'google_places' ? (
+                      <Text style={{ color: subMeta, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
+                        Not listed for this listing — request a quote to confirm pricing.
+                      </Text>
+                    ) : (
+                      <Text style={{ color: '#4ade80', fontSize: 19, fontWeight: '800', letterSpacing: -0.2 }}>
+                        ${selectedSubcontractor.hourlyRate.min} - ${selectedSubcontractor.hourlyRate.max}/hr
+                      </Text>
+                    )}
                   </View>
 
                   <View style={{ ...subCard, padding: 18 }}>
@@ -1671,22 +1894,85 @@ function SubcontractorSearchModal({
                     </View>
                   </View>
 
+                  {selectedSubcontractor.source === 'google_places' ? (
+                    <View style={{ ...subCard, padding: 18 }}>
+                      <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 10, letterSpacing: 0.15 }}>
+                        Quick links
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {selectedSubcontractor.website || selectedSubcontractor.url ? (
+                          <TouchableOpacity
+                            onPress={() => openWebsite(selectedSubcontractor)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: 'rgba(96, 165, 250, 0.35)',
+                              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                            }}
+                          >
+                            <MaterialIcons name="language" size={18} color="#60a5fa" />
+                            <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 14 }}>Website</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {selectedSubcontractor.googleMapsUri ? (
+                          <TouchableOpacity
+                            onPress={() => openGoogleMaps(selectedSubcontractor)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 6,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: 'rgba(251, 191, 36, 0.35)',
+                              backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                            }}
+                          >
+                            <MaterialIcons name="map" size={18} color="#fbbf24" />
+                            <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 14 }}>Open in Google Maps</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : null}
+
                   <View style={{ ...subCard, padding: 18 }}>
                     <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>🏢 Company</Text>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 6, lineHeight: 22 }}>
                       {selectedSubcontractor.company || selectedSubcontractor.name}
                     </Text>
-                    <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
-                      License: {selectedSubcontractor.licenseNumber || 'Not provided'}
-                    </Text>
+                    {selectedSubcontractor.source === 'google_places' ? (
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
+                        Public listing from Google Places. Build Profit Solutions has not verified license, insurance, or
+                        pricing.
+                      </Text>
+                    ) : (
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
+                        License: {selectedSubcontractor.licenseNumber || 'Not provided'}
+                      </Text>
+                    )}
                   </View>
                 </View>
 
                 {/* Professional Badges */}
                 <View style={{ marginBottom: 22 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                    Professional Credentials
+                    {selectedSubcontractor.source === 'google_places' ? 'Verification' : 'Professional Credentials'}
                   </Text>
+                  {selectedSubcontractor.source === 'google_places' ? (
+                    <View style={{ ...subCard, padding: 16 }}>
+                      <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22 }}>
+                        BPS does not display license or insurance for Google-sourced listings. Confirm credentials
+                        directly with the business before hiring.
+                      </Text>
+                    </View>
+                  ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {/* Licensed Badge */}
                     {selectedSubcontractor.licensed && (
@@ -1769,6 +2055,7 @@ function SubcontractorSearchModal({
                       </View>
                     )}
                   </View>
+                  )}
                 </View>
 
                 {/* Company Bio */}
@@ -1787,6 +2074,24 @@ function SubcontractorSearchModal({
                         }}>
                           {selectedSubcontractor.bio}
                         </Text>
+                      ) : selectedSubcontractor.source === 'google_places' ? (
+                        <View style={{ alignItems: 'flex-start', gap: 8 }}>
+                          {typeof selectedSubcontractor.editorialSummary === 'string' &&
+                          selectedSubcontractor.editorialSummary.trim() ? (
+                            <Text style={{ color: subMeta, fontSize: 15, lineHeight: 24, textAlign: 'left' }}>
+                              {selectedSubcontractor.editorialSummary}
+                            </Text>
+                          ) : null}
+                          <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
+                            This profile is from Google Places. Ratings and reviews reflect public Google data only.
+                            Build Profit Solutions has not verified licensing, insurance, pricing, or availability.
+                          </Text>
+                          {selectedSubcontractor.specialties?.length ? (
+                            <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
+                              Categories: {selectedSubcontractor.specialties.join(', ')}
+                            </Text>
+                          ) : null}
+                        </View>
                       ) : (
                         <View style={{ alignItems: 'flex-start', gap: 6 }}>
                           <Text style={{ 
@@ -1833,7 +2138,7 @@ function SubcontractorSearchModal({
                             lineHeight: 22,
                             textAlign: 'left',
                           }}>
-                            • Available {selectedSubcontractor.availability.toLowerCase()}
+                            • Available {String(selectedSubcontractor.availability || '').toLowerCase()}
                           </Text>
                           
                           <Text style={{ 
@@ -2043,7 +2348,7 @@ function SubcontractorSearchModal({
                 <View style={{ marginBottom: 22 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Specialties</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {selectedSubcontractor.specialties.map((spec: string) => (
+                    {(selectedSubcontractor.specialties || []).map((spec: string) => (
                       <View key={spec} style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
                         <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '600' }}>{spec}</Text>
                       </View>
@@ -2052,6 +2357,7 @@ function SubcontractorSearchModal({
                 </View>
 
                 {/* Experience */}
+                {selectedSubcontractor.source !== 'google_places' ? (
                 <View style={{ marginBottom: 22 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Experience</Text>
                   <View style={{ ...subCard, padding: 18 }}>
@@ -2061,6 +2367,7 @@ function SubcontractorSearchModal({
                     </Text>
                   </View>
                 </View>
+                ) : null}
 
                 {/* Primary actions: quote + bid, then call + message */}
                 <View style={{ gap: 10, paddingBottom: 24 }}>
@@ -2118,10 +2425,17 @@ function SubcontractorSearchModal({
                       
                       // SIMPLE APPROACH - Just call onSelect directly without complex logic
                       if (selectedSubcontractor) {
+                        const isGoogle = selectedSubcontractor.source === 'google_places';
+                        const rateFromHourly =
+                          selectedSubcontractor.hourlyRate &&
+                          typeof selectedSubcontractor.hourlyRate.min === 'number' &&
+                          selectedSubcontractor.hourlyRate.min > 0
+                            ? selectedSubcontractor.hourlyRate.min
+                            : 0;
                         const simpleSubData = {
                           name: selectedSubcontractor.name,
                           trade: selectedSubcontractor.trade || 'General Contracting',
-                          rate: selectedSubcontractor.hourlyRate?.min || 50,
+                          rate: isGoogle || selectedSubcontractor.hideHourlyRate ? 0 : rateFromHourly || 50,
                           mode: 'hourly',
                           laborType: 'subcontractor',
                           hours: 0,
@@ -2129,8 +2443,10 @@ function SubcontractorSearchModal({
                             rating: selectedSubcontractor.rating || 4.5,
                             reviews: selectedSubcontractor.reviews || 0,
                             location: selectedSubcontractor.location || 'Service Area',
-                            licensed: selectedSubcontractor.licensed || false,
-                            insured: selectedSubcontractor.insured || false,
+                            licensed: isGoogle ? false : !!selectedSubcontractor.licensed,
+                            insured: isGoogle ? false : !!selectedSubcontractor.insured,
+                            source: selectedSubcontractor.source,
+                            placeId: selectedSubcontractor.placeId,
                           }
                         };
                         
