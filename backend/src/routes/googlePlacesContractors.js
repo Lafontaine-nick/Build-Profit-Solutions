@@ -1,6 +1,6 @@
 /**
  * Google Places API (New) — contractor discovery for Find Subcontractors.
- * Uses official HTTP APIs only (no scraping). Requires GOOGLE_PLACES_API_KEY.
+ * Uses official HTTP APIs only (no scraping). Set GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY (same key).
  *
  * GET /api/places/contractors/search?trade=Plumbing&zip=89141&limit=15
  * GET /api/places/contractors/details?placeId=places%2FChIJ...
@@ -9,6 +9,16 @@
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
+
+/** Same Maps Platform key works for Places (New) if enabled in Google Cloud. */
+function resolveGooglePlacesApiKey() {
+  const v =
+    process.env.GOOGLE_PLACES_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    '';
+  return String(v).trim();
+}
 
 const PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -89,14 +99,14 @@ router.get('/contractors/search', async (req, res) => {
     return res.status(400).json({ error: 'A valid 5-digit ZIP is required.' });
   }
 
-  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  const apiKey = resolveGooglePlacesApiKey();
   if (!apiKey || apiKey === 'YOUR_GOOGLE_PLACES_API_KEY_HERE') {
     return res.json({
       results: [],
       metadata: {
         disabled: true,
         message:
-          'Google Places search is not configured. Set GOOGLE_PLACES_API_KEY on the Render web service (Environment tab), then redeploy.',
+          'Google Places search is not configured. On Render, set GOOGLE_PLACES_API_KEY (or GOOGLE_MAPS_API_KEY with the same key) on this web service, save, then redeploy.',
         dataSource: 'none',
       },
     });
@@ -189,7 +199,7 @@ router.get('/contractors/details', async (req, res) => {
     resource = `places/${resource}`;
   }
 
-  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
+  const apiKey = resolveGooglePlacesApiKey();
   if (!apiKey || apiKey === 'YOUR_GOOGLE_PLACES_API_KEY_HERE') {
     return res.status(503).json({ error: 'Google Places API key not configured.' });
   }

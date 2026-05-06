@@ -40,6 +40,8 @@ services:
         sync: false
       - key: APP_TELEMETRY_ENABLED
         sync: false
-      # Find Subcontractors — Google Places API (New). Set in Render dashboard.
+      # Find Subcontractors — Google Places API (New). Same key as Maps; set one of these on the web service.
       - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
         sync: false
