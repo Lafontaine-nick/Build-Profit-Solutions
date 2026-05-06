@@ -200,6 +200,7 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
     formattedAddress: row.formattedAddress || null,
     fetchedAt: row.fetchedAt || null,
     primaryTypeDisplayName: row.primaryTypeDisplayName || null,
+    types: Array.isArray(row.types) ? row.types : [],
     source: 'google_places',
     sourceLabel: 'Google',
     unverifiedLabel: 'Not verified by BPS',
@@ -396,13 +397,29 @@ function SubcontractorSearchModal({
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (sub) =>
+      filtered = filtered.filter((sub) => {
+        const certs = sub.certifications;
+        const certMatch =
+          certs && certs.some((cert: string) => cert.toLowerCase().includes(q));
+        const baseMatch =
           sub.name?.toLowerCase().includes(q) ||
           sub.trade?.toLowerCase().includes(q) ||
-          (sub.certifications &&
-            sub.certifications.some((cert: string) => cert.toLowerCase().includes(q)))
-      );
+          certMatch;
+        if (baseMatch) return true;
+        if (sub.source === 'google_places') {
+          const hay = [
+            sub.formattedAddress,
+            sub.primaryTypeDisplayName,
+            (sub.specialties || []).join(' '),
+            (sub.types || []).join(' '),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return hay.includes(q);
+        }
+        return false;
+      });
     }
     return filtered;
   };
@@ -412,15 +429,17 @@ function SubcontractorSearchModal({
     [campaigns]
   );
 
-  const verifiedBpsRows = useMemo(() => {
-    const base = filterByTradeAndQuery(campaignSubcontractors);
-    const noNetwork =
-      googlePlacesResults.length === 0 && campaignSubcontractors.length === 0;
-    if (noNetwork) {
-      return filterByTradeAndQuery([...base, ...DEMO_SUBCONTRACTORS]);
-    }
-    return base;
-  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, googlePlacesResults]);
+  const realBpsRows = useMemo(
+    () => filterByTradeAndQuery(campaignSubcontractors),
+    [selectedTrade, searchQuery, campaigns, campaignSubcontractors]
+  );
+
+  /** UI-only demos when there is no BPS campaign data and no Google rows yet. Never labeled "verified". */
+  const sampleRows = useMemo(() => {
+    const show = realBpsRows.length === 0 && googlePlacesResults.length === 0;
+    if (!show) return [];
+    return filterByTradeAndQuery(DEMO_SUBCONTRACTORS);
+  }, [selectedTrade, searchQuery, realBpsRows, googlePlacesResults]);
 
   const googleRowsFiltered = useMemo(
     () => filterByTradeAndQuery(googlePlacesResults),
@@ -429,11 +448,18 @@ function SubcontractorSearchModal({
 
   const resultSections = useMemo(() => {
     const sections: { key: string; title: string; rows: any[] }[] = [];
-    if (verifiedBpsRows.length > 0) {
+    if (realBpsRows.length > 0) {
       sections.push({
         key: 'bps',
         title: 'Verified BPS Subcontractors',
-        rows: verifiedBpsRows,
+        rows: realBpsRows,
+      });
+    }
+    if (sampleRows.length > 0) {
+      sections.push({
+        key: 'sample',
+        title: 'Sample listings (demo only)',
+        rows: sampleRows,
       });
     }
     if (googleRowsFiltered.length > 0) {
@@ -444,7 +470,7 @@ function SubcontractorSearchModal({
       });
     }
     return sections;
-  }, [verifiedBpsRows, googleRowsFiltered]);
+  }, [realBpsRows, sampleRows, googleRowsFiltered]);
 
   const hasAnyResults = resultSections.length > 0;
 
@@ -456,9 +482,11 @@ function SubcontractorSearchModal({
         return;
       }
       const apiBase = resolveBackendRestApiBaseUrl();
-      const url = `${apiBase}/places/contractors/search?trade=${encodeURIComponent(
-        selectedTrade
-      )}&zip=${encodeURIComponent(zip)}&limit=15`;
+      const q = searchQuery.trim();
+      const url =
+        `${apiBase}/places/contractors/search?trade=${encodeURIComponent(
+          selectedTrade
+        )}&zip=${encodeURIComponent(zip)}&limit=15` + (q ? `&q=${encodeURIComponent(q)}` : '');
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -1090,8 +1118,8 @@ function SubcontractorSearchModal({
             {!loading && hasAnyResults && (
               <View>
                 <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
-                  {verifiedBpsRows.length + googleRowsFiltered.length} Subcontractor
-                  {verifiedBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
+                  {realBpsRows.length + sampleRows.length + googleRowsFiltered.length} Subcontractor
+                  {realBpsRows.length + sampleRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
 
                 {resultSections.map((section) => (
