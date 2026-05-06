@@ -89,13 +89,14 @@ router.get('/contractors/search', async (req, res) => {
     return res.status(400).json({ error: 'A valid 5-digit ZIP is required.' });
   }
 
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
   if (!apiKey || apiKey === 'YOUR_GOOGLE_PLACES_API_KEY_HERE') {
     return res.json({
       results: [],
       metadata: {
         disabled: true,
-        message: 'Google Places search is not configured. Set GOOGLE_PLACES_API_KEY on the backend.',
+        message:
+          'Google Places search is not configured. Set GOOGLE_PLACES_API_KEY on the Render web service (Environment tab), then redeploy.',
         dataSource: 'none',
       },
     });
@@ -188,7 +189,7 @@ router.get('/contractors/details', async (req, res) => {
     resource = `places/${resource}`;
   }
 
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const apiKey = (process.env.GOOGLE_PLACES_API_KEY || '').trim();
   if (!apiKey || apiKey === 'YOUR_GOOGLE_PLACES_API_KEY_HERE') {
     return res.status(503).json({ error: 'Google Places API key not configured.' });
   }
