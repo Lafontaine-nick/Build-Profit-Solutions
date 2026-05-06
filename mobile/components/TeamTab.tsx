@@ -378,7 +378,15 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
 
   const handleSave = () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Name is required");
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.alert === "function"
+      ) {
+        window.alert("Error\n\nName is required");
+      } else {
+        Alert.alert("Error", "Name is required");
+      }
       return;
     }
     onSave({
@@ -389,6 +397,29 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
       role,
       status,
     });
+  };
+
+  const confirmRemoveMember = () => {
+    const msg = `Are you sure you want to remove ${member.name} from the team?`;
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      typeof window.confirm === "function"
+    ) {
+      if (window.confirm(`Remove Team Member\n\n${msg}`)) {
+        onDelete(member.id);
+      }
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert("Remove Team Member", msg, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => onDelete(member.id),
+      },
+    ]);
   };
 
   const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
@@ -406,13 +437,17 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
         {isWeb ? (
-          <ScrollView
-            style={styles.addMemberScroll}
-            contentContainerStyle={styles.editMemberWebPageContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            {...KEYBOARD_SCROLL_DEFAULTS}
-          >
+          <>
+            <ScrollView
+              style={[styles.addMemberScroll, { flex: 1, width: "100%" }]}
+              contentContainerStyle={[
+                styles.editMemberWebPageContent,
+                { flexGrow: 0, paddingBottom: 12 },
+              ]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              {...KEYBOARD_SCROLL_DEFAULTS}
+            >
             <View
               style={[
                 styles.editMemberWebHeaderRow,
@@ -607,6 +642,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
               </Text>
               </View>
             </LinearGradient>
+            </ScrollView>
 
             <View
               style={[
@@ -614,26 +650,12 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 {
                   borderTopColor: darkMode ? "rgba(255,255,255,0.08)" : "rgba(15, 23, 42, 0.12)",
                   backgroundColor: Colors.bg,
-                  paddingBottom: Platform.OS === "ios" ? 24 : 16,
+                  paddingBottom: 16,
                 },
               ]}
             >
               <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  Alert.alert(
-                    "Remove Team Member",
-                    `Are you sure you want to remove ${member.name} from the team?`,
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Remove",
-                        style: "destructive",
-                        onPress: () => onDelete(member.id),
-                      },
-                    ]
-                  );
-                }}
+                onPress={confirmRemoveMember}
                 style={[
                   styles.editMemberRemoveBtn,
                   {
@@ -668,17 +690,12 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 ]}
                 activeOpacity={0.9}
               >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.addMemberSaveGradient}
-                >
+                <View style={[styles.addMemberSaveGradient, { backgroundColor: "#22c55e" }]}>
                   <Text style={styles.addMemberSaveText}>✓ Save Changes</Text>
-                </LinearGradient>
+                </View>
               </TouchableOpacity>
             </View>
-          </ScrollView>
+          </>
         ) : (
         <View style={{ flex: 1, width: "100%" }}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
@@ -882,21 +899,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
           ]}
         >
           <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert(
-                "Remove Team Member",
-                `Are you sure you want to remove ${member.name} from the team?`,
-                [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Remove",
-                    style: "destructive",
-                    onPress: () => onDelete(member.id),
-                  },
-                ]
-              );
-            }}
+            onPress={confirmRemoveMember}
             style={[
               styles.editMemberRemoveBtn,
               {
@@ -931,14 +934,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
             ]}
             activeOpacity={0.9}
           >
-            <LinearGradient
-              colors={["#22c55e", "#22d3ee"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.addMemberSaveGradient}
-            >
+            <View style={[styles.addMemberSaveGradient, { backgroundColor: "#22c55e" }]}>
               <Text style={styles.addMemberSaveText}>✓ Save Changes</Text>
-            </LinearGradient>
+            </View>
           </TouchableOpacity>
         </View>
         </View>
@@ -2109,37 +2107,45 @@ export default function TeamTab({
 
   const deleteMember = (id: string) => {
     const member = team.find((m) => m.id === id);
+    const performRemove = () => {
+      setTeam((prev) => prev.filter((m) => m.id !== id));
+      setEditingMember(null);
+      // Sync deletion to ProjectDataContext so the AI gets updated team
+      if (member && updateTeam) {
+        const pmName = projectData?.team?.pmName;
+        const crewMembers = (projectData?.team as any)?.crewMembers || [];
+        const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
+        const name = member.name?.trim() || "";
+        const nameLower = name.toLowerCase();
+        if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
+          // Remove PM
+          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+          updateTeam(false, "", newCrew.length, newCrew, crewPhones);
+        } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
+          // Remove from crew
+          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+          const newPhones = { ...crewPhones };
+          delete newPhones[name];
+          Object.keys(newPhones).forEach((k) => {
+            if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
+          });
+          updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
+        }
+      }
+    };
+
+    // Web: EditMemberModal already confirmed; RN Web Alert for a second prompt often fails.
+    if (Platform.OS === "web") {
+      performRemove();
+      return;
+    }
+
     Alert.alert("Remove Team Member", "Remove this team member?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
         style: "destructive",
-        onPress: () => {
-          setTeam((prev) => prev.filter((m) => m.id !== id));
-          setEditingMember(null);
-          // Sync deletion to ProjectDataContext so the AI gets updated team
-          if (member && updateTeam) {
-            const pmName = projectData?.team?.pmName;
-            const crewMembers = (projectData?.team as any)?.crewMembers || [];
-            const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
-            const name = member.name?.trim() || "";
-            const nameLower = name.toLowerCase();
-            if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
-              // Remove PM
-              const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
-              updateTeam(false, "", newCrew.length, newCrew, crewPhones);
-            } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
-              // Remove from crew
-              const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
-              const newPhones = { ...crewPhones };
-              delete newPhones[name];
-              Object.keys(newPhones).forEach((k) => {
-                if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
-              });
-              updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
-            }
-          }
-        },
+        onPress: performRemove,
       },
     ]);
   };

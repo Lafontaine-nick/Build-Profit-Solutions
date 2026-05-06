@@ -1424,30 +1424,23 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
             >
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Week Number *</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="hash"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={weekNumber}
-                      onChangeText={setWeekNumber}
-                      keyboardType="numeric"
-                      returnKeyType="next"
-                      placeholder="e.g., 1, 2, 3"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
-                    />
-                  </View>
-                </LinearGradient>
+                <View style={modalStyles.materialInputWrapper}>
+                  <Feather
+                    name="hash"
+                    size={16}
+                    color="#8DA0B8"
+                    style={modalStyles.materialInputIcon}
+                  />
+                  <TextInput
+                    style={modalStyles.materialInput}
+                    value={weekNumber}
+                    onChangeText={setWeekNumber}
+                    keyboardType="numeric"
+                    returnKeyType="next"
+                    placeholder="e.g., 1, 2, 3"
+                    placeholderTextColor="rgba(255,255,255,0.4)"
+                  />
+                </View>
               </View>
               
               <View style={modalStyles.materialFieldGroup}>
@@ -1472,91 +1465,70 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Amount *</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="dollar-sign"
-                      size={16}
-                      color="#22c55e"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={amount}
-                      onChangeText={handleAmountChange}
-                      keyboardType="decimal-pad"
-                      returnKeyType="next"
-                      placeholder="$ 0.00"
-                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                    />
-                  </View>
-                </LinearGradient>
+                <View style={modalStyles.materialInputWrapper}>
+                  <Feather
+                    name="dollar-sign"
+                    size={16}
+                    color="#22c55e"
+                    style={modalStyles.materialInputIcon}
+                  />
+                  <TextInput
+                    style={modalStyles.materialInput}
+                    value={amount}
+                    onChangeText={handleAmountChange}
+                    keyboardType="decimal-pad"
+                    returnKeyType="next"
+                    placeholder="$ 0.00"
+                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                  />
+                </View>
               </View>
               
               <View style={modalStyles.materialFieldGroup}>
                 <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
-                >
-                  <View style={modalStyles.materialInputWrapper}>
-                    <Feather
-                      name="percent"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <TextInput
-                      style={modalStyles.materialInput}
-                      value={percentage}
-                      onChangeText={handlePercentageChange}
-                      keyboardType="decimal-pad"
-                      returnKeyType="next"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
-                    />
-                  </View>
-                </LinearGradient>
+                <View style={modalStyles.materialInputWrapper}>
+                  <Feather
+                    name="percent"
+                    size={16}
+                    color="#8DA0B8"
+                    style={modalStyles.materialInputIcon}
+                  />
+                  <TextInput
+                    style={modalStyles.materialInput}
+                    value={percentage}
+                    onChangeText={handlePercentageChange}
+                    keyboardType="decimal-pad"
+                    returnKeyType="next"
+                    placeholder="0"
+                    placeholderTextColor="rgba(255,255,255,0.4)"
+                  />
+                </View>
               </View>
               
               <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
                 <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={modalStyles.materialInputBorder}
+                <TouchableOpacity
+                  style={modalStyles.materialInputWrapper}
+                  onPress={() => setShowDatePicker(!showDatePicker)}
                 >
-                  <TouchableOpacity
-                    style={modalStyles.materialInputWrapper}
-                    onPress={() => setShowDatePicker(!showDatePicker)}
-                  >
-                    <Feather
-                      name="calendar"
-                      size={16}
-                      color="#8DA0B8"
-                      style={modalStyles.materialInputIcon}
-                    />
-                    <Text style={{ 
-                      flex: 1, 
-                      fontSize: 15, 
-                      color: scheduledDate
-                        ? (darkMode ? '#FFFFFF' : Colors.text)
-                        : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.text),
-                      fontWeight: '500',
-                      paddingVertical: 12,
-                    }}>
-                      {scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
-                    </Text>
-                  </TouchableOpacity>
-                </LinearGradient>
+                  <Feather
+                    name="calendar"
+                    size={16}
+                    color="#8DA0B8"
+                    style={modalStyles.materialInputIcon}
+                  />
+                  <Text style={{ 
+                    flex: 1, 
+                    fontSize: 15, 
+                    color: scheduledDate
+                      ? (darkMode ? '#FFFFFF' : Colors.text)
+                      : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.text),
+                    fontWeight: '500',
+                    paddingVertical: 12,
+                  }}>
+                    {scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
+                  </Text>
+                </TouchableOpacity>
                 {showDatePicker && (
                   <View style={{ marginTop: 8 }}>
                     <GreyCalendar
@@ -1635,6 +1607,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   const [category, setCategory] = useState(item?.category || 'General');
   const [mode, setMode] = useState(item?.mode || laborMode || 'hourly');
   const [laborType, setLaborType] = useState(item?.laborType || 'inhouse');
+  const [trade, setTrade] = useState(item?.trade ?? '');
   const materialSqftInputRef = React.useRef(null);
   const materialRateInputRef = React.useRef(null);
   const materialFlatAmountInputRef = React.useRef(null);
@@ -1693,6 +1666,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         setMode(item.mode || laborMode || 'hourly');
       }
       setLaborType(item.laborType || 'inhouse');
+      setTrade(isLaborForm ? String(item.trade ?? '') : '');
     } else if (visible && !prevVisibleRef.current) {
       // Reset form only when opening for "Add" (item is null) — prevents clearing while user types
       prevVisibleRef.current = true;
@@ -1708,6 +1682,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       setCategory('General');
       setMode(isMaterialForm ? 'flat' : laborMode || 'hourly');
       setLaborType('inhouse');
+      setTrade('');
     }
     if (!visible) {
       prevVisibleRef.current = false;
@@ -1719,12 +1694,17 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
       Alert.alert('Vendor required', 'Please enter a vendor or supplier.');
       return;
     }
+    if (isLaborForm && !String(name || '').trim()) {
+      Alert.alert('Labor description required', 'Please enter a labor description.');
+      return;
+    }
     const laborRateNum = isLaborForm ? decimalMoneyInputToNumber(laborRateDigits) || 0 : 0;
     const data = {
       name,
       ...(isLaborForm ? {
         mode: mode,
         laborType: laborType,
+        trade: String(trade || '').trim(),
         hours: Number(hours) || 0,
         rate: laborRateNum,
         total: (Number(hours) || 0) * laborRateNum
@@ -1907,9 +1887,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
               >
                 {isLaborForm ? (
                   <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
-                    {/* Labor Name (Description) */}
+                    {/* Labor description + trade */}
                     <View style={modalStyles.materialFieldGroup}>
-                      <Text style={modalStyles.materialLabel}>Item Name *</Text>
+                      <Text style={modalStyles.materialLabel}>Labor description *</Text>
                       <View style={modalStyles.materialInputWrapper}>
                         <Feather
                           name="file-text"
@@ -1922,10 +1902,38 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             modalStyles.materialInput,
                             { color: darkMode ? '#e9f1ff' : '#000000' },
                           ]}
-                          placeholder="Enter item name"
+                          placeholder="Enter labor description"
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
+                          inputAccessoryViewID={lineItemModalPlainAccessoryId}
+                          returnKeyType="done"
+                          onSubmitEditing={() => Keyboard.dismiss()}
+                          blurOnSubmit
+                          selectionColor="#22c55e"
+                          underlineColorAndroid="transparent"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={modalStyles.materialFieldGroup}>
+                      <Text style={modalStyles.materialLabel}>Trade</Text>
+                      <View style={modalStyles.materialInputWrapper}>
+                        <Feather
+                          name="briefcase"
+                          size={16}
+                          color="#8DA0B8"
+                          style={modalStyles.materialInputIcon}
+                        />
+                        <TextInput
+                          style={[
+                            modalStyles.materialInput,
+                            { color: darkMode ? '#e9f1ff' : '#000000' },
+                          ]}
+                          placeholder="e.g., Electrical, Framing"
+                          placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                          value={trade}
+                          onChangeText={setTrade}
                           inputAccessoryViewID={lineItemModalPlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
@@ -2130,9 +2138,9 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   </LineItemFormShell>
                 ) : (
                   <LineItemFormShell nativeFullBleed={lineItemNativeFullBleedForm} darkMode={darkMode} Colors={Colors}>
-                      {/* Material Name (Description) */}
+                      {/* Material (required) */}
                       <View style={modalStyles.materialFieldGroup}>
-                        <Text style={modalStyles.materialLabel}>Description *</Text>
+                        <Text style={modalStyles.materialLabel}>Material *</Text>
                         <View style={modalStyles.materialInputWrapper}>
                           <Feather
                             name="file-text"
@@ -2142,7 +2150,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           />
                           <TextInput
                             style={modalStyles.materialInput}
-                            placeholder="What was purchased or service provided?"
+                            placeholder="what is the material quoted"
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
@@ -2529,7 +2537,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                   }}
                 >
                   <View style={modalStyles.inputGroup}>
-                    <Text style={modalStyles.label}>Item Name</Text>
+                    <Text style={modalStyles.label}>{isLaborForm ? 'Labor description' : 'Item Name'}</Text>
                     <TextInput
                       style={modalStyles.input}
                       value={name}
@@ -2537,10 +2545,26 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       returnKeyType="done"
                       onSubmitEditing={() => Keyboard.dismiss()}
                       blurOnSubmit={true}
-                      placeholder="Enter item name"
+                      placeholder={isLaborForm ? 'Enter labor description' : 'Enter item name'}
                       placeholderTextColor={Colors.sub}
                     />
                   </View>
+
+                  {isLaborForm ? (
+                    <View style={modalStyles.inputGroup}>
+                      <Text style={modalStyles.label}>Trade</Text>
+                      <TextInput
+                        style={modalStyles.input}
+                        value={trade}
+                        onChangeText={setTrade}
+                        returnKeyType="done"
+                        onSubmitEditing={() => Keyboard.dismiss()}
+                        blurOnSubmit={true}
+                        placeholder="e.g., Electrical, Framing"
+                        placeholderTextColor={Colors.sub}
+                      />
+                    </View>
+                  ) : null}
                   
                   {isLaborForm ? (
                     <>
@@ -5619,7 +5643,11 @@ export default function EstimateGeneratorScreen() {
 
   const saveCurrentEstimate = async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== 'web') {
+        try {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        } catch (_) {}
+      }
       
       // Sync materialsCart into bid data so Restore can compute total from saved data
       const bidDataToSave = {
@@ -5671,8 +5699,17 @@ export default function EstimateGeneratorScreen() {
         }, 500);
       }
       
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('✅ Estimate Saved', `"${estimateData.title}" has been saved for recovery.`);
+      if (Platform.OS !== 'web') {
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (_) {}
+      }
+      const savedMsg = `"${estimateData.title}" has been saved for recovery.`;
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`✅ Estimate Saved\n\n${savedMsg}`);
+      } else {
+        Alert.alert('✅ Estimate Saved', savedMsg);
+      }
       console.log(`💾 Saved estimate: ${estimateData.title} ($${estimateData.total})`);
 
       try {
@@ -5699,7 +5736,12 @@ export default function EstimateGeneratorScreen() {
       }
     } catch (error) {
       console.error('Error saving estimate:', error);
-      Alert.alert('Error', 'Failed to save estimate');
+      const errMsg = 'Failed to save estimate';
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Error\n\n${errMsg}`);
+      } else {
+        Alert.alert('Error', errMsg);
+      }
     }
   };
 
@@ -9692,8 +9734,13 @@ export default function EstimateGeneratorScreen() {
   // Mark bid as won (converts to project)
   const handleMarkAsWon = async () => {
     const performMarkAsWon = async () => {
+      try {
       const sourceBid = await getLatestBidForActions();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== 'web') {
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (_) {}
+      }
       
       // Always upsert latest bid snapshot when marking won, so Step 7 dates
       // (start/deposit/weekly/milestones) stay identical in Timeline after conversion.
@@ -9828,16 +9875,38 @@ export default function EstimateGeneratorScreen() {
         }
       }
       
-      Alert.alert(
-        '🎉 Congratulations!',
-        `${sourceBid.title} is now an active project! View it in the Projects tab.`,
-        [{ text: 'OK' }]
-      );
+      const congratsMsg = `${sourceBid.title} is now an active project! View it in the Projects tab.`;
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`🎉 Congratulations!\n\n${congratsMsg}`);
+      } else {
+        Alert.alert('🎉 Congratulations!', congratsMsg, [{ text: 'OK' }]);
+      }
       console.log(`🎉 Won bid converted to project: ${sourceBid.title}`);
+      } catch (err) {
+        console.error('❌ Mark as Won failed:', err);
+        const msg = err?.message ? String(err.message) : 'Something went wrong';
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(`Could not mark bid as won\n\n${msg}`);
+        } else {
+          Alert.alert('Error', `Could not mark bid as won: ${msg}`);
+        }
+      }
     };
 
     const seenInterstitial = await AsyncStorage.getItem('bps.seenEstimateToProjectInterstitial');
     if (seenInterstitial !== 'true') {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        const ok = window.confirm(
+          'This estimate becomes your project\n\n' +
+            'Budgets, labor, and profit will now be tracked in real time.\n\n' +
+            'OK = Start project tracking\nCancel = Not now',
+        );
+        if (ok) {
+          await AsyncStorage.setItem('bps.seenEstimateToProjectInterstitial', 'true');
+          await performMarkAsWon();
+        }
+        return;
+      }
       Alert.alert(
         'This estimate becomes your project',
         'Budgets, labor, and profit will now be tracked in real time.',
@@ -9853,6 +9922,14 @@ export default function EstimateGeneratorScreen() {
           },
         ]
       );
+      return;
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const ok = window.confirm(
+        '🎉 Mark Bid as Won?\n\nThis will convert your bid into an active project.',
+      );
+      if (ok) await performMarkAsWon();
       return;
     }
 
@@ -10508,6 +10585,15 @@ export default function EstimateGeneratorScreen() {
         const summaryMutedSoft = darkMode ? 'rgba(248, 250, 252, 0.7)' : '#5c667a';
         const heroDivider = darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.line;
         const chipBorder = darkMode ? 'rgba(45, 255, 196, 0.22)' : Colors.line;
+        /** Equal-width columns in Project Actions (RN Web flex needs basis 0 + fill). */
+        const projectActionCol = {
+          flexGrow: 1,
+          flexShrink: 1,
+          flexBasis: 0,
+          minWidth: 0,
+          alignSelf: 'stretch',
+        };
+        const projectActionGreyBorder = darkMode ? 'rgba(148, 163, 184, 0.5)' : Colors.line;
         
         return (
           <View style={[s.wideContainer, {
@@ -10824,6 +10910,7 @@ export default function EstimateGeneratorScreen() {
               
               {/* Project Actions - no border */}
               <View style={{
+                width: '100%',
                 paddingTop: 20,
                 paddingBottom: 22,
                 marginBottom: 32,
@@ -10838,97 +10925,150 @@ export default function EstimateGeneratorScreen() {
                   </Text>
                 </View>
                 
-                  {/* Action Buttons Grid - grey buttons, Mark as Won has green-to-blue background */}
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                    {/* Save Bid - grey button */}
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      style={{ 
-                        flex: 1, 
-                        minWidth: '47%', 
-                        backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : Colors.line,
-                        borderRadius: 16, 
-                        paddingVertical: 13, 
-                        paddingHorizontal: 14 
-                      }}
-                      onPress={saveCurrentEstimate}
-                    >
-                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                        <Ionicons name="save-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
-                        <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>Save Bid</Text>
-                      </View>
-                    </TouchableOpacity>
-                    
-                    {/* Restore Bids - only show if there are saved bids */}
-                    {savedEstimates.length > 0 && (
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={{ 
-                          flex: 1, 
-                          minWidth: '47%', 
-                          backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
-                          borderWidth: 1,
-                          borderColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : Colors.line,
-                          borderRadius: 16, 
-                          paddingVertical: 13, 
-                          paddingHorizontal: 14 
-                        }}
-                        onPress={() => setShowRecoveryModal(true)}
-                      >
-                        <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                          <Ionicons name="refresh-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
-                          <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>
-                            Restore Bids {savedEstimates.length > 0 && `(${savedEstimates.length})`}
-                          </Text>
+                  {/* Action buttons: two rows; column wrappers force 50/50 width on web (flexBasis 0). */}
+                  <View style={{ gap: 12, width: '100%', alignSelf: 'stretch' }}>
+                    {savedEstimates.length > 0 ? (
+                      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'stretch', width: '100%' }}>
+                        <View style={projectActionCol}>
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={{
+                              width: '100%',
+                              backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                              borderWidth: 1,
+                              borderColor: projectActionGreyBorder,
+                              borderRadius: 16,
+                              paddingVertical: 13,
+                              paddingHorizontal: 14,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                            }}
+                            onPress={saveCurrentEstimate}
+                          >
+                            <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                              <Ionicons name="save-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
+                              <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>Save Bid</Text>
+                            </View>
+                          </TouchableOpacity>
                         </View>
-                      </TouchableOpacity>
+                        <View style={projectActionCol}>
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={{
+                              width: '100%',
+                              backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                              borderWidth: 1,
+                              borderColor: projectActionGreyBorder,
+                              borderRadius: 16,
+                              paddingVertical: 13,
+                              paddingHorizontal: 14,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                            }}
+                            onPress={() => setShowRecoveryModal(true)}
+                          >
+                            <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                              <Ionicons name="refresh-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
+                              <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>
+                                Restore Bids {`(${savedEstimates.length})`}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={{ width: '100%' }}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          style={{
+                            width: '100%',
+                            backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                            borderWidth: 1,
+                            borderColor: projectActionGreyBorder,
+                            borderRadius: 16,
+                            paddingVertical: 13,
+                            paddingHorizontal: 14,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                          }}
+                          onPress={saveCurrentEstimate}
+                        >
+                          <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                            <Ionicons name="save-outline" size={16} color={Colors.bg === '#000000' ? '#fff' : Colors.text} />
+                            <Text style={{ color: Colors.bg === '#000000' ? '#fff' : Colors.text, fontSize: 13, fontWeight: '700' }}>Save Bid</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
                     )}
-                    
-                    {/* Submit Bid */}
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      style={{ 
-                        flex: 1, 
-                        minWidth: '47%', 
-                        backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(34, 197, 94, 0.28)' : Colors.line,
-                        borderRadius: 16, 
-                        paddingVertical: 13, 
-                        paddingHorizontal: 14 
-                      }}
-                      onPress={handleSubmitBid}
-                    >
-                      <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                        <Ionicons name="send-outline" size={16} color={darkMode ? '#22d3ee' : Colors.text} />
-                        <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '800' }}>Submit Bid</Text>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'stretch', width: '100%' }}>
+                      <View style={projectActionCol}>
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          style={{
+                            width: '100%',
+                            backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                            borderWidth: 1,
+                            borderColor: projectActionGreyBorder,
+                            borderRadius: 16,
+                            paddingVertical: 13,
+                            paddingHorizontal: 14,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                          }}
+                          onPress={handleSubmitBid}
+                        >
+                          <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                            <Ionicons name="send-outline" size={16} color={darkMode ? '#22d3ee' : Colors.text} />
+                            <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '800' }}>Submit Bid</Text>
+                          </View>
+                        </TouchableOpacity>
                       </View>
-                    </TouchableOpacity>
-                    
-                    {/* Mark as Won - green to blue background */}
-                    <LinearGradient
-                      colors={['#2DFFC4', '#00A6FF']}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={{ flex: 1, minWidth: '47%', borderRadius: 16, shadowColor: '#22c55e', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 }}
-                    >
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={{ 
-                          borderRadius: 16, 
-                          paddingVertical: 13, 
-                          paddingHorizontal: 14 
-                        }}
-                        onPress={handleMarkAsWon}
-                      >
-                        <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
-                          <Ionicons name="trophy-outline" size={16} color="#000" />
-                          <Text style={{ color: '#000', fontSize: 13, fontWeight: '800' }}>Mark as Won</Text>
-                        </View>
-                      </TouchableOpacity>
-                    </LinearGradient>
+                      <View style={projectActionCol}>
+                        <LinearGradient
+                          colors={['#2DFFC4', '#00A6FF']}
+                          start={{ x: 0.05, y: 0.15 }}
+                          end={{ x: 0.95, y: 0.85 }}
+                          style={{
+                            width: '100%',
+                            flex: 1,
+                            minHeight: 48,
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            borderColor: projectActionGreyBorder,
+                            overflow: 'hidden',
+                            shadowColor: '#22c55e',
+                            shadowOpacity: 0.25,
+                            shadowRadius: 12,
+                            shadowOffset: { width: 0, height: 4 },
+                            elevation: 4,
+                          }}
+                        >
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            style={{
+                              width: '100%',
+                              minHeight: 48,
+                              borderRadius: 16,
+                              paddingVertical: 13,
+                              paddingHorizontal: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                            }}
+                            onPress={handleMarkAsWon}
+                          >
+                            <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                              <Ionicons name="trophy-outline" size={16} color="#000" />
+                              <Text style={{ color: '#000', fontSize: 13, fontWeight: '800' }}>Mark as Won</Text>
+                            </View>
+                          </TouchableOpacity>
+                        </LinearGradient>
+                      </View>
+                    </View>
                   </View>
               </View>
             </View>
@@ -18815,248 +18955,320 @@ export default function EstimateGeneratorScreen() {
           >
             <ScrollView
               contentContainerStyle={{
-                paddingHorizontal: 20,
-                paddingTop: Math.max(insets.top, 0) + 10,
+                paddingHorizontal: estimateScrollPadH,
+                paddingTop: Math.max(insets.top, 0) + 10 + (Platform.OS === 'web' ? 32 : 0),
                 paddingBottom: 48,
               }}
               showsVerticalScrollIndicator={false}
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
-            {/* Header — centered title; same top rhythm as scope modals (insets + 10) */}
-            <View style={{ marginBottom: 18, marginHorizontal: -20, paddingHorizontal: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                <View style={{ width: 52, alignItems: 'flex-start' }}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      padding: 1,
-                    }}
-                  >
-                    <TouchableOpacity
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setShowRecoveryModal(false);
-                      }}
-                      style={{
+              <View
+                style={[
+                  Platform.OS === 'web'
+                    ? {
                         width: '100%',
-                        height: '100%',
-                        borderRadius: 19,
-                        backgroundColor: darkMode ? '#000000' : Colors.bg,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <MaterialIcons
-                        name="arrow-back"
-                        size={24}
-                        color={darkMode ? '#FFFFFF' : Colors.text}
-                      />
-                    </TouchableOpacity>
-                  </LinearGradient>
-                </View>
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text
+                        maxWidth: LINE_ITEM_MODAL_WEB_MAX_WIDTH,
+                        alignSelf: 'center',
+                      }
+                    : null,
+                  Platform.OS !== 'web' ? s.wideContainer : null,
+                ]}
+              >
+              <View style={{ marginBottom: Platform.OS === 'web' ? 18 : 20 }}>
+                  <View
                     style={{
-                      color: darkMode ? '#f9fafb' : '#000000',
-                      fontSize: 34,
-                      fontWeight: '900',
-                      letterSpacing: -0.3,
-                      textAlign: 'center',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingTop: Platform.OS === 'web' ? 0 : 8,
                     }}
                   >
-                    Restore
-                  </Text>
-                  <Text
-                    style={{
-                      color: darkMode ? '#FFFFFF' : '#000000',
-                      fontSize: 14,
-                      marginTop: 6,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {savedEstimates.length} {savedEstimates.length === 1 ? 'saved bid' : 'saved bids'}
-                  </Text>
-                </View>
-                <View style={{ width: 52 }} />
-              </View>
-            </View>
-            
-            {/* List of Saved Estimates */}
-            {savedEstimates.length === 0 ? (
-              <View style={{
-                padding: 48,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <View style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 40,
-                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: 24,
-                }}>
-                  <Ionicons name="document-outline" size={40} color="#22c55e" />
-                </View>
-                <Text
-                  style={{
-                    color: darkMode ? '#f9fafb' : '#000000',
-                    fontSize: 18,
-                    fontWeight: '700',
-                    marginBottom: 8,
-                    textAlign: 'center',
-                  }}
-                >
-                  No saved bids found
-                </Text>
-                <Text
-                  style={{
-                    color: darkMode ? '#FFFFFF' : '#000000',
-                    fontSize: 14,
-                    textAlign: 'center',
-                  }}
-                >
-                  Save a bid to restore it later
-                </Text>
-              </View>
-            ) : (
-              <View style={{ marginHorizontal: -20, paddingHorizontal: 8 }}>
-                <View style={{ marginBottom: 16 }}>
-                  <Text
-                    style={{
-                      color: darkMode ? '#FFFFFF' : '#000000',
-                      fontSize: 20,
-                      fontWeight: '800',
-                      marginBottom: 2,
-                    }}
-                  >
-                    Saved Bids
-                  </Text>
-                  <Text
-                    style={{
-                      marginTop: 2,
-                      fontSize: 13,
-                      color: darkMode ? '#FFFFFF' : '#000000',
-                    }}
-                  >
-                    Tap to restore a saved bid
-                  </Text>
-                </View>
-                
-                {savedEstimates.map((item, index) => (
-                  <LinearGradient
-                    key={item.id}
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
-                    style={{
-                      borderRadius: 20,
-                      padding: 1,
-                      marginBottom: index < savedEstimates.length - 1 ? 12 : 0,
-                      shadowColor: "#22c55e",
-                      shadowOpacity: 0.15,
-                      shadowRadius: 8,
-                      shadowOffset: { width: 0, height: 4 },
-                    }}
-                  >
-                    <TouchableOpacity
+                    <LinearGradient
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
                       style={{
-                        borderRadius: 19,
-                        padding: 16,
-                        backgroundColor: darkMode ? '#000000' : Colors.bg,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        padding: 1,
+                        marginRight: 12,
                       }}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        loadEstimate(item);
-                        setShowRecoveryModal(false);
-                      }}
-                      activeOpacity={0.85}
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <View style={{ flex: 1, marginRight: 12 }}>
-                          <Text
-                            style={{
-                              color: darkMode ? '#FFFFFF' : Colors.text,
-                              fontSize: 18,
-                              fontWeight: '700',
-                              marginBottom: 8,
-                            }}
-                          >
-                            {item.title || 'Untitled Bid'}
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                            <Ionicons
-                              name="person-outline"
-                              size={14}
-                              color={darkMode ? '#FFFFFF' : Colors.sub}
-                              style={{ marginRight: 6 }}
-                            />
-                            <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13 }}>
-                              {item.customer || item.customerName || 'Unknown Customer'}
-                            </Text>
-                          </View>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons
-                              name="calendar-outline"
-                              size={14}
-                              color={darkMode ? '#FFFFFF' : Colors.sub}
-                              style={{ marginRight: 6 }}
-                            />
-                            <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: 13 }}>
-                              {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : (item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'Unknown date')}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={{ color: '#22c55e', fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
-                            {money(item.total || item.grandTotal || computeTotalFromBidData(item.data) || 0)}
-                          </Text>
-                          <TouchableOpacity
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 18,
-                              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(239, 68, 68, 0.3)',
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            }}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                              Alert.alert(
-                                'Delete Bid?',
-                                `Are you sure you want to delete "${item.title || 'Untitled Bid'}"?`,
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: () => {
-                                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                                      deleteEstimate(item.id);
-                                    },
-                                  },
-                                ]
-                              );
-                            }}
-                          >
-                            <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                          </TouchableOpacity>
-                        </View>
+                      <GradientRingBackInner
+                        darkMode={darkMode}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          setShowRecoveryModal(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: 19,
+                          backgroundColor: darkMode ? '#000000' : Colors.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons
+                          name="arrow-back"
+                          size={24}
+                          color={darkMode ? '#FFFFFF' : Colors.text}
+                        />
+                      </GradientRingBackInner>
+                    </LinearGradient>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View
+                        style={[
+                          {
+                            width: 52,
+                            height: 52,
+                            borderRadius: 14,
+                            marginRight: 12,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(34, 211, 238, 0.3)',
+                          },
+                          !darkMode && { backgroundColor: Colors.bg, borderColor: Colors.line },
+                        ]}
+                      >
+                        <Ionicons name="document-text-outline" size={26} color="#22c55e" />
                       </View>
-                    </TouchableOpacity>
-                  </LinearGradient>
-                ))}
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            color: Colors.text,
+                            fontSize: 26,
+                            fontWeight: '700',
+                            letterSpacing: -0.4,
+                          }}
+                        >
+                          Restore
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            marginTop: 4,
+                            fontWeight: '500',
+                            color: darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub,
+                          }}
+                        >
+                          {savedEstimates.length} {savedEstimates.length === 1 ? 'saved bid' : 'saved bids'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              {/* Match Materials & Equipment: green→blue ring around page content; grey surface cards */}
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={{
+                  borderRadius: 30,
+                  padding: 1,
+                  marginBottom: 14,
+                  overflow: 'hidden',
+                }}
+              >
+                <View
+                  style={{
+                    borderRadius: 29,
+                    paddingHorizontal: 16,
+                    paddingTop: 12,
+                    paddingBottom: 18,
+                    backgroundColor: darkMode ? '#000000' : Colors.bg,
+                  }}
+                >
+                  {savedEstimates.length === 0 ? (
+                    <View style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
+                      <View
+                        style={[
+                          {
+                            width: 80,
+                            height: 80,
+                            borderRadius: 40,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginBottom: 24,
+                          },
+                          darkMode
+                            ? { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.12)' }
+                            : { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line },
+                        ]}
+                      >
+                        <Ionicons name="document-outline" size={40} color="#22c55e" />
+                      </View>
+                      <Text
+                        style={{
+                          color: Colors.text,
+                          fontSize: 18,
+                          fontWeight: '700',
+                          marginBottom: 8,
+                          textAlign: 'center',
+                        }}
+                      >
+                        No saved bids found
+                      </Text>
+                      <Text
+                        style={{
+                          color: darkMode ? 'rgba(226, 232, 240, 0.68)' : Colors.sub,
+                          fontSize: 14,
+                          textAlign: 'center',
+                        }}
+                      >
+                        Save a bid to restore it later
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={{ marginBottom: 16 }}>
+                        <Text
+                          style={{
+                            color: Colors.text,
+                            fontSize: 20,
+                            fontWeight: '700',
+                            marginBottom: 2,
+                          }}
+                        >
+                          Saved Bids
+                        </Text>
+                        <Text
+                          style={{
+                            marginTop: 2,
+                            fontSize: 13,
+                            fontWeight: '500',
+                            color: darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub,
+                          }}
+                        >
+                          Tap to restore a saved bid
+                        </Text>
+                      </View>
+                      <View style={{ gap: 14 }}>
+                        {savedEstimates.map((item) => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={[
+                              {
+                                borderRadius: 14,
+                                padding: 16,
+                              },
+                              darkMode
+                                ? {
+                                    backgroundColor: Colors.surface2,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(148, 163, 184, 0.12)',
+                                  }
+                                : {
+                                    backgroundColor: Colors.surface2,
+                                    borderWidth: 1,
+                                    borderColor: Colors.line,
+                                  },
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              loadEstimate(item);
+                              setShowRecoveryModal(false);
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <View style={{ flex: 1, marginRight: 12 }}>
+                                <Text
+                                  style={{
+                                    color: Colors.text,
+                                    fontSize: 18,
+                                    fontWeight: '700',
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  {item.title || 'Untitled Bid'}
+                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                  <Ionicons
+                                    name="person-outline"
+                                    size={14}
+                                    color={darkMode ? 'rgba(226, 232, 240, 0.76)' : Colors.sub}
+                                    style={{ marginRight: 6 }}
+                                  />
+                                  <Text
+                                    style={{
+                                      color: darkMode ? 'rgba(226, 232, 240, 0.76)' : Colors.sub,
+                                      fontSize: 13,
+                                    }}
+                                  >
+                                    {item.customer || item.customerName || 'Unknown Customer'}
+                                  </Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <Ionicons
+                                    name="calendar-outline"
+                                    size={14}
+                                    color={darkMode ? 'rgba(226, 232, 240, 0.76)' : Colors.sub}
+                                    style={{ marginRight: 6 }}
+                                  />
+                                  <Text
+                                    style={{
+                                      color: darkMode ? 'rgba(226, 232, 240, 0.76)' : Colors.sub,
+                                      fontSize: 13,
+                                    }}
+                                  >
+                                    {item.timestamp
+                                      ? new Date(item.timestamp).toLocaleDateString()
+                                      : item.createdAt
+                                        ? new Date(item.createdAt).toLocaleDateString()
+                                        : 'Unknown date'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={{ color: '#22c55e', fontSize: 22, fontWeight: '700', marginBottom: 12 }}>
+                                  {money(item.total || item.grandTotal || computeTotalFromBidData(item.data) || 0)}
+                                </Text>
+                                <TouchableOpacity
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                  onPress={(e) => {
+                                    e.stopPropagation();
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    Alert.alert(
+                                      'Delete Bid?',
+                                      `Are you sure you want to delete "${item.title || 'Untitled Bid'}"?`,
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: () => {
+                                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                            deleteEstimate(item.id);
+                                          },
+                                        },
+                                      ]
+                                    );
+                                  }}
+                                >
+                                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </View>
+              </LinearGradient>
               </View>
-            )}
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>

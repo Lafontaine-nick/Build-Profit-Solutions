@@ -45,6 +45,7 @@ import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
+import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -54,6 +55,7 @@ interface AddMaterialScreenProps {
   // optional: you can pass in a callback and wire it to backend
   onSave?: (payload: {
     vendor: string;
+    material?: string;
     amount: number;
     scope?: string;
     description: string;
@@ -80,6 +82,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const { addExpense } = useProjectData();
   
   const [vendor, setVendor] = useState("");
+  const [material, setMaterial] = useState("");
   const [amount, setAmount] = useState("");
   const [scope, setScope] = useState("");
   const [description, setDescription] = useState("");
@@ -235,6 +238,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           setAmount(dollarsToCentsDigits(receiptData.amount));
         }
         if (receiptData.items && receiptData.items.length > 0) {
+          const firstDesc = receiptData.items[0]?.description?.trim();
+          if (firstDesc) {
+            setMaterial((prev) => (prev.trim() ? prev : firstDesc));
+          }
           // Create description from receipt items
           const itemsDescription = receiptData.items
             .map(item => `${item.description}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`)
@@ -276,30 +283,41 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   };
 
   const handleSave = () => {
-    // basic validation
     if (!vendor.trim() || !numericAmount) {
-      Alert.alert('Required Fields', 'Vendor and amount are required.');
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.alert === "function"
+      ) {
+        window.alert(
+          "Required Fields\n\nVendor and amount are required.\n\nAmount uses digit entry: e.g. 10000 = $100.00 (last two digits are cents)."
+        );
+      } else {
+        Alert.alert("Required Fields", "Vendor and amount are required.");
+      }
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    // Save to project data using ProjectDataContext
     try {
+      if (Platform.OS !== "web") {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
+
       addExpense({
         id: Date.now().toString(),
         vendor: vendor.trim(),
+        material: material.trim() || undefined,
         amount: numericAmount,
-        category: 'Materials/Equipment',
+        category: "Materials/Equipment",
         date: new Date().toISOString(),
         notes: description.trim() || undefined,
         receiptUri: receiptUri || undefined,
       });
 
-      // Also call the onSave callback if provided
       if (onSave) {
         onSave({
           vendor: vendor.trim(),
+          material: material.trim() || undefined,
           amount: numericAmount,
           scope: scope.trim(),
           description: description.trim(),
@@ -307,21 +325,31 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         });
       }
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Navigate back to Budget tab on project detail page
+      if (Platform.OS !== "web") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
+
       if (projectId) {
         router.push({
           pathname: `/project-detail/[id]`,
-          params: { id: projectId, activeTab: 'Budget', backToProjects: '1' }
+          params: { id: projectId, activeTab: "Budget", backToProjects: "1" },
         });
       } else {
-        // Fallback to go back if no projectId
         navigation?.goBack?.();
       }
     } catch (error) {
-      console.error('Error saving expense:', error);
-      Alert.alert('Error', 'Failed to save expense. Please try again.');
+      console.error("Error saving expense:", error);
+      const msg =
+        error instanceof Error ? error.message : "Failed to save expense. Please try again.";
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.alert === "function"
+      ) {
+        window.alert(`Error\n\n${msg}`);
+      } else {
+        Alert.alert("Error", "Failed to save expense. Please try again.");
+      }
     }
   };
 
@@ -362,6 +390,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.content}>
+            <WebFormGradientFrame
+              style={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
+              innerStyle={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
+              innerBackgroundColor={darkMode ? "#000000" : Colors.bg}
+            >
             {/* HEADER */}
             <View style={styles.headerRow}>
               <View style={styles.backButtonWrapper}>
@@ -392,7 +425,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.headerTextBlock}>
                   <Text style={styles.headerTitle}>Add Materials & Equipment</Text>
                   <Text style={styles.headerSubtitle}>
-                    Log your material or equipment expense
+                    Log your expense
                   </Text>
                 </View>
               </View>
@@ -401,6 +434,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             {/* CONTENT */}
             <ScrollView
               showsVerticalScrollIndicator={false}
+              style={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
               contentContainerStyle={styles.scrollContent}
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
@@ -420,6 +454,30 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
+                    inputAccessoryViewID={projectExpensePlainAccessoryId}
+                    returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
+                  />
+                </View>
+              </View>
+
+              {/* Material */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Material</Text>
+                <View style={styles.inputWrapper}>
+                  <Feather
+                    name="package"
+                    size={16}
+                    color="#8DA0B8"
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g., 2x4 lumber, conduit, drywall sheets"
+                    placeholderTextColor={placeholderTint}
+                    value={material}
+                    onChangeText={setMaterial}
                     inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
@@ -608,6 +666,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 )}
               </View>
             </ScrollView>
+            </WebFormGradientFrame>
 
             {/* OCR Processing Modal */}
             <Modal
@@ -839,6 +898,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 100,
+    elevation: 24,
     paddingHorizontal: 20,
     paddingTop: 14,
     paddingBottom: Platform.OS === "ios" ? 28 : 22,
@@ -855,8 +916,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.24)" : Colors.line,
-    backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : Colors.surface2,
+    borderColor: isDark ? "#3f3f46" : Colors.line,
+    backgroundColor: isDark ? "#18181b" : Colors.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -878,7 +939,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   cancelText: {
     fontSize: 15,
     fontWeight: "600",
-    color: isDark ? "rgba(226, 232, 240, 0.78)" : Colors.sub,
+    color: isDark ? "rgba(226, 232, 240, 0.92)" : Colors.sub,
   },
   saveText: {
     fontSize: 15,

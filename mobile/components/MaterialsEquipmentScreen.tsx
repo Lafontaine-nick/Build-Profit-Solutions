@@ -15,9 +15,6 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-} from "@/constants/brandFrameGradient";
 import { Ionicons, Feather, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -33,10 +30,13 @@ const BRAND_CYAN = "#22d3ee";
 
 interface MaterialsEquipmentScreenProps {
   navigation: any;
+  /** When set (e.g. from `/materials-equipment?projectId=`), Add always opens the full-page form even if context id lags. */
+  routeProjectId?: string;
 }
 
 const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   navigation,
+  routeProjectId,
 }) => {
   const router = useRouter();
   const { theme, darkMode } = useTheme();
@@ -51,7 +51,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     if (materialsDesktopWeb) return WEB_DESKTOP_EDGE_HORIZONTAL;
     return ScreenLayout.edge.horizontal;
   }, [materialsDesktopWeb]);
-  const nativeCardStripStyle = useMemo(
+  /** Same as BudgetTab `budgetContainerWide` + project `wideContainer`: nearly full-bleed gradient frame on native. */
+  const pageWideBleedStyle = useMemo(
     () =>
       useNativeBudgetBleed
         ? {
@@ -81,6 +82,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
       .map((exp: any) => ({
         id: exp.id,
         vendor: exp.vendor || 'Unknown',
+        material: exp.material?.trim() || undefined,
         category: exp.category || 'Materials/Equipment',
         amount: exp.amount || 0,
         dateLabel: exp.date 
@@ -96,6 +98,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((tx: any) => 
         tx.vendor.toLowerCase().includes(query) ||
+        (tx.material && tx.material.toLowerCase().includes(query)) ||
         tx.category.toLowerCase().includes(query) ||
         (tx.notes && tx.notes.toLowerCase().includes(query))
       );
@@ -117,6 +120,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   const handleAddTransaction = (transaction: {
     id: string;
     vendor: string;
+    material?: string;
     amount: number;
     description: string;
     po?: string;
@@ -127,20 +131,25 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     scope?: string;
     priceReasonableness?: 'normal' | 'high' | 'outlier';
   }) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+
     addExpense({
       id: transaction.id,
       vendor: transaction.vendor,
+      material: transaction.material?.trim() || undefined,
       amount: transaction.amount,
       category: 'Materials/Equipment',
       date: transaction.date,
       notes: transaction.description,
       receiptUri: transaction.receiptUri || null,
     });
-    
+
     setShowAddModal(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== "web") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
   };
 
   const handleEditTransaction = (transaction: any) => {
@@ -179,6 +188,19 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             { paddingHorizontal: scrollOuterPadH },
           ]}
         >
+          <View style={pageWideBleedStyle}>
+          <LinearGradient
+            colors={["#2DFFC4", "#00A6FF"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.pageOverviewGradientRing}
+          >
+            <View
+              style={[
+                styles.pageOverviewInner,
+                { backgroundColor: darkMode ? "#000000" : Colors.bg },
+              ]}
+            >
           {/* HEADER — same horizontal inset as project tabs (outside wide strip) */}
           <View style={styles.headerRow}>
             <TouchableOpacity
@@ -216,17 +238,20 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             </View>
           </View>
 
-          <View style={nativeCardStripStyle}>
           {/* TOTAL SPENT CARD */}
           <View style={styles.totalCardContainer}>
             {darkMode ? (
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.totalCardBorder}
-            >
-              <View style={styles.totalCard}>
+              <View
+                style={[
+                  styles.totalCard,
+                  {
+                    backgroundColor: Colors.surface2,
+                    borderWidth: 1,
+                    borderColor: "rgba(148, 163, 184, 0.12)",
+                    borderRadius: 14,
+                  },
+                ]}
+              >
                 <View style={styles.totalLeftBlock}>
                   <View style={styles.totalTopRow}>
                     <View style={styles.totalIconContainer}>
@@ -249,7 +274,6 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                   })}
                 </Text>
               </View>
-            </LinearGradient>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
                 <View style={[styles.totalCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}>
@@ -279,16 +303,16 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               pressed && { transform: [{ scale: 0.97 }] },
             ]}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              // Navigate to Add Materials & Equipment page (the form with vendor, amount, receipt, budget status, project phase)
-              const projectId = projectData?.id;
-              if (projectId) {
+              if (Platform.OS !== "web") {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              }
+              const projectIdForAdd = routeProjectId || projectData?.id;
+              if (projectIdForAdd) {
                 router.push({
-                  pathname: '/add-materials-equipment',
-                  params: { projectId }
+                  pathname: "/add-materials-equipment",
+                  params: { projectId: String(projectIdForAdd) },
                 });
               } else {
-                // Fallback to modal if no project ID
                 setShowAddModal(true);
               }
             }}
@@ -382,6 +406,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               ))}
             </View>
           )}
+            </View>
+          </LinearGradient>
           </View>
         </ScrollView>
         </View>
@@ -401,6 +427,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
 interface Transaction {
   id: string;
   vendor: string;
+  material?: string;
   category: string;
   amount: number;
   dateLabel: string;
@@ -449,13 +476,17 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
         style={styles.txPressable}
       >
         {darkMode ? (
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.txCardBorder}
-        >
-          <View style={styles.txCard}>
+          <View
+            style={[
+              styles.txCard,
+              {
+                backgroundColor: Colors.surface2,
+                borderWidth: 1,
+                borderColor: "rgba(148, 163, 184, 0.12)",
+                borderRadius: 14,
+              },
+            ]}
+          >
             <View style={styles.txLeft}>
               <View style={styles.txAvatar}>
                 <MaterialCommunityIcons
@@ -466,6 +497,11 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
               </View>
               <View style={styles.txTextBlock}>
                 <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
+                {transaction.material ? (
+                  <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={2}>
+                    {transaction.material}
+                  </Text>
+                ) : null}
                 <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
                   {transaction.category}
                 </Text>
@@ -501,7 +537,6 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
               </Text>
             </View>
           </View>
-        </LinearGradient>
         ) : (
           <View style={[styles.txCardBorderLight, { borderColor: Colors.line }]}>
             <View style={[styles.txCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}>
@@ -515,6 +550,11 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
                 </View>
                 <View style={styles.txTextBlock}>
                   <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
+                  {transaction.material ? (
+                    <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={2}>
+                      {transaction.material}
+                    </Text>
+                  ) : null}
                   <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
                     {transaction.category}
                   </Text>
@@ -569,6 +609,18 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: 12,
     paddingBottom: 40,
+  },
+  pageOverviewGradientRing: {
+    borderRadius: 30,
+    padding: 1,
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  pageOverviewInner: {
+    borderRadius: 29,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 18,
   },
 
   /* HEADER */
@@ -803,13 +855,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   txCard: {
-    borderRadius: 18,
+    borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    backgroundColor: "#000000",
+    backgroundColor: "transparent",
   },
   txLeft: {
     flexDirection: "row",

@@ -22,6 +22,7 @@ interface ProjectDataContextType {
     id: string;
     category?: string;
     vendor?: string;
+    material?: string;
     amount: number;
     date?: string;
     notes?: string;
@@ -33,6 +34,7 @@ interface ProjectDataContextType {
     id: string;
     category?: string;
     vendor?: string;
+    material?: string;
     amount: number;
     date?: string;
     notes?: string;
@@ -145,18 +147,22 @@ interface ProjectDataProviderProps {
 /** Union by expense id; list entries override saved with the same id (AI often updates the list first). */
 function mergeProjectExpensesFromSources(
   savedExpenses: any[] | undefined,
-  listExpenses: any[] | undefined
+  listExpenses: any[] | undefined,
+  /** Expense ids recently removed — ignore stale copies from disk or ProjectList until sync settles. */
+  suppressIds?: ReadonlySet<string> | null
 ): any[] {
   const byId = new Map<string, any>();
   for (const e of savedExpenses || []) {
-    if (e?.id != null && String(e.id) !== '') {
-      byId.set(String(e.id), e);
-    }
+    if (e?.id == null || String(e.id) === '') continue;
+    const id = String(e.id);
+    if (suppressIds?.has(id)) continue;
+    byId.set(id, e);
   }
   for (const e of listExpenses || []) {
-    if (e?.id != null && String(e.id) !== '') {
-      byId.set(String(e.id), e);
-    }
+    if (e?.id == null || String(e.id) === '') continue;
+    const id = String(e.id);
+    if (suppressIds?.has(id)) continue;
+    byId.set(id, e);
   }
   return Array.from(byId.values());
 }
@@ -212,6 +218,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   const { updateProject, getProjectById } = useProjectList();
   // Track last save to prevent race conditions with useEffect
   const lastSaveRef = useRef<{ purchaseOrdersCount: number; timestamp: number }>({ purchaseOrdersCount: 0, timestamp: 0 });
+  /** Ids just deleted — `mergeProjectExpensesFromSources` must not re-inject them from a stale ProjectList snapshot. */
+  const suppressedListExpenseIdsRef = useRef<Set<string>>(new Set());
 
   const syncProjectList = useCallback(
     (next: ProjectOverview) => {
@@ -563,6 +571,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     id: string;
     category?: string;
     vendor?: string;
+    material?: string;
     amount: number;
     date?: string;
     notes?: string;
@@ -699,11 +708,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   };
 
   const deleteExpense = (expenseId: string) => {
-    
-    applyProjectDataUpdate(prev => {
+    const idKey = String(expenseId);
+    suppressedListExpenseIdsRef.current.add(idKey);
+    const clearSuppress = () => {
+      suppressedListExpenseIdsRef.current.delete(idKey);
+    };
+    const suppressTimer = setTimeout(clearSuppress, 8000);
+
+    applyProjectDataUpdate((prev) => {
       
       const expenseToDelete = prev.expenses?.find((e: any) => e.id === expenseId);
       if (!expenseToDelete) {
+        clearTimeout(suppressTimer);
+        suppressedListExpenseIdsRef.current.delete(idKey);
         return prev;
       }
 
@@ -792,6 +809,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     id: string;
     category?: string;
     vendor?: string;
+    material?: string;
     amount: number;
     date?: string;
     notes?: string;
@@ -1301,7 +1319,11 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
       
       if (saved) {
         const parsedData = JSON.parse(saved);
-        const mergedExpensesSaved = mergeProjectExpensesFromSources(parsedData.expenses, listExpenses);
+        const mergedExpensesSaved = mergeProjectExpensesFromSources(
+          parsedData.expenses,
+          listExpenses,
+          suppressedListExpenseIdsRef.current
+        );
         
         // Compare in-memory expenses to merged AsyncStorage + list (list can have AI-added rows first)
         const currentExpenseIds = (projectData.expenses || []).map((e: any) => e.id).sort().join(',');
@@ -1352,19 +1374,31 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         if (expensesChanged || bucketsChanged || spentChanged || purchaseOrdersChanged || committedPOsChanged || listHasNewerPOs || listPOsChanged) {
           const currentCount = (projectData.expenses || []).length;
           const savedCount = (dataToUse.expenses || []).length;
-          
+
+          /** Disk can still contain a row we already removed in memory (AsyncStorage.setItem is async). */
+          const memoryLastMs = projectData.lastUpdated
+            ? new Date(projectData.lastUpdated).getTime()
+            : 0;
+          const fileLastMs = parsedData.lastUpdated
+            ? new Date(parsedData.lastUpdated).getTime()
+            : 0;
+          const staleDiskHasExtraExpenses =
+            savedCount > currentCount && memoryLastMs > fileLastMs;
+
           // If expenses increased, always reload (new expense added)
           // If expenses decreased, don't reload (delete in progress)
           // If only buckets/spent/purchaseOrders changed, reload (update from AI Assistant)
           const savedPOCount = (dataToUse.purchaseOrders || []).length;
           const currentPOCount = (projectData.purchaseOrders || []).length;
-          
-          if (savedCount > currentCount || 
-              (savedCount === currentCount && (bucketsChanged || spentChanged)) ||
-              savedPOCount > currentPOCount ||
-              (savedPOCount === currentPOCount && (purchaseOrdersChanged || listPOsChanged)) ||
-              committedPOsChanged ||
-              listHasNewerPOs) {
+
+          if (
+            (savedCount > currentCount && !staleDiskHasExtraExpenses) ||
+            (savedCount === currentCount && (bucketsChanged || spentChanged)) ||
+            savedPOCount > currentPOCount ||
+            (savedPOCount === currentPOCount && (purchaseOrdersChanged || listPOsChanged)) ||
+            committedPOsChanged ||
+            listHasNewerPOs
+          ) {
             replaceProjectDataState(dataToUse);
             
             // After reloading, sync back to ProjectListContext to ensure consistency
@@ -1383,7 +1417,11 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           ...listData,
           purchaseOrders: listPOs.length ? listPOs : listData.purchaseOrders || projectData.purchaseOrders || [],
           committedPOs: listCommittedPOs || listData.committedPOs || projectData.committedPOs || 0,
-          expenses: mergeProjectExpensesFromSources(projectData.expenses, listExpenses),
+          expenses: mergeProjectExpensesFromSources(
+            projectData.expenses,
+            listExpenses,
+            suppressedListExpenseIdsRef.current
+          ),
         };
         replaceProjectDataState(dataToUse);
       } else {

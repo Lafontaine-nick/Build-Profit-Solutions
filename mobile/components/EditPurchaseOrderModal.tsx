@@ -19,6 +19,16 @@ import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "./GradientRingBackInner";
+import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
+import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
+
+/** Web: space below browser tabs / address bar */
+const WEB_MODAL_TOP_INSET = 52;
+
+const WEB_TEXT_INPUT_NO_FOCUS_RING =
+  Platform.OS === "web"
+    ? ({ outlineStyle: "none" as const, outlineWidth: 0 } as const)
+    : null;
 
 function parseISODateToLocal(iso: string | undefined): Date {
   if (!iso) return new Date();
@@ -136,11 +146,38 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
 
   if (!purchaseOrder) return null;
 
+  const webFormColumn =
+    Platform.OS === "web"
+      ? {
+          maxWidth: getWebPageShellMaxWidth("form"),
+          width: "100%" as const,
+        }
+      : undefined;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <View style={[styles.container, { backgroundColor: darkMode ? '#000000' : '#FFFFFF' }]}>
+      <View
+        style={[
+          styles.modalFill,
+          { backgroundColor: darkMode ? "#000000" : "#FFFFFF" },
+          Platform.OS === "web" && styles.modalFillWeb,
+        ]}
+      >
+        <View
+          style={[
+            styles.container,
+            { backgroundColor: darkMode ? "#000000" : "#FFFFFF" },
+            webFormColumn,
+            Platform.OS === "web" && styles.containerWeb,
+          ]}
+        >
+          <WebFormGradientFrame
+            innerBackgroundColor={darkMode ? "#000000" : Colors.bg}
+            style={Platform.OS === "web" ? styles.webFrameOuter : undefined}
+            innerStyle={Platform.OS === "web" ? styles.webFrameInner : undefined}
+          >
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, Platform.OS === "web" && styles.headerWeb]}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
                 colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -183,7 +220,13 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           {/* Form */}
           <ScrollView
             ref={scrollViewRef}
-            style={styles.form}
+            style={[
+              styles.form,
+              Platform.OS === "web" && { flex: 1, minHeight: 0 },
+            ]}
+            contentContainerStyle={
+              Platform.OS === "web" ? { flexGrow: 0, paddingBottom: 8 } : undefined
+            }
             showsVerticalScrollIndicator={false}
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
@@ -197,7 +240,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   style={styles.inputIcon}
                 />
                 <TextInput
-                  style={[styles.input, !darkMode && { color: '#000000' }]}
+                  style={[styles.input, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                   placeholder="e.g., Home Depot, ABC Contractors"
                   placeholderTextColor={placeholderTint}
                   value={vendor}
@@ -255,7 +298,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                 />
                 <TextInput
                   ref={descriptionRef}
-                  style={[styles.input, styles.textArea, !darkMode && { color: '#000000' }]}
+                  style={[styles.input, styles.textArea, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                   placeholder="What was purchased or service provided?"
                   placeholderTextColor={placeholderTint}
                   value={description}
@@ -327,7 +370,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   style={styles.inputIcon}
                 />
                 <TextInput
-                  style={[styles.input, !darkMode && { color: '#000000' }]}
+                  style={[styles.input, !darkMode && { color: '#000000' }, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                   placeholder="e.g., PO-1003"
                   placeholderTextColor={placeholderTint}
                   value={poNumber}
@@ -344,30 +387,39 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
           </ScrollView>
 
           {/* Actions */}
-          <View style={[styles.actions, { backgroundColor: darkMode ? "#000000" : "#FFFFFF" }]}>
-            <TouchableOpacity 
+          <View style={[styles.actions, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+            <TouchableOpacity
               onPress={() => {
                 Keyboard.dismiss();
                 handleSave();
-              }} 
+              }}
               style={styles.saveButton}
+              activeOpacity={0.9}
             >
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.saveButtonGradient}
-              >
+              <View style={styles.saveButtonSolid}>
                 <Text style={styles.saveText}>✓ Save</Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           </View>
+          </WebFormGradientFrame>
+        </View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalFill: {
+    flex: 1,
+    width: "100%",
+  },
+  modalFillWeb: {
+    flex: 1,
+    width: "100%",
+    minHeight: 0,
+    alignItems: "center",
+    paddingTop: WEB_MODAL_TOP_INSET,
+  },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
@@ -377,6 +429,25 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingBottom: 20,
   },
+  containerWeb: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    maxHeight: "100%" as const,
+  },
+  webFrameOuter: {
+    alignSelf: "stretch",
+    width: "100%",
+    flex: 1,
+    minHeight: 0,
+  },
+  webFrameInner: {
+    alignSelf: "stretch",
+    width: "100%",
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "column",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -384,6 +455,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(148, 163, 184, 0.12)",
+  },
+  headerWeb: {
+    paddingTop: 20,
   },
   backBtnWrapper: {
     marginRight: 16,
@@ -545,10 +619,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
   },
-  saveButtonGradient: {
+  saveButtonSolid: {
     paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#22c55e",
+    borderRadius: 14,
     shadowColor: "#22c55e",
     shadowOpacity: 0.22,
     shadowRadius: 10,

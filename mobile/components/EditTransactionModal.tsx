@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, SafeAreaView, StatusBar } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Keyboard, SafeAreaView, StatusBar, Platform } from "react-native";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +7,17 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "./GradientRingBackInner";
+import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
+import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
+
+/** Web: space below browser tabs / address bar so the card does not touch the chrome */
+const WEB_MODAL_TOP_INSET = 52;
+
+/** Web: remove browser default focus ring on inputs (blue rectangle). */
+const WEB_TEXT_INPUT_NO_FOCUS_RING =
+  Platform.OS === "web"
+    ? ({ outlineStyle: "none" as const, outlineWidth: 0 } as const)
+    : null;
 
 type Transaction = {
   id: string;
@@ -55,17 +66,29 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
     }
   }, [visible, transaction]);
 
+  const webAlert = (title: string, message: string) => {
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      typeof window.alert === "function"
+    ) {
+      window.alert(message ? `${title}\n\n${message}` : title);
+      return;
+    }
+    Alert.alert(title, message);
+  };
+
   const handleSave = () => {
     if (!transaction) return;
     
     if (!vendor.trim()) {
-      Alert.alert("Required", "Please enter a vendor name");
+      webAlert("Required", "Please enter a vendor name");
       return;
     }
     
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount");
+      webAlert("Invalid Amount", "Please enter a valid amount");
       return;
     }
 
@@ -80,22 +103,33 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
 
   const handleDelete = () => {
     if (!transaction) return;
-    
-    Alert.alert(
-      'Delete Transaction?',
-      `Remove ${vendor} - ${formatMoneyFull(parseFloat(amount) || 0, { decimals: 2 })}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            onDelete(transaction.id);
-            onClose();
-          }
-        }
-      ]
-    );
+
+    const msg = `Remove ${vendor} - ${formatMoneyFull(parseFloat(amount) || 0, { decimals: 2 })}?`;
+
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      typeof window.confirm === "function"
+    ) {
+      const ok = window.confirm(`Delete Transaction?\n\n${msg}`);
+      if (ok) {
+        onDelete(transaction.id);
+        onClose();
+      }
+      return;
+    }
+
+    Alert.alert("Delete Transaction?", msg, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          onDelete(transaction.id);
+          onClose();
+        },
+      },
+    ]);
   };
 
   if (!transaction) return null;
@@ -108,13 +142,33 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
     ? 'Materials & Equipment'
     : 'Transactions';
 
+  const webFormColumn =
+    Platform.OS === "web"
+      ? {
+          maxWidth: getWebPageShellMaxWidth("form"),
+          width: "100%" as const,
+          alignSelf: "center" as const,
+        }
+      : undefined;
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, Platform.OS === "web" && styles.safeAreaWeb]}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <View style={styles.container}>
+        <View
+          style={[
+            styles.container,
+            webFormColumn,
+            Platform.OS === "web" && styles.containerWeb,
+          ]}
+        >
+          <WebFormGradientFrame
+            innerBackgroundColor="#000000"
+            style={Platform.OS === "web" ? styles.webFrameOuter : undefined}
+            innerStyle={Platform.OS === "web" ? styles.webFrameInner : undefined}
+          >
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, Platform.OS === "web" && styles.headerWeb]}>
             <View style={styles.backBtnWrapper}>
               <LinearGradient
                 colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -150,8 +204,11 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
           {/* Form */}
           <ScrollView
             ref={scrollViewRef}
-            style={styles.form}
-            contentContainerStyle={{ paddingBottom: 100 }}
+            style={[styles.form, Platform.OS === "web" && styles.formWebScroll]}
+            contentContainerStyle={{
+              paddingBottom: Platform.OS === "web" ? 20 : 100,
+              ...(Platform.OS === "web" ? { flexGrow: 0 } : {}),
+            }}
             showsVerticalScrollIndicator={false}
             {...KEYBOARD_SCROLL_DEFAULTS}
           >
@@ -159,7 +216,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
               <Text style={styles.label}>{vendorLabel}</Text>
               <TextInput
                 ref={vendorRef}
-                style={styles.input}
+                style={[styles.input, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 value={vendor}
                 onChangeText={setVendor}
@@ -176,7 +233,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                 <Text style={styles.dollarSign}>$</Text>
                 <TextInput
                   ref={amountRef}
-                  style={[styles.input, styles.amountInput]}
+                  style={[styles.input, styles.amountInput, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                   placeholderTextColor="rgba(255,255,255,0.4)"
                   value={amount}
                   onChangeText={(text) => {
@@ -202,7 +259,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
               <Text style={styles.label}>Description</Text>
               <TextInput
                 ref={descriptionRef}
-                style={[styles.input, styles.textArea]}
+                style={[styles.input, styles.textArea, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 value={description}
                 onChangeText={setDescription}
@@ -219,7 +276,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
             <View style={styles.field}>
               <Text style={styles.label}>PO Number</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, WEB_TEXT_INPUT_NO_FOCUS_RING]}
                 placeholderTextColor="rgba(255,255,255,0.4)"
                 value={po}
                 onChangeText={setPo}
@@ -233,8 +290,14 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
             </View>
           </ScrollView>
 
-          {/* Actions */}
-          <View style={styles.actions}>
+          {/* Actions — native: pinned; web: in flow so gradient frame hugs content */}
+          <View
+            style={
+              Platform.OS === "web"
+                ? styles.actionsWeb
+                : styles.actions
+            }
+          >
             <View style={styles.deleteButtonWrapper}>
               <LinearGradient
                 colors={["#ef4444", "#dc2626"]}
@@ -251,33 +314,20 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                 </TouchableOpacity>
               </LinearGradient>
             </View>
-            <View style={styles.saveButtonWrapper}>
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.saveButtonBorder}
-              >
-                <TouchableOpacity 
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    handleSave();
-                  }} 
-                  style={styles.saveButton}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={["#22c55e", "#22d3ee"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.saveButtonGradient}
-                  >
-                    <Text style={styles.saveButtonText}>✓ Save</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
+            <TouchableOpacity
+              style={styles.saveButtonWrapper}
+              onPress={() => {
+                Keyboard.dismiss();
+                handleSave();
+              }}
+              activeOpacity={0.9}
+            >
+              <View style={styles.saveButtonSolid}>
+                <Text style={styles.saveButtonText}>✓ Save</Text>
+              </View>
+            </TouchableOpacity>
           </View>
+          </WebFormGradientFrame>
         </View>
       </SafeAreaView>
     </Modal>
@@ -294,16 +344,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000000",
   },
+  safeAreaWeb: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingTop: WEB_MODAL_TOP_INSET,
+  },
   container: {
     flex: 1,
     backgroundColor: "#000000",
     paddingBottom: 20,
+  },
+  /** Web: do not stretch the form column to full viewport height */
+  containerWeb: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flex: 0,
+  },
+  /** Web: gradient ring height follows content, full width of column */
+  webFrameOuter: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  webFrameInner: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  /** Web: ScrollView only as tall as fields (no flex fill) */
+  formWebScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     padding: 20,
     paddingTop: 60,
+  },
+  headerWeb: {
+    paddingTop: 20,
   },
   backBtnWrapper: {
     marginRight: 12,
@@ -360,6 +438,17 @@ const styles = StyleSheet.create({
   },
   form: {
     padding: 20,
+  },
+  actionsWeb: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
+    marginTop: 4,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "#000000",
   },
   field: {
     marginBottom: 20,
@@ -446,20 +535,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
   },
-  saveButtonBorder: {
-    borderRadius: 12,
-    padding: 1.5,
-  },
-  saveButton: {
-    borderRadius: 10.5,
-    width: "100%",
-    overflow: "hidden",
-  },
-  saveButtonGradient: {
+  saveButtonSolid: {
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: '#22c55e',
+    backgroundColor: "#22c55e",
+    borderRadius: 12,
+    shadowColor: "#22c55e",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 12,

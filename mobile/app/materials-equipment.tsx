@@ -12,10 +12,11 @@ export default function MaterialsEquipmentPage() {
   // If we have a projectId, wrap in provider, otherwise use context from parent
   const content = (
     <WebPageShell size="form" scroll={false} contentStyle={{ paddingBottom: 0 }}>
-    <MaterialsEquipmentScreen 
+    <MaterialsEquipmentScreen
+      routeProjectId={typeof projectId === 'string' ? projectId : undefined}
       navigation={{
         goBack: () => router.back()
-      }} 
+      }}
     />
     </WebPageShell>
   );

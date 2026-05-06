@@ -25,6 +25,15 @@ import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
 
+/** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
+function alertAddTxnValidation(title: string, message: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    window.alert(`${title}\n\n${message}`);
+    return;
+  }
+  Alert.alert(title, message);
+}
+
 /** Matches estimate-generator `LineItemModal` desktop web column cap (Add Labor step 4). */
 const ESTIMATE_LINE_ITEM_WEB_MAX_WIDTH = 900;
 
@@ -35,6 +44,7 @@ type Props = {
   onSave: (transaction: { 
     id: string; 
     vendor: string; 
+    material?: string;
     amount: number; 
     description: string; 
     materialsAmount?: number;
@@ -62,6 +72,10 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   }, [projectData?.budgeted]);
   
   const [vendor, setVendor] = useState("");
+  const [material, setMaterial] = useState("");
+  /** Budget Labor / Subs: work description (notes) vs trade name (vendor on expense). */
+  const [laborDescription, setLaborDescription] = useState("");
+  const [trade, setTrade] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [po, setPo] = useState("");
@@ -99,10 +113,26 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   const laborAmountRef = useRef<TextInput>(null);
   const descriptionRef = useRef<TextInput>(null);
   const poRef = useRef<TextInput>(null);
+  const materialRef = useRef<TextInput>(null);
+  const laborDescRef = useRef<TextInput>(null);
+  const tradeRef = useRef<TextInput>(null);
 
   const categoryNameLower = categoryName.toLowerCase();
   const isPurchaseOrdersCategory = categoryNameLower.includes('purchase order');
   const isChangeOrdersCategory = categoryNameLower.includes('change order');
+  /** Budget add form for materials & equipment (not labor, subs, PO, or change order). */
+  const isMaterialsEquipmentExpense =
+    (categoryNameLower.includes('material') || categoryNameLower.includes('equipment')) &&
+    !isChangeOrdersCategory &&
+    !isPurchaseOrdersCategory &&
+    !categoryNameLower.includes('labor') &&
+    !categoryNameLower.includes('subs');
+
+  const isLaborOrSubs =
+    categoryName === 'Labor' ||
+    categoryName === 'Subs' ||
+    categoryNameLower.includes('labor') ||
+    categoryNameLower.includes('subcontract');
 
   const supportsPerSqftPricing = useMemo(() => {
     return (
@@ -113,6 +143,31 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       categoryNameLower.includes("change order")
     );
   }, [categoryNameLower]);
+
+  /**
+   * Amount state: **Flat** pricing uses normal dollar entry (500 → $500) on web and native.
+   * **Per sq ft** mode keeps POS cent-digit strings for the computed total (matches phone-pad digit stream).
+   */
+  const parseAmountFieldToNumber = useCallback(
+    (raw: string) => {
+      if (pricingMode === "flat") {
+        return decimalMoneyInputToNumber(raw);
+      }
+      return centsDigitsToNumber(raw);
+    },
+    [pricingMode]
+  );
+
+  const applyFlatAmountTextChange = useCallback(
+    (text: string) => {
+      if (pricingMode === "flat") {
+        setAmount(sanitizeDecimalMoneyInput(text));
+      } else {
+        setAmount(clampCentsDigitsInput(text));
+      }
+    },
+    [pricingMode]
+  );
 
   useEffect(() => {
     if (visible) {
@@ -132,6 +187,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       setLaborRatePerSqftInput("");
       setMaterialsAmountInput("");
       setLaborAmountInput("");
+      setMaterial("");
+      setLaborDescription("");
+      setTrade("");
     }
   }, [visible]);
 
@@ -173,12 +231,16 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     const materials = decimalMoneyInputToNumber(materialsAmountInput);
     const labor = decimalMoneyInputToNumber(laborAmountInput);
     const total = materials + labor;
-    setAmount(total > 0 ? dollarsToCentsDigits(total) : "");
+    if (total > 0) {
+      setAmount(sanitizeDecimalMoneyInput(total.toFixed(2)));
+    } else {
+      setAmount("");
+    }
   }, [isChangeOrdersCategory, pricingMode, materialsAmountInput, laborAmountInput]);
 
   // High / outlier vs total project budget (not fixed dollar cutoffs on large bids)
   useEffect(() => {
-    const amountNum = centsDigitsToNumber(amount);
+    const amountNum = parseAmountFieldToNumber(amount);
     if (amountNum > 0) {
       setPriceReasonableness(
         classifyExpensePriceReasonableness(amountNum, referenceBudgetUsd)
@@ -186,7 +248,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     } else {
       setPriceReasonableness(null);
     }
-  }, [amount, referenceBudgetUsd]);
+  }, [amount, referenceBudgetUsd, parseAmountFieldToNumber]);
 
   // Request camera permissions
   const requestCameraPermissions = async () => {
@@ -299,22 +361,38 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         
         // Auto-fill form fields from OCR data
         if (receiptData.vendor) {
-          setVendor(receiptData.vendor);
+          if (isLaborOrSubs) {
+            setTrade(receiptData.vendor);
+          } else {
+            setVendor(receiptData.vendor);
+          }
         }
         if (receiptData.amount) {
-          setAmount(dollarsToCentsDigits(receiptData.amount));
+          if (pricingMode === "flat") {
+            setAmount(sanitizeDecimalMoneyInput(receiptData.amount.toFixed(2)));
+          } else {
+            setAmount(dollarsToCentsDigits(receiptData.amount));
+          }
         }
         if (receiptData.date) {
           // Date is already set to today by default, but we could parse receipt date if needed
         }
         if (receiptData.items && receiptData.items.length > 0) {
-          // Create description from receipt items
+          const firstDesc = receiptData.items[0]?.description?.trim();
+          if (firstDesc && isMaterialsEquipmentExpense) {
+            setMaterial((prev) => (prev.trim() ? prev : firstDesc));
+          }
+          if (firstDesc && isLaborOrSubs) {
+            setLaborDescription((prev) => (prev.trim() ? prev : firstDesc));
+          }
           const itemsDescription = receiptData.items
             .map(item => `${item.description}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`)
             .join(', ');
-          setDescription(itemsDescription);
+          if (!isLaborOrSubs) {
+            setDescription(itemsDescription);
+          }
         }
-        
+
         // Show success message with extracted data
         Alert.alert(
           'OCR Processing',
@@ -367,9 +445,14 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     : 'What was purchased or service provided?';
 
   const handleSave = () => {
-    if (!vendor.trim()) {
-      const fieldName = categoryName === 'Labor' || categoryName === 'Subs' ? 'sub/trade name' : 'vendor name';
-      Alert.alert("Required", `Please enter a ${fieldName}`);
+    if (isLaborOrSubs) {
+      if (!laborDescription.trim()) {
+        alertAddTxnValidation("Required", "Please enter a labor description.");
+        return;
+      }
+    } else if (!vendor.trim()) {
+      const fieldName = isChangeOrdersCategory ? "change order title" : "vendor name";
+      alertAddTxnValidation("Required", `Please enter a ${fieldName}.`);
       return;
     }
 
@@ -382,7 +465,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         const mTotal = mSq > 0 && mRate > 0 ? mSq * mRate : 0;
         const lTotal = lSq > 0 && lRate > 0 ? lSq * lRate : 0;
         if (mTotal + lTotal <= 0) {
-          Alert.alert(
+          alertAddTxnValidation(
             "Square feet & rate required",
             "Enter material and/or labor square feet with rate ($/sq ft) so the total is greater than zero, or switch to Flat amount."
           );
@@ -392,7 +475,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         const sq = parseInt(digitsOnly(sqftInput), 10) || 0;
         const rate = decimalMoneyInputToNumber(ratePerSqftInput);
         if (sq <= 0 || rate <= 0) {
-          Alert.alert(
+          alertAddTxnValidation(
             "Square feet & rate required",
             "Enter square feet and rate ($/sq ft) to calculate the total, or switch to Flat amount."
           );
@@ -417,9 +500,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
     const amountNum = isChangeOrdersCategory
       ? materialsAmount + laborAmount
-      : centsDigitsToNumber(amount);
+      : parseAmountFieldToNumber(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert(
+      alertAddTxnValidation(
         "Invalid Amount",
         isChangeOrdersCategory && pricingMode !== "sqft"
           ? "Please enter a valid material and/or labor amount"
@@ -428,7 +511,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       return;
     }
 
-    let descriptionOut = description.trim();
+    let descriptionOut = isLaborOrSubs
+      ? [laborDescription.trim(), description.trim()].filter(Boolean).join("\n\n")
+      : description.trim();
     if (supportsPerSqftPricing && pricingMode === "sqft") {
       if (isChangeOrdersCategory) {
         const mSq = parseInt(digitsOnly(materialSqftInput), 10) || 0;
@@ -460,9 +545,12 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       }
     }
 
+    const vendorOut = isLaborOrSubs ? trade.trim() || laborDescription.trim() : vendor.trim();
+
     onSave({
       id: `txn-${Date.now()}`,
-      vendor: vendor.trim(),
+      vendor: vendorOut,
+      material: isMaterialsEquipmentExpense ? material.trim() || undefined : undefined,
       amount: amountNum,
       description: descriptionOut,
       materialsAmount:
@@ -491,6 +579,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
     // Reset form
     setVendor("");
+    setMaterial("");
+    setLaborDescription("");
+    setTrade("");
     setAmount("");
     setDescription("");
     setPo("");
@@ -513,6 +604,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
 
   const handleCancel = () => {
     setVendor("");
+    setMaterial("");
+    setLaborDescription("");
+    setTrade("");
     setAmount("");
     setDescription("");
     setPo("");
@@ -705,6 +799,10 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: Colors.line,
         backgroundColor: Colors.bg,
+        /** RN Web / Safari: keep footer above scroll compositor layers so Save receives taps. */
+        ...(Platform.OS === "web"
+          ? { zIndex: 500, elevation: 24, position: "relative" as const }
+          : {}),
       },
       cancelBtn: {
         flex: 1,
@@ -712,12 +810,16 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         paddingVertical: 15,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: Colors.line,
-        backgroundColor: Colors.surface2,
+        borderColor: darkMode ? "#3f3f46" : Colors.line,
+        backgroundColor: darkMode ? "#18181b" : Colors.surface2,
         alignItems: "center" as const,
         justifyContent: "center" as const,
       },
-      cancelText: { fontSize: 15, fontWeight: "600" as const, color: Colors.text },
+      cancelText: {
+        fontSize: 15,
+        fontWeight: "600" as const,
+        color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text,
+      },
       saveBtnWrap: { flex: 1, marginLeft: 8, borderRadius: 14, overflow: "hidden" as const },
       saveBtnInner: {
         paddingVertical: 15,
@@ -728,6 +830,28 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
       saveBtnText: { fontSize: 15, fontWeight: "700" as const, color: "#050B13", letterSpacing: 0.3 },
     };
   }, [webBudgetExpenseShell, webPoFormPad, darkMode, Colors]);
+
+  const focusIntoPricingOrAmount = () => {
+    if (isChangeOrdersCategory && pricingMode !== "sqft") {
+      materialsAmountRef.current?.focus();
+    } else if (supportsPerSqftPricing && pricingMode === "sqft") {
+      if (isChangeOrdersCategory) {
+        materialSqftRef.current?.focus();
+      } else {
+        sqftRef.current?.focus();
+      }
+    } else {
+      amountRef.current?.focus();
+    }
+  };
+
+  const focusNextAfterVendorField = () => {
+    if (isMaterialsEquipmentExpense) {
+      materialRef.current?.focus();
+      return;
+    }
+    focusIntoPricingOrAmount();
+  };
 
   return (
     <Modal
@@ -754,6 +878,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
         !darkMode && { backgroundColor: Colors.bg },
         webBudgetExpenseShell && { paddingTop: insets.top, paddingBottom: 0 },
         webPoDesktopWide && { maxWidth: ESTIMATE_LINE_ITEM_WEB_MAX_WIDTH, width: '100%', alignSelf: 'center' },
+        webBudgetExpenseShell && Platform.OS === 'web' && { position: 'relative' as const },
       ]}>
           {/* Header */}
           <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.headerRow : [styles.header, !darkMode && { borderBottomColor: Colors.line }]}>
@@ -857,6 +982,102 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                   borderColor: Colors.line,
                 }}
               >
+            {isLaborOrSubs ? (
+              <>
+                <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                  <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Labor description *</Text>
+                  {webBudgetExpenseShell && poWebChrome ? (
+                    <View style={poWebChrome.materialInputWrap}>
+                      <Feather name="file-text" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                      <TextInput
+                        ref={laborDescRef}
+                        style={poWebChrome.materialInput}
+                        placeholder="e.g., Hang drywall, rough-in electrical"
+                        placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                        value={laborDescription}
+                        onChangeText={setLaborDescription}
+                        autoCapitalize="sentences"
+                        inputAccessoryViewID={projectExpensePlainAccessoryId}
+                        returnKeyType="next"
+                        onSubmitEditing={() => tradeRef.current?.focus()}
+                        blurOnSubmit={false}
+                        selectionColor="#22c55e"
+                        underlineColorAndroid="transparent"
+                      />
+                    </View>
+                  ) : (
+                    <TextInput
+                      ref={laborDescRef}
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: Colors.surface2,
+                          borderColor: Colors.line,
+                          borderWidth: 1,
+                          borderRadius: 12,
+                          color: Colors.text,
+                        },
+                      ]}
+                      placeholder="e.g., Hang drywall, rough-in electrical"
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={laborDescription}
+                      onChangeText={setLaborDescription}
+                      autoCapitalize="sentences"
+                      inputAccessoryViewID={projectExpensePlainAccessoryId}
+                      returnKeyType="next"
+                      onSubmitEditing={() => tradeRef.current?.focus()}
+                      blurOnSubmit={false}
+                    />
+                  )}
+                </View>
+                <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                  <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Trade</Text>
+                  {webBudgetExpenseShell && poWebChrome ? (
+                    <View style={poWebChrome.materialInputWrap}>
+                      <Feather name="briefcase" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                      <TextInput
+                        ref={tradeRef}
+                        style={poWebChrome.materialInput}
+                        placeholder="e.g., ABC Electrical, Joe's Plumbing"
+                        placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                        value={trade}
+                        onChangeText={setTrade}
+                        autoCapitalize="words"
+                        inputAccessoryViewID={projectExpensePlainAccessoryId}
+                        returnKeyType="next"
+                        onSubmitEditing={focusIntoPricingOrAmount}
+                        blurOnSubmit={false}
+                        selectionColor="#22c55e"
+                        underlineColorAndroid="transparent"
+                      />
+                    </View>
+                  ) : (
+                    <TextInput
+                      ref={tradeRef}
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: Colors.surface2,
+                          borderColor: Colors.line,
+                          borderWidth: 1,
+                          borderRadius: 12,
+                          color: Colors.text,
+                        },
+                      ]}
+                      placeholder="e.g., ABC Electrical, Joe's Plumbing"
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={trade}
+                      onChangeText={setTrade}
+                      autoCapitalize="words"
+                      inputAccessoryViewID={projectExpensePlainAccessoryId}
+                      returnKeyType="next"
+                      onSubmitEditing={focusIntoPricingOrAmount}
+                      blurOnSubmit={false}
+                    />
+                  )}
+                </View>
+              </>
+            ) : (
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
               {webBudgetExpenseShell && poWebChrome ? (
@@ -872,19 +1093,7 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                     autoCapitalize="words"
                     inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="next"
-                    onSubmitEditing={() => {
-                      if (isChangeOrdersCategory && pricingMode !== "sqft") {
-                        materialsAmountRef.current?.focus();
-                      } else if (supportsPerSqftPricing && pricingMode === "sqft") {
-                        if (isChangeOrdersCategory) {
-                          materialSqftRef.current?.focus();
-                        } else {
-                          sqftRef.current?.focus();
-                        }
-                      } else {
-                        amountRef.current?.focus();
-                      }
-                    }}
+                    onSubmitEditing={focusNextAfterVendorField}
                     blurOnSubmit={false}
                     selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
@@ -910,23 +1119,61 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 autoCapitalize="words"
                 inputAccessoryViewID={projectExpensePlainAccessoryId}
                 returnKeyType="next"
-                onSubmitEditing={() => {
-                  if (isChangeOrdersCategory && pricingMode !== "sqft") {
-                    materialsAmountRef.current?.focus();
-                  } else if (supportsPerSqftPricing && pricingMode === "sqft") {
-                    if (isChangeOrdersCategory) {
-                      materialSqftRef.current?.focus();
-                    } else {
-                      sqftRef.current?.focus();
-                    }
-                  } else {
-                    amountRef.current?.focus();
-                  }
-                }}
+                onSubmitEditing={focusNextAfterVendorField}
                 blurOnSubmit={false}
               />
               )}
             </View>
+            )}
+
+            {isMaterialsEquipmentExpense && (
+              <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
+                <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Material</Text>
+                {webBudgetExpenseShell && poWebChrome ? (
+                  <View style={poWebChrome.materialInputWrap}>
+                    <Feather name="package" size={16} color="#8DA0B8" style={{ marginRight: 12 }} />
+                    <TextInput
+                      ref={materialRef}
+                      style={poWebChrome.materialInput}
+                      placeholder="e.g., 2x4 lumber, conduit, drywall sheets"
+                      placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                      value={material}
+                      onChangeText={setMaterial}
+                      autoCapitalize="sentences"
+                      inputAccessoryViewID={projectExpensePlainAccessoryId}
+                      returnKeyType="next"
+                      onSubmitEditing={focusIntoPricingOrAmount}
+                      blurOnSubmit={false}
+                      selectionColor="#22c55e"
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
+                ) : (
+                  <TextInput
+                    ref={materialRef}
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: Colors.surface2,
+                        borderColor: Colors.line,
+                        borderWidth: 1,
+                        borderRadius: 12,
+                        color: Colors.text,
+                      },
+                    ]}
+                    placeholder="e.g., 2x4 lumber, conduit, drywall sheets"
+                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
+                    value={material}
+                    onChangeText={setMaterial}
+                    autoCapitalize="sentences"
+                    inputAccessoryViewID={projectExpensePlainAccessoryId}
+                    returnKeyType="next"
+                    onSubmitEditing={focusIntoPricingOrAmount}
+                    blurOnSubmit={false}
+                  />
+                )}
+              </View>
+            )}
 
             {supportsPerSqftPricing && (
               <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
@@ -942,6 +1189,10 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       setLaborRatePerSqftInput("");
                       setSqftInput("");
                       setRatePerSqftInput("");
+                      if (pricingMode === "sqft" && amount) {
+                        const usd = centsDigitsToNumber(amount);
+                        setAmount(usd > 0 ? sanitizeDecimalMoneyInput(usd.toFixed(2)) : "");
+                      }
                     }}
                     style={
                       webBudgetExpenseShell && poWebChrome
@@ -1602,8 +1853,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                       darkMode ? "rgba(255,255,255,0.4)" : Colors.sub
                     }
                     value={amount}
-                    onChangeText={(text) => setAmount(clampCentsDigitsInput(text))}
-                    keyboardType="phone-pad"
+                    onChangeText={applyFlatAmountTextChange}
+                    keyboardType={pricingMode === "flat" ? "decimal-pad" : "phone-pad"}
                     inputAccessoryViewID={projectExpensePlainAccessoryId}
                     editable={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     selectTextOnFocus={!(isChangeOrdersCategory && pricingMode !== "sqft")}
@@ -1614,9 +1865,9 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
                 </View>
               )}
 
-              {centsDigitsToNumber(amount) > 0 &&
+              {parseAmountFieldToNumber(amount) > 0 &&
                 (!supportsPerSqftPricing || pricingMode !== "sqft") && (
-                <Text style={styles.hint}>{formatMoneyFull(centsDigitsToNumber(amount), { decimals: 2 })}</Text>
+                <Text style={styles.hint}>{formatMoneyFull(parseAmountFieldToNumber(amount), { decimals: 2 })}</Text>
               )}
             </View>
 
@@ -1950,8 +2201,13 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
               </Pressable>
               <Pressable
                 onPress={() => {
-                  Keyboard.dismiss();
-                  handleSave();
+                  if (Platform.OS === "web") {
+                    handleSave();
+                    Keyboard.dismiss();
+                  } else {
+                    Keyboard.dismiss();
+                    handleSave();
+                  }
                 }}
                 style={({ pressed }) => [poWebChrome.saveBtnWrap, pressed && { opacity: 0.92 }]}
               >
@@ -1968,21 +2224,31 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
               !darkMode && { borderTopColor: Colors.line, backgroundColor: Colors.bg },
             ]}
           >
-            <View style={styles.cancelButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.cancelButtonBorder}
+            <TouchableOpacity
+              onPress={handleCancel}
+              style={[
+                styles.cancelButtonFlat,
+                darkMode
+                  ? {
+                      backgroundColor: "#18181b",
+                      borderColor: "#3f3f46",
+                    }
+                  : {
+                      backgroundColor: Colors.surface2,
+                      borderColor: Colors.line,
+                    },
+              ]}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.cancelButtonTextFlat,
+                  { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
+                ]}
               >
-                <TouchableOpacity 
-                  onPress={handleCancel} 
-                  style={[styles.cancelButton, !darkMode && { backgroundColor: Colors.bg }]}
-                >
-                  <Text style={[styles.cancelButtonText, { color: Colors.text }]}>Cancel</Text>
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
+                Cancel
+              </Text>
+            </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => {
                 Keyboard.dismiss();
@@ -2166,22 +2432,15 @@ const styles = StyleSheet.create({
     borderTopColor: "rgba(255,255,255,0.08)",
     backgroundColor: "#000000",
   },
-  cancelButtonWrapper: {
+  cancelButtonFlat: {
     flex: 1,
-  },
-  cancelButtonBorder: {
-    borderRadius: 12,
-    padding: 1,
-  },
-  cancelButton: {
-    backgroundColor: "#000000",
-    borderRadius: 11,
     paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelButtonText: {
-    color: "#FFFFFF",
+  cancelButtonTextFlat: {
     fontSize: 15,
     fontWeight: "600",
   },

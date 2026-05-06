@@ -526,6 +526,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   const [isHydrated, setIsHydrated] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const hasAttemptedBackendSeedRef = useRef(false);
+  /** After GET /api/projects returns 429, skip refresh for a while so tab focus / dev reload does not spam the server. */
+  const projectsRefreshCooldownUntilRef = useRef(0);
 
   // Load from AsyncStorage on mount
   useEffect(() => {
@@ -955,6 +957,15 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const refreshProjects = async () => {
+    const now = Date.now();
+    if (now < projectsRefreshCooldownUntilRef.current) {
+      if (__DEV__) {
+        console.warn(
+          "refreshProjects: skipped (cooldown after HTTP 429 — wait before retrying /api/projects)"
+        );
+      }
+      return;
+    }
     try {
       const backendProjects = await listBackendProjects();
       const mapped = backendProjects.map(mapBackendProjectToUnified);
@@ -1021,7 +1032,12 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
       setIsHydrated(true);
       setHasLoadedOnce(true);
+      projectsRefreshCooldownUntilRef.current = 0;
     } catch (e) {
+      const status = (e as { status?: number })?.status;
+      if (status === 429) {
+        projectsRefreshCooldownUntilRef.current = Date.now() + 60_000;
+      }
       if (__DEV__) {
         console.warn('refreshProjects: backend failed, falling back to loadProjects', e);
       }

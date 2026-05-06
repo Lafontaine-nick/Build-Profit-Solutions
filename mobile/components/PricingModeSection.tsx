@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
@@ -12,6 +12,11 @@ import {
 } from "@/src/lib/keyboardMoney";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
+
+const WEB_TEXT_INPUT_NO_FOCUS_RING =
+  Platform.OS === "web"
+    ? ({ outlineStyle: "none" as const, outlineWidth: 0 } as const)
+    : null;
 
 export type PricingMode = "flat" | "sqft";
 
@@ -192,6 +197,7 @@ export default function PricingModeSection({
                         borderWidth: 0,
                         color: Colors.text,
                       },
+                      WEB_TEXT_INPUT_NO_FOCUS_RING,
                     ]}
                     placeholder="0"
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
@@ -230,6 +236,7 @@ export default function PricingModeSection({
                         borderWidth: 0,
                         color: Colors.text,
                       },
+                      WEB_TEXT_INPUT_NO_FOCUS_RING,
                     ]}
                     placeholder="0"
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
@@ -296,6 +303,7 @@ export default function PricingModeSection({
                   borderWidth: 0,
                   color: Colors.text,
                 },
+                WEB_TEXT_INPUT_NO_FOCUS_RING,
               ]}
               placeholder="0"
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}

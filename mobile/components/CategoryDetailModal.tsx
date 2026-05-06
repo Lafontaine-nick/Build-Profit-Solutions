@@ -12,13 +12,28 @@ import EditPurchaseOrderModal from "./EditPurchaseOrderModal";
 import { useProjectData } from "../contexts/ProjectDataContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
+import {
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  ScreenLayout,
+  PROJECT_WIDE_CONTAINER_CARD_INSET,
+} from "@/constants/ScreenLayout";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
 function parseLocalDate(dateString: string): Date {
   // Append "T00:00:00" to force local time parsing instead of UTC
   return new Date(dateString + "T00:00:00");
+}
+
+/** RN Web: `Alert.alert` is unreliable in Safari; keep Budget → Add flows usable. */
+function categoryDetailWebAlert(title: string, message?: string) {
+  if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.alert === "function") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+    return;
+  }
+  if (message !== undefined) Alert.alert(title, message);
+  else Alert.alert(title);
 }
 
 type Props = {
@@ -40,6 +55,18 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
   const { width: categoryLayoutWidth } = useWindowDimensions();
   const categoryDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(categoryLayoutWidth);
+  const useNativeBudgetBleed =
+    Platform.OS === "ios" || Platform.OS === "android";
+  const pageWideBleedStyle = useMemo(
+    () =>
+      useNativeBudgetBleed
+        ? {
+            marginHorizontal: -ScreenLayout.edge.horizontal,
+            paddingHorizontal: PROJECT_WIDE_CONTAINER_CARD_INSET,
+          }
+        : undefined,
+    [useNativeBudgetBleed]
+  );
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
@@ -254,6 +281,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     return data.reduce((sum, item) => sum + (item.amount || 0), 0);
   }, [data, isPurchaseOrdersCategory]);
 
+  // Reset add form when category modal closes (avoids stale open state on next open)
+  useEffect(() => {
+    if (!visible) setShowAddForm(false);
+  }, [visible]);
+
   // Update ref when data changes
   useEffect(() => {
     previousDataRef.current = data;
@@ -286,7 +318,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     if (isPurchaseOrdersCategory) {
       const amount = Number(transaction.amount || 0);
       if (!transaction.vendor || amount <= 0) {
-        Alert.alert('Error', 'Please enter a vendor and amount.');
+        categoryDetailWebAlert("Error", "Please enter a vendor and amount.");
         return;
       }
 
@@ -306,7 +338,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       });
       
       setShowAddForm(false);
-      Alert.alert('Created!', 'Purchase Order created. It will appear in Committed POs.');
+      categoryDetailWebAlert(
+        "Created!",
+        "Purchase Order created. It will appear in Committed POs."
+      );
       return;
     }
     
@@ -316,7 +351,47 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       const materialsAmount = Number(transaction.materialsAmount || 0);
       const laborAmount = Number(transaction.laborAmount || 0);
       if (!transaction.vendor || amount <= 0) {
-        Alert.alert('Error', 'Please enter a change order title and material and/or labor amount.');
+        categoryDetailWebAlert(
+          "Error",
+          "Please enter a change order title and material and/or labor amount."
+        );
+        return;
+      }
+
+      const approvePrompt = `Do you want to approve this change order for ${formatMoneyFull(amount, { decimals: 2 })}? Approved change orders will be added to your budget.\n\nOK = Approve now\nCancel = Save without approving (you can approve later)`;
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function"
+      ) {
+        const approve = window.confirm(`Approve Change Order?\n\n${approvePrompt}`);
+        if (approve) {
+          addChangeOrder({
+            id: `co-${Date.now()}`,
+            title: transaction.vendor,
+            amount: amount,
+            materialsAmount,
+            laborAmount,
+            notes: transaction.description || "",
+            approved: true,
+            status: "Approved",
+          });
+          setShowAddForm(false);
+          categoryDetailWebAlert("Approved!", "Change order approved and added to budget.");
+        } else {
+          addChangeOrder({
+            id: `co-${Date.now()}`,
+            title: transaction.vendor,
+            amount: amount,
+            materialsAmount,
+            laborAmount,
+            notes: transaction.description || "",
+            approved: false,
+            status: "Submitted",
+          });
+          setShowAddForm(false);
+          categoryDetailWebAlert("Saved", "Change order added. You can approve it later.");
+        }
         return;
       }
 
@@ -368,43 +443,56 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     // Check for duplicates
     const isDuplicate = checkForDuplicates(transaction);
     if (isDuplicate) {
-      Alert.alert(
-        '⚠️ Possible Duplicate',
-        `A similar transaction was found:\n${transaction.vendor} - ${formatMoneyFull(transaction.amount)}\n\nContinue anyway?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Continue', 
-            onPress: () => saveTransaction(transaction),
-            style: 'default'
-          }
-        ]
-      );
+      const dupMsg = `A similar transaction was found:\n${transaction.vendor} - ${formatMoneyFull(transaction.amount)}\n\nContinue anyway?`;
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function"
+      ) {
+        if (window.confirm(`Possible duplicate\n\n${dupMsg}`)) {
+          saveTransaction(transaction);
+        }
+        return;
+      }
+      Alert.alert("⚠️ Possible Duplicate", dupMsg, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          onPress: () => saveTransaction(transaction),
+          style: "default",
+        },
+      ]);
       return;
     }
 
     // Check for missing receipt on large spend
     const missingReceipt = checkMissingReceipt(transaction);
     if (missingReceipt) {
-      Alert.alert(
-        '📄 Receipt Recommended',
-        `This transaction is over $1,000. Consider adding a receipt for audit protection.`,
-        [
-          { 
-            text: 'Add Receipt', 
-            onPress: () => {
-              // Keep transaction data and reopen form with receipt option
-              // For now, just save and show reminder
-              saveTransaction(transaction);
-            }
+      const recMsg =
+        "This transaction is over $1,000. Consider adding a receipt for audit protection.\n\nSave anyway?";
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.confirm === "function"
+      ) {
+        if (window.confirm(`Receipt recommended\n\n${recMsg}`)) {
+          saveTransaction(transaction);
+        }
+        return;
+      }
+      Alert.alert("📄 Receipt Recommended", recMsg, [
+        {
+          text: "Add Receipt",
+          onPress: () => {
+            saveTransaction(transaction);
           },
-          { 
-            text: 'Save Without Receipt', 
-            onPress: () => saveTransaction(transaction),
-            style: 'cancel'
-          }
-        ]
-      );
+        },
+        {
+          text: "Save Without Receipt",
+          onPress: () => saveTransaction(transaction),
+          style: "cancel",
+        },
+      ]);
       return;
     }
 
@@ -417,6 +505,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       id: transaction.id || String(Date.now()),
       category: categoryName,
       vendor: transaction.vendor,
+      material: transaction.material?.trim() || undefined,
       amount: transaction.amount,
       date: transaction.date,
       notes: transaction.description,
@@ -427,16 +516,25 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       priceReasonableness: transaction.priceReasonableness || undefined,
     });
 
-    Alert.alert(
-      'Success!',
-      `Added ${formatMoneyFull(transaction.amount, { decimals: 2 })} to ${categoryName}`,
-      [{ text: 'OK' }]
-    );
+    const successMsg = `Added ${formatMoneyFull(transaction.amount, { decimals: 2 })} to ${categoryName}`;
     setShowAddForm(false);
+    categoryDetailWebAlert("Success!", successMsg);
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <>
+    <Modal
+      visible={
+        Platform.OS === "web"
+          ? visible &&
+              !showAddForm &&
+              editingTransaction === null &&
+              editingPurchaseOrder === null
+          : visible
+      }
+      animationType="slide"
+      presentationStyle="fullScreen"
+    >
       <View
         style={[
           {
@@ -540,6 +638,19 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          <View style={pageWideBleedStyle}>
+          <LinearGradient
+            colors={["#2DFFC4", "#00A6FF"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.pageOverviewGradientRing}
+          >
+            <View
+              style={[
+                styles.pageOverviewInner,
+                { backgroundColor: darkMode ? "#000000" : Colors.bg },
+              ]}
+            >
           {/* Tabs for Purchase Orders */}
           {isPurchaseOrdersCategory && (
             <View style={styles.poTabContainer}>
@@ -630,13 +741,17 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           {/* Total Spent Card */}
           <View style={styles.totalCardContainer}>
             {darkMode ? (
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.totalCardBorder}
-            >
-              <View style={styles.totalCardInner}>
+              <View
+                style={[
+                  styles.totalCardInner,
+                  {
+                    backgroundColor: Colors.surface2,
+                    borderWidth: 1,
+                    borderColor: "rgba(148, 163, 184, 0.12)",
+                    borderRadius: 14,
+                  },
+                ]}
+              >
                 <View style={styles.totalCard}>
                   <Text style={[styles.totalLabel, { color: supportSub }]}>
                     {isPurchaseOrdersCategory 
@@ -646,7 +761,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   <Text style={styles.totalValue}>{formatMoneyFull(total, { decimals: 2 })}</Text>
                 </View>
               </View>
-            </LinearGradient>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
                 <View style={[styles.totalCardInner, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }]}>
@@ -695,13 +809,17 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                   return (
                     <View key={item.id} style={{ marginBottom: 12 }}>
                       {darkMode ? (
-                        <LinearGradient
-                          colors={BRAND_FRAME_GRADIENT_COLORS}
-                          start={{ x: 0.05, y: 0.15 }}
-                          end={{ x: 0.95, y: 0.85 }}
-                          style={styles.transactionCardBorder}
-                        >
-                          <View style={[styles.transactionCard, { padding: 16 }]}>
+                          <View
+                            style={[
+                              styles.transactionCard,
+                              {
+                                padding: 16,
+                                backgroundColor: Colors.surface2,
+                                borderWidth: 1,
+                                borderColor: "rgba(148, 163, 184, 0.12)",
+                              },
+                            ]}
+                          >
                             <Pressable 
                               onPress={() => {
                                 if (actionButtonTapRef.current) return;
@@ -860,7 +978,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                               )}
                             </Pressable>
                           </View>
-                        </LinearGradient>
                       ) : (
                         <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
                           <View style={[styles.transactionCard, { 
@@ -1034,17 +1151,14 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                 return (
                   <View key={item.id} style={{ marginBottom: 12 }}>
                     {darkMode ? (
-                    <LinearGradient
-                      colors={BRAND_FRAME_GRADIENT_COLORS}
-                      start={{ x: 0.05, y: 0.15 }}
-                      end={{ x: 0.95, y: 0.85 }}
-                      style={styles.transactionCardBorder}
-                    >
                       <TouchableOpacity 
                         style={[
                           styles.transactionCard, 
                           { 
                             opacity: isItemDeleting ? 0.5 : 1,
+                            backgroundColor: Colors.surface2,
+                            borderWidth: 1,
+                            borderColor: "rgba(148, 163, 184, 0.12)",
                           }
                         ]}
                         onPress={() => {
@@ -1420,7 +1534,6 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                       </View>
                     )}
                       </TouchableOpacity>
-                    </LinearGradient>
                     ) : (
                       <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
                         <TouchableOpacity 
@@ -1656,95 +1769,184 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           )}
           
           <View style={styles.bottomSpacer} />
+            </View>
+          </LinearGradient>
+          </View>
         </ScrollView>
         </View>
       </View>
 
-      {/* Add Transaction Form */}
-      <AddTransactionModal
-        visible={showAddForm}
-        categoryName={categoryName}
-        onClose={() => setShowAddForm(false)}
-        onSave={handleAddTransaction}
-      />
+      {/* Add Transaction Form — native: nested modal is OK; web: render outside parent Modal (see fragment below) so Save receives clicks */}
+      {Platform.OS !== "web" && (
+        <AddTransactionModal
+          visible={showAddForm}
+          categoryName={categoryName}
+          onClose={() => setShowAddForm(false)}
+          onSave={handleAddTransaction}
+        />
+      )}
 
-      {/* Edit Purchase Order Modal (for Purchase Orders category) */}
-      <EditPurchaseOrderModal
-        visible={isPurchaseOrdersCategory && editingPurchaseOrder !== null}
-        purchaseOrder={editingPurchaseOrder}
-        onClose={() => setEditingPurchaseOrder(null)}
-        onSave={(updated) => {
-          // Use updatePurchaseOrder for actual PO objects
-          updatePurchaseOrder(updated);
-          Alert.alert('Updated!', 'Purchase Order updated successfully');
-          setEditingPurchaseOrder(null);
-        }}
-        onCancel={(id) => {
-          // Cancel the PO
-          if (id) {
-            cancelPO(id);
-            Alert.alert('Cancelled', 'Purchase Order has been cancelled.');
-          }
-          setEditingPurchaseOrder(null);
-        }}
-      />
+      {/* Edit modals — native: nested modal is OK; web: sibling outside parent Modal (see fragment below) so actions receive clicks */}
+      {Platform.OS !== "web" && (
+        <>
+          <EditPurchaseOrderModal
+            visible={isPurchaseOrdersCategory && editingPurchaseOrder !== null}
+            purchaseOrder={editingPurchaseOrder}
+            onClose={() => setEditingPurchaseOrder(null)}
+            onSave={(updated) => {
+              updatePurchaseOrder(updated);
+              Alert.alert('Updated!', 'Purchase Order updated successfully');
+              setEditingPurchaseOrder(null);
+            }}
+            onCancel={(id) => {
+              if (id) {
+                cancelPO(id);
+                Alert.alert('Cancelled', 'Purchase Order has been cancelled.');
+              }
+              setEditingPurchaseOrder(null);
+            }}
+          />
+          <EditTransactionModal
+            visible={editingTransaction !== null && categoryName !== 'Purchase Orders'}
+            transaction={editingTransaction}
+            categoryName={categoryName}
+            onClose={() => setEditingTransaction(null)}
+            onSave={(updated) => {
+              updateExpense({
+                id: updated.id,
+                category: categoryName,
+                vendor: updated.vendor,
+                amount: updated.amount,
+                date: updated.date,
+                notes: updated.description,
+              });
+              Alert.alert('Updated!', 'Transaction updated successfully');
+              setEditingTransaction(null);
+            }}
+            onDelete={(id) => {
+              debugLog('🗑️ CategoryDetailModal: Deleting expense ID:', id);
+              debugLog('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
+              debugLog('🗑️ Current filtered data IDs:', data.map(d => d.id));
 
-      {/* Edit Transaction Modal (for other categories) */}
-      <EditTransactionModal
-        visible={editingTransaction !== null && categoryName !== 'Purchase Orders'}
-        transaction={editingTransaction}
-        categoryName={categoryName}
-        onClose={() => setEditingTransaction(null)}
-        onSave={(updated) => {
-          updateExpense({
-            id: updated.id,
-            category: categoryName,
-            vendor: updated.vendor,
-            amount: updated.amount,
-            date: updated.date,
-            notes: updated.description,
-          });
-          Alert.alert('Updated!', 'Transaction updated successfully');
-          setEditingTransaction(null);
-        }}
-        onDelete={(id) => {
-          debugLog('🗑️ CategoryDetailModal: Deleting expense ID:', id);
-          debugLog('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
-          debugLog('🗑️ Current filtered data IDs:', data.map(d => d.id));
-          
-          // Verify the ID exists in the actual expenses
-          const expenseExists = projectData.expenses?.some((e: any) => e.id === id);
-          debugLog('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
-          
-          if (!expenseExists) {
-            console.error('❌ Expense ID not found in projectData.expenses!');
-            console.error('❌ Looking for ID:', id);
-            console.error('❌ Available IDs:', projectData.expenses?.map((e: any) => e.id) || []);
-            Alert.alert('Error', 'Expense not found. Please try again.');
-            return;
-          }
-          
-          // Close edit modal first
-          setEditingTransaction(null);
-          // Set deleting state for this specific item only
-          setDeletingId(id);
-          
-          // Delete expense - use a small delay to ensure modal closes first
-          setTimeout(() => {
-            debugLog('🗑️ Calling deleteExpense with ID:', id);
-            deleteExpense(id);
-            
-            // Reset deleting state after a short delay to allow state to update
-            // Don't reload from storage - the state update should be enough
-            // The useEffect in ProjectDataContext will save to AsyncStorage automatically
-            setTimeout(() => {
-              setDeletingId(null);
-              debugLog('✅ Delete complete, resetting deletingId');
-            }, 300);
-          }, 50);
-        }}
-      />
+              const expenseExists = projectData.expenses?.some((e: any) => e.id === id);
+              debugLog('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
+
+              if (!expenseExists) {
+                console.error('❌ Expense ID not found in projectData.expenses!');
+                console.error('❌ Looking for ID:', id);
+                console.error('❌ Available IDs:', projectData.expenses?.map((e: any) => e.id) || []);
+                Alert.alert('Error', 'Expense not found. Please try again.');
+                return;
+              }
+
+              setEditingTransaction(null);
+              setDeletingId(id);
+
+              setTimeout(() => {
+                debugLog('🗑️ Calling deleteExpense with ID:', id);
+                deleteExpense(id);
+
+                setTimeout(() => {
+                  setDeletingId(null);
+                  debugLog('✅ Delete complete, resetting deletingId');
+                }, 300);
+              }, 50);
+            }}
+          />
+        </>
+      )}
     </Modal>
+    {Platform.OS === "web" && (
+      <>
+        <AddTransactionModal
+          visible={visible && showAddForm}
+          categoryName={categoryName}
+          onClose={() => setShowAddForm(false)}
+          onSave={handleAddTransaction}
+        />
+        <EditPurchaseOrderModal
+          visible={visible && isPurchaseOrdersCategory && editingPurchaseOrder !== null}
+          purchaseOrder={editingPurchaseOrder}
+          onClose={() => setEditingPurchaseOrder(null)}
+          onSave={(updated) => {
+            updatePurchaseOrder(updated);
+            if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+              window.alert('Updated!\n\nPurchase Order updated successfully');
+            } else {
+              Alert.alert('Updated!', 'Purchase Order updated successfully');
+            }
+            setEditingPurchaseOrder(null);
+          }}
+          onCancel={(id) => {
+            if (id) {
+              cancelPO(id);
+              if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+                window.alert('Cancelled\n\nPurchase Order has been cancelled.');
+              } else {
+                Alert.alert('Cancelled', 'Purchase Order has been cancelled.');
+              }
+            }
+            setEditingPurchaseOrder(null);
+          }}
+        />
+        <EditTransactionModal
+          visible={visible && editingTransaction !== null && categoryName !== 'Purchase Orders'}
+          transaction={editingTransaction}
+          categoryName={categoryName}
+          onClose={() => setEditingTransaction(null)}
+          onSave={(updated) => {
+            updateExpense({
+              id: updated.id,
+              category: categoryName,
+              vendor: updated.vendor,
+              amount: updated.amount,
+              date: updated.date,
+              notes: updated.description,
+            });
+            if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+              window.alert('Updated!\n\nTransaction updated successfully');
+            } else {
+              Alert.alert('Updated!', 'Transaction updated successfully');
+            }
+            setEditingTransaction(null);
+          }}
+          onDelete={(id) => {
+            debugLog('🗑️ CategoryDetailModal: Deleting expense ID:', id);
+            debugLog('🗑️ Current expenses in projectData:', projectData.expenses?.map((e: any) => ({ id: e.id, vendor: e.vendor, category: e.category })) || []);
+            debugLog('🗑️ Current filtered data IDs:', data.map(d => d.id));
+
+            const expenseExists = projectData.expenses?.some((e: any) => e.id === id);
+            debugLog('🗑️ Expense ID exists in projectData.expenses:', expenseExists);
+
+            if (!expenseExists) {
+              console.error('❌ Expense ID not found in projectData.expenses!');
+              console.error('❌ Looking for ID:', id);
+              console.error('❌ Available IDs:', projectData.expenses?.map((e: any) => e.id) || []);
+              if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+                window.alert('Error\n\nExpense not found. Please try again.');
+              } else {
+                Alert.alert('Error', 'Expense not found. Please try again.');
+              }
+              return;
+            }
+
+            setEditingTransaction(null);
+            setDeletingId(id);
+
+            setTimeout(() => {
+              debugLog('🗑️ Calling deleteExpense with ID:', id);
+              deleteExpense(id);
+
+              setTimeout(() => {
+                setDeletingId(null);
+                debugLog('✅ Delete complete, resetting deletingId');
+              }, 300);
+            }, 50);
+          }}
+        />
+      </>
+    )}
+    </>
   );
 }
 
@@ -1843,6 +2045,19 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 120,
   },
+  /** Budget Categories–style frame around category detail body */
+  pageOverviewGradientRing: {
+    borderRadius: 30,
+    padding: 1,
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  pageOverviewInner: {
+    borderRadius: 29,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
+  },
   totalCardContainer: {
     marginBottom: 22,
   },
@@ -1935,8 +2150,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   transactionCard: {
-    backgroundColor: "#000000",
-    borderRadius: 18,
+    borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 18,
     marginBottom: 0,

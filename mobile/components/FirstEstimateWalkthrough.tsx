@@ -54,9 +54,15 @@ export function FirstEstimateWalkthroughSheetShell({
     ? Math.min(560, windowWidth - 48)
     : undefined;
 
+  const useLowerTouchShell =
+    backdropVariant === 'blurOnly' || backdropVariant === 'none';
+
   return (
     <View
-      style={[styles.shellRoot, { zIndex: 2000, elevation: 2000 }]}
+      style={[
+        useLowerTouchShell ? styles.shellRootBlurBand : styles.shellRootFull,
+        { zIndex: 2000, elevation: 2000 },
+      ]}
       pointerEvents="box-none"
     >
       {backdropVariant === 'full' ? (
@@ -298,8 +304,22 @@ export function FirstEstimateWalkthroughHighlight({
 }
 
 const styles = StyleSheet.create({
-  shellRoot: {
+  /** Default: full-screen shell (estimate walkthrough dim). */
+  shellRootFull: {
     ...StyleSheet.absoluteFillObject,
+  },
+  /**
+   * Project active-tour uses `blurOnly` without dimming. On New Architecture + iOS, a
+   * full-screen `absoluteFill` sibling above the project `ScrollView` can still capture
+   * the gesture arena so Budget category rows feel dead. Restrict the shell to the lower
+   * band so taps in the budget area hit the scroll view; blur/backdrops still fill this band.
+   */
+  shellRootBlurBand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: '26%',
   },
   sheetAnchor: {
     position: 'absolute',

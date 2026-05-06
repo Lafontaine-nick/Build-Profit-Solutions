@@ -4606,9 +4606,11 @@ const AIAssistantModal: React.FC<Props> = ({
             <View
               style={[
                 styles.header,
-                keyboardOpen
-                  ? styles.headerKeyboardCompact
-                  : { paddingTop: Math.max(insets.top, 14) },
+                {
+                  /** Always respect top safe area; compact mode only tightens bottom padding */
+                  paddingTop: Math.max(insets.top, keyboardOpen ? 6 : 14),
+                },
+                keyboardOpen ? styles.headerKeyboardCompact : null,
                 light({ backgroundColor: ThemeColors.bg }),
               ]}
             >
@@ -5623,7 +5625,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     {loading ? (
                       <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
                     ) : (
-                      <Ionicons name="send" size={18} color={darkMode ? "#FFFFFF" : "#000000"} />
+                      <Ionicons name="send" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
                     )}
                   </TouchableOpacity>
                 </LinearGradient>
@@ -5677,7 +5679,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg,
   },
   headerKeyboardCompact: {
-    paddingTop: 6,
     paddingBottom: 6,
   },
   headerContent: {
@@ -6089,7 +6090,7 @@ const styles = StyleSheet.create({
   },
   inputInnerBorder: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 1,
     overflow: "hidden",
   },
@@ -6097,13 +6098,13 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#05070A",
-    minHeight: 32,
+    minHeight: 46,
     ...Platform.select({
       web: { paddingVertical: 0 },
-      ios: { paddingVertical: 2 },
-      default: { paddingVertical: 2 },
+      ios: { paddingVertical: 0 },
+      default: { paddingVertical: 0 },
     }),
   },
   inputLeadIcon: {
@@ -6118,23 +6119,27 @@ const styles = StyleSheet.create({
     textAlign: "left",
     paddingRight: 6,
     maxHeight: 100,
-    lineHeight: 18,
+    lineHeight: 20,
     ...Platform.select({
       web: {
         outlineStyle: "none" as const,
         outlineWidth: 0,
-        height: 32,
-        minHeight: 32,
-        maxHeight: 32,
+        height: 46,
+        minHeight: 46,
+        maxHeight: 46,
         paddingTop: 0,
         paddingBottom: 0,
-        lineHeight: 20,
+        lineHeight: 22,
       },
       ios: {
         paddingVertical: 0,
+        alignSelf: "center",
+        minWidth: 0,
       },
       default: {
         paddingVertical: 0,
+        alignSelf: "center",
+        minWidth: 0,
       },
     }),
   },
@@ -6172,17 +6177,17 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   sendButtonBorder: {
-    borderRadius: 16,
+    borderRadius: 23,
     padding: 1,
     overflow: "hidden",
-    width: 32,
-    height: 32,
+    width: 46,
+    height: 46,
   },
   sendButtonInner: {
     width: "100%",
     height: "100%",
     backgroundColor: "#05070A",
-    borderRadius: 15,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },

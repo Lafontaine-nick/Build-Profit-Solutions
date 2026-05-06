@@ -53,6 +53,7 @@ export type ProjectOverview = {
     id: string;
     category?: string;
     vendor?: string;
+    material?: string;
     amount: number;
     date?: string;
     notes?: string;

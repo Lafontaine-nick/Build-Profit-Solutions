@@ -320,38 +320,38 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 }
               : { paddingBottom: Math.max(insets.bottom, 20) + 30 },
           ]}>
-            <View style={styles.cancelButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.cancelButtonBorder}
+            <TouchableOpacity
+              onPress={onClose}
+              style={[
+                styles.cancelButtonFlat,
+                darkMode
+                  ? { backgroundColor: "#18181b", borderColor: "#3f3f46" }
+                  : { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line },
+              ]}
+              activeOpacity={0.85}
+            >
+              <Text
+                style={[
+                  styles.cancelButtonTextFlat,
+                  darkMode ? { color: "rgba(226, 232, 240, 0.92)" } : { color: ThemeColors.text },
+                ]}
               >
-                <TouchableOpacity 
-                  onPress={onClose}
-                  style={[styles.button, styles.cancelButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-                >
-                  <Text style={[styles.cancelButtonText, !darkMode && { color: ThemeColors.text }]}>Cancel</Text>
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
-            <TouchableOpacity 
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={() => {
-                if (Platform.OS === 'ios') {
+                if (Platform.OS === "ios") {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 }
                 handleSave();
-              }} 
+              }}
               style={styles.saveButton}
+              activeOpacity={0.9}
             >
-              <LinearGradient
-                colors={["#22c55e", "#22d3ee"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.saveButtonGradient}
-              >
+              <View style={styles.saveButtonSolid}>
                 <Text style={styles.saveButtonText}>{isWeb ? "✓ Save" : "Save"}</Text>
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
           </View>
   );
@@ -694,22 +694,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
   },
-  cancelButtonWrapper: {
+  cancelButtonFlat: {
     flex: 1,
-  },
-  cancelButtonBorder: {
-    borderRadius: 16,
-    padding: 1,
-  },
-  cancelButton: {
-    backgroundColor: "#000000",
-    borderRadius: 15,
     paddingVertical: 16,
+    borderRadius: 15,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelButtonText: {
-    color: "#FFFFFF",
+  cancelButtonTextFlat: {
     fontSize: 16,
     fontWeight: "700",
   },
@@ -718,13 +711,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: "hidden",
   },
-  saveButtonGradient: {
+  saveButtonSolid: {
     paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 6,
-    shadowColor: '#22c55e',
+    backgroundColor: "#22c55e",
+    borderRadius: 16,
+    shadowColor: "#22c55e",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 12,

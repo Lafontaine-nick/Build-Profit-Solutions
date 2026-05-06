@@ -658,15 +658,15 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.28)",
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderColor: "#3f3f46",
+    backgroundColor: "#18181b",
     alignItems: "center",
     justifyContent: "center",
   },
   cancelText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "rgba(226, 232, 240, 0.78)",
+    color: "rgba(226, 232, 240, 0.92)",
   },
   saveButton: {
     flex: 1,

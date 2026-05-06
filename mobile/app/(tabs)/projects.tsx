@@ -452,8 +452,8 @@ export default function ProjectsScreen() {
         : undefined;
   const tabScrollBottomInset = useTabScrollBottomInset();
   const styles = useMemo(
-    () => getStyles(Colors, darkMode, tabScrollBottomInset, desktopWeb),
-    [Colors, darkMode, tabScrollBottomInset, desktopWeb]
+    () => getStyles(Colors, darkMode, tabScrollBottomInset, desktopWeb, insets.bottom),
+    [Colors, darkMode, tabScrollBottomInset, desktopWeb, insets.bottom]
   );
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
   const { enabled: aiPmMode } = useAIManagerMode();
@@ -1222,7 +1222,7 @@ export default function ProjectsScreen() {
 
   const handleDeleteProject = async (project: any, e: any) => {
     // Stop event propagation so it doesn't trigger the card press
-    e?.stopPropagation();
+    e?.stopPropagation?.();
 
     // Set immediately when entering delete flow so any focus event from Alert show/dismiss
     // skips refreshProjects (which would load stale AsyncStorage and bring the project back)
@@ -1231,39 +1231,71 @@ export default function ProjectsScreen() {
       skipNextRefreshRef.current = false;
     }, 3000);
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      try {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch (_) {
+        /* haptics unavailable */
+      }
+    }
 
-    Alert.alert(
-      t('projects.deleteProject'),
-      t('projects.deleteConfirm', { name: project.name }),
-      [
-        {
-          text: t('common.cancel'),
-          style: 'cancel',
-          onPress: () => {
-            clearTimeout(cancelTimeout);
-            skipNextRefreshRef.current = false;
-          },
+    const title = t('projects.deleteProject');
+    const message = t('projects.deleteConfirm', { name: project.name });
+
+    const runDelete = async () => {
+      clearTimeout(cancelTimeout);
+      try {
+        await deleteProject(project.id);
+        if (Platform.OS !== 'web') {
+          try {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (_) {
+            /* haptics unavailable */
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting project:', error);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(`${t('common.error')}\n\n${t('projects.deleteError')}`);
+        } else {
+          Alert.alert(t('common.error'), t('projects.deleteError'));
+        }
+        skipNextRefreshRef.current = false;
+      } finally {
+        setTimeout(() => {
+          skipNextRefreshRef.current = false;
+        }, 800);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const ok = window.confirm(`${title}\n\n${message}`);
+      if (!ok) {
+        clearTimeout(cancelTimeout);
+        skipNextRefreshRef.current = false;
+        return;
+      }
+      await runDelete();
+      return;
+    }
+
+    Alert.alert(title, message, [
+      {
+        text: t('common.cancel'),
+        style: 'cancel',
+        onPress: () => {
+          clearTimeout(cancelTimeout);
+          skipNextRefreshRef.current = false;
         },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: async () => {
-            clearTimeout(cancelTimeout);
-            try {
-              await deleteProject(project.id);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (error) {
-              console.error('Error deleting project:', error);
-              Alert.alert(t('common.error'), t('projects.deleteError'));
-              skipNextRefreshRef.current = false;
-            } finally {
-              setTimeout(() => { skipNextRefreshRef.current = false; }, 800);
-            }
-          },
+      },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: () => {
+          void runDelete();
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleMarkAsWon = (project: any, e: any) => {
@@ -1515,19 +1547,21 @@ export default function ProjectsScreen() {
                           {project.status}
                         </Text>
                       </View>
-                      <View
-                        onStartShouldSetResponder={() => true}
-                        onTouchEnd={(e) => e.stopPropagation()}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('projects.deleteProject')}
+                        onPress={(ev) => {
+                          ev?.stopPropagation?.();
+                          void handleDeleteProject(project, ev);
+                        }}
+                        style={({ pressed }) => [
+                          styles.deleteButton,
+                          Platform.OS === 'web' && pressed ? { opacity: 0.85 } : null,
+                        ]}
+                        hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
                       >
-                        <TouchableOpacity
-                          onPress={(e) => handleDeleteProject(project, e)}
-                          style={styles.deleteButton}
-                          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
-                          activeOpacity={0.7}
-                        >
-                          <MaterialIcons name="delete-outline" size={18} color={darkMode ? '#a8b8cc' : '#334155'} />
-                        </TouchableOpacity>
-                      </View>
+                        <MaterialIcons name="delete-outline" size={18} color="#EF4444" />
+                      </Pressable>
                     </View>
                   </View>
 
@@ -1840,7 +1874,7 @@ export default function ProjectsScreen() {
   );
 }
 
-const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 120, desktopWeb = false) => {
+const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 120, desktopWeb = false, safeAreaInsetBottom = 0) => {
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
   return StyleSheet.create({
   root: {
@@ -2167,7 +2201,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     borderRadius: 6,
     backgroundColor: darkMode ? Colors.surface2 : "#FFFFFF",
     borderWidth: 1,
-    borderColor: darkMode ? Colors.line : "#E2E8F0",
+    borderColor: darkMode ? "rgba(239, 68, 68, 0.35)" : "rgba(220, 38, 38, 0.35)",
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
   },
   profileOuter: {
     width: 54,
@@ -2334,16 +2370,24 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     backgroundColor: darkMode ? Colors.card : Colors.cardDark,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.42)' : '#94a3b8',
     padding: 24,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === 'web' ? 40 : Math.max(40, 28 + safeAreaInsetBottom),
     maxHeight: '50%',
     ...(Platform.OS === 'web'
       ? {
           width: '100%',
           maxWidth: 520,
           alignSelf: 'center' as const,
+          borderRadius: 20,
+          marginBottom: Math.max(24, safeAreaInsetBottom > 0 ? safeAreaInsetBottom + 8 : 24),
         }
-      : {}),
+      : {
+          borderBottomLeftRadius: 24,
+          borderBottomRightRadius: 24,
+          marginBottom: Math.max(14, safeAreaInsetBottom + 10),
+        }),
   },
   bottomSheetHandle: {
     width: 40,
