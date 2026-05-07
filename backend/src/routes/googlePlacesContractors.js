@@ -2,7 +2,7 @@
  * Google Places API (New) — contractor discovery for Find Subcontractors.
  * Uses official HTTP APIs only (no scraping). Set GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY (same key).
  *
- * GET /api/places/contractors/search?trade=Plumbing&zip=89141&q=framing&limit=15
+ * GET /api/places/contractors/search?trade=Plumbing&zip=89141&q=framing&limit=15&radiusMiles=25&anchorLat=36.08&anchorLng=-115.14
  * GET /api/places/contractors/details?placeId=places%2FChIJ...
  */
 
@@ -21,8 +21,14 @@ function resolveGooglePlacesApiKey() {
 }
 
 const PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
+const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const cache = new Map();
+/** Extra Places candidates when filtering by mile radius so we can still return up to `limit` results. */
+const PLACES_FETCH_BUFFER = 20;
+
+/** If browser GPS is farther than this from the ZIP centroid, ignore the anchor (Safari/desktop often misplaces). */
+const MAX_ANCHOR_ZIP_DRIFT_MILES = 75;
 
 function sanitizePlacesTextQueryInput(q) {
   return String(q || '')
@@ -33,13 +39,16 @@ function sanitizePlacesTextQueryInput(q) {
     .trim();
 }
 
-function cacheKey(trade, zip, qNorm) {
+function cacheKey(trade, zip, qNorm, radiusMilesRounded, anchorKey) {
   const qPart = qNorm ? `|${qNorm.toLowerCase()}` : '';
-  return `${String(trade || '').trim().toLowerCase()}|${String(zip || '').trim()}${qPart}`;
+  const rPart =
+    radiusMilesRounded != null && radiusMilesRounded > 0 ? `|r=${radiusMilesRounded}` : '';
+  const aPart = anchorKey ? `|@${anchorKey}` : '';
+  return `v7|${String(trade || '').trim().toLowerCase()}|${String(zip || '').trim()}${qPart}${rPart}${aPart}`;
 }
 
-function getCached(trade, zip, qNorm) {
-  const k = cacheKey(trade, zip, qNorm);
+function getCached(trade, zip, qNorm, radiusMilesRounded, anchorKey) {
+  const k = cacheKey(trade, zip, qNorm, radiusMilesRounded, anchorKey);
   const row = cache.get(k);
   if (!row) return null;
   if (Date.now() - row.at > CACHE_TTL_MS) {
@@ -49,8 +58,78 @@ function getCached(trade, zip, qNorm) {
   return row.payload;
 }
 
-function setCached(trade, zip, qNorm, payload) {
-  cache.set(cacheKey(trade, zip, qNorm), { at: Date.now(), payload });
+function setCached(trade, zip, qNorm, radiusMilesRounded, anchorKey, payload) {
+  cache.set(cacheKey(trade, zip, qNorm, radiusMilesRounded, anchorKey), { at: Date.now(), payload });
+}
+
+/** Great-circle distance in miles (WGS84 approximation). */
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+async function geocodeUsZipToLatLng(zip5, apiKey) {
+  try {
+    const { data } = await axios.get(GEOCODE_URL, {
+      params: {
+        components: `country:US|postal_code:${zip5}`,
+        key: apiKey,
+      },
+      timeout: 8000,
+    });
+    if (data.status !== 'OK' || !Array.isArray(data.results) || !data.results.length) {
+      return null;
+    }
+    const loc = data.results[0].geometry?.location;
+    if (!loc) return null;
+    const lat = typeof loc.lat === 'number' ? loc.lat : parseFloat(loc.lat);
+    const lng = typeof loc.lng === 'number' ? loc.lng : parseFloat(loc.lng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  } catch (e) {
+    console.warn('Geocode ZIP failed:', zip5, e.message);
+    return null;
+  }
+}
+
+/**
+ * Fallback when Google Geocoding API is disabled or fails (same Maps key does not enable Geocoding).
+ * OSM Nominatim — respect usage policy: identify app and cache lightly server-side via route cache.
+ */
+async function geocodeUsZipNominatim(zip5) {
+  const z = String(zip5 || '')
+    .replace(/\D/g, '')
+    .slice(0, 5);
+  if (z.length < 5) return null;
+  try {
+    const { data } = await axios.get('https://nominatim.openstreetmap.org/search', {
+      params: {
+        postalcode: z,
+        country: 'us',
+        format: 'json',
+        limit: 1,
+      },
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'BuildProfitSolutions/1.0 (contractor search; contact support@buildprofitsolutions.com)',
+      },
+      timeout: 12000,
+    });
+    if (!Array.isArray(data) || !data.length) return null;
+    const lat = parseFloat(data[0].lat);
+    const lng = parseFloat(data[0].lon);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  } catch (e) {
+    console.warn('Nominatim ZIP geocode failed:', z, e.message);
+    return null;
+  }
 }
 
 function buildTextQuery(trade, zip) {
@@ -72,6 +151,25 @@ function buildTextQuery(trade, zip) {
   return map[t] || `${t.toLowerCase()} contractor near ${z}`;
 }
 
+/** Text search without "near {zip}" — used with device anchor + locationBias so a wrong reverse-ZIP does not bias Google. */
+function buildTextQueryTradeOnly(trade) {
+  const t = (trade || 'All Trades').trim();
+  const map = {
+    'All Trades': 'general contractor',
+    Plumbing: 'plumbing contractor',
+    Electrical: 'electrical contractor',
+    HVAC: 'HVAC contractor',
+    Framing: 'framing contractor',
+    Drywall: 'drywall contractor',
+    Painting: 'painting contractor',
+    Roofing: 'roofing contractor',
+    Flooring: 'flooring contractor',
+    Concrete: 'concrete contractor',
+    Landscaping: 'landscaping contractor',
+  };
+  return map[t] || `${t.toLowerCase()} contractor`;
+}
+
 function mapPlaceToResult(place) {
   const id = place.name || place.id;
   const name = place.displayName?.text || place.displayName || 'Unknown';
@@ -79,6 +177,14 @@ function mapPlaceToResult(place) {
     place.primaryTypeDisplayName?.text ||
     (Array.isArray(place.types) && place.types[0]) ||
     'establishment';
+  const lat =
+    place.location && typeof place.location.latitude === 'number'
+      ? place.location.latitude
+      : null;
+  const lng =
+    place.location && typeof place.location.longitude === 'number'
+      ? place.location.longitude
+      : null;
   return {
     placeId: id,
     name,
@@ -93,6 +199,8 @@ function mapPlaceToResult(place) {
     types: Array.isArray(place.types) ? place.types.slice(0, 8) : [],
     fetchedAt: new Date().toISOString(),
     source: 'google_places',
+    latitude: lat,
+    longitude: lng,
   };
 }
 
@@ -104,7 +212,14 @@ router.get('/contractors/search', async (req, res) => {
   const zip = (req.query.zip || '').toString().replace(/\D/g, '').slice(0, 5);
   const qNorm = sanitizePlacesTextQueryInput(req.query.q != null ? String(req.query.q) : '');
   let limit = parseInt(req.query.limit, 10) || 15;
-  limit = Math.min(Math.max(limit, 5), 20);
+  limit = Math.min(Math.max(limit, 1), 15);
+
+  let radiusMiles = parseFloat(String(req.query.radiusMiles != null ? req.query.radiusMiles : '25'));
+  if (Number.isNaN(radiusMiles) || radiusMiles <= 0) {
+    radiusMiles = 25;
+  }
+  radiusMiles = Math.min(Math.max(radiusMiles, 5), 100);
+  const radiusMilesRounded = Math.round(radiusMiles);
 
   if (zip.length < 5) {
     return res.status(400).json({ error: 'A valid 5-digit ZIP is required.' });
@@ -123,7 +238,53 @@ router.get('/contractors/search', async (req, res) => {
     });
   }
 
-  const cached = getCached(trade, zip, qNorm);
+  const anchorLatRaw =
+    req.query.anchorLat != null && req.query.anchorLat !== ''
+      ? parseFloat(String(req.query.anchorLat))
+      : NaN;
+  const anchorLngRaw =
+    req.query.anchorLng != null && req.query.anchorLng !== ''
+      ? parseFloat(String(req.query.anchorLng))
+      : NaN;
+  const hasAnchor =
+    !Number.isNaN(anchorLatRaw) &&
+    !Number.isNaN(anchorLngRaw) &&
+    anchorLatRaw >= 17.5 &&
+    anchorLatRaw <= 71.5 &&
+    anchorLngRaw >= -168.5 &&
+    anchorLngRaw <= -64.5;
+
+  /** Geocode ZIP first — needed to compare GPS vs ZIP when anchor is present (wrong metro from desktop Safari). */
+  let zipLatLng = await geocodeUsZipToLatLng(zip, apiKey);
+  let zipGeocodeSource = zipLatLng ? 'google' : null;
+  if (!zipLatLng) {
+    zipLatLng = await geocodeUsZipNominatim(zip);
+    zipGeocodeSource = zipLatLng ? 'nominatim' : null;
+  }
+
+  let searchUsesAnchor = hasAnchor;
+  let anchorZipMismatchMiles = null;
+  let anchorDroppedForZipMismatch = false;
+
+  if (hasAnchor && zipLatLng) {
+    anchorZipMismatchMiles = haversineMiles(
+      anchorLatRaw,
+      anchorLngRaw,
+      zipLatLng.lat,
+      zipLatLng.lng
+    );
+    if (anchorZipMismatchMiles > MAX_ANCHOR_ZIP_DRIFT_MILES) {
+      searchUsesAnchor = false;
+      anchorDroppedForZipMismatch = true;
+    }
+  }
+
+  const anchorCacheKey =
+    searchUsesAnchor && hasAnchor
+      ? `${anchorLatRaw.toFixed(4)},${anchorLngRaw.toFixed(4)}`
+      : '';
+
+  const cached = getCached(trade, zip, qNorm, radiusMilesRounded, anchorCacheKey);
   if (cached) {
     return res.json({
       ...cached,
@@ -131,9 +292,13 @@ router.get('/contractors/search', async (req, res) => {
     });
   }
 
-  const textQuery = qNorm
-    ? `${qNorm} contractor near ${zip}`
-    : buildTextQuery(trade, zip);
+  /** Without anchor: bias search with "near {zip}". With anchor: trade-only query + circle bias — unless anchor conflicts with ZIP. */
+  let textQuery;
+  if (searchUsesAnchor) {
+    textQuery = qNorm ? `${qNorm} contractor` : buildTextQueryTradeOnly(trade);
+  } else {
+    textQuery = qNorm ? `${qNorm} contractor near ${zip}` : buildTextQuery(trade, zip);
+  }
 
   const fieldMask = [
     'places.id',
@@ -151,28 +316,119 @@ router.get('/contractors/search', async (req, res) => {
     'places.location',
   ].join(',');
 
-  try {
-    const { data } = await axios.post(
-      PLACES_TEXT_SEARCH_URL,
-      {
+  let zipCenter;
+  let geocodeSource;
+
+  if (searchUsesAnchor) {
+    zipCenter = { lat: anchorLatRaw, lng: anchorLngRaw };
+    geocodeSource = 'device_anchor';
+  } else if (zipLatLng) {
+    zipCenter = zipLatLng;
+    geocodeSource = zipGeocodeSource || 'zip_centroid';
+  } else if (hasAnchor) {
+    zipCenter = { lat: anchorLatRaw, lng: anchorLngRaw };
+    geocodeSource = 'device_anchor_fallback_zip_geocode_failed';
+    searchUsesAnchor = true;
+  } else {
+    zipCenter = null;
+    geocodeSource = null;
+  }
+
+  /** Never run unfiltered Places text search — without a map origin, radius cannot apply meaningfully. */
+  if (!zipCenter) {
+    const payload = {
+      results: [],
+      metadata: {
+        dataSource: 'google_places',
         textQuery,
-        maxResultCount: limit,
-        languageCode: 'en',
-        regionCode: 'us',
+        count: 0,
+        ...(qNorm ? { searchQ: qNorm } : {}),
+        radiusMiles: radiusMilesRounded,
+        geocodeFailed: true,
+        radiusApplied: false,
+        message:
+          'Could not locate this ZIP on the map. Enable Google Geocoding API for the same key as Places, or enter a valid US ZIP.',
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': fieldMask,
-        },
-        timeout: 12000,
-      }
+    };
+    setCached(trade, zip, qNorm, radiusMilesRounded, anchorCacheKey, payload);
+    res.json({ ...payload, metadata: { ...payload.metadata, cached: false } });
+    return;
+  }
+
+  const placesFetchCount = PLACES_FETCH_BUFFER;
+
+  try {
+    const requestBody = {
+      textQuery,
+      maxResultCount: placesFetchCount,
+      languageCode: 'en',
+      regionCode: 'us',
+    };
+    const radiusMeters = Math.min(
+      Math.max(Math.round(radiusMiles * 1609.34), 2000),
+      50000
     );
+    if (searchUsesAnchor) {
+      requestBody.locationBias = {
+        circle: {
+          center: { latitude: anchorLatRaw, longitude: anchorLngRaw },
+          radius: radiusMeters,
+        },
+      };
+    } else if (zipLatLng) {
+      requestBody.locationBias = {
+        circle: {
+          center: { latitude: zipLatLng.lat, longitude: zipLatLng.lng },
+          radius: radiusMeters,
+        },
+      };
+    }
+
+    const { data } = await axios.post(PLACES_TEXT_SEARCH_URL, requestBody, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': fieldMask,
+      },
+      timeout: 12000,
+    });
 
     const places = Array.isArray(data.places) ? data.places : [];
-    const results = places.map(mapPlaceToResult);
+    let results = places.map(mapPlaceToResult);
+    let droppedNoCoords = 0;
 
+    const before = results.length;
+    results = results
+      .map((r) => {
+        if (r.latitude == null || r.longitude == null) {
+          droppedNoCoords += 1;
+          return null;
+        }
+        const d = haversineMiles(zipCenter.lat, zipCenter.lng, r.latitude, r.longitude);
+        const distanceMiles = Math.round(d * 10) / 10;
+        return { ...r, distanceMiles };
+      })
+      .filter((r) => r != null && r.distanceMiles <= radiusMiles)
+      .sort((a, b) => a.distanceMiles - b.distanceMiles)
+      .slice(0, limit);
+    const metaExtra = {
+      radiusMiles: radiusMilesRounded,
+      zipCenter,
+      geocodeSource,
+      radiusApplied: true,
+      candidatesBeforeRadius: before,
+      droppedMissingCoordinates: droppedNoCoords,
+      ...(searchUsesAnchor ? { searchAnchoredToDevice: true } : {}),
+      ...(anchorDroppedForZipMismatch
+        ? {
+            anchorDroppedDueToZipMismatch: true,
+            anchorZipMismatchMiles:
+              anchorZipMismatchMiles != null
+                ? Math.round(anchorZipMismatchMiles * 10) / 10
+                : undefined,
+          }
+        : {}),
+    };
     const payload = {
       results,
       metadata: {
@@ -180,9 +436,10 @@ router.get('/contractors/search', async (req, res) => {
         textQuery,
         count: results.length,
         ...(qNorm ? { searchQ: qNorm } : {}),
+        ...metaExtra,
       },
     };
-    setCached(trade, zip, qNorm, payload);
+    setCached(trade, zip, qNorm, radiusMilesRounded, anchorCacheKey, payload);
     res.json({ ...payload, metadata: { ...payload.metadata, cached: false } });
   } catch (err) {
     const status = err.response?.status;

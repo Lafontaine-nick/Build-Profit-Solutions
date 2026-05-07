@@ -45,6 +45,7 @@ const materialsRoutes = require('./routes/materials');
 const skuRoutes = require('./routes/sku');
 const yelpRoutes = require('./routes/yelp');
 const googlePlacesContractorsRoutes = require('./routes/googlePlacesContractors');
+const geocodeRoutes = require('./routes/geocode');
 const blsRoutes = require('./routes/bls');
 const costBenchmarksRoutes = require('./routes/cost-benchmarks');
 const marketplaceLeadsRoutes = require('./routes/marketplace-leads');
@@ -71,6 +72,22 @@ const { initializeDatabase } = require('./services/database');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const PORT2 = 3000; // Secondary port
+
+/** Expo web (localhost) and LAN IPs must call the hosted API during dev; FRONTEND_URL alone blocks them. */
+function isAllowedDevBrowserOrigin(origin) {
+  try {
+    const { hostname } = new URL(origin);
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+    const p = hostname.split('.').map((x) => parseInt(x, 10));
+    if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return false;
+    if (p[0] === 10) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
 
 // Initialize database
 try {
@@ -99,10 +116,26 @@ app.use(helmet({
   },
 }));
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL 
-    : true, // Allow all origins in development (needed for Expo Go and React Native)
-  credentials: true
+  origin(origin, callback) {
+    // Same-origin server-side, curl, mobile native fetch — often no Origin header
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    const fe = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+    const normalized = origin.trim().replace(/\/$/, '');
+    if (fe && normalized === fe) {
+      return callback(null, true);
+    }
+    if (isAllowedDevBrowserOrigin(origin)) {
+      return callback(null, true);
+    }
+    console.warn('[cors] blocked origin:', origin);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
 }));
 
 // Rate limiting - more restrictive in production
@@ -182,6 +215,7 @@ app.use('/api/materials', materialsRoutes);
 app.use('/api/sku', skuRoutes);
 app.use('/api/yelp', yelpRoutes);
 app.use('/api/places', googlePlacesContractorsRoutes);
+app.use('/api/geocode', geocodeRoutes);
 app.use('/api/bls', blsRoutes);
 app.use('/api/cost-benchmarks', costBenchmarksRoutes);
 app.use('/api/marketplace-leads', marketplaceLeadsRoutes);
