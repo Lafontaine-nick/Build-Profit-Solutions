@@ -69,6 +69,7 @@ import {
   sortNextStepsForControlCenter,
   type ActionBucket,
 } from "@/utils/aiInsightsUi";
+import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
 import {
@@ -3553,22 +3554,12 @@ const DashboardScreen: React.FC = () => {
             }
           : p;
 
-        const status = mergedProject.status || "draft";
-        let displayStatus = "Draft";
-        if (status === "estimate") displayStatus = "Draft";
-        else if (status === "bid_submitted") displayStatus = "Submitted";
-        else if (status === "won") displayStatus = "Active";
-        else if (status === "in_progress") displayStatus = "Active";
-        else if (status === "completed") displayStatus = "Completed";
-        else displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
-
-        const revenue = getProjectRevenue(mergedProject);
-        const margin = mergedProject.margin || 0;
-        const marginRatio = Math.abs(margin) > 1 ? margin / 100 : margin;
-
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
-        const rawProgress = progressPct / 100; // Convert to 0-1
-        const finalProgress = status === 'completed' ? 1.0 : rawProgress;
+        const fin = computeProjectListRowFinancials({
+          mergedProject,
+          originalRow: p,
+          progressPct,
+        });
         const timelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
         const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, timelineMs);
         const scheduleEnd = scheduleEndPick?.raw;
@@ -3576,18 +3567,20 @@ const DashboardScreen: React.FC = () => {
         return {
           id: mergedProject.id,
           name: mergedProject.title || "Untitled Project",
-          status: displayStatus,
+          status: fin.displayStatus,
           location: mergedProject.location || "Unknown, Unknown",
-          progress: finalProgress,
-          amount: revenue,
-          margin: marginRatio * 100,
-          marginDisplay: `${(marginRatio * 100).toFixed(1)}% margin`,
+          progress: fin.finalProgress,
+          amount: fin.displayAmount,
+          margin: fin.margin,
+          marginDisplay: fin.marginDisplay,
+          projectedProfit: fin.projectedProfit,
           dateLabel: scheduleEnd
-            ? status === "completed"
+            ? fin.slugForUi === "completed"
               ? `Completed ${formatDateShort(scheduleEnd)}`
               : `Schedule ${formatDateShort(scheduleEnd)}`
             : "No schedule",
           rawProject: mergedProject,
+          rawStatus: fin.rawStatus,
         };
       });
   }, [activeProjects, estimates, projectDataOverrides, timelineProgress, timelineLatestPlannedMs]);

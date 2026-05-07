@@ -157,6 +157,8 @@ router.post('/render-pdf', async (req, res) => {
   const filename = sanitizeFilename(req.body?.filename || 'contract.pdf');
   const footerLeft = escapeHtmlFooterText(req.body?.footerLeft);
   const footerCenter = escapeHtmlFooterText(req.body?.footerCenter);
+  /** Default true — contract PDFs use header/footer strip. Tax CPA summary sets false (HTML @page only). */
+  const displayHeaderFooter = req.body?.displayHeaderFooter !== false;
 
   if (!html) {
     return res.status(400).json({
@@ -212,20 +214,33 @@ router.post('/render-pdf', async (req, res) => {
   <span style="flex-shrink:0;color:#10243b;font-weight:600;white-space:nowrap;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
 </div>`.trim();
 
-    const pdfBytes = await page.pdf({
-      format: 'Letter',
-      printBackground: true,
-      preferCSSPageSize: true,
-      displayHeaderFooter: true,
-      headerTemplate: '<div style="height:0;margin:0;padding:0;font-size:0;"></div>',
-      footerTemplate,
-      margin: {
-        top: '0mm',
-        right: '0mm',
-        bottom: '22mm',
-        left: '0mm',
-      },
-    });
+    const pdfBytes = displayHeaderFooter
+      ? await page.pdf({
+          format: 'Letter',
+          printBackground: true,
+          preferCSSPageSize: true,
+          displayHeaderFooter: true,
+          headerTemplate: '<div style="height:0;margin:0;padding:0;font-size:0;"></div>',
+          footerTemplate,
+          margin: {
+            top: '0mm',
+            right: '0mm',
+            bottom: '22mm',
+            left: '0mm',
+          },
+        })
+      : await page.pdf({
+          format: 'Letter',
+          printBackground: true,
+          preferCSSPageSize: true,
+          displayHeaderFooter: false,
+          margin: {
+            top: '0mm',
+            right: '0mm',
+            bottom: '0mm',
+            left: '0mm',
+          },
+        });
 
     const pdfBuffer = Buffer.isBuffer(pdfBytes) ? pdfBytes : Buffer.from(pdfBytes);
 

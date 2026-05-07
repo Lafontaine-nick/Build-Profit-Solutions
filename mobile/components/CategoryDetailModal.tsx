@@ -36,6 +36,57 @@ function categoryDetailWebAlert(title: string, message?: string) {
   else Alert.alert(title);
 }
 
+/** RN Web: two-button `Alert.alert` is a no-op in Safari — use `confirm` for PO Received. */
+function maybeWebConfirmPOMarkReceived(
+  po: { id: string; poNumber?: string; vendor?: string },
+  opts: {
+    markingPOReceivedId: string | null;
+    setMarkingPOReceivedId: (v: string | null | ((curr: string | null) => string | null)) => void;
+    markPOReceived: (id: string) => void;
+  }
+) {
+  if (opts.markingPOReceivedId === po.id) return;
+  const body = `${po.poNumber ?? "PO"} from ${po.vendor ?? "vendor"} will be added to expenses.`;
+  if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") {
+    if (!window.confirm(`Mark as Received?\n\n${body}`)) return;
+    opts.setMarkingPOReceivedId(po.id);
+    opts.markPOReceived(po.id);
+    setTimeout(() => {
+      opts.setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
+    }, 250);
+    return;
+  }
+  Alert.alert("Mark as Received?", body, [
+    { text: "Cancel", style: "cancel" },
+    {
+      text: "Received",
+      onPress: () => {
+        opts.setMarkingPOReceivedId(po.id);
+        opts.markPOReceived(po.id);
+        setTimeout(() => {
+          opts.setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
+        }, 250);
+      },
+    },
+  ]);
+}
+
+/** RN Web: two-button `Alert.alert` is a no-op in Safari — use `confirm` for PO Cancel. */
+function maybeWebConfirmPOCancel(
+  po: { id: string; poNumber?: string },
+  cancelPO: (id: string) => void
+) {
+  const body = `Cancel ${po.poNumber ?? "this PO"}?`;
+  if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") {
+    if (window.confirm(`Cancel PO?\n\n${body}`)) cancelPO(po.id);
+    return;
+  }
+  Alert.alert("Cancel PO?", body, [
+    { text: "No", style: "cancel" },
+    { text: "Cancel PO", style: "destructive", onPress: () => cancelPO(po.id) },
+  ]);
+}
+
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -68,6 +119,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     [useNativeBudgetBleed]
   );
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingChangeOrderId, setEditingChangeOrderId] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -81,6 +133,22 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
   // Special handling for Change Orders and Purchase Orders - show actual objects, not expenses
   const isChangeOrdersCategory = categoryName.toLowerCase().includes('change order');
   const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
+
+  const changeOrderEditDraft = useMemo(() => {
+    if (!editingChangeOrderId || !isChangeOrdersCategory) return null;
+    const raw = projectData.changeOrders?.find((c: any) => c.id === editingChangeOrderId);
+    if (!raw) return null;
+    const mat = Number(raw.materialsAmount) || 0;
+    const lab = Number(raw.laborAmount) || 0;
+    const total = Number(raw.amount) || mat + lab;
+    return {
+      vendor: String(raw.title ?? ''),
+      amount: total,
+      materialsAmount: mat,
+      laborAmount: lab,
+      description: String(raw.notes ?? ''),
+    };
+  }, [editingChangeOrderId, isChangeOrdersCategory, projectData.changeOrders]);
   
   // Filter expenses by category (flexible matching for Materials/Equipment)
   // OR show change orders if category is "Change Orders"
@@ -283,7 +351,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
 
   // Reset add form when category modal closes (avoids stale open state on next open)
   useEffect(() => {
-    if (!visible) setShowAddForm(false);
+    if (!visible) {
+      setShowAddForm(false);
+      setEditingChangeOrderId(null);
+    }
   }, [visible]);
 
   // Update ref when data changes
@@ -353,8 +424,32 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       if (!transaction.vendor || amount <= 0) {
         categoryDetailWebAlert(
           "Error",
-          "Please enter a change order title and material and/or labor amount."
+          "Please enter a change order title and a valid amount (or material and labor amounts)."
         );
+        return;
+      }
+
+      if (editingChangeOrderId) {
+        const existing = projectData.changeOrders?.find((c: any) => c.id === editingChangeOrderId);
+        if (!existing) {
+          setEditingChangeOrderId(null);
+          categoryDetailWebAlert("Error", "Change order not found.");
+          return;
+        }
+        const wasApproved = !!(existing.approved || existing.status === "Approved");
+        addChangeOrder({
+          id: editingChangeOrderId,
+          title: transaction.vendor,
+          amount: amount,
+          materialsAmount,
+          laborAmount,
+          notes: transaction.description || "",
+          approved: wasApproved,
+          status: existing.status || (wasApproved ? "Approved" : "Submitted"),
+        });
+        setEditingChangeOrderId(null);
+        setShowAddForm(false);
+        categoryDetailWebAlert("Updated", "Change order updated.");
         return;
       }
 
@@ -780,7 +875,10 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           {/* Add Button */}
           <TouchableOpacity 
             style={styles.addButtonWrapper}
-            onPress={() => setShowAddForm(true)}
+            onPress={() => {
+              setEditingChangeOrderId(null);
+              setShowAddForm(true);
+            }}
           >
             <LinearGradient
               colors={["#22c55e", "#22d3ee"]}
@@ -918,25 +1016,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                     onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
-                                      if (markingPOReceivedId === po.id) return;
-                                      Alert.alert(
-                                        'Mark as Received?',
-                                        `${po.poNumber} from ${po.vendor} will be added to expenses.`,
-                                        [
-                                          { text: 'Cancel', style: 'cancel' },
-                                          {
-                                            text: 'Received',
-                                            onPress: () => {
-                                              setMarkingPOReceivedId(po.id);
-                                              markPOReceived(po.id);
-                                              // Clear temporary button loading state after state propagation.
-                                              setTimeout(() => {
-                                                setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
-                                              }, 250);
-                                            }
-                                          }
-                                        ]
-                                      );
+                                      maybeWebConfirmPOMarkReceived(po, {
+                                        markingPOReceivedId,
+                                        setMarkingPOReceivedId,
+                                        markPOReceived,
+                                      });
                                     }}
                                     disabled={markingPOReceivedId === po.id}
                                     style={{ 
@@ -957,18 +1041,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                     onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
-                                      Alert.alert(
-                                        'Cancel PO?',
-                                        `Cancel ${po.poNumber}?`,
-                                        [
-                                          { text: 'No', style: 'cancel' },
-                                          {
-                                            text: 'Cancel PO',
-                                            style: 'destructive',
-                                            onPress: () => cancelPO(po.id)
-                                          }
-                                        ]
-                                      );
+                                      maybeWebConfirmPOCancel(po, cancelPO);
                                     }}
                                     style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.2)', paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' }}
                                   >
@@ -1081,25 +1154,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                     onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
-                                      if (markingPOReceivedId === po.id) return;
-                                      Alert.alert(
-                                        'Mark as Received?',
-                                        `${po.poNumber} from ${po.vendor} will be added to expenses.`,
-                                        [
-                                          { text: 'Cancel', style: 'cancel' },
-                                          {
-                                            text: 'Received',
-                                            onPress: () => {
-                                              setMarkingPOReceivedId(po.id);
-                                              markPOReceived(po.id);
-                                              // Clear temporary button loading state after state propagation.
-                                              setTimeout(() => {
-                                                setMarkingPOReceivedId((curr) => (curr === po.id ? null : curr));
-                                              }, 250);
-                                            }
-                                          }
-                                        ]
-                                      );
+                                      maybeWebConfirmPOMarkReceived(po, {
+                                        markingPOReceivedId,
+                                        setMarkingPOReceivedId,
+                                        markPOReceived,
+                                      });
                                     }}
                                     disabled={markingPOReceivedId === po.id}
                                     style={{ 
@@ -1120,18 +1179,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                     onPressOut={() => { setTimeout(() => { actionButtonTapRef.current = false; }, 0); }}
                                     onPress={(e) => {
                                       e.stopPropagation();
-                                      Alert.alert(
-                                        'Cancel PO?',
-                                        `Cancel ${po.poNumber}?`,
-                                        [
-                                          { text: 'No', style: 'cancel' },
-                                          {
-                                            text: 'Cancel PO',
-                                            style: 'destructive',
-                                            onPress: () => cancelPO(po.id)
-                                          }
-                                        ]
-                                      );
+                                      maybeWebConfirmPOCancel(po, cancelPO);
                                     }}
                                     style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.2)', paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444', alignItems: 'center' }}
                                   >
@@ -1163,14 +1211,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                         ]}
                         onPress={() => {
                       if (isItemDeleting) return;
-                      // For Change Orders, we need to navigate to Budget tab or show change order editor
-                      // For now, just show an alert that they should use the Budget tab
                       if (item.isChangeOrder) {
-                        Alert.alert(
-                          'Edit Change Order',
-                          'To edit change orders, please use the Budget tab. You can approve change orders from here by tapping the "Approve" button.',
-                          [{ text: 'OK' }]
-                        );
+                        setEditingChangeOrderId(item.id);
+                        setShowAddForm(true);
                         return;
                       }
                       // Legacy: For Purchase Orders category, convert expense to PO format (fallback)
@@ -1397,20 +1440,30 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                 gap: 6,
                               }}
                               onPress={() => {
-                                Alert.alert(
-                                  'Mark as Received?',
-                                  `${item.poNumber || 'This purchase order'} from ${item.vendor} will be added to expenses.`,
-                                  [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    {
-                                      text: 'Received',
-                                      onPress: () => {
-                                        markPOReceived(item.id);
-                                        Alert.alert('Received', `Purchase order "${item.poNumber || item.vendor}" has been marked as received. It will now appear in expenses.`);
-                                      }
-                                    }
-                                  ]
-                                );
+                                const body = `${item.poNumber || 'This purchase order'} from ${item.vendor} will be added to expenses.`;
+                                if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") {
+                                  if (window.confirm(`Mark as Received?\n\n${body}`)) {
+                                    markPOReceived(item.id);
+                                    categoryDetailWebAlert(
+                                      'Received',
+                                      `Purchase order "${item.poNumber || item.vendor}" has been marked as received. It will now appear in expenses.`
+                                    );
+                                  }
+                                  return;
+                                }
+                                Alert.alert('Mark as Received?', body, [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Received',
+                                    onPress: () => {
+                                      markPOReceived(item.id);
+                                      categoryDetailWebAlert(
+                                        'Received',
+                                        `Purchase order "${item.poNumber || item.vendor}" has been marked as received. It will now appear in expenses.`
+                                      );
+                                    },
+                                  },
+                                ]);
                               }}
                             >
                               <MaterialIcons name="check-circle" size={16} color="#22c55e" />
@@ -1548,14 +1601,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           ]}
                           onPress={() => {
                             if (isItemDeleting) return;
-                            // For Change Orders, we need to navigate to Budget tab or show change order editor
-                            // For now, just show an alert that they should use the Budget tab
                             if (item.isChangeOrder) {
-                              Alert.alert(
-                                'Edit Change Order',
-                                'To edit change orders, please use the Budget tab. You can approve change orders from here by tapping the "Approve" button.',
-                                [{ text: 'OK' }]
-                              );
+                              setEditingChangeOrderId(item.id);
+                              setShowAddForm(true);
                               return;
                             }
                             // For Purchase Orders category, use actual PO object
@@ -1779,9 +1827,15 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       {/* Add Transaction Form — native: nested modal is OK; web: render outside parent Modal (see fragment below) so Save receives clicks */}
       {Platform.OS !== "web" && (
         <AddTransactionModal
+          key={isChangeOrdersCategory ? `co-draft-${editingChangeOrderId ?? "new"}` : "txn"}
           visible={showAddForm}
           categoryName={categoryName}
-          onClose={() => setShowAddForm(false)}
+          initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
+          initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
+          onClose={() => {
+            setShowAddForm(false);
+            setEditingChangeOrderId(null);
+          }}
           onSave={handleAddTransaction}
         />
       )}
@@ -1859,9 +1913,15 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
     {Platform.OS === "web" && (
       <>
         <AddTransactionModal
+          key={isChangeOrdersCategory ? `co-draft-${editingChangeOrderId ?? "new"}` : "txn"}
           visible={visible && showAddForm}
           categoryName={categoryName}
-          onClose={() => setShowAddForm(false)}
+          initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
+          initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
+          onClose={() => {
+            setShowAddForm(false);
+            setEditingChangeOrderId(null);
+          }}
           onSave={handleAddTransaction}
         />
         <EditPurchaseOrderModal

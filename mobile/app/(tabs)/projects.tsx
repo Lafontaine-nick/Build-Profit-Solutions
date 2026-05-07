@@ -37,7 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { computeProfitForecast } from '@/src/lib/profitForecast';
+import { computeProjectListRowFinancials } from '@/lib/projectListRowMetrics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
@@ -58,7 +58,6 @@ import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
-
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
   const s = String(raw ?? '').trim();
@@ -312,96 +311,6 @@ function getEffectiveScheduleEndPick(
   }
   return chosen;
 }
-
-const getProjectRevenue = (project: any): number => {
-  if (!project) return 0;
-
-  // CRITICAL: Original budget MUST come from estimate/contract fields ONLY
-  // NEVER use projectData.budgeted or project.budgeted - these may already include change orders!
-  // Priority order matches BudgetTab and OverviewScreen to ensure consistency across all pages
-  const originalBudgetCandidates: any[] = [
-    project?.estimateData?.grandTotal,      // PRIMARY: estimate's grandTotal (what user sees in estimate, e.g. $7,200)
-    project?.estimateData?.bidPrice,        // Secondary: estimate's bidPrice
-    project?.estimateData?.total,           // Tertiary: estimate's total
-    project?.bidPrice,                      // Fallback: project's bidPrice (should match estimate)
-    project?.projectData?.bidPrice,         // Fallback: projectData bidPrice
-    project?.projectData?.totalBidPrice,    // Fallback: projectData totalBidPrice
-    project?.estimatedCost,                 // Fallback: estimatedCost
-    project?.projectData?.estimatedCost,    // Fallback: projectData estimatedCost
-    project?.total,                         // Fallback: project total
-    project?.totalRevenue,                  // Fallback: totalRevenue
-    project?.contractValue,                 // Fallback: contractValue
-  ];
-
-  let originalBudget = 0;
-  for (const candidate of originalBudgetCandidates) {
-    const sanitized = sanitizePositiveNumber(candidate);
-    if (sanitized > 0) {
-      originalBudget = sanitized;
-      break;
-    }
-  }
-
-  // CRITICAL: Do NOT use projectData.budgeted or project.budgeted as fallback
-  // These fields may already include approved change orders, which would cause double-counting
-  // If no original estimate value exists, return 0 (better to show 0 than wrong value)
-  if (originalBudget <= 0) {
-    if (__DEV__) {
-      const projectName = project?.title || project?.name || 'Unknown';
-      console.warn(`⚠️ No original budget found for ${projectName}. Estimate fields missing.`);
-    }
-    return 0;
-  }
-
-  // Collect change orders from all possible locations and compute approved total.
-  const changeOrderSources: any[] = [
-    project?.projectData?.changeOrders,
-    project?.changeOrders,
-    (project as any)?.rawProject?.projectData?.changeOrders,
-    (project as any)?.rawProject?.changeOrders,
-  ];
-
-  const collected: any[] = [];
-  for (const source of changeOrderSources) {
-    if (Array.isArray(source) && source.length > 0) {
-      collected.push(...source);
-    }
-  }
-
-  // Deduplicate by id when available, otherwise by title+amount signature.
-  const seen = new Set<string>();
-  const uniqueChangeOrders = collected.filter((co: any) => {
-    const key = co?.id != null
-      ? `id:${String(co.id)}`
-      : `sig:${String(co?.title || '')}:${String(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  let approvedChangeOrdersTotal = uniqueChangeOrders.reduce(
-    (sum, co) => {
-      const amount = Number(co.amount ?? co.clientPrice ?? co.cost ?? 0);
-      const isApproved =
-        (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-      return isApproved ? sum + amount : sum;
-    },
-    0
-  );
-
-  // Legacy fallback: some records persist only aggregate CO total.
-  if (approvedChangeOrdersTotal <= 0) {
-    approvedChangeOrdersTotal = sanitizePositiveNumber(
-      project?.projectData?.changeOrderTotal ??
-      (project as any)?.changeOrderTotal ??
-      (project as any)?.rawProject?.projectData?.changeOrderTotal
-    );
-  }
-
-  // Core rule: adjusted budget = original budget + approved COs.
-  return originalBudget + approvedChangeOrdersTotal;
-};
 
 // Palette aligned with key metric cards
 const projectCardGradient = ['#070f1e', '#0b1f31', '#0c2f35', '#0fb493'];
@@ -785,193 +694,34 @@ export default function ProjectsScreen() {
             }
           : p;
 
-        const statusSlug = (p.status || 'draft').toString().toLowerCase().replace(/\s+/g, '_');
+        const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
+        const fin = computeProjectListRowFinancials({
+          mergedProject,
+          originalRow: p,
+          progressPct,
+        });
+        const scheduleTimelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
+        const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, scheduleTimelineMs);
+        const scheduleEnd = scheduleEndPick?.raw;
 
-      const revenue = getProjectRevenue(mergedProject);
-      const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
-      const rawProgress = progressPct / 100; // Convert to 0-1
-      // Timeline/milestones can show 100% while list status is still won/in_progress (e.g. payments done but updateProject('completed') never ran).
-      const activeLike =
-        statusSlug === 'won' ||
-        statusSlug === 'in_progress' ||
-        statusSlug === 'in-progress' ||
-        statusSlug === 'active';
-      const slugForUi =
-        statusSlug === 'completed' || statusSlug === 'lost'
-          ? statusSlug
-          : activeLike && progressPct >= 99.5
-            ? 'completed'
-            : statusSlug;
-
-      let displayStatus = 'Draft';
-      if (slugForUi === 'estimate' || slugForUi === 'draft') displayStatus = 'Draft';
-      else if (slugForUi === 'bid_submitted' || slugForUi === 'submitted') displayStatus = 'Submitted';
-      else if (slugForUi === 'won') displayStatus = 'Active';
-      else if (slugForUi === 'in_progress' || slugForUi === 'in-progress') displayStatus = 'Active';
-      else if (slugForUi === 'completed') displayStatus = 'Completed';
-      else displayStatus = (p.status || 'draft').toString().charAt(0).toUpperCase() + (p.status || 'draft').toString().slice(1);
-
-      const finalProgress = slugForUi === 'completed' ? 1.0 : rawProgress;
-
-      // Compute actual cost same as Budget tab: expenses + received POs (not stale list fields)
-      const pd = mergedProject?.projectData ?? mergedProject;
-      const expensesTotal = toFiniteNumber(pd?.spent) || (Array.isArray(pd?.expenses) && pd.expenses.length > 0
-        ? pd.expenses.reduce((s: number, e: any) => s + toFiniteNumber(e?.amount ?? 0), 0)
-        : Array.isArray(pd?.buckets)
-          ? pd.buckets.reduce((s: number, b: any) => s + toFiniteNumber(b?.spent ?? 0), 0)
-          : 0);
-      const rawPOs = pd?.purchaseOrders ?? mergedProject?.purchaseOrders ?? [];
-      const receivedPOsTotal = Array.isArray(rawPOs)
-        ? rawPOs
-            .filter((po: any) => String(po?.status || '').toLowerCase() === 'received')
-            .reduce((s: number, po: any) => s + toFiniteNumber(po?.amount ?? 0), 0)
-        : 0;
-      const actualCost = expensesTotal + receivedPOsTotal || toFiniteNumber(
-        mergedProject?.actualCost ?? mergedProject?.totalSpent ?? pd?.actualCost ?? 0
-      );
-      // Cost baseline: prefer line items + buckets (matches Overview/BudgetTab) so margin matches estimate
-      const ed = mergedProject?.estimateData;
-      const costFromLineItems = (() => {
-        const bid = ed ?? mergedProject;
-        const materials = (bid?.materialLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-        const labor = (bid?.laborLineItems || []).reduce((s: number, i: any) => s + Number(i?.total || 0), 0);
-        const permitCosts =
-          Number(bid?.planCost || 0) +
-          Number(bid?.permitCost || 0);
-        const equipmentRental = Number(bid?.equipment || 0);
-        const otherDirectCost = Number(bid?.otherDirectCost || 0);
-        // Direct job cost (markup base) — matches estimate subtotal; business overhead is subtracted separately below
-        const directSubtotal = materials + labor + permitCosts + equipmentRental + otherDirectCost;
-        if (directSubtotal > 0) return directSubtotal;
-        const buckets = mergedProject?.buckets ?? pd?.buckets ?? [];
-        const costBuckets = buckets.filter((b: any) =>
-          (b?.name || '').toLowerCase().includes('labor') ||
-          (b?.name || '').toLowerCase().includes('material') ||
-          (b?.name || '').toLowerCase().includes('overhead')
-        );
-        const fromBuckets = costBuckets.reduce((s: number, b: any) => s + Number(b?.budget || 0), 0);
-        if (fromBuckets > 0) return fromBuckets;
-        const markupBucket = buckets.find((b: any) => (b?.name || '').toLowerCase().includes('markup'));
-        const markupAmt = Number(markupBucket?.budget || 0);
-        if (revenue > 0 && markupAmt > 0 && markupAmt < revenue) return revenue - markupAmt;
-        return 0;
-      })();
-      const committedPOs = Array.isArray(rawPOs)
-        ? rawPOs
-            .filter((po: any) => String(po?.status || '').toLowerCase() !== 'received')
-            .reduce((sum: number, po: any) => sum + toFiniteNumber(po?.amount ?? 0), 0)
-        : 0;
-      // Prefer estimate-stored margin first so cards stay anchored to original bid settings.
-      const rawMargin = mergedProject?.estimateData?.marginPercent ?? mergedProject?.estimateData?.margin ?? p.margin;
-      const estimateMarginNum = typeof rawMargin === 'number' && Number.isFinite(rawMargin)
-        ? (Math.abs(rawMargin) > 1 ? rawMargin : rawMargin * 100)
-        : null;
-      // Only use p.margin for cost when it came from estimateData — p.margin can be stale (e.g. 10% from wrong cost).
-      const hasStoredEstimateMargin = (mergedProject?.estimateData?.marginPercent != null || mergedProject?.estimateData?.margin != null);
-      // Prefer estimate-stored net profit first (source of truth from estimate submission payload).
-      const estimateProfit = toFiniteNumber(mergedProject?.estimateData?.profit ?? p.profit);
-      const overheadFromEstimate =
-        toFiniteNumber(ed?.equipmentMaintenance) + toFiniteNumber(ed?.facilities) +
-        toFiniteNumber(ed?.insuranceOverhead) + toFiniteNumber(ed?.otherOverhead);
-      const derivedNetProfit =
-        costFromLineItems > 0 && revenue > costFromLineItems
-          ? Math.max(0, (revenue - costFromLineItems) - overheadFromEstimate)
-          : 0;
-      const effectiveEstimateProfit = estimateProfit > 0 ? estimateProfit : (derivedNetProfit > 0 && derivedNetProfit < revenue ? derivedNetProfit : 0);
-      // Use estimate's net-profit cost whenever we have it so card margin stays at estimate (e.g. 15%) after adding expenses (matches Overview/Budget).
-      const costFromEstimateProfit =
-        revenue > 0 && effectiveEstimateProfit > 0 && effectiveEstimateProfit < revenue
-          ? revenue - effectiveEstimateProfit
-          : 0;
-      // Only use stored margin % when it came from estimateData — p.margin can be stale and would reinforce wrong %.
-      const costFromStoredMargin =
-        hasStoredEstimateMargin && revenue > 0 && estimateMarginNum != null && estimateMarginNum > 0 && estimateMarginNum < 100
-          ? revenue * (1 - estimateMarginNum / 100)
-          : 0;
-      // Estimate's cost fields (from bid calc) — use before costFromLineItems; subtotal = materials+labor+overhead.
-      const costFromEstimateData = toFiniteNumber(ed?.estimatedCost ?? ed?.totalCost ?? ed?.subtotal ?? ed?.baseCost);
-      const estimateCostFromParts =
-        toFiniteNumber(ed?.materials ?? (mergedProject as any)?.materials) +
-        toFiniteNumber(ed?.labor ?? (mergedProject as any)?.labor) +
-        toFiniteNumber(ed?.equipment ?? (mergedProject as any)?.equipment) +
-        toFiniteNumber(ed?.equipmentMaintenance ?? (mergedProject as any)?.equipmentMaintenance) +
-        toFiniteNumber(ed?.facilities ?? (mergedProject as any)?.facilities) +
-        toFiniteNumber(ed?.insuranceOverhead ?? (mergedProject as any)?.insuranceOverhead) +
-        toFiniteNumber(ed?.otherOverhead ?? (mergedProject as any)?.otherOverhead) +
-        toFiniteNumber(ed?.planCost ?? (mergedProject as any)?.planCost) +
-        toFiniteNumber(ed?.permitCost ?? (mergedProject as any)?.permitCost) +
-        toFiniteNumber(ed?.otherDirectCost ?? (mergedProject as any)?.otherDirectCost);
-      const estimatedCost = costFromEstimateProfit > 0
-        ? costFromEstimateProfit
-        : costFromStoredMargin > 0
-        ? costFromStoredMargin
-        : costFromEstimateData > 0 && costFromEstimateData < revenue
-        ? costFromEstimateData
-        : estimateCostFromParts > 0 && estimateCostFromParts < revenue
-        ? estimateCostFromParts
-        : costFromLineItems > 0
-        ? costFromLineItems
-        : toFiniteNumber(
-            mergedProject?.estimatedCost ?? mergedProject?.projectData?.estimatedCost ??
-            mergedProject?.estimateData?.totalCost ?? mergedProject?.estimateData?.estimatedCost ??
-            mergedProject?.estimateData?.subtotal ?? 0
-          );
-
-      const profitForecast = revenue > 0
-        ? computeProfitForecast({
-            contractValue: revenue,
-            adjustedBudget: estimatedCost > 0 ? estimatedCost : revenue,
-            estimatedCostBaseline: estimatedCost > 0 ? estimatedCost : undefined,
-            actualExpenses: actualCost,
-            committedPOs,
-            progressPct: finalProgress * 100,
-            isCompleted: slugForUi === 'completed',
-          })
-        : null;
-
-      // Prefer estimate's profit & margin only when project has no real spending AND no meaningful progress.
-      const hasNoRealSpend = actualCost === 0 || (revenue > 0 && actualCost < 0.01 * revenue);
-      const useEstimateValues = hasNoRealSpend && finalProgress < 0.05 && (effectiveEstimateProfit > 0 || estimateMarginNum != null);
-
-      const derivedMarginFromProfit = revenue > 0 && effectiveEstimateProfit > 0 ? (effectiveEstimateProfit / revenue) * 100 : null;
-      const derivedProfitFromMargin = revenue > 0 && estimateMarginNum != null ? revenue * (estimateMarginNum / 100) : null;
-      // Card shows CURRENT margin (spend-to-date) and current profit — not projected. Current = (contract − spent) / contract.
-      const spendToDateMargin = revenue > 0 && actualCost >= 0 ? ((revenue - actualCost) / revenue) * 100 : null;
-      const currentProfit = revenue > 0 && actualCost >= 0 ? Math.round(revenue - actualCost) : null;
-      const displayProfit = useEstimateValues && (effectiveEstimateProfit > 0 || derivedProfitFromMargin != null)
-        ? (effectiveEstimateProfit > 0 ? effectiveEstimateProfit : derivedProfitFromMargin!)
-        : (spendToDateMargin != null ? currentProfit : profitForecast?.projectedProfit);
-      const displayMargin = useEstimateValues && (derivedMarginFromProfit != null || estimateMarginNum != null)
-        ? (derivedMarginFromProfit ?? estimateMarginNum!)
-        : (spendToDateMargin ?? profitForecast?.projectedMarginPct ?? (p.margin != null ? (Math.abs(p.margin) > 1 ? p.margin : p.margin * 100) : 0));
-
-      // Only show revenue for submitted/active/completed projects, show $0 for drafts
-      const displayAmount = (displayStatus === 'Draft' || statusSlug === 'estimate') ? 0 : revenue;
-      const scheduleTimelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
-      const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, scheduleTimelineMs);
-      const scheduleEnd = scheduleEndPick?.raw;
-
-      return {
-        id: p.id,
-        name: p.title || 'Untitled Project',
-        status: displayStatus,
-        location: p.location || 'Unknown, Unknown',
-        progress: finalProgress,
-        amount: displayAmount,
-        margin: displayMargin,
-        marginDisplay:
-          displayProfit != null && Number.isFinite(displayProfit)
-            ? `${displayMargin.toFixed(1)}% margin · $${Math.round(displayProfit).toLocaleString()} profit`
-            : `${displayMargin.toFixed(1)}% margin`,
-        projectedProfit: displayProfit,
-        dateLabel: scheduleEnd
-          ? slugForUi === 'completed'
-            ? `Completed ${formatDateShort(scheduleEnd)}`
-            : `Schedule ${formatDateShort(scheduleEnd)}`
-          : 'No schedule',
-        rawProject: mergedProject,
-        rawStatus: slugForUi,
-      };
+        return {
+          id: p.id,
+          name: p.title || 'Untitled Project',
+          status: fin.displayStatus,
+          location: p.location || 'Unknown, Unknown',
+          progress: fin.finalProgress,
+          amount: fin.displayAmount,
+          margin: fin.margin,
+          marginDisplay: fin.marginDisplay,
+          projectedProfit: fin.projectedProfit,
+          dateLabel: scheduleEnd
+            ? fin.slugForUi === 'completed'
+              ? `Completed ${formatDateShort(scheduleEnd)}`
+              : `Schedule ${formatDateShort(scheduleEnd)}`
+            : 'No schedule',
+          rawProject: mergedProject,
+          rawStatus: fin.rawStatus,
+        };
     });
   }, [activeProjects, estimates, projectDataOverrides, timelineLatestPlannedMs, timelineProgress]);
 
@@ -1489,6 +1239,8 @@ export default function ProjectsScreen() {
                     const statusKey =
                       (project.status in statusThemeMap ? project.status : 'Draft') as keyof typeof statusThemeMap;
                     const pill = statusThemeMap[statusKey];
+                    const isCompletedProject =
+                      project.status === 'Completed' || project.rawStatus === 'completed';
                     return (
                     <Pressable
                       key={project.id}
@@ -1603,11 +1355,14 @@ export default function ProjectsScreen() {
                     </View>
                     {project.projectedProfit != null && Number.isFinite(project.projectedProfit) && (
                       <Text style={styles.projectProfitLine}>
-                        Est. profit: {formatMoneyUSD(Math.round(project.projectedProfit))}
+                        {isCompletedProject ? 'Net profit' : 'Est. profit'}:{' '}
+                        {formatMoneyUSD(
+                          isCompletedProject ? project.projectedProfit : Math.round(project.projectedProfit)
+                        )}
                       </Text>
                     )}
                     <Text style={styles.projectMarginLine}>
-                      Est. margin: {Number(project.margin).toFixed(1)}%
+                      {isCompletedProject ? 'Net margin' : 'Est. margin'}: {Number(project.margin).toFixed(1)}%
                     </Text>
                   </View>
 

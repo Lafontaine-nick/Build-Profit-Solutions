@@ -323,25 +323,45 @@ async function hydrateProjectDataFromStorageKeys(
 ): Promise<UnifiedProject[]> {
   return Promise.all(
     projects.map(async (project) => {
+      const projectId = normalizeProjectId(project.id);
+      const nextProjectData: any = { ...(project.projectData || {}) };
+      let touched = false;
+
       try {
-        const projectDataKey = `bps.project.${project.id}`;
+        const projectDataKey = `bps.project.${projectId}`;
         const projectDataRaw = await AsyncStorage.getItem(projectDataKey);
         if (projectDataRaw) {
-          const projectData = JSON.parse(projectDataRaw);
-          return {
-            ...project,
-            projectData: {
-              ...project.projectData,
-              ...projectData,
-            },
-          };
+          Object.assign(nextProjectData, JSON.parse(projectDataRaw));
+          touched = true;
         }
       } catch (e) {
         if (__DEV__) {
           console.warn(`Failed to load projectData for ${project.id}:`, e);
         }
       }
-      return project;
+
+      /** Timeline tab / AI mark-payment writes here — Tax Center reads merged copy so revenue matches the app. */
+      try {
+        const timelineRaw = await AsyncStorage.getItem(`bps.timeline.v2.${projectId}`);
+        if (timelineRaw) {
+          const parsed = JSON.parse(timelineRaw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            nextProjectData.timelineV2Milestones = parsed;
+            touched = true;
+          }
+        }
+      } catch (e) {
+        if (__DEV__) {
+          console.warn(`Failed to load timeline v2 for ${project.id}:`, e);
+        }
+      }
+
+      if (!touched) return project;
+
+      return {
+        ...project,
+        projectData: nextProjectData,
+      };
     })
   );
 }
@@ -756,15 +776,25 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
-  // Delete project
+  // Delete project — must remove on server first; refreshProjects merges fromServer and would resurrect locals-only deletes.
   const deleteProject = async (projectId: string) => {
+    const targetId = normalizeProjectId(projectId);
+
+    try {
+      await apiService.deleteProject(String(projectId));
+    } catch (error: any) {
+      const status = error?.status;
+      if (status !== 404 && status !== 410) {
+        console.error('deleteProject: backend delete failed:', error);
+        throw error;
+      }
+    }
+
     let filtered: UnifiedProject[] = [];
-    setProjects(prev => {
-      filtered = prev.filter(p => p.id !== projectId);
+    setProjects((prev) => {
+      filtered = prev.filter((p) => normalizeProjectId(p.id) !== targetId);
       return filtered;
     });
-    // Await save before returning so useFocusEffect/refreshProjects won't overwrite
-    // with stale AsyncStorage data when the Alert dismisses on iOS
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
       if (__DEV__) console.log(`💾 Saved deleted project state to AsyncStorage`);

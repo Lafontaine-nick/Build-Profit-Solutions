@@ -14,7 +14,8 @@ export default function ProjectTaxSummaryList({ projects, formatMoney, formatPer
     <View style={styles.card}>
       <Text style={styles.title}>Project-by-project tax summary</Text>
       <Text style={styles.subtitle}>
-        Tax summaries are based on collected revenue and actual paid expenses.
+        Revenue is cash collected in this tax year for active work; completed jobs use adjusted contract value
+        (includes approved change orders), same as Budget. Expenses are paid or received amounts in this tax year.
       </Text>
 
       {projects.length === 0 ? (

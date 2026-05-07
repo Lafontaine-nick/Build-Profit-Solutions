@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
@@ -120,7 +120,16 @@ export default function TaxCenterScreen() {
   const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
-  const { projects } = useProjectList();
+  const { projects, refreshProjects } = useProjectList();
+  const refreshProjectsRef = useRef(refreshProjects);
+  refreshProjectsRef.current = refreshProjects;
+
+  /** Re-merge `bps.timeline.v2.*` (payment milestones marked collected) before tax math — same session as Project detail. */
+  useFocusEffect(
+    useCallback(() => {
+      void refreshProjectsRef.current();
+    }, [])
+  );
   const { vendors, quickBooksCategoryMap, addVendor } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => getTaxYearOptions(projects, currentYear), [projects, currentYear]);
@@ -564,24 +573,36 @@ export default function TaxCenterScreen() {
             </ScrollView>
 
             <View style={styles.summaryGrid}>
-              <TaxSummaryCard label="Revenue Collected" value={money(summary.grossIncomeCollected)} icon="payments" />
+              <TaxSummaryCard
+                label="Revenue Collected"
+                value={money(summary.grossIncomeCollected)}
+                icon="payments"
+                helper="Milestones collected in this tax year, except completed jobs: adjusted contract (includes approved change orders), matching Budget."
+              />
               <TaxSummaryCard
                 label="Outstanding Receivables"
                 value={money(summary.outstandingReceivables)}
                 icon="account-balance-wallet"
+                helper="Open jobs: invoices or milestones in this tax year not yet collected. Completed jobs: $0 (revenue already at adjusted contract)."
               />
-              <TaxSummaryCard label="Expenses Paid" value={money(summary.totalExpenses)} icon="receipt-long" />
+              <TaxSummaryCard
+                label="Expenses Paid"
+                value={money(summary.totalExpenses)}
+                icon="receipt-long"
+                helper="In-year expenses plus POs marked Received or Paid/Complete. Pending POs are under Committed costs."
+              />
               <TaxSummaryCard
                 label="Committed Costs"
                 value={money(summary.committedCosts)}
                 icon="inventory"
-                helper="Approved purchase orders not yet paid"
+                helper="Pending POs only (not received yet)"
               />
               <TaxSummaryCard
                 label="Net Income"
                 value={money(summary.netProfit)}
                 icon="trending-up"
                 accent={summary.netProfit >= 0 ? '#2DFFC4' : '#FCA5A5'}
+                helper="Portfolio revenue minus expenses paid this tax year. Completed jobs count adjusted contract as revenue."
               />
               <TaxSummaryCard
                 label="Net Margin"
@@ -596,6 +617,13 @@ export default function TaxCenterScreen() {
               />
               <TaxSummaryCard label="Receipt count" value={String(summary.receiptCount)} icon="fact-check" />
             </View>
+            {summary.committedCosts > 0 ? (
+              <Text style={styles.summaryReconcileNote}>
+                Expenses Paid ({money(summary.totalExpenses)}) plus Committed costs ({money(summary.committedCosts)}) ={' '}
+                {money(summary.totalExpenses + summary.committedCosts)} total recorded job spend for {selectedYear}. Net
+                income uses Expenses Paid only. Confirm PO and cash-basis treatment with your CPA.
+              </Text>
+            ) : null}
           </TaxGradientFrame>
 
           <TaxGradientFrame innerStyle={styles.collapseFrameInner}>
@@ -1108,6 +1136,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12,
     marginTop: 14,
+  },
+  summaryReconcileNote: {
+    marginTop: 14,
+    paddingHorizontal: 4,
+    fontSize: 12,
+    lineHeight: 18,
+    color: 'rgba(148, 163, 184, 0.95)',
+    fontWeight: '500',
   },
   exportTitle: {
     color: '#FFFFFF',

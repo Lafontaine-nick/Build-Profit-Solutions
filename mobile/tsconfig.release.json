@@ -5,6 +5,7 @@
     "app/(tabs)/_layout.tsx",
     "app/(tabs)/dashboard.tsx",
     "app/(tabs)/projects.tsx",
+    "lib/projectListRowMetrics.ts",
     "app/(tabs)/assistant.tsx",
     "app/tax-center.tsx",
     "app/tax-vendors.tsx",

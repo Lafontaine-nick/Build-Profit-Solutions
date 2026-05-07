@@ -562,7 +562,7 @@ export default function OverviewScreen({
               <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Projected Profit</Text>
+              <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net profit' : 'Projected Profit'}</Text>
               <Text style={[styles.budgetValue, { color: profitForecast.projectedProfit >= 0 ? '#22c55e' : '#EF4444' }]}>
                 {formatMoney(profitForecast.projectedProfit)}
               </Text>
@@ -575,8 +575,12 @@ export default function OverviewScreen({
             </View>
             <View style={styles.budgetRow}>
               <View>
-                <Text style={styles.budgetLabel}>Projected Margin</Text>
-                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected Margin'}</Text>
+                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>
+                  {isProjectCompleted
+                    ? 'Contract value vs actual final cost'
+                    : 'Based on current spend vs completion progress'}
+                </Text>
               </View>
               <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
                 {profitForecast.projectedMarginPct.toFixed(1)}%
@@ -727,7 +731,7 @@ export default function OverviewScreen({
               <Text style={[styles.budgetValue, { color: '#EF4444' }]}>{formatMoney(profitForecast.forecastFinalCost)}</Text>
             </View>
             <View style={styles.budgetRow}>
-              <Text style={styles.budgetLabel}>Projected Profit</Text>
+              <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net profit' : 'Projected Profit'}</Text>
               <Text style={[styles.budgetValue, { color: profitForecast.projectedProfit >= 0 ? '#22c55e' : '#EF4444' }]}>
                 {formatMoney(profitForecast.projectedProfit)}
               </Text>
@@ -740,8 +744,12 @@ export default function OverviewScreen({
             </View>
             <View style={styles.budgetRow}>
               <View>
-                <Text style={styles.budgetLabel}>Projected Margin</Text>
-                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>Based on current spend vs completion progress</Text>
+                <Text style={styles.budgetLabel}>{isProjectCompleted ? 'Net margin' : 'Projected Margin'}</Text>
+                <Text style={[styles.budgetLabel, { fontSize: 11, opacity: 0.8, marginTop: 1 }]}>
+                  {isProjectCompleted
+                    ? 'Contract value vs actual final cost'
+                    : 'Based on current spend vs completion progress'}
+                </Text>
               </View>
               <Text style={[styles.budgetValue, { color: profitStatusColor }]}>
                 {profitForecast.projectedMarginPct.toFixed(1)}%

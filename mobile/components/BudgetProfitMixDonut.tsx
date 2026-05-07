@@ -19,8 +19,8 @@ const COLOR_SHORTFALL = "#FB7185";
 /**
  * Derives three donut segments from the same inputs as Budget profit forecast:
  * — Spent to Date (actual job spend)
- * — Projected Remaining Cost (max(0, EAC − spent))
- * — Projected Profit or Projected Shortfall (contract value − EAC), by magnitude for the arc
+ * — Projected Remaining Cost or Remaining cost when complete (max(0, EAC − spent))
+ * — Projected Profit / Projected Shortfall, or Net profit / Net shortfall when complete (contract value − EAC), by magnitude for the arc
  *
  * Arc angles sum to 360° with denominator spent + remaining + |contract − EAC| so loss cases still close the ring.
  */
@@ -28,23 +28,28 @@ export function computeBudgetProfitMixSegments(params: {
   contractValue: number;
   spentToDate: number;
   forecastFinalCost: number;
+  /** When the job is marked completed, use net / actual wording in the legend. */
+  jobCompleted?: boolean;
 }): { segments: BudgetProfitMixSegment[]; contractValue: number } {
   const cv = Math.max(0, params.contractValue);
   const s = Math.max(0, params.spentToDate);
   const eac = Math.max(0, params.forecastFinalCost);
   const remaining = Math.max(0, eac - s);
   const profit = cv - eac;
+  const done = !!params.jobCompleted;
 
   if (cv <= 1e-6) {
     return { segments: [], contractValue: cv };
   }
 
-  const thirdLabel = profit >= 0 ? "Projected Profit" : "Projected Shortfall";
+  const remainLabel = done ? "Remaining cost" : "Projected Remaining Cost";
+  const thirdLabel =
+    profit >= 0 ? (done ? "Net profit" : "Projected Profit") : done ? "Net shortfall" : "Projected Shortfall";
   const thirdColor = profit >= 0 ? COLOR_PROFIT_GREEN : COLOR_SHORTFALL;
 
   const parts = [
     { key: "spent", label: "Spent to Date", value: s, color: COLOR_SPENT_TEAL },
-    { key: "remain", label: "Projected Remaining Cost", value: remaining, color: COLOR_REMAINING_BLUE },
+    { key: "remain", label: remainLabel, value: remaining, color: COLOR_REMAINING_BLUE },
     {
       key: profit >= 0 ? "profit" : "shortfall",
       label: thirdLabel,
@@ -91,6 +96,8 @@ type Props = {
   currency?: string;
   formatMoney: (n: number, curr: string) => string;
   darkMode: boolean;
+  /** Job marked completed — center + legend use net / actual wording. */
+  jobCompleted?: boolean;
 };
 
 export default function BudgetProfitMixDonut({
@@ -101,6 +108,7 @@ export default function BudgetProfitMixDonut({
   currency = "USD",
   formatMoney,
   darkMode,
+  jobCompleted = false,
 }: Props) {
   const { segments } = useMemo(
     () =>
@@ -108,8 +116,9 @@ export default function BudgetProfitMixDonut({
         contractValue,
         spentToDate,
         forecastFinalCost,
+        jobCompleted,
       }),
-    [contractValue, spentToDate, forecastFinalCost]
+    [contractValue, spentToDate, forecastFinalCost, jobCompleted]
   );
 
   const accessibilityLabel = useMemo(() => {
@@ -214,7 +223,9 @@ export default function BudgetProfitMixDonut({
             ))}
         </Svg>
         <View style={styles.centerOverlay} pointerEvents="none">
-          <Text style={[styles.centerLabel, { color: labelDim }]}>PROJECTED MARGIN</Text>
+          <Text style={[styles.centerLabel, { color: labelDim }]}>
+            {jobCompleted ? "NET MARGIN" : "PROJECTED MARGIN"}
+          </Text>
           <Text
             style={[styles.centerValue, { color: centerPctColor }]}
             numberOfLines={1}

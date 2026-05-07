@@ -397,7 +397,14 @@ export default function BudgetTab({
       ...(projectData as any),
       estimateData:
         (projectFromList as any)?.estimateData || (projectData as any)?.estimateData,
-      changeOrders: projectData?.changeOrders,
+      changeOrders: (() => {
+        const fromDetail = (projectData as any)?.changeOrders;
+        if (Array.isArray(fromDetail) && fromDetail.length > 0) return fromDetail;
+        return (
+          (projectFromList as any)?.changeOrders ??
+          (projectFromList as any)?.projectData?.changeOrders
+        );
+      })(),
       buckets: projectData?.buckets,
     }),
     [projectData, projectFromList]

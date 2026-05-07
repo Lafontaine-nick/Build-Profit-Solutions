@@ -25,12 +25,36 @@ const firstPositiveNumber = (...values: unknown[]): number | null => {
   return null;
 };
 
-function coalesceChangeOrders(project: any): any[] {
-  const sources = [project?.changeOrders, project?.projectData?.changeOrders];
+/**
+ * Merge change orders from every persisted shape (same sources as Projects / Dashboard),
+ * then dedupe by id or title+amount signature.
+ */
+export function collectUniqueChangeOrders(project: any): any[] {
+  const sources = [
+    project?.projectData?.changeOrders,
+    project?.changeOrders,
+    (project as any)?.rawProject?.projectData?.changeOrders,
+    (project as any)?.rawProject?.changeOrders,
+  ];
+  const collected: any[] = [];
   for (const s of sources) {
-    if (Array.isArray(s) && s.length > 0) return s;
+    if (Array.isArray(s) && s.length > 0) collected.push(...s);
   }
-  return [];
+  if (collected.length === 0) return [];
+  const seen = new Set<string>();
+  return collected.filter((co: any) => {
+    const key =
+      co?.id != null
+        ? `id:${String(co.id)}`
+        : `sig:${String(co?.title || '')}:${String(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function coalesceChangeOrders(project: any): any[] {
+  return collectUniqueChangeOrders(project);
 }
 
 function isApprovedChangeOrder(co: any): boolean {
@@ -52,7 +76,12 @@ function resolveApprovedChangeOrderRevenue(co: any, fallbackMarkupPct = 0): numb
   const markupPct = safeNum(co?.markupPct ?? fallbackMarkupPct);
 
   if (explicitCost > 0) {
-    if (amount > explicitCost + 0.02) return amount;
+    // When the stored total already covers the M+L breakdown, it is the client-facing add (same as
+    // Projects list: sum of `amount`). Do not apply bid markup again — that produced e.g. $4k → $4.8k
+    // when amount equaled materials+labor for a flat-priced CO.
+    if (amount + 0.01 >= explicitCost) {
+      return Math.max(amount, explicitCost);
+    }
     if (markupPct > 0) return explicitCost * (1 + (markupPct / 100));
     return Math.max(amount, explicitCost);
   }
@@ -76,12 +105,13 @@ export function sumApprovedChangeOrderRevenue(changeOrders: any[], fallbackMarku
 export function sumApprovedChangeOrderEstimatedCost(
   changeOrders: any[],
   contractValueBase: number,
-  plannedCostBase: number
+  plannedCostBase: number,
+  fallbackMarkupPct = 0
 ): number {
   let total = 0;
   for (const co of changeOrders) {
     if (!isApprovedChangeOrder(co)) continue;
-    const rev = safeNum(co.amount ?? co.clientPrice ?? 0);
+    const rev = resolveApprovedChangeOrderRevenue(co, fallbackMarkupPct);
     const mat = co.materialsAmount != null ? Number(co.materialsAmount) : NaN;
     const lab = co.laborAmount != null ? Number(co.laborAmount) : NaN;
     const explicit =
@@ -97,9 +127,13 @@ export function sumApprovedChangeOrderEstimatedCost(
   return total;
 }
 
-/** Original contract / sell price (excludes change orders). */
+/**
+ * Original contract sell price (excludes approved change orders).
+ * Must NOT use project.budgeted / projectData.budgeted — those may already include COs (double-count).
+ * Candidate order matches Projects list / dashboard revenue (`getProjectRevenue`).
+ */
 export function getContractValueBase(project: any, plannedFromBucketsFallback = 0): number {
-  const ed = project?.estimateData || {};
+  const ed = project?.estimateData || project?.projectData?.estimateData || {};
   const candidates = [
     ed?.grandTotal,
     ed?.bidPrice,
@@ -107,11 +141,12 @@ export function getContractValueBase(project: any, plannedFromBucketsFallback = 
     ed?.calculatedTotal,
     project?.bidPrice,
     project?.projectData?.bidPrice,
-    project?.totalBidPrice,
-    project?.budgeted,
-    project?.projectData?.budgeted,
+    project?.projectData?.totalBidPrice,
     project?.estimatedCost,
     project?.projectData?.estimatedCost,
+    project?.total,
+    project?.totalRevenue,
+    project?.contractValue,
   ];
   const explicit = firstPositiveNumber(...candidates);
   if (explicit !== null) return explicit;
@@ -208,7 +243,15 @@ export function computeProjectFinancials(
     project?.markupPct ??
     project?.markup
   );
-  const approvedChangeOrderRevenue = sumApprovedChangeOrderRevenue(changeOrders, fallbackMarkupPct);
+  let approvedChangeOrderRevenue = sumApprovedChangeOrderRevenue(changeOrders, fallbackMarkupPct);
+  if (approvedChangeOrderRevenue <= 0) {
+    const agg = firstPositiveNumber(
+      project?.projectData?.changeOrderTotal,
+      project?.changeOrderTotal,
+      (project as any)?.rawProject?.projectData?.changeOrderTotal
+    );
+    if (agg != null) approvedChangeOrderRevenue = agg;
+  }
   const adjustedContractValue = contractValueBase + approvedChangeOrderRevenue;
 
   let baseBid = firstPositiveNumber(
@@ -317,7 +360,8 @@ export function computeProjectFinancials(
   const approvedChangeOrderCost = sumApprovedChangeOrderEstimatedCost(
     changeOrders,
     contractValueBase,
-    plannedCostBudget
+    plannedCostBudget,
+    fallbackMarkupPct
   );
   const adjustedCostBudget = plannedCostBudget + approvedChangeOrderCost;
 

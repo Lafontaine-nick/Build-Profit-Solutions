@@ -1482,7 +1482,51 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             
             if (isLastPayment && allOtherPaymentsCompleted) {
               console.log('✅ Final payment detected! Showing confirmation dialog');
-              // Show confirmation dialog - return false to indicate we're handling the save
+
+              const persistLastPaymentMilestone = () => {
+                setMilestones((prev) => {
+                  const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
+                  if (project?.id) {
+                    AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
+                  }
+                  const newOverall = computeOverallPct(updatedMilestones);
+                  const roundedProgress = Math.round(newOverall);
+                  if (project?.id && updateProject) {
+                    updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
+                  }
+                  lastProgressUpdateRef.current = -1;
+                  isUpdatingRef.current = false;
+                  return updatedMilestones;
+                });
+              };
+
+              /** RN Web: multi-button Alert is unreliable in Safari; sync confirm + immediate persist. */
+              if (
+                Platform.OS === 'web' &&
+                typeof window !== 'undefined' &&
+                typeof window.confirm === 'function'
+              ) {
+                const jobComplete = window.confirm(
+                  'Final payment\n\nIs this the final payment and is the job complete?\n\n' +
+                    'OK = Yes — mark the project completed\n' +
+                    'Cancel = No — only mark this milestone collected'
+                );
+                persistLastPaymentMilestone();
+                setEditingMilestone(null);
+                if (jobComplete && project?.id && updateProject) {
+                  setTimeout(() => {
+                    console.log('🔄 Updating project status to completed');
+                    updateProject(project.id, { status: 'completed', progress: 100, overallProgressPct: 100 });
+                    if (typeof window.alert === 'function') {
+                      window.alert('Project is now marked as completed.');
+                    } else {
+                      Alert.alert('✅ Project Completed', 'Project is now marked as completed.', [{ text: 'OK' }]);
+                    }
+                  }, 100);
+                }
+                return;
+              }
+
               Alert.alert(
                 "Final Payment",
                 "Is this the final payment?\n\nIs job complete?",
@@ -1492,21 +1536,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       style: "cancel",
                       onPress: () => {
                         console.log('❌ User said no - just saving milestone');
-                        // Just save the milestone without changing project status
-                        setMilestones((prev) => {
-                          const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
-                          if (project?.id) {
-                            AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
-                          }
-                          const newOverall = computeOverallPct(updatedMilestones);
-                          const roundedProgress = Math.round(newOverall);
-                          if (project?.id && updateProject) {
-                            updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
-                          }
-                          lastProgressUpdateRef.current = -1;
-                          isUpdatingRef.current = false;
-                          return updatedMilestones;
-                        });
+                        persistLastPaymentMilestone();
                         setEditingMilestone(null);
                       },
                     },
@@ -1514,26 +1544,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       text: "Yes",
                       onPress: () => {
                         console.log('✅ User confirmed - marking project as completed');
-                        // Save the milestone FIRST with completed status
-                        setMilestones((prev) => {
-                          const updatedMilestones = prev.map((m) => (m.id === updated.id ? updated : m));
-                          if (project?.id) {
-                            AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(updatedMilestones)).catch(() => {});
-                          }
-                          const newOverall = computeOverallPct(updatedMilestones);
-                          const roundedProgress = Math.round(newOverall);
-                          if (project?.id && updateProject) {
-                            updateProject(project.id, { progress: roundedProgress, overallProgressPct: roundedProgress });
-                          }
-                          lastProgressUpdateRef.current = -1;
-                          isUpdatingRef.current = false;
-                          return updatedMilestones;
-                        });
-                        
-                        // Close the modal
+                        persistLastPaymentMilestone();
                         setEditingMilestone(null);
-                        
-                        // Update project status to completed AFTER a brief delay to ensure milestone is saved
                         setTimeout(() => {
                           if (project?.id && updateProject) {
                             console.log('🔄 Updating project status to completed');

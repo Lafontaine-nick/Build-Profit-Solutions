@@ -3,6 +3,7 @@
  * Used by AI Assistant compare response and by useProjectsCompareData hook.
  */
 import { computeProfitForecast } from './profitForecast';
+import { getProjectRevenue } from '@/lib/projectRevenue';
 
 // Include all projects — no hardcoded name filter (was ['chris','nick','jason'])
 
@@ -41,59 +42,6 @@ const progressFromItems = (items: any[]): number => {
   }, 0);
   return Math.round(total / workItems.length);
 };
-
-function getProjectRevenue(project: any): number {
-  if (!project) return 0;
-  const ed = project?.estimateData || project?.projectData?.estimateData || {};
-  const candidates = [
-    ed?.grandTotal,
-    ed?.bidPrice,
-    ed?.total,
-    project?.bidPrice,
-    project?.projectData?.bidPrice,
-    project?.projectData?.totalBidPrice,
-    project?.estimatedCost,
-    project?.projectData?.estimatedCost,
-    project?.total,
-    project?.totalRevenue,
-    project?.contractValue,
-  ];
-  let original = 0;
-  for (const c of candidates) {
-    const s = sanitizePositive(c);
-    if (s > 0) { original = s; break; }
-  }
-  if (original <= 0) return 0;
-
-  const coSources = [
-    project?.projectData?.changeOrders,
-    project?.changeOrders,
-    project?.rawProject?.projectData?.changeOrders,
-    project?.rawProject?.changeOrders,
-  ];
-  const collected: any[] = [];
-  for (const src of coSources) {
-    if (Array.isArray(src) && src.length) collected.push(...src);
-  }
-  const seen = new Set<string>();
-  const unique = collected.filter((co) => {
-    const key = co?.id != null ? `id:${co.id}` : `sig:${String(co?.title || '')}:${Number(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  let approved = unique.reduce((sum, co) => {
-    const amt = Number(co?.amount ?? co?.clientPrice ?? co?.cost ?? 0);
-    const ok = (typeof co?.approved === 'boolean' && co.approved) || (typeof co?.status === 'string' && co.status?.toLowerCase() === 'approved');
-    return ok ? sum + amt : sum;
-  }, 0);
-  if (approved <= 0) {
-    approved = sanitizePositive(
-      project?.projectData?.changeOrderTotal ?? project?.changeOrderTotal ?? project?.rawProject?.projectData?.changeOrderTotal
-    );
-  }
-  return original + approved;
-}
 
 function deriveProgress(project: any, projectId: string, timelineMap: Record<string, number>, titleSlug?: string): number {
   if (timelineMap[projectId] !== undefined) return timelineMap[projectId];

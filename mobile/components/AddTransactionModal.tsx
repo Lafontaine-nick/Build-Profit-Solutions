@@ -37,6 +37,14 @@ function alertAddTxnValidation(title: string, message: string) {
 /** Matches estimate-generator `LineItemModal` desktop web column cap (Add Labor step 4). */
 const ESTIMATE_LINE_ITEM_WEB_MAX_WIDTH = 900;
 
+export type AddTransactionChangeOrderDraft = {
+  vendor?: string;
+  amount?: number;
+  materialsAmount?: number;
+  laborAmount?: number;
+  description?: string;
+};
+
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -58,9 +66,20 @@ type Props = {
     priceReasonableness?: 'normal' | 'high' | 'outlier';
     expectedDelivery?: string;
   }) => void;
+  /** Pre-fill when editing a change order from Category detail (web + native). */
+  initialDraft?: AddTransactionChangeOrderDraft | null;
+  /** Identity for draft changes (e.g. change order id or `"new"`). */
+  initialDraftKey?: string;
 };
 
-export default function AddTransactionModal({ visible, categoryName, onClose, onSave }: Props) {
+export default function AddTransactionModal({
+  visible,
+  categoryName,
+  onClose,
+  onSave,
+  initialDraft = null,
+  initialDraftKey = "",
+}: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -170,28 +189,41 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
   );
 
   useEffect(() => {
-    if (visible) {
-      // Reset form when modal opens
-      setReceiptUri(null);
-      setIsPlanned(true);
-      setProjectPhase('');
-      setScope('');
-      setPriceReasonableness(null);
-      setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
-      setPricingMode("flat");
-      setSqftInput("");
-      setRatePerSqftInput("");
-      setMaterialSqftInput("");
-      setMaterialRatePerSqftInput("");
-      setLaborSqftInput("");
-      setLaborRatePerSqftInput("");
-      setMaterialsAmountInput("");
-      setLaborAmountInput("");
-      setMaterial("");
-      setLaborDescription("");
-      setTrade("");
+    if (!visible) return;
+    setReceiptUri(null);
+    setIsPlanned(true);
+    setProjectPhase('');
+    setScope('');
+    setPriceReasonableness(null);
+    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
+    setMaterialSqftInput("");
+    setMaterialRatePerSqftInput("");
+    setLaborSqftInput("");
+    setLaborRatePerSqftInput("");
+    setMaterialsAmountInput("");
+    setLaborAmountInput("");
+    setMaterial("");
+    setLaborDescription("");
+    setTrade("");
+    setVendor("");
+    setAmount("");
+    setDescription("");
+    setPo("");
+
+    if (initialDraft && isChangeOrdersCategory) {
+      const mat = Number(initialDraft.materialsAmount) || 0;
+      const lab = Number(initialDraft.laborAmount) || 0;
+      const tot = Number(initialDraft.amount) || mat + lab;
+      setVendor(initialDraft.vendor ?? "");
+      setDescription(initialDraft.description ?? "");
+      setMaterialsAmountInput(mat > 0 ? String(mat) : "");
+      setLaborAmountInput(lab > 0 ? String(lab) : "");
+      setAmount(tot > 0 ? sanitizeDecimalMoneyInput(tot.toFixed(2)) : "");
     }
-  }, [visible]);
+  }, [visible, initialDraftKey, initialDraft, isChangeOrdersCategory]);
 
   // Per-sq-ft: keep Amount in sync. Amount state = cent digit string (phone-pad).
   useEffect(() => {
@@ -233,9 +265,8 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     const total = materials + labor;
     if (total > 0) {
       setAmount(sanitizeDecimalMoneyInput(total.toFixed(2)));
-    } else {
-      setAmount("");
     }
+    /** When M+L is zero, keep `amount` (total-only CO / fallback from total field). */
   }, [isChangeOrdersCategory, pricingMode, materialsAmountInput, laborAmountInput]);
 
   // High / outlier vs total project budget (not fixed dollar cutoffs on large bids)
@@ -499,7 +530,11 @@ export default function AddTransactionModal({ visible, categoryName, onClose, on
     }
 
     const amountNum = isChangeOrdersCategory
-      ? materialsAmount + laborAmount
+      ? (() => {
+          const sum = materialsAmount + laborAmount;
+          if (sum > 0) return sum;
+          return parseAmountFieldToNumber(amount);
+        })()
       : parseAmountFieldToNumber(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       alertAddTxnValidation(

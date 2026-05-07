@@ -19,6 +19,7 @@ import TeamTab from '../../components/TeamTab';
 import SpendingTrendChart from '../../components/SpendingTrendChart';
 import { useProjectData } from '../../contexts/ProjectDataContext';
 import { buildSpendingTrendSamplePoints } from '../../src/lib/projectChartTimeline';
+import { computeProjectFinancials } from '../../src/lib/projectFinancials';
 import {
   neutralIconPressableProps,
   neutralIconPressableWebStyle,
@@ -95,17 +96,8 @@ export default function ProjectDetailContent() {
       (sum: number, bucket: any) => sum + Number(bucket.spent || 0),
       0
     );
-    const approvedChangeOrdersTotal = (project?.changeOrders || []).reduce(
-      (sum: number, co: any) => {
-        const amount = Number(co.amount || 0);
-        const isApproved =
-          (typeof co.approved === 'boolean' && co.approved) ||
-          (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-        return isApproved ? sum + amount : sum;
-      },
-      0
-    );
-    const adjustedBudget = Number(project?.budgeted || 0) + approvedChangeOrdersTotal;
+    const fin = computeProjectFinancials(project, {});
+    const adjustedBudget = fin.adjustedContractValue;
     const actualSpent =
       expensesTotal > 0
         ? expensesTotal

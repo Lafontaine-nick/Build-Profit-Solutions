@@ -685,17 +685,25 @@ function ProjectDetailContent() {
     ]
   );
 
-  // Calculate approved change orders total
-  const approvedChangeOrdersTotal = React.useMemo(() => {
-    const changeOrders = realProjectData?.changeOrders || contextProjectData?.changeOrders || [];
-    return changeOrders.reduce((sum: number, co: any) => {
-      const amount = Number(co.amount || 0);
-      const isApproved =
-        (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-      return isApproved ? sum + amount : sum;
-    }, 0);
-  }, [realProjectData?.changeOrders, contextProjectData?.changeOrders]);
+  const projectForCoRevenue = React.useMemo(
+    () => ({
+      ...(contextProjectData as any),
+      ...(realProjectData as any),
+      estimateData:
+        (realProjectData as any)?.estimateData || (contextProjectData as any)?.estimateData,
+      changeOrders:
+        (realProjectData as any)?.changeOrders ||
+        (realProjectData as any)?.projectData?.changeOrders ||
+        (contextProjectData as any)?.changeOrders ||
+        (contextProjectData as any)?.projectData?.changeOrders,
+    }),
+    [realProjectData, contextProjectData]
+  );
+
+  const approvedChangeOrdersTotal = React.useMemo(
+    () => computeProjectFinancials(projectForCoRevenue, {}).approvedChangeOrderRevenue,
+    [projectForCoRevenue]
+  );
 
   const budgetedValue = React.useMemo(() => {
     let base = 0;
@@ -1626,6 +1634,7 @@ function ProjectDetailContent() {
     });
 
     return {
+      isProjectCompleted,
       adjustedBudget: costBudgetCap,
       costBudgetCap,
       financials,
@@ -1714,6 +1723,7 @@ function ProjectDetailContent() {
                     committedPOsTotal={metrics.committedPOsTotal}
                     adjustedCostBudget={metrics.financials.adjustedCostBudget}
                     profitForecast={metrics.profitForecast}
+                    jobCompleted={metrics.isProjectCompleted}
                     originalEstimateMarginPct={Number(
                       (realProjectData as any)?.estimateData?.marginPercent ??
                       (realProjectData as any)?.estimateData?.margin ??
@@ -2492,15 +2502,20 @@ function ProjectDetailContent() {
               return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
             });
             const computedSpent = allExpenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
-            // Same bid resolution as Overview/Budget UI — grandTotal, bidPrice, total (revenue)
-            let baseBid = firstPositiveNumber(
-              (realProjectData as any)?.bidPrice,
-              (safeProjectData as any)?.bidPrice,
-              ed?.grandTotal,
-              ed?.bidPrice,
-              ed?.total,
-              ed?.totalBid
-            );
+            const fin = overviewMetrics.financials;
+            const approvedCOs = fin.approvedChangeOrderRevenue;
+            const contractValue = fin.adjustedContractValue;
+            let baseBid =
+              fin.contractValueBase > 0
+                ? fin.contractValueBase
+                : firstPositiveNumber(
+                    (realProjectData as any)?.bidPrice,
+                    (safeProjectData as any)?.bidPrice,
+                    ed?.grandTotal,
+                    ed?.bidPrice,
+                    ed?.total,
+                    ed?.totalBid
+                  );
             // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
             if (baseBid == null) {
               const costBase = Number(safeProjectData?.budgeted || 0);
@@ -2508,12 +2523,6 @@ function ProjectDetailContent() {
               const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
               if (costBase > 0) baseBid = costBase / (1 - effectiveMargin / 100);
             }
-            const approvedCOs = (safeProjectData?.changeOrders || []).reduce((sum: number, co: any) => {
-              const amt = Number(co.amount || 0);
-              const approved = (typeof co.approved === 'boolean' && co.approved) || (typeof co.status === 'string' && co.status.toLowerCase() === 'approved');
-              return approved ? sum + amt : sum;
-            }, 0);
-            const contractValue = baseBid != null ? baseBid + approvedCOs : (Number(safeProjectData?.budgeted || 0) + approvedCOs);
             // Pre-computed profit forecast — same as Financial Health / Budget Totals UI. AI should use these.
             const pf = overviewMetrics?.profitForecast;
             return {

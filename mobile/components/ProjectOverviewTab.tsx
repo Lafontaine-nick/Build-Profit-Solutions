@@ -5,6 +5,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import SpendingTrendChart from './SpendingTrendChart';
 import { useProjectData } from '../contexts/ProjectDataContext';
+import { computeProjectFinancials } from '@/src/lib/projectFinancials';
 
 // Gradient Card wrapper for green-to-blue border with black background
 const GradientCard: React.FC<{
@@ -124,20 +125,20 @@ export default function ProjectOverviewTab({
   theme?: any;
 }) {
   const { projectData } = useProjectData();
-  
-  // Calculate approved change orders total (matches BudgetTab logic)
-  const approvedChangeOrdersTotal = useMemo(() => {
-    const changeOrders = projectData?.changeOrders || [];
-    return changeOrders.reduce((sum, co) => {
-      const amount = Number(co.amount || 0);
-      const isApproved =
-        (typeof co.approved === 'boolean' && co.approved) ||
-        (typeof (co as any).status === 'string' &&
-          (co as any).status.toLowerCase() === 'approved');
-      return isApproved ? sum + amount : sum;
-    }, 0);
-  }, [projectData?.changeOrders]);
-  
+
+  const overviewFinancials = useMemo(() => {
+    const p = {
+      ...(projectData as any),
+      bidPrice: (projectData as any)?.bidPrice || data.budgeted,
+      estimateData: (projectData as any)?.estimateData,
+      changeOrders: (projectData as any)?.changeOrders,
+      projectData: (projectData as any)?.projectData,
+    };
+    return computeProjectFinancials(p, {});
+  }, [projectData, data.budgeted]);
+
+  const approvedChangeOrdersTotal = overviewFinancials.approvedChangeOrderRevenue;
+  const adjustedBudget = overviewFinancials.adjustedContractValue;
   // Calculate purchase orders total - ONLY includes PENDING POs (matches BudgetTab logic)
   // Logic: Pending POs → Committed POs, Received POs → Actual Expenses, Cancelled → Nothing
   const purchaseOrdersTotal = useMemo(() => {
@@ -185,9 +186,7 @@ export default function ProjectOverviewTab({
   // Spent So Far = Regular expenses + Received Purchase Orders
   const totalSpent = (data.spent || 0) + receivedPOsTotal;
   
-  // Use adjusted budget (base + approved change orders) - matches BudgetTab
-  const adjustedBudget = (data.budgeted || 0) + approvedChangeOrdersTotal;
-  
+  // Adjusted contract / budget (same pipeline as Budget tab + Projects list)
   // Remaining accounts for both actual expenses and committed POs (matches BudgetTab)
   const remaining = Math.max(adjustedBudget - totalSpent - purchaseOrdersTotal, 0);
   const overUnder = adjustedBudget - totalSpent - purchaseOrdersTotal; // + under, - over

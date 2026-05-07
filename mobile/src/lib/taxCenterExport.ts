@@ -1,15 +1,13 @@
 /**
  * Tax Center exports (PDF, CSV, receipt manifest).
- * Requires: expo-print, expo-sharing, expo-file-system (see mobile/package.json).
- * Web PDF: uses html2pdf.js (see taxCenterExportWebPdf.web.ts); expo-print opens print UI on web.
- * Install if missing: npx expo install expo-print expo-sharing expo-file-system
+ * CPA summary PDF: same backend Puppeteer pipeline as contract PDFs (`POST /api/contracts/render-pdf`).
+ * Requires: expo-sharing, expo-file-system (see mobile/package.json); backend must serve PDF render.
  * Uses expo-file-system/legacy for cache paths (expo-file-system v19+ stable entry differs).
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Platform } from 'react-native';
+import { renderHtmlPdfViaBackend } from '@/lib/pdf/renderHtmlPdfViaBackend';
 import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import type { TaxCategory } from '@/src/lib/taxCenter';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
@@ -129,7 +127,7 @@ function cardValueClass(kind: 'revenue' | 'expense' | 'net' | 'receivable' | 'co
 
 function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   /**
-   * expo-print (iOS/Android WebView → PDF) sometimes fails to apply `<style>` rules; the PDF then
+   * Chromium print-to-PDF and some embedded WebView stacks can omit `<style>` rules; the PDF then
    * falls back to UA defaults (Times, no backgrounds). Mirror critical presentation as inline styles.
    */
   const PDF_FONT =
@@ -222,7 +220,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   </div>`;
 
   const PORTFOLIO_BELOW_NOTE =
-    'Portfolio totals reflect amounts recorded in Build Profit Solutions for the selected tax year.';
+    'Portfolio totals are for the selected tax year. Revenue uses milestone payments collected in-year for open jobs. Completed jobs use adjusted contract value (same as Budget — includes approved change orders), so revenue matches your closed contract. Net Income is that revenue minus expenses paid this year. Confirm treatment with your CPA.';
 
   const execCards: Array<{
     label: string;
@@ -230,22 +228,47 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     cls: string;
     hint?: string;
   }> = [
-    { label: 'Revenue Collected', value: money(p.revenueCollected), cls: cardValueClass('revenue', p.revenueCollected) },
-    { label: 'Expenses Paid', value: money(p.expensesPaid), cls: cardValueClass('expense', p.expensesPaid) },
-    { label: 'Net Income', value: money(p.netIncome), cls: cardValueClass('net', p.netIncome) },
+    {
+      label: 'Revenue Collected',
+      value: money(p.revenueCollected),
+      cls: cardValueClass('revenue', p.revenueCollected),
+      hint: 'In-year milestone payments collected, except completed jobs: adjusted contract (includes approved change orders), same as Budget.',
+    },
+    {
+      label: 'Expenses Paid',
+      value: money(p.expensesPaid),
+      cls: cardValueClass('expense', p.expensesPaid),
+      hint: 'In-year expenses + POs marked Received or Paid/Complete. Pending → Committed costs.',
+    },
+    {
+      label: 'Net Income',
+      value: money(p.netIncome),
+      cls: cardValueClass('net', p.netIncome),
+      hint: 'Revenue (rule above) minus expenses paid this tax year. On completed jobs, revenue is adjusted contract.',
+    },
     {
       label: 'Outstanding Receivables',
       value: money(p.outstandingReceivables),
       cls: cardValueClass('receivable', p.outstandingReceivables),
+      hint: 'Open jobs: in-year scheduled amounts not yet collected. Completed jobs: none (revenue is adjusted contract).',
     },
     {
       label: 'Committed Costs',
       value: money(p.committedCosts),
       cls: cardValueClass('committed', p.committedCosts),
-      hint: 'Approved purchase orders not yet paid',
+      hint: 'Pending POs only (matches Budget committed POs)',
     },
     { label: 'Receipt Count', value: String(p.receiptCount), cls: cardValueClass('count', p.receiptCount) },
   ];
+
+  const execGridFootnote =
+    p.committedCosts > 0
+      ? `<p class="exec-reconcile-note" style="${IN_PORTFOLIO_NOTE}margin-top:10px;">${escapeHtml(
+          `Expenses Paid (${money(p.expensesPaid)}) + Committed costs (${money(p.committedCosts)}) = ${money(
+            p.expensesPaid + p.committedCosts
+          )} total recorded job spend for this tax year. Net income uses Expenses Paid only — confirm cash-basis vs accrual treatment with your CPA.`
+        )}</p>`
+      : '';
 
   const metricCardHtml = (c: (typeof execCards)[0]) =>
     `<div class="summary-card" style="${IN_CARD}">
@@ -254,7 +277,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       ${c.hint ? `<div class="summary-card-hint" style="${IN_CARD_HINT}">${escapeHtml(c.hint)}</div>` : ''}
     </div>`;
 
-  /** Table-based 2-column layout: html2canvas reliably paints tables vs CSS Grid/Flex in some WebViews. */
+  /** Table-based 2-column layout: reliably paints in Chromium print and embedded WebViews. */
   const metricRows: string[] = [];
   for (let i = 0; i < execCards.length; i += 2) {
     const left = metricCardHtml(execCards[i]);
@@ -512,6 +535,10 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  /* Top padding so first block after the forced page break (Expense Categories) does not sit under the page edge. */
+  .pdf-back-matter {
+    padding-top: 40px;
+  }
   .pdf-back-matter .section:first-child {
     margin-top: 0;
   }
@@ -700,7 +727,11 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     width: 100%;
   }
   .section-first { margin-top: 10px; }
-  .section-portfolio { margin-top: 18px; }
+  /* Extra margin + padding so Portfolio Summary sits lower after the metric cards and when the block starts a new page. */
+  .section-portfolio {
+    margin-top: 28px;
+    padding-top: 36px;
+  }
   .section-heading {
     margin: 0 0 8px 0;
     padding: 0 0 6px 0;
@@ -983,11 +1014,11 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
         <p class="notice-card-body" style="${IN_NOTICE_BODY}">${escapeHtml(TAX_EXPORT_NOTICE_PDF_CARD)}</p>
       </div>
 
-      <div class="summary-metrics-wrap metrics-pdf-block pdf-no-break">${execGrid}</div>
+      <div class="summary-metrics-wrap metrics-pdf-block pdf-no-break">${execGrid}${execGridFootnote}</div>
 
       ${portfolioBlock}
 
-      <div class="pdf-page-split-marker html2pdf__page-break" aria-hidden="true"></div>
+      <div class="pdf-page-split-marker" aria-hidden="true"></div>
 
       <div class="pdf-back-matter">
       ${expenseBlock}
@@ -1007,47 +1038,20 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
 </body></html>`;
 }
 
-/** US Letter @ 72 PPI — matches expo-print defaults and proposal PDF export. */
-const LETTER_PAGE_WIDTH_PX = 612;
-const LETTER_PAGE_HEIGHT_PX = 792;
-
 /**
- * Generates a PDF. On native, writes to cache and returns a file URI for sharing.
- * On web, `expo-print`'s `printToFileAsync` opens the print dialog (Expo docs); we use
- * client-side HTML→PDF instead and return null (no share step).
+ * Generates CPA summary PDF via the same backend Chrome print pipeline as “Generate contract”.
+ * Web triggers a browser download and returns null (caller skips share). Native returns a cache file URI for sharing.
  */
 export async function generateTaxSummaryPdf(payload: TaxSummaryExportPayload): Promise<string | null> {
   const html = buildTaxSummaryHtml(payload);
+  const filename = `BPS_CPA_Summary_${payload.selectedYear}.pdf`;
 
-  if (Platform.OS === 'web') {
-    const { downloadTaxSummaryPdfFromHtml } = await import('./taxCenterExportWebPdf');
-    await downloadTaxSummaryPdfFromHtml(html, `BPS_CPA_Summary_${payload.selectedYear}.pdf`);
-    return null;
-  }
-
-  const { uri: tempUri } = await Print.printToFileAsync({
+  return renderHtmlPdfViaBackend({
     html,
-    width: LETTER_PAGE_WIDTH_PX,
-    height: LETTER_PAGE_HEIGHT_PX,
-    ...(Platform.OS === 'ios'
-      ? {
-          margins: {
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-          },
-        }
-      : {}),
+    filename,
+    displayHeaderFooter: false,
+    autoShareOnNative: false,
   });
-  const base = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-  const dest = `${base}BPS_CPA_Summary_${payload.selectedYear}.pdf`;
-  try {
-    await FileSystem.copyAsync({ from: tempUri, to: dest });
-    return dest;
-  } catch {
-    return tempUri;
-  }
 }
 
 export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
@@ -1078,6 +1082,9 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
   kv('Outstanding Receivables', formatMoneyCsv(p.outstandingReceivables));
   kv('Expenses Paid', formatMoneyCsv(p.expensesPaid));
   kv('Committed Costs', formatMoneyCsv(p.committedCosts));
+  if (p.committedCosts > 0) {
+    kv('Expenses paid + committed POs (informational)', formatMoneyCsv(p.expensesPaid + p.committedCosts));
+  }
   kv('Net Income', formatMoneyCsv(p.netIncome));
   kv('Net Margin', formatNetMargin(p.netMargin));
   kv('Subcontractor Payments', formatMoneyCsv(p.subcontractorPayments));

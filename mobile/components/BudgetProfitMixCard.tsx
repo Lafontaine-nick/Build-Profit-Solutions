@@ -27,6 +27,8 @@ export type BudgetProfitMixCardProps = {
   onChipsPress?: () => void;
   /** Outer `sectionCard` vertical margin (default 0 — Budget first card / Overview under header) */
   marginTop?: number;
+  /** Job status completed — donut + copy use net / closeout wording */
+  jobCompleted?: boolean;
 };
 
 export default function BudgetProfitMixCard({
@@ -40,6 +42,7 @@ export default function BudgetProfitMixCard({
   originalEstimateProfit,
   onChipsPress,
   marginTop = 0,
+  jobCompleted = false,
 }: BudgetProfitMixCardProps) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -244,6 +247,7 @@ export default function BudgetProfitMixCard({
               currency={currency}
               formatMoney={money}
               darkMode={darkMode}
+              jobCompleted={jobCompleted}
             />
           ) : (
             <Text
@@ -263,7 +267,9 @@ export default function BudgetProfitMixCard({
         </View>
         <View style={styles.budgetProfitMixFooterBlock}>
           <Text style={[styles.budgetProfitMixFooterCaption, { color: pageInstructional }]}>
-            Projected margin is estimated from current spend, commitments, and progress. Estimate only.
+            {jobCompleted
+              ? 'Net margin is contract value vs final cost at closeout (actuals in the app).'
+              : 'Projected margin is estimated from current spend, commitments, and progress. Estimate only.'}
           </Text>
           {hasContractForMix ? (
             <Pressable
